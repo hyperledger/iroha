@@ -89,9 +89,7 @@ fn require_permission(
     owner.scope(|| {
         app.state
             .try_with_authorization_view(owner.allocation_context(), |view| {
-                use iroha_core::state::{
-                    StateReadOnly as _, StorageReadOnly as _, WorldReadOnly as _,
-                };
+                use iroha_core::state::{StorageReadOnly as _, WorldReadOnly as _};
                 let world = view.world();
                 let allowed = world.accounts().get(account).is_some()
                     && crate::stream_control::can_read_all(world, account)?;
@@ -461,9 +459,7 @@ mod tests {
     }
     #[test]
     fn private_context_restricted_grant_cannot_disclose_foreign_balance_dictionary() {
-        use iroha_core::state::{
-            StateReadOnly as _, StorageReadOnly as _, World, WorldReadOnly as _,
-        };
+        use iroha_core::state::{StorageReadOnly as _, World, WorldReadOnly as _};
         use iroha_data_model::{
             Registrable,
             account::Account,

@@ -218,20 +218,18 @@ the reference games above does not fill them. No numeric primitive bound,
 newly accepted assumption, complete multi-hiding theorem or independent
 review is claimed by this document.
 
-## 6. Selection-order obligation requiring a recorded decision
+## 6. Envelope accounting and current engineering order
 
-The [ballot design](parliament_private_ballot_design.md) §12.2 step 2 item 5
-requires complete envelope sizes before selection; step 3 specifies the
-production schemas, and step 2 forbids production schemas before selection.
-Section 5 also defers complete-envelope compliance until a production
-schema exists. The current standalone inventory leaves several production
-fields and framing terms unresolved. It cannot by itself resolve this
-ordering ambiguity.
+The earlier sequencing treated complete envelope sizes as a preselection
+requirement while deferring production schemas until after selection. The
+owner's 2026-10-18 authorization in the
+[ballot design](parliament_private_ballot_design.md) §12.2 resolves that
+engineering order: implement and test the actual canonical schemas alongside
+B6, then include their full framing, decoding, copying and verification costs
+in the qualification evidence.
 
-**Assigned resolution:** the design owner, with the independent profile
-reviewer, must record what preselection size certificate is permitted and
-sufficient, and how it relates to the later schema. If the intended answer
-changes either requirement, the owner must explicitly amend that contract.
-No permission to implement production schemas, exemption from item 5 or
-selection approval is inferred here. Until resolved, this dependency is an
-open selection obligation in addition to the missing cryptographic premises.
+This authorization does not waive item 5, resolve the missing cryptographic
+premises or establish selection. The standalone inventory alone does not
+certify complete envelopes. Independent review, complete accounting and the
+owner's qualification record remain required before binding production
+activation; they do not prevent schema or integration engineering.

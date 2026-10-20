@@ -9,12 +9,25 @@ enum ExecutionRefundCase {
 
 #[test]
 fn direct_musubi_scratch_refund_waits_for_successful_or_refused_commit_retirement() {
+    // Exact retirement accounting must not share the global EBR collector with
+    // unrelated parallel tests and their reader lifetimes.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_refusal_tests::direct_musubi_scratch_refund_waits_for_successful_or_refused_commit_retirement",
+    ) {
+        return;
+    }
     check_execution_refund_retirement(ExecutionRefundCase::Commit);
     check_execution_refund_retirement(ExecutionRefundCase::InvalidDirectory);
 }
 
 #[test]
 fn musubi_scratch_wake_stays_with_retained_state_until_original_writers_drop() {
+    // This sibling exercises the same exact release callback and global EBR state.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_refusal_tests::musubi_scratch_wake_stays_with_retained_state_until_original_writers_drop",
+    ) {
+        return;
+    }
     check_execution_refund_retirement(ExecutionRefundCase::RetainedDrop);
 }
 

@@ -7,10 +7,10 @@ import kotlin.test.assertFailsWith
 /** The per-connection receive budget covers the receiver-led exchange (`specs/kagemusha_wallet_wire_v1.md` §6, Nearby). */
 class IrohaPeerNearbyReceiveBudgetV1Test {
     @Test
-    fun `a payer connection admits hello authentication ask request and credited`() {
+    fun `a payer connection admits hello authentication request and credited`() {
         val configuration = IrohaPeerNearbyConnectionsConfigurationV1()
-        assertEquals(5, configuration.maximumReceiveRecordsPerConnection)
-        assertFailsWith<IllegalArgumentException> { IrohaPeerNearbyConnectionsConfigurationV1(maximumReceiveRecordsPerConnection = 6) }
+        assertEquals(4, configuration.maximumReceiveRecordsPerConnection)
+        assertFailsWith<IllegalArgumentException> { IrohaPeerNearbyConnectionsConfigurationV1(maximumReceiveRecordsPerConnection = 5) }
         assertFailsWith<IllegalArgumentException> { IrohaPeerNearbyConnectionsConfigurationV1(maximumReceiveRecordsPerConnection = 3) }
 
         val pump = IrohaPeerNearbyReceiveCallbackPumpV1(
@@ -20,7 +20,7 @@ class IrohaPeerNearbyReceiveBudgetV1Test {
             drain()
             true
         }
-        val payerRecords = listOf("HELLO", "AUTHENTICATION", "ASK", "REQUEST", "CREDITED")
+        val payerRecords = listOf("HELLO", "AUTHENTICATION", "REQUEST", "CREDITED")
         val delivered = mutableListOf<String>()
         pump.activate(1, "receiver")
         for (record in payerRecords) {

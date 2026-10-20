@@ -10,10 +10,13 @@
 //! after terminal use, and return public artifacts only.
 use crate::{
     privacy_native_actions::{
-        PRIVACY_NATIVE_ACTION_MAX_SIGNED_TRANSACTION_BYTES_V1, PrivacyActionTransactionContextV1,
-        SignedPrivacyActionV1, build_signed_privacy_native_action_v1,
-        inspect_signed_privacy_native_action_v1, network_id_from_genesis_hash_bytes,
-        privacy_native_action_capability_for_protocol_v1,
+        OrchardOrderedContractCallsV1, PRIVACY_NATIVE_ACTION_MAX_SIGNED_TRANSACTION_BYTES_V1,
+        PrivacyActionTransactionContextV1, PrivacyNativeActionRequestV1, SignedPrivacyActionV1,
+        build_signed_orchard_note_action_with_contract_calls_v1,
+        build_signed_privacy_native_action_v1, inspect_signed_privacy_native_action_v1,
+        inspect_signed_privacy_orchard_note_action_with_contract_calls_v1,
+        network_id_from_genesis_hash_bytes, privacy_native_action_capability_for_protocol_v1,
+        validate_orchard_ordered_context,
     },
     privacy_wallet_bundle::{
         InspectedPrivacyWalletExecutionBundleV1, PrivacyWalletExecutionBundleManifestV1,
@@ -861,12 +864,16 @@ struct PrivateSettlementProofResponseV1 {
 struct ValidatedPublicIntentV1 {
     operation_schema: String,
     public_action: Vec<u8>,
+    orchard_contract_calls: Option<OrchardOrderedContractCallsV1>,
 }
 struct ValidatedExecutionPlanV1 {
     context: PrivacyActionTransactionContextV1,
     public_action: Vec<u8>,
     operation_schema: String,
+    orchard_contract_calls: Option<OrchardOrderedContractCallsV1>,
 }
+// Public plan decoding and exact response checks share no witness-bearing values.
+include!("privacy_wallet_worker_orchard_ordered.rs");
 fn dispatch(vault: &mut WitnessVault, kind: CommandKind, payload: &[u8]) -> CommandResponse {
     let result = match kind {
         CommandKind::Ping => {
@@ -1294,6 +1301,8 @@ fn execute_native_action_v1(
     let manifest = lease.manifest;
     let expected_public_action = plan.public_action;
     let network_id = request.binding.network_id;
+    let expected_context = plan.context;
+    let expected_calls = plan.orchard_contract_calls;
     let signed = vault
         .consume_with(request.handle, &request.binding, |material| {
             let decoded =
@@ -1305,18 +1314,34 @@ fn execute_native_action_v1(
             {
                 return Err(WorkerError::WrongBinding);
             }
-            build_signed_privacy_native_action_v1(
-                plan.context,
-                decoded.request,
-                network_id,
-                &decoded.signer_private_key,
-            )
+            match (decoded.request, expected_calls.as_ref()) {
+                (PrivacyNativeActionRequestV1::Orchard(orchard), Some(calls)) => {
+                    build_signed_orchard_note_action_with_contract_calls_v1(
+                        expected_context.clone(),
+                        orchard,
+                        calls.clone(),
+                        network_id,
+                        &decoded.signer_private_key,
+                    )
+                }
+                (_, Some(_)) => return Err(WorkerError::WrongBinding),
+                (request, None) => build_signed_privacy_native_action_v1(
+                    expected_context.clone(),
+                    request,
+                    network_id,
+                    &decoded.signer_private_key,
+                ),
+            }
             .map_err(|_| WorkerError::NativeActionFailed)
         })
         .map_err(|error| match error {
             ConsumeError::Custody(error) | ConsumeError::Operation(error) => error,
         })?;
-    signed_action_response_v1(signed, &manifest, network_id)
+    let response = signed_action_response_v1(signed, &manifest, network_id)?;
+    if let Some(calls) = &expected_calls {
+        inspect_ordered_response_v1(&response, &expected_context, calls)?;
+    }
+    Ok(response)
 }
 fn signed_action_response_v1(
     signed: SignedPrivacyActionV1,
@@ -1782,7 +1807,9 @@ fn validate_canonical_public_intent(
     let protocol_id = retained_protocol(&binding.protocol)?;
     let capability = privacy_native_action_capability_for_protocol_v1(protocol_id)
         .ok_or(WorkerError::UnsupportedProtocol)?;
-    if object.len() != PUBLIC_INTENT_BASE_FIELDS.len()
+    if object.len()
+        != PUBLIC_INTENT_BASE_FIELDS.len()
+            + usize::from(object.contains_key("orchard_contract_calls"))
         || !PUBLIC_INTENT_BASE_FIELDS
             .iter()
             .all(|field| object.contains_key(*field))
@@ -1829,9 +1856,16 @@ fn validate_canonical_public_intent(
     if !constant_time_eq(&actual_digest, &binding.public_intent_digest) {
         return Err(WorkerError::PublicIntentDigestMismatch);
     }
+    // This object is part of the canonical public-intent digest already pinned to the handle.
+    let orchard_contract_calls = validate_orchard_contract_calls_v1(
+        object.get("orchard_contract_calls"),
+        &binding.protocol,
+        WorkerError::InvalidPublicIntent,
+    )?;
     Ok(ValidatedPublicIntentV1 {
         operation_schema: capability.operation_schema.to_owned(),
         public_action,
+        orchard_contract_calls,
     })
 }
 fn validate_canonical_json_bytes(
@@ -1876,7 +1910,7 @@ fn validate_execution_plan_v1(
         WorkerError::InvalidExecutionPlan,
     )?;
     let object = value.as_object().ok_or(WorkerError::InvalidExecutionPlan)?;
-    if object.len() != FIELDS.len()
+    if object.len() != FIELDS.len() + usize::from(object.contains_key("orchard_contract_calls"))
         || FIELDS.iter().any(|field| !object.contains_key(*field))
         || object
             .get("schema_version")
@@ -1974,18 +2008,33 @@ fn validate_execution_plan_v1(
     if !constant_time_eq(&public_action, &public_intent.public_action) {
         return Err(WorkerError::PublicActionMismatch);
     }
+    let orchard_contract_calls = validate_orchard_contract_calls_v1(
+        object.get("orchard_contract_calls"),
+        &binding.protocol,
+        WorkerError::InvalidExecutionPlan,
+    )?;
+    // Both absent is the explicit standalone case. Stripping or adding calls cannot switch it.
+    if orchard_contract_calls != public_intent.orchard_contract_calls {
+        return Err(WorkerError::WrongBinding);
+    }
+    let context = PrivacyActionTransactionContextV1 {
+        network_id: network_id_from_genesis_hash_bytes(network_id),
+        authority,
+        creation_time: Duration::from_millis(creation_time_ms),
+        time_to_live: Some(Duration::from_millis(ttl_ms)),
+        nonce: Some(nonce),
+        fee_payment,
+        metadata,
+    };
+    if let Some(calls) = &orchard_contract_calls {
+        validate_orchard_ordered_context(&context, calls)
+            .map_err(|_| WorkerError::InvalidExecutionPlan)?;
+    }
     Ok(ValidatedExecutionPlanV1 {
-        context: PrivacyActionTransactionContextV1 {
-            network_id: network_id_from_genesis_hash_bytes(network_id),
-            authority,
-            creation_time: Duration::from_millis(creation_time_ms),
-            time_to_live: Some(Duration::from_millis(ttl_ms)),
-            nonce: Some(nonce),
-            fee_payment,
-            metadata,
-        },
+        context,
         public_action,
         operation_schema: operation_schema.to_owned(),
+        orchard_contract_calls,
     })
 }
 fn validate_text(
@@ -2175,6 +2224,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 #[cfg(test)]
 mod tests {
+    include!("privacy_wallet_worker_orchard_ordered_tests.rs");
     use super::*;
     use iroha_crypto::{Hash, PrivateKey, PublicKey};
     use iroha_data_model::transaction::SignedTransaction;

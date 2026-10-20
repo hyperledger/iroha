@@ -51,6 +51,11 @@ pub(crate) fn signed_genesis(scope: SumeragiRootScope) -> iroha_data_model::bloc
         .payload()
         .try_into_any::<ConsensusHandshakeMetadata>()
         .unwrap();
+    let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    if matches!(scope, SumeragiRootScope::Dataspace { .. }) {
+        fees.base_fee = 1_u32.into();
+        fees.per_gas_unit_fee = 1_u32.into();
+    }
     iroha_genesis::GenesisBuilder::new_without_executor(
         iroha_model_base::chain::ChainId::from("root-scope-fixture"),
         ".",
@@ -62,6 +67,7 @@ pub(crate) fn signed_genesis(scope: SumeragiRootScope) -> iroha_data_model::bloc
             .collect::<Vec<_>>(),
     )
     .with_sumeragi_context_parameters(metadata.sumeragi_context)
+    .append_parameter(Parameter::Custom(fees.into_custom_parameter().unwrap()))
     .build_raw()
     .unwrap()
     .with_consensus_meta()

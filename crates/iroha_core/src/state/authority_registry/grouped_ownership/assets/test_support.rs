@@ -96,6 +96,11 @@ pub(in crate::state) fn corrupt(
 trait Geometry: mv::Key {
     fn units(&self) -> u64;
 }
+impl<G: Geometry, K: Geometry> Geometry for (G, K) {
+    fn units(&self) -> u64 {
+        self.0.units() + self.1.units()
+    }
+}
 impl Geometry for AssetDefinitionId {
     fn units(&self) -> u64 {
         16
@@ -185,41 +190,37 @@ fn lookup_cost<'a, K: Geometry, V: mv::Value>(
         .map(|(_, value)| value);
     (work, value)
 }
-fn member_cost<K: Geometry>(members: &BTreeSet<K>, member: &K) -> u64 {
-    members
-        .iter()
-        .map(|candidate| 1 + member.units() + candidate.units())
-        .sum()
-}
 fn require_cost<G: Geometry, K: Geometry>(
-    groups: &impl RawStorageImages<G, BTreeSet<K>>,
+    groups: &impl RawStorageImages<(G, K), ()>,
     image: GroupImage,
     group: &G,
     member: &K,
 ) -> u64 {
-    let (work, members) = lookup_cost(groups, image, group);
-    work + members.map_or(0, |members| member_cost(members, member))
+    visit_cost(groups, image)
+        + logical(groups, image)
+            .into_iter()
+            .map(|((candidate_group, candidate_member), ())| {
+                group.units() + candidate_group.units() + member.units() + candidate_member.units()
+            })
+            .sum::<u64>()
 }
 fn group_cost<G: Geometry>(
     rows: &impl RawStorageImages<AssetId, AssetValue>,
-    groups: &impl RawStorageImages<G, BTreeSet<AssetId>>,
-    projection: impl Fn(&AssetId) -> &G,
+    groups: &impl RawStorageImages<(G, AssetId), ()>,
+    project: impl Fn(&AssetId) -> &G,
 ) -> u64 {
     let mut total = 0;
     for image in [GroupImage::Current, GroupImage::Predecessor] {
         total += visit_cost(rows, image);
         for (id, _) in logical(rows, image) {
-            total += require_cost(groups, image, projection(id), id);
+            total += require_cost(groups, image, project(id), id);
         }
         total += visit_cost(groups, image);
-        for (group, members) in logical(groups, image) {
-            total += 1;
-            for id in members {
-                let (work, value) = lookup_cost(rows, image, id);
-                total += 1 + work;
-                if value.is_some() {
-                    total += projection(id).units() + group.units();
-                }
+        for ((group, id), ()) in logical(groups, image) {
+            let (cost, value) = lookup_cost(rows, image, id);
+            total += cost;
+            if value.is_some() {
+                total += project(id).units() + group.units();
             }
         }
     }
@@ -247,14 +248,13 @@ pub(in crate::state) fn full_work(
     rows: &impl RawStorageImages<AssetId, AssetValue>,
     definitions: &impl RawStorageImages<AssetDefinitionId, AssetDefinition>,
     domains: &impl RawStorageImages<DomainId, Domain>,
-    by_definition: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AssetId>>,
-    by_account: &impl RawStorageImages<AccountId, BTreeSet<AssetId>>,
-    by_domain: &impl RawStorageImages<DomainId, BTreeSet<AssetId>>,
-    holders: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AccountId>>,
-    nonzero: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AccountId>>,
+    by_definition: &impl RawStorageImages<(AssetDefinitionId, AssetId), ()>,
+    by_domain: &impl RawStorageImages<(DomainId, AssetId), ()>,
+    holders: &impl RawStorageImages<(AssetDefinitionId, AccountId), ()>,
+    nonzero: &impl RawStorageImages<(AssetDefinitionId, AccountId), ()>,
+    counts: &impl RawStorageImages<AssetDefinitionId, u64>,
 ) -> u64 {
-    let mut total = group_cost(rows, by_definition, AssetId::definition)
-        + group_cost(rows, by_account, AssetId::account);
+    let mut total = group_cost(rows, by_definition, AssetId::definition);
     for image in [GroupImage::Current, GroupImage::Predecessor] {
         total += visit_cost(rows, image);
         for (id, value) in logical(rows, image) {
@@ -275,41 +275,46 @@ pub(in crate::state) fn full_work(
             }
         }
         total += visit_cost(by_domain, image);
-        for (domain, members) in logical(by_domain, image) {
-            total += 1;
-            for id in members {
-                let (cost, row) = lookup_cost(rows, image, id);
-                total += 1 + cost;
-                if row.is_some() {
-                    let (cost, definition) = lookup_cost(definitions, image, id.definition());
-                    total += cost;
-                    if let Some(definition) = definition {
-                        total += 1;
-                        if let Some(actual) = definition.owning_domain() {
-                            total += actual.units() + domain.units();
-                        }
+        for ((domain, id), ()) in logical(by_domain, image) {
+            let (cost, row) = lookup_cost(rows, image, id);
+            total += cost;
+            if row.is_some() {
+                let (cost, definition) = lookup_cost(definitions, image, id.definition());
+                total += cost;
+                if let Some(definition) = definition {
+                    total += 1;
+                    if let Some(actual) = definition.owning_domain() {
+                        total += actual.units() + domain.units();
                     }
                 }
             }
         }
         total += holder_cost(rows, holders, image, false) + holder_cost(rows, nonzero, image, true);
+        total += visit_cost(by_definition, image);
+        for ((definition, _), ()) in logical(by_definition, image) {
+            total += lookup_cost(counts, image, definition).0;
+        }
+        total += visit_cost(counts, image);
+        for (definition, _) in logical(counts, image) {
+            total += visit_cost(by_definition, image) + 1;
+            for ((candidate, _), ()) in logical(by_definition, image) {
+                total += definition.units() + candidate.units();
+            }
+        }
     }
     total
 }
 fn holder_cost(
     rows: &impl RawStorageImages<AssetId, AssetValue>,
-    groups: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AccountId>>,
+    groups: &impl RawStorageImages<(AssetDefinitionId, AccountId), ()>,
     image: GroupImage,
     nonzero: bool,
 ) -> u64 {
     visit_cost(groups, image)
         + logical(groups, image)
             .into_iter()
-            .map(|(definition, members)| {
-                1 + members
-                    .iter()
-                    .map(|account| 1 + partition_cost(rows, image, account, definition, nonzero))
-                    .sum::<u64>()
+            .map(|((definition, account), ())| {
+                partition_cost(rows, image, account, definition, nonzero)
             })
             .sum::<u64>()
 }
@@ -326,10 +331,6 @@ pub(in crate::state) fn world_work(world: &World) -> u64 {
             .try_committed_view_nonblocking()
             .unwrap(),
         &world
-            .assets_by_account
-            .try_committed_view_nonblocking()
-            .unwrap(),
-        &world
             .assets_by_domain
             .try_committed_view_nonblocking()
             .unwrap(),
@@ -339,6 +340,10 @@ pub(in crate::state) fn world_work(world: &World) -> u64 {
             .unwrap(),
         &world
             .asset_definition_nonzero_holders
+            .try_committed_view_nonblocking()
+            .unwrap(),
+        &world
+            .asset_definition_asset_counts
             .try_committed_view_nonblocking()
             .unwrap(),
     )

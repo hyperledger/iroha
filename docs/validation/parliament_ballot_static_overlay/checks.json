@@ -1,0 +1,13 @@
+{
+  "all_checks_passed": true,
+  "candidate_vote_gates_reconciled": true,
+  "command_phases_passed": 7,
+  "inputs_unchanged": 20,
+  "local_markdown_targets_checked": 310,
+  "markdown_fragments_checked": false,
+  "missing_local_targets": 0,
+  "prior_manifest_entries_verified": 6,
+  "scope": "Exact emitted-circuit tests/metadata checks plus scoped source, manifest, local Markdown path and whitespace validation.",
+  "trailing_whitespace_failures": 0,
+  "unit_tests_passed": 9
+}

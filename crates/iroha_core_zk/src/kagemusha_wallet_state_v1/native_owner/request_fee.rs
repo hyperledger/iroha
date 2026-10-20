@@ -102,7 +102,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     pub fn request_with_fee_policy(
         &mut self,
         id: [u8; 32],
-        offer: &[u8],
+        amount: u128,
         schedule: &[u8],
         certificates: &[u8],
     ) -> Result<Vec<u8>, Error> {
@@ -115,7 +115,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             )?),
             _ => return Err(Error::Invalid("Request fee PolicyData pair")),
         };
-        self.request(id, offer, fee.as_ref())
+        self.request(id, amount, fee.as_ref())
     }
 }
 

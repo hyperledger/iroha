@@ -1820,7 +1820,12 @@
         {
           "stage": "proposer",
           "path": "crates/iroha_core/src/sumeragi/evidence.rs",
-          "contains": "if selected.len() == MAX_EVIDENCE_ADMISSIONS_PER_BLOCK {"
+          "contains": "let count = frames .as_slice() .len() .min(MAX_EVIDENCE_ADMISSIONS_PER_BLOCK);"
+        },
+        {
+          "stage": "proposer",
+          "path": "crates/iroha_core/src/sumeragi/evidence.rs",
+          "contains": "if selected.as_slice().len() == count {"
         }
       ],
       "test_gap": {
@@ -3834,6 +3839,42 @@
       "on_exhaustion": "local_refusal",
       "guarded_by": "attachment_list_count_is_the_signed_occurrence_count",
       "note": "The list is no longer a signed-transaction field. Torii reads it in its non-consensus prover API and SDK builders stage proof attachments in it; a transaction carries each staged attachment as one signed attachment occurrence. Exceeding the bound refuses one local scan or one staging call and is never a verdict on a transaction."
+    },
+    {
+      "id": "attachment.kagemusha_wallet_payer_companion_max_bytes",
+      "group": "attachment",
+      "what": "Largest canonical KAGEMUSHA offline Payment payer-companion frame. This product wire cap covers the payer credential, its exact issuer certificate and framing; it supplies no monetary authority and does not replace the credential, proof or transaction limits.",
+      "unit": "bytes",
+      "value": 2048,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs",
+        "symbol": "KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1",
+        "kind": "const",
+        "expr": "2_048"
+      },
+      "inclusive": true,
+      "framing": "Counts the complete canonical companion frame carried beside an offline Payment; the credential inside retains its own standalone byte cap.",
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs",
+          "contains": "encode_frame_v1(self, KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1)"
+        },
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs",
+          "contains": "decode_frame_v1(bytes, KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages_tests.rs",
+          "name": "kagemusha_wallet_v1_payer_companion_binds_the_payment"
+        }
+      ],
+      "test_note": "The test pins the 2,048-byte cap, roundtrips a valid companion, enforces the nested credential cap and rejects a 2,049-byte frame before decoding. It does not construct a valid companion of exactly 2,048 bytes; canonical size follows from the credential and its one issuer certificate."
     },
     {
       "id": "x509.max_proof_bytes",
@@ -6995,7 +7036,7 @@
       "tests": [
         {
           "path": "crates/iroha_core/src/smartcontracts/code.rs",
-          "name": "register_code_rejects_cycle_ceiling_above_node_policy"
+          "name": "register_code_rejects_cycle_ceiling_above_committed_policy"
         },
         {
           "path": "crates/iroha_core/src/smartcontracts/isi/triggers/mod.rs",
@@ -10971,7 +11012,7 @@
           "stage": "follower",
           "path": "crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs",
           "contains": "|| offered.len() > iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES",
-          "count": 2
+          "count": 3
         }
       ],
       "tests": [
@@ -11086,7 +11127,7 @@
           "name": "slice_decoder_rejects_declared_oversize_before_body_access"
         }
       ],
-      "test_note": "The constructor test accepts a name of exactly 255 bytes (ASCII, and the longest two-byte text below the bound) and refuses one of 256. The decoder test refuses a declared length of 256 before the body is read. The constant lies outside the four compared crates; the node compares it by name (crates/iroha_core/src/sns.rs, crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs), which is how the scan finds it."
+      "test_note": "The constructor test accepts a name of exactly 255 bytes (ASCII, and the longest two-byte text below the bound) and refuses one of 256. The decoder test refuses a declared length of 256 before the body is read. The constant lies outside the four compared crates; the node compares it by name (crates/iroha_core/src/sns.rs), which is how the scan finds it."
     },
     {
       "id": "transaction.json_document_max_bytes",
@@ -12611,7 +12652,7 @@
       "group": "proof",
       "status": "not_implemented",
       "what": "The wire, verifier-work and output bounds of the Parliament anonymous ballot on the node path: the envelope (262,144 bytes) and entrypoint wire (263,168 bytes) of one anonymous input; the verifier input of one verification call (425,984 bytes); the committed per-block ballot verification reservations and verifier-input bytes of parliament_ballot_v1 (default 2 and 851,968, at most 8 and 3,407,872); the registration-proof reservations and verifier-input bytes per block (1 and 425,984); and the governance block-start output partition (1 MiB and 256 rows per block, rows of at most 256 KiB, 1 KiB and 16 KiB).",
-      "today": "The data model defines and validates these values and the standalone iroha_parliament_ballot crate compares the envelope cap in its admission and block checks, but no node path consumes them: TransactionEntrypoint has no anonymous-ballot input, Core neither validates nor reads parliament_ballot_v1 or parliament_lifecycle_v1, no execution output carries a governance block-start row, and the registration and output-partition constants are compared nowhere. The compared constants are excluded with pinned values (completeness.excluded, the anonymous-ballot record).",
+      "today": "The data model defines and validates these values; TransactionEntrypoint now carries the bounded canonical anonymous-ballot envelope, and execution output validation recognizes its permitted outcomes. The standalone iroha_parliament_ballot crate implements candidate protocol checks, but no node executes its verifier budget: Core and Torii defer anonymous-ballot admission and execution because the authenticated State/context adapter is unavailable, and no node crate depends on the typed ballot crate. Core does not yet enforce the committed parliament_ballot_v1 and parliament_lifecycle_v1 parameters or carry governance block-start rows in ExecutionOutputV1. The compared schema constants remain excluded with pinned values (completeness.excluded, the anonymous-ballot record); full node verifier and output-partition enforcement remains open.",
       "requires": [
         "Each value is a listed bound with the node site where admission, block validation or the governance block-start pass compares it, and a test at the bound and one over.",
         "The committed per-block budgets are validated when genesis or SetParameter installs parliament_ballot_v1 and are related to block.max_transactions and to the block wire and execution-output bounds they reserve from.",
@@ -12620,7 +12661,7 @@
       "relations": [],
       "open": {
         "owner": "P.8",
-        "summary": "The Core integration of the anonymous ballot (transaction entrypoint, parameter validation, per-block verifier budget and block-start output partition) is not wired; specs/parliament_ballot_implementation_goals.md tracks it."
+        "summary": "The canonical transaction carrier and permitted output shapes are represented. P.8 still owns authenticated Core ballot admission and execution, committed parameter validation, per-block verifier budgets and the governance block-start output partition; specs/parliament_ballot_implementation_goals.md tracks the remaining integration."
       }
     }
   ],
@@ -18456,7 +18497,7 @@
         ]
       },
       {
-        "reason": "Resource constants of the Parliament anonymous ballot that no node path consumes yet: the canonical envelope of one anonymous input (E_max, 262,144 bytes) and its complete entrypoint wire reservation (E_wire, 263,168 bytes), the authenticated ballot context and the published sealed list it bounds (C_max, 163,840 bytes), the verifier input charged to one verification (E_max + C_max = 425,984 bytes, defined once), the structural ceilings of the committed per-block ballot verification budgets (8 reservations, 3,407,872 verifier-input bytes) and the row caps of the governance block-start output partition (256 KiB, 1 KiB and 16 KiB). They are designed as transaction-input, proof-verification and block-output bounds, but today only the data-model codecs and validators and the standalone iroha_parliament_ballot crate, which no node, Torii or SDK crate depends on, compare them: no TransactionEntrypoint carries an anonymous ballot, Core neither validates nor reads parliament_ballot_v1 or parliament_lifecycle_v1, and no execution output carries a governance block-start row. The declared item proof.anonymous_ballot_verifier_budget records that the Core integration lists each as a bound with its node sites and boundary tests.",
+        "reason": "Parliament anonymous-ballot wire-schema caps and the still-unavailable node verifier budget: the canonical envelope of one anonymous input (E_max, 262,144 bytes) and its complete entrypoint wire reservation (E_wire, 263,168 bytes), the authenticated ballot context and published sealed list (C_max, 163,840 bytes), the verifier input charged to one verification (E_max + C_max = 425,984 bytes), the structural ceilings of the committed per-block ballot verification budgets (8 reservations, 3,407,872 verifier-input bytes) and governance block-start row caps (256 KiB, 1 KiB and 16 KiB). These are fixed product schema bounds, not local scheduling allowances. TransactionEntrypoint now carries the canonical anonymous input, whose data-model codec enforces its structure and byte cap. Governance block-start row types exist separately but are not yet variants of ExecutionOutputV1. Core and Torii recognize these carriers but defer anonymous-ballot admission and execution because the authenticated State/context adapter is unavailable; no node depends on the standalone iroha_parliament_ballot crate or executes its verifier budget. The declared item proof.anonymous_ballot_verifier_budget owns full node integration and classification of each verifier and output budget with its enforcement sites and boundary tests.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/governance/anonymous_ballot.rs",
@@ -19736,21 +19777,6 @@
             }
           },
           {
-            "path": "crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs",
-            "symbols": [
-              "CANONICAL_QUERY_RETAINED_ITEM_OVERHEAD_BYTES",
-              "CANONICAL_QUERY_OUTPUT_CONTAINER_OVERHEAD_BYTES",
-              "CANONICAL_QUERY_ID_DECODE_FIXED_OVERHEAD_BYTES",
-              "MIN_DIRECT_PAYLOAD_CAPACITY"
-            ],
-            "exprs": {
-              "CANONICAL_QUERY_RETAINED_ITEM_OVERHEAD_BYTES": "512",
-              "CANONICAL_QUERY_OUTPUT_CONTAINER_OVERHEAD_BYTES": "512",
-              "CANONICAL_QUERY_ID_DECODE_FIXED_OVERHEAD_BYTES": "512",
-              "MIN_DIRECT_PAYLOAD_CAPACITY": "1024"
-            }
-          },
-          {
             "path": "crates/iroha_core/src/smartcontracts/isi/query/ordinary_memory.rs",
             "symbols": [
               "ORDINARY_QUERY_FIXED_CONTAINER_OVERHEAD_BYTES",
@@ -20790,13 +20816,11 @@
             "symbols": [
               "QUERY_FANOUT_BASE_OVERHEAD_BYTES",
               "QUERY_FANOUT_ROUTE_OVERHEAD_BYTES",
-              "QUERY_FANOUT_SOURCE_OVERHEAD_BYTES",
               "QUERY_FANOUT_CANDIDATE_CONTAINER_OVERHEAD_BYTES"
             ],
             "exprs": {
               "QUERY_FANOUT_BASE_OVERHEAD_BYTES": "64 * 1024",
               "QUERY_FANOUT_ROUTE_OVERHEAD_BYTES": "1024",
-              "QUERY_FANOUT_SOURCE_OVERHEAD_BYTES": "iroha_core::smartcontracts::isi::query::CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES as usize",
               "QUERY_FANOUT_CANDIDATE_CONTAINER_OVERHEAD_BYTES": "4 * 1024"
             }
           },
@@ -21864,7 +21888,7 @@
             "exprs": {
               "query_ingress_fixed_overhead_bytes": "let route_catalogue = QUERY_FANOUT_ROUTE_OVERHEAD_BYTES .checked_mul(iroha_data_model::nexus::MAX_ACTIVE_EXECUTION_LANES)?; checked_sum([ QUERY_FANOUT_BASE_OVERHEAD_BYTES, route_catalogue, QUERY_FANOUT_PUBLIC_KEY_VALIDATION_SCRATCH_BYTES, ])",
               "query_fanout_candidate_snapshot_overhead_bytes": "let identities = iroha_crypto::MAX_PUBLIC_KEY_PAYLOAD_BYTES .checked_mul(QUERY_FANOUT_CANDIDATE_IDENTITY_REPRESENTATIONS)?; let per_candidate = checked_sum([ identities, iroha_core::governance::manifest::MANIFEST_SOURCE_MAX_VALUE_BYTES_V1, QUERY_FANOUT_CANDIDATE_CONTAINER_OVERHEAD_BYTES, ])?; per_candidate.checked_mul(iroha_core::governance::manifest::LANE_MANIFEST_MAX_VALIDATORS_V1)",
-              "query_fanout_fixed_overhead_bytes": "checked_sum([ query_ingress_fixed_overhead_bytes()?, QUERY_FANOUT_SOURCE_OVERHEAD_BYTES, query_fanout_candidate_snapshot_overhead_bytes()?, ])"
+              "query_fanout_fixed_overhead_bytes": "checked_sum([ query_ingress_fixed_overhead_bytes()?, query_fanout_candidate_snapshot_overhead_bytes()?, ])"
             }
           }
         ]
@@ -22171,20 +22195,6 @@
               ],
               "PRIVACY_RELEASE_CASE_COUNT_V1": [
                 "crates/iroha_core/src/privacy_release_evidence.rs: PRIVACY_RELEASE_STAGE_COUNT_V1"
-              ]
-            }
-          },
-          {
-            "path": "crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs",
-            "symbols": [
-              "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES"
-            ],
-            "exprs": {
-              "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES": "1024"
-            },
-            "term_of": {
-              "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES": [
-                "crates/iroha_torii/src/torii_fanout_decode_helpers.rs: QUERY_FANOUT_SOURCE_OVERHEAD_BYTES"
               ]
             }
           },
@@ -24913,6 +24923,29 @@
         "exprs": {
           "MAX_CHECKPOINTS": "256"
         }
+      },
+      {
+        "reason": "Schema-derived Norito decode guards for the fixed Parliament anonymous-ballot codecs. The envelope has no sequences and owns only its one exact fixed-length proof copy; the context has at most 1,000 commitments and ten required-body records, and the source proves that sequence bookkeeping, element payloads, vectors and numeric backing fit twice the context byte cap. These guards reject malformed schema shapes before allocation and do not introduce a second protocol cap for structurally valid inputs. Their nominal allocation charge is not a physical memory guarantee. A stricter enclosing budget or allocator failure remains DecodeUnavailable rather than a committed ballot rejection.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/ballot.rs",
+            "symbols": [
+              "DECODE_LIMITS"
+            ],
+            "exprs": {
+              "DECODE_LIMITS": "norito::DecodeLimits::new( 0, ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, 0, BallotProofBytesV1::LENGTH, norito::core::MAX_VALUE_NESTING_DEPTH, )"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/context.rs",
+            "symbols": [
+              "DECODE_LIMITS"
+            ],
+            "exprs": {
+              "DECODE_LIMITS": "norito::DecodeLimits::new( MAX_SEALED_SEATS_V1 as usize, BALLOT_CONTEXT_MAX_BYTES_V1, MAX_SEALED_SEATS_V1 as usize + crate::governance::types::PARLIAMENT_BODIES_V1.len(), 2 * BALLOT_CONTEXT_MAX_BYTES_V1, norito::core::MAX_VALUE_NESTING_DEPTH, )"
+            }
+          }
+        ]
       }
     ],
     "literals": {
@@ -25780,6 +25813,12 @@
               "path": "crates/iroha_core/src/validation_fee_rewards/pending.rs",
               "sites": {
                 "minor_units(&balance, 9)? < state.reserved_xor": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/penalties/funded_actions.rs",
+              "sites": {
+                "max_bps.min(10_000)": 1
               }
             }
           ]
@@ -27586,7 +27625,7 @@
           ]
         },
         {
-          "reason": "Test support that a non-test build compiles only with a test feature of its crate (`iroha-core-tests`, `test-fixtures`, `test-utils`, `kagemusha-real-proof-harness`) or as a fixture tool in src/bin: fixture builders, the certified test chain and a qualification harness. Also a test helper of a production file that only `#[cfg(test)]` compiles: the fee-snapshot helper of the World-state snapshot bounds the payout frame it builds at 4,096 bytes. Nothing a node receives is compared with them. The ADDR-2 compliance-vector generator of the data model is compiled into the library for the example binary and the CLI; it shortens an encoding by four bytes to build a negative vector.",
+          "reason": "Test support that a non-test build compiles only with a test feature of its crate (`iroha-core-tests`, `test-fixtures`, `test-utils`, `kagemusha-real-proof-harness`) or as a fixture tool in src/bin: fixture builders, the certified test chain and a qualification harness. Also a test helper of a production file that only `#[cfg(test)]` compiles: the fee-snapshot helper of the World-state snapshot bounds the payout frame it builds at 4,096 bytes. Nothing a node receives is compared with them. The ADDR-2 compliance-vector generator of the data model is compiled into the library for the example binary and the CLI; it shortens an encoding by four bytes to build a negative vector. The component block executor selects the existing native parent service certificate only after the first successor of genesis; this history-shape check bounds no received data or work.",
           "files": [
             {
               "path": "crates/iroha_core/src/beacon/fixtures.rs",
@@ -27652,6 +27691,12 @@
               "path": "crates/iroha_core/src/state/world_state_snapshot.rs",
               "sites": {
                 "expected.len() > 4096": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/block.rs",
+              "sites": {
+                "block.header().height().get() > 2": 1
               }
             }
           ]
@@ -27855,7 +27900,7 @@
           ]
         },
         {
-          "reason": "Fractions and multiples of an amount one node computed or was configured with: a drand quorum must be more than half of the configured endpoints; half of the open-file budget, a quarter of the dispatch slots and half of a scan's time budget are set aside; an expiry index is compacted at twice its capacity, and the write memo and the phase-object cache of a KAGEMUSHA wallet archive compact their key queues at twice their entry count (with 64 keys of slack for the cache); a scan budget is eight times the page limit, under its named ceiling; a decode allowance is at most half of the fanout's; half of the history-checkpoint slots, up to a named capacity, are recent ones; a name suggestion tolerates an edit distance of a quarter of the name, at least 2; and a query scans the assets directly when its selection covers an eighth of them. Each splits or scales a local amount that is bounded where it is configured or computed and decides no validity: none is a transaction, block, frame or proof ceiling. An in-place heap sort of a buffer the node built (the retained semantic leaves of the authority registry, the directory tokens of a MUSUBI revision check) finds the children of a node only below half the heap length. Likewise the age budget of the queue-pressure heuristic is three block times and a resolver bloom filter takes 16 bits for each expected item, each clamped between two named values, and a staging buffer of the authority registry doubles its capacity up to its maximum.",
+          "reason": "Fractions and multiples of an amount one node computed or was configured with: a drand quorum must be more than half of the configured endpoints; half of the open-file budget, a quarter of the dispatch slots and half of a scan's time budget are set aside; an expiry index is compacted at twice its capacity, and the write memo and the phase-object cache of a KAGEMUSHA wallet archive compact their key queues at twice their entry count (with 64 keys of slack for the cache); a scan budget is eight times the page limit, under its named ceiling; a decode allowance is at most half of the fanout's; half of the history-checkpoint slots, up to a named capacity, are recent ones; a name suggestion tolerates an edit distance of a quarter of the name, at least 2; and a query scans the assets directly when its selection covers an eighth of them. Each splits or scales a local amount that is bounded where it is configured or computed and decides no validity: none is a transaction, block, frame or proof ceiling. An in-place heap sort of a buffer the node built (the retained semantic leaves of the authority registry, the directory tokens of a MUSUBI revision check) finds the children of a node only below half the heap length. Likewise the age budget of the queue-pressure heuristic is three block times and a resolver bloom filter takes 16 bits for each expected item, each clamped between two named values, and a staging buffer of the authority registry doubles its capacity up to its maximum. The signed-query decode phase reserves at least two bytes so the retained request and one local clone each receive a nonzero half; this is local working-set geometry, not a protocol validity limit.",
           "files": [
             {
               "path": "crates/iroha_torii/src/collections/engine.rs",
@@ -27904,7 +27949,9 @@
               "path": "crates/iroha_torii/src/torii_fanout_decode_helpers.rs",
               "sites": {
                 "self.decode_allocated_bytes .min(provisional_fanout.request_decode_allocated_bytes / 2)": 1,
-                "json_decode_allocated_bytes.min(provisional_fanout.request_decode_allocated_bytes / 2)": 1
+                "json_decode_allocated_bytes.min(provisional_fanout.request_decode_allocated_bytes / 2)": 1,
+                "phase_bytes < 2": 1,
+                "max_content_bytes .max(2)": 1
               }
             },
             {
@@ -28177,6 +28224,17 @@
               "path": "crates/iroha_core/src/sumeragi/node/replay.rs",
               "sites": {
                 "maximum_steps > 64": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Compile-time proof that all structurally valid anonymous-ballot contexts fit their schema-derived nominal Norito allocation charge: the bounded commitment and required-body sequences plus at most 512 native numeric bytes fit twice the canonical context byte cap. This assertion checks the allocation geometry for supported targets; it admits or rejects no input and is not a physical workspace limit.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/governance/anonymous_ballot/context.rs",
+              "sites": {
+                "commitments + bodies + 512 <= 2 * BALLOT_CONTEXT_MAX_BYTES_V1": 1
               }
             }
           ]

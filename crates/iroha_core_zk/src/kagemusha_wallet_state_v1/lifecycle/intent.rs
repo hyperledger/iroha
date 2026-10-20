@@ -214,17 +214,36 @@ impl NativeIntentV1 {
         credential: Vec<u8>,
         certificates: Vec<u8>,
     ) -> Self {
+        let payer = payment
+            .signed_request()
+            .expect("fixture Request")
+            .body
+            .payer_wallet_id;
+        Self::archive_test_originals(
+            &payer,
+            payment,
+            capsule,
+            request,
+            credited,
+            credential,
+            certificates,
+        )
+    }
+
+    /// The same exact retained Archive originals, bound to `wallet`'s private identity.
+    #[cfg(test)]
+    pub(in crate::kagemusha_wallet_state_v1) fn archive_test_originals(
+        wallet: &[u8; 32],
+        payment: &KagemushaWalletPaymentV1,
+        capsule: [u8; 32],
+        request: Vec<u8>,
+        credited: Vec<u8>,
+        credential: Vec<u8>,
+        certificates: Vec<u8>,
+    ) -> Self {
         Self {
             value: Intent::Archive(ArchiveIntentV1 {
-                request_id: Self::archive_identity(
-                    &capsule,
-                    &payment
-                        .signed_request()
-                        .expect("fixture Request")
-                        .body
-                        .payer_wallet_id,
-                    &credited,
-                ),
+                request_id: Self::archive_identity(&capsule, wallet, &credited),
                 send_capsule: capsule,
                 send_commitment: payment.send.receipt.capsule_commitment,
                 request,

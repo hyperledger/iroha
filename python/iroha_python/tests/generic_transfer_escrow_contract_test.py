@@ -79,6 +79,13 @@ def _install_network_id_contract(module: types.ModuleType) -> None:
         return value
 
     module._require_network_id = require
+    # Exercise the actual Python context validator; this fixture does not qualify native crypto.
+    import ast
+    context_node = next(item for item in ast.parse((PACKAGE_ROOT / "crypto.py").read_text()).body
+                        if isinstance(item, ast.FunctionDef) and item.name == "_require_chain_discriminant")
+    scope = {}
+    exec(compile(ast.Module(body=[context_node], type_ignores=[]), "crypto.py", "exec"), scope)
+    module._require_chain_discriminant = scope["_require_chain_discriminant"]
 
 
 def _load_native_free_tx_module() -> types.ModuleType:
@@ -204,6 +211,7 @@ def test_transaction_config_rejects_raw_network_bytes_at_construction(
             network_id=raw_network_id,
             authority="authority@payments",
             fee_payment={},
+            chain_discriminant=753,
         )
 
 
@@ -217,6 +225,7 @@ def test_transaction_draft_sign_rejects_legacy_network_keyword_aliases(
             network_id=NETWORK_ID,
             authority="authority@payments",
             fee_payment={},
+            chain_discriminant=753,
         )
     )
     with pytest.raises(TypeError, match=f"unexpected keyword argument '{retired_key}'"):
@@ -274,7 +283,7 @@ def test_public_status_rejects_native_batch_outcomes() -> None:
 def test_contract_wait_rejects_noncanonical_embedded_transaction_hash(
     embedded_hash: object,
 ) -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     response = {
         "tx_hash_hex": embedded_hash,
         "pipeline_status": {
@@ -300,7 +309,7 @@ def test_contract_wait_rejects_noncanonical_embedded_transaction_hash(
 
 
 def test_contract_wait_requires_exact_hash_field_and_pipeline_binding() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     tx_hash = "ab" * 32
     exact_status = {
         "hash": tx_hash,
@@ -328,7 +337,7 @@ def test_contract_wait_requires_exact_hash_field_and_pipeline_binding() -> None:
 def test_contract_wait_uses_only_exact_authoritative_applied_embedded_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     tx_hash = "ab" * 32
     queued = {
         "hash": tx_hash,
@@ -429,7 +438,7 @@ def test_signed_role_scoped_escrow_queries_use_native_query_payloads(
         },
     }
     session = FakeSession([_response(response_payload), _response(response_payload)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     seller_records = client.list_asset_escrows_by_seller(
         seller="seller@payments",
@@ -483,7 +492,7 @@ def test_public_query_helpers_reject_raw_network_bytes_before_native_dispatch(
     monkeypatch.setitem(sys.modules, f"{PURE_PACKAGE}.crypto", crypto)
 
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     calls = (
         lambda: client.get_asset_escrow(
             escrow_id="escrow",
@@ -523,7 +532,7 @@ def test_public_query_helpers_reject_legacy_network_keyword_aliases(
     retired_key: str,
 ) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     calls = (
         lambda: client.get_asset_escrow(
             escrow_id="escrow",
@@ -621,7 +630,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
             _norito_response(b"transaction-response"),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     verified = client.get_verified_committed_transaction(
         transaction_hash=transaction_hash,
@@ -926,7 +935,7 @@ def test_contract_intents_prepare_ordered_batch_and_keep_signing_local(
     session = FakeSession(
         [_response(_prepared_batch_response([first, second], instruction))]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     draft = FakeDraft()
     submitted: dict[str, Any] = {}
     client._transaction_draft = lambda **kwargs: draft
@@ -965,6 +974,7 @@ def test_single_contract_call_is_the_local_batch_convenience_form() -> None:
         "http://torii.example",
         session=FakeSession([]),
         max_retries=0,
+        chain_discriminant=753,
     )
     captured: dict[str, Any] = {}
 
@@ -995,7 +1005,7 @@ def test_single_contract_call_is_the_local_batch_convenience_form() -> None:
 
 
 def test_verified_committed_transaction_requires_explicit_trust_before_request() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     with pytest.raises(TypeError, match="required keyword-only"):
         client.get_verified_committed_transaction(
             transaction_hash="11" * 32, authority="authority@payments",
@@ -1015,17 +1025,18 @@ def test_committed_output_crypto_wrapper_requires_and_forwards_exact_trust_input
                 and item.name == "verify_committed_transaction_inclusion")
     calls = []
     native = types.SimpleNamespace(verify_committed_transaction_inclusion=
-        lambda *args: calls.append(args) or ('{"output_hash":"verified"}', b"promoted-checkpoint"))
+        lambda *args, **kwargs: calls.append((args, kwargs)) or ('{"output_hash":"verified"}', b"promoted-checkpoint"))
     contract = types.ModuleType("contract")
     _install_network_id_contract(contract)
     namespace = {"_crypto": native, "_require_network_id": contract._require_network_id,
+                 "_require_chain_discriminant": contract._require_chain_discriminant,
                  "NetworkId": FakeNetworkId, "Mapping": Mapping, "Any": Any, "json": json}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "crypto.py", "exec"), namespace)
     verify = namespace["verify_committed_transaction_inclusion"]
     trust = dict(native_finality_proof_chain_json="[exact-native-proof]", expected_network_id=NETWORK_ID,
-                 expected_chain="trusted-chain", trusted_checkpoint=b"trusted-checkpoint")
+                 expected_chain="trusted-chain", trusted_checkpoint=b"trusted-checkpoint", expected_chain_discriminant=753)
     assert verify("transaction", b"response", **trust) == {"output_hash": "verified", "promoted_checkpoint": b"promoted-checkpoint"}
-    assert calls == [("transaction", b"response", "[exact-native-proof]", NETWORK_ID, "trusted-chain", b"trusted-checkpoint")]
+    assert calls == [(("transaction", b"response", "[exact-native-proof]", NETWORK_ID, "trusted-chain", b"trusted-checkpoint"), {"expected_chain_discriminant": 753})]
     for response in [bytearray(b"response"), memoryview(b"response")]:
         with pytest.raises(TypeError, match="exact immutable bytes"):
             verify("transaction", response, **trust)
@@ -1044,15 +1055,16 @@ def test_committed_verifier_rejects_mutable_or_empty_checkpoint_before_native_ca
     node = next(item for item in ast.parse((PACKAGE_ROOT / "crypto.py").read_text()).body
                 if isinstance(item, ast.FunctionDef) and item.name == "verify_committed_transaction_inclusion")
     calls = []
-    native = types.SimpleNamespace(verify_committed_transaction_inclusion=lambda *args: calls.append(args))
+    native = types.SimpleNamespace(verify_committed_transaction_inclusion=lambda *args, **kwargs: calls.append((args, kwargs)))
     contract = types.ModuleType("contract")
     _install_network_id_contract(contract)
     namespace = {"_crypto": native, "_require_network_id": contract._require_network_id,
+                 "_require_chain_discriminant": contract._require_chain_discriminant,
                  "NetworkId": FakeNetworkId, "Mapping": Mapping, "Any": Any, "json": json}
     exec(compile(ast.Module(body=[node], type_ignores=[]), "crypto.py", "exec"), namespace)
     verify = namespace["verify_committed_transaction_inclusion"]
     trust = dict(native_finality_proof_chain_json="[]", expected_network_id=NETWORK_ID,
-                 expected_chain="chain", trusted_checkpoint=b"checkpoint")
+                 expected_chain="chain", trusted_checkpoint=b"checkpoint", expected_chain_discriminant=753)
     for checkpoint in (bytearray(b"checkpoint"), memoryview(b"checkpoint")):
         with pytest.raises(TypeError, match="exact immutable bytes"):
             verify("transaction", b"response", **{**trust, "trusted_checkpoint": checkpoint})

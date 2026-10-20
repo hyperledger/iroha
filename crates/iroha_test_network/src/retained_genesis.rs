@@ -697,8 +697,7 @@ mod tests {
             .collect::<Vec<_>>();
         let mut actual = resolve_actual_config_result(&generated.peers[0], &layers)?;
         retained.validate_runtime(&actual, &topology)?;
-        actual.nexus.fees.fee_sink_account_id =
-            iroha_test_samples::BOB_ID.to_i105_for_discriminant(originals.chain_discriminant)?;
+        actual.nexus.fees.fee_sink_account_id = iroha_test_samples::BOB_ID.clone();
         let preexecutions = config::genesis_preexecution_count();
         let signatures = config::genesis_signing_count();
         assert!(retained.validate_runtime(&actual, &topology).is_err());

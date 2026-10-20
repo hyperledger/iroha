@@ -56,6 +56,28 @@ impl LaneBlockSource for Source {
     > {
         self.block(lane, incarnation, height)
     }
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.block(lane, incarnation, height)
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        self.wait_for(lane, incarnation, height, timeout)
+    }
     fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
@@ -128,9 +150,16 @@ fn wait_and_read_errors_preserve_original_io_source_including_would_block() {
                 block: true,
                 kind,
             };
-            let MergeError::Storage(Attempt::Rejected(error)) =
-                load(&[merge], &lanes, &policy, 3, &source, Duration::ZERO).unwrap_err()
-            else {
+            let MergeError::Storage(Attempt::Rejected(error)) = load(
+                &[merge],
+                &lanes,
+                &policy,
+                3,
+                &source,
+                Duration::ZERO,
+                &crate::sumeragi::lanes::ProposalReadScope::new(),
+            )
+            .unwrap_err() else {
                 panic!("storage is neither malformed consensus nor absent")
             };
             assert_eq!(error.kind(), kind);
@@ -155,7 +184,15 @@ fn absence_invalid_reference_and_byzantine_certified_batch_remain_distinct() {
         kind: io::ErrorKind::Other,
     };
     assert!(matches!(
-        load(&[merge], &lanes, &policy, 3, &source, Duration::ZERO),
+        load(
+            &[merge],
+            &lanes,
+            &policy,
+            3,
+            &source,
+            Duration::ZERO,
+            &crate::sumeragi::lanes::ProposalReadScope::new()
+        ),
         Err(MergeError::Pending(_))
     ));
     let source = Source {
@@ -163,14 +200,31 @@ fn absence_invalid_reference_and_byzantine_certified_batch_remain_distinct() {
         ..source
     };
     assert!(matches!(
-        load(&[merge], &lanes, &policy, 3, &source, Duration::ZERO),
+        load(
+            &[merge],
+            &lanes,
+            &policy,
+            3,
+            &source,
+            Duration::ZERO,
+            &crate::sumeragi::lanes::ProposalReadScope::new()
+        ),
         Err(MergeError::Pending(_))
     ));
     let source = Source {
         block: true,
         ..source
     };
-    let blocks = load(&[merge], &lanes, &policy, 3, &source, Duration::ZERO).unwrap();
+    let blocks = load(
+        &[merge],
+        &lanes,
+        &policy,
+        3,
+        &source,
+        Duration::ZERO,
+        &crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     assert_eq!(blocks.len(), 1);
     assert!(blocks[0].1);
     assert!(blocks[0].2.batch.is_none());
@@ -184,7 +238,8 @@ fn absence_invalid_reference_and_byzantine_certified_batch_remain_distinct() {
             &policy,
             3,
             &source,
-            Duration::ZERO
+            Duration::ZERO,
+            &crate::sumeragi::lanes::ProposalReadScope::new()
         ),
         Err(MergeError::Invalid(_))
     ));

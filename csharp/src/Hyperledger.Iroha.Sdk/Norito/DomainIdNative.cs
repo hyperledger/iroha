@@ -18,7 +18,7 @@ internal static class DomainIdNative
             return NativeLibrary.TryLoad(Library, typeof(DomainIdNative).Assembly, null, out handle)
                 && NativeLibrary.TryGetExport(handle, "connect_norito_bridge_abi_version", out _)
                 && NativeLibrary.TryGetExport(handle, "connect_norito_domain_id_validate_v1", out _)
-                && BridgeAbiVersion() == 30;
+                && BridgeAbiVersion() == 31;
         }
         catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
@@ -57,7 +57,7 @@ internal static class DomainIdNative
         "Domain ID must use exact native-canonical ASCII domain.dataspace labels.", paramName);
 
     private static InvalidOperationException Unavailable(Exception? inner = null) => new(
-        "Domain identities require the ABI-30 Rust domain validator from connect_norito_bridge.", inner);
+        "Domain identities require the ABI-31 Rust domain validator from connect_norito_bridge.", inner);
 
     [DllImport(Library, EntryPoint = "connect_norito_bridge_abi_version", CallingConvention = CallingConvention.Cdecl)]
     private static extern uint BridgeAbiVersion();

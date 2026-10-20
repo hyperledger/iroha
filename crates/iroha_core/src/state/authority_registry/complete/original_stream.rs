@@ -1,8 +1,9 @@
-//! Complete canonical bytes from the original frozen State journals.
+//! Complete images or canonical changes from the original frozen State journals.
 //!
 //! This owner retains original-pool frames and exact no-op/absent undo entries.
 //! Canonical key order is byte order, independent of native map ordering. A retry
 //! borrows the same StateBlock and retains completed fields and row prefixes.
+//! Capture intent is immutable: a change-only owner cannot emit a complete image.
 //! There is no root, proof, finality or publication capability in this module.
 //! TODO: select the keyed engine and consume this exact cut in the existing
 //! StatePublication owner; authenticate the pre-tail cut and deterministic tail
@@ -22,6 +23,16 @@ mod policies;
 mod world;
 use encoding::Frame;
 
+/// Immutable purpose of the original byte capture; neither intent grants authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::state) enum CaptureIntent {
+    /// Retain every current row for cold construction and complete-image comparison.
+    Complete,
+    /// Retain original native journal touches for incremental application only.
+    /// Membership binds its exact committed pair; untouched cells retain only identities.
+    Changes,
+}
+
 /// Local encoding allowances. Refusal does not change transaction validity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::state) struct CaptureLimits {
@@ -39,12 +50,22 @@ pub(in crate::state) struct CaptureLimits {
     pub max_source_visits: usize,
 }
 
+/// Exact membership refusal carried beyond State without widening its owner API.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub(crate) struct MembershipCaptureRefusal(
+    crate::state::storage_transactions::authority::TransactionMembershipAuthorityError,
+);
+
 /// Exact source or local encoding refusal; no partial cut is a successful result.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CaptureError {
     /// The exact original owner has not completed its required frozen phase.
     #[error("original State is not completely frozen")]
     NotFrozen,
+    /// A change-only capture cannot represent the complete current State image.
+    #[error("change-only State capture cannot be delivered as a complete snapshot")]
+    IncompleteSnapshot,
     /// Original target, predecessor, source allocation or cardinality differs.
     #[error("canonical State source changed: {0}")]
     Changed(&'static str),
@@ -78,6 +99,9 @@ pub(crate) enum CaptureError {
     /// Bounded hashing or writing failed without returning a partial frame.
     #[error("canonical State encoding I/O failed: {0}")]
     EncodingIo(std::io::Error),
+    /// Preserve the original membership owner's typed source/work refusal.
+    #[error(transparent)]
+    Membership(MembershipCaptureRefusal),
     /// A source-owner semantic projection refused the exact original values.
     #[error("original State source validation failed: {0}")]
     Source(String),
@@ -86,7 +110,8 @@ pub(crate) enum CaptureError {
     Musubi(crate::state::publication::RetainedMusubiGroupReadError),
 }
 
-/// A key and its exact optional payload. `None` is an absent undo preimage.
+/// A key and its exact optional payload. `None` is an absent preimage or successor.
+/// Change-intent native and membership deltas may retain an absent current value.
 struct Row {
     key: Frame,
     value: Option<Frame>,
@@ -103,7 +128,7 @@ pub(in crate::state) enum SourceIdentity {
     Policy(usize),
 }
 
-/// Complete field with its physical original undo, including same-value touches.
+/// One declared field with the intent-selected rows and exact original undo.
 struct FieldBytes {
     seen: bool,
     replacement: bool,
@@ -141,15 +166,22 @@ struct PendingField {
 pub(crate) struct Collector {
     budget: AllocationBudget,
     limits: CaptureLimits,
+    intent: CaptureIntent,
     fields: ChargedBuffer<FieldBytes>,
     pending: Option<PendingField>,
     payload_bytes: usize,
     rows: usize,
     source_visits: usize,
+    membership_delta_base:
+        Option<crate::state::storage_transactions::authority::TransactionMembershipDeltaBase>,
 }
 
 impl Collector {
-    fn new(budget: AllocationBudget, limits: CaptureLimits) -> Result<Self, CaptureError> {
+    fn new(
+        budget: AllocationBudget,
+        limits: CaptureLimits,
+        intent: CaptureIntent,
+    ) -> Result<Self, CaptureError> {
         let mut count = 0;
         let mut schema_error = None;
         let mut duplicate = None;
@@ -197,11 +229,29 @@ impl Collector {
             fields: ChargedBuffer::new(count, &budget)?,
             budget,
             limits,
+            intent,
             pending: None,
             payload_bytes: 0,
             rows: 0,
             source_visits: 0,
+            membership_delta_base: None,
         })
+    }
+
+    /// Retain the original committed membership base before any delta encoding.
+    /// Shared identity clones retain their existing owners without copying rows.
+    fn bind_membership_delta(
+        &mut self,
+        base: &crate::state::storage_transactions::authority::TransactionMembershipDeltaBase,
+    ) -> Result<(), CaptureError> {
+        match &self.membership_delta_base {
+            Some(original) if original != base => Err(CaptureError::Changed("state.transactions")),
+            Some(_) => Ok(()),
+            None => {
+                self.membership_delta_base = Some(base.clone());
+                Ok(())
+            }
+        }
     }
 
     /// The exact original State pool; semantic owners must fund any scratch here.
@@ -434,6 +484,33 @@ impl Collector {
         Ok(true)
     }
 
+    /// Visit an unchanged cell without constructing its temporary semantic projection.
+    /// The original owner must check frozen inputs before calling. Empty descriptors
+    /// still bind the exact source and count toward complete schema visitation.
+    fn skip_cell_projection(
+        &mut self,
+        id: &'static str,
+        source: SourceIdentity,
+        touched: bool,
+    ) -> Result<bool, CaptureError> {
+        if !matches!(
+            Self::canonical(id)?.map(|field| field.role),
+            Some(Role::Canonical(Canonical::Cell(_)))
+        ) {
+            return Err(CaptureError::Schema(id));
+        }
+        if self.intent == CaptureIntent::Changes
+            && !touched
+            && !cfg!(all(test, sumeragi_core_mutation = "HC456"))
+        {
+            if self.begin(id, source, 0, 0)? {
+                self.finish_field()?;
+            }
+            return Ok(true);
+        }
+        self.already_captured(id, &source)
+    }
+
     /// Borrowed semantic storage; the concrete owning module supplies its exact encoder.
     pub(crate) fn storage<K: Key + Encode, V: Value, M: mv::storage::StorageMode<K, V>>(
         &mut self,
@@ -455,6 +532,11 @@ impl Collector {
             || storage.retained_read_matches_current(expected) != Some(true)
         {
             return Err(CaptureError::Changed(id));
+        }
+        if self.intent == CaptureIntent::Changes
+            && !cfg!(all(test, sumeragi_core_mutation = "HC447"))
+        {
+            return self.storage_changes(id, storage, images.publication_identity(), encode);
         }
         let current = images.current_entries();
         let undo = images.undo_entries();
@@ -485,6 +567,47 @@ impl Collector {
                 true,
                 |writer| bare(key, writer),
                 value.as_ref().map(|value| {
+                    let encode = &encode;
+                    move |writer: &mut dyn Write| encode(value, writer)
+                }),
+            )?;
+        }
+        self.finish_field()
+    }
+
+    /// Retain only original native touches, including deletions and no-op writes.
+    /// Frozen identity was checked by `storage` before this private entrypoint.
+    fn storage_changes<K: Key + Encode, V: Value, M: mv::storage::StorageMode<K, V>>(
+        &mut self,
+        id: &'static str,
+        storage: &StorageField<'_, K, V, M>,
+        identity: mv::BlockPublicationIdentity,
+        encode: impl Fn(&V, &mut dyn Write) -> Result<(), norito::core::Error>,
+    ) -> Result<(), CaptureError> {
+        let count = storage.touched_entries().len();
+        if !self.begin(id, SourceIdentity::Journal(identity), count, count)? {
+            return Ok(());
+        }
+        // A retry admits both original traversals, including skipped prefixes.
+        // Native map lookups stay borrowed; this counts rows, not CPU instructions.
+        self.admit_source_visits(count.checked_mul(2).ok_or(CaptureError::CountLimit)?)?;
+        #[cfg(all(test, sumeragi_core_mutation = "HC448"))]
+        let _replaced_original_key = self.pending.as_mut().and_then(|field| field.key.take());
+        for entry in storage.touched_entries().skip(self.retained(false)) {
+            self.row(
+                false,
+                |writer| bare(entry.key, writer),
+                entry.after.map(|value| {
+                    let encode = &encode;
+                    move |writer: &mut dyn Write| encode(value, writer)
+                }),
+            )?;
+        }
+        for entry in storage.touched_entries().skip(self.retained(true)) {
+            self.row(
+                true,
+                |writer| bare(entry.key, writer),
+                entry.before.map(|value| {
                     let encode = &encode;
                     move |writer: &mut dyn Write| encode(value, writer)
                 }),
@@ -536,10 +659,18 @@ impl Collector {
         ) {
             return Err(CaptureError::Schema(id));
         }
-        if !self.begin(id, source, 1, usize::from(touched))? {
+        let retain_current = self.intent == CaptureIntent::Complete
+            || touched
+            || cfg!(all(test, sumeragi_core_mutation = "HC455"));
+        if !self.begin(
+            id,
+            source,
+            usize::from(retain_current),
+            usize::from(touched),
+        )? {
             return Ok(());
         }
-        let current_missing = self.retained(false) == 0;
+        let current_missing = retain_current && self.retained(false) == 0;
         let before_missing = touched && self.retained(true) == 0;
         self.admit_source_visits(usize::from(current_missing) + usize::from(before_missing))?;
         if current_missing {
@@ -607,10 +738,11 @@ pub(in crate::state) struct OriginalCut<'block, 'state> {
 }
 
 impl<'block, 'state> OriginalCut<'block, 'state> {
-    /// Retain only a completely frozen original whose grouped sources are checked.
+    /// Retain one completely frozen original under a fixed capture intent.
     pub(in crate::state) fn new(
         block: &'block StateBlock<'state>,
         limits: CaptureLimits,
+        intent: CaptureIntent,
     ) -> Result<Self, CaptureError> {
         let fields = block.fields.as_ref().ok_or(CaptureError::NotFrozen)?;
         if fields.world.publication != AggregatePublication::Frozen {
@@ -621,7 +753,11 @@ impl<'block, 'state> OriginalCut<'block, 'state> {
             .map_err(CaptureError::Musubi)?;
         Ok(Self {
             block,
-            collector: Collector::new(fields.state_ref.ivm_execution_budget.clone(), limits)?,
+            collector: Collector::new(
+                fields.state_ref.ivm_execution_budget.clone(),
+                limits,
+                intent,
+            )?,
             complete: false,
         })
     }
@@ -648,12 +784,18 @@ impl<'block, 'state> OriginalCut<'block, 'state> {
     }
 
     /// Visit complete field identities and canonical rows, including empty tables.
+    /// Change intent is rejected before callbacks or source traversal, even when complete.
     /// A consumer refusal stops immediately; no partially delivered stream is complete.
     pub(in crate::state) fn visit<E>(
         &mut self,
         mut field: impl FnMut(&'static str, usize) -> Result<(), E>,
         mut row: impl FnMut(&'static str, &[u8], &[u8]) -> Result<(), E>,
     ) -> Result<(), VisitError<E>> {
+        if self.collector.intent != CaptureIntent::Complete
+            && !cfg!(all(test, sumeragi_core_mutation = "HC446"))
+        {
+            return Err(CaptureError::IncompleteSnapshot.into());
+        }
         if !self.complete {
             return Err(CaptureError::NotFrozen.into());
         }
@@ -673,11 +815,19 @@ impl<'block, 'state> OriginalCut<'block, 'state> {
     }
 
     /// Visit every original journal touch once, preserving absent and equal preimages.
-    /// Membership invokes `replace_table` before all its rows, including when empty.
-    /// Those insertions describe the cleared table, never an invented old preimage.
+    /// Complete membership capture invokes `replace_table` even for an empty table.
+    /// Changes capture first requires the consumer to bind its original committed
+    /// membership pair, then emits exact paired deltas without clearing either table.
+    /// That membership base differs from the logical predecessor under replacement;
+    /// it is a physical source binding and does not authenticate a State root.
+    /// TODO: bind authenticated executor/publication roots and bound changed
+    /// policy internals before claiming fully incremental complete-State work.
     /// Consumers retain provisional work and publish only after the whole visit succeeds.
     pub(in crate::state) fn changes<E>(
         &mut self,
+        mut bind_membership: impl FnMut(
+            &crate::state::storage_transactions::authority::TransactionMembershipDeltaBase,
+        ) -> Result<(), E>,
         mut replace_table: impl FnMut(&'static str) -> Result<(), E>,
         mut visit: impl FnMut(&'static str, Change<'_>) -> Result<(), E>,
     ) -> Result<(), VisitError<E>> {
@@ -685,6 +835,11 @@ impl<'block, 'state> OriginalCut<'block, 'state> {
             return Err(CaptureError::NotFrozen.into());
         }
         self.advance()?;
+        if let Some(base) = &self.collector.membership_delta_base {
+            if !cfg!(all(test, sumeragi_core_mutation = "HC452")) {
+                bind_membership(base).map_err(VisitError::Consumer)?;
+            }
+        }
         for field in self.collector.fields.as_slice() {
             if field.replacement {
                 replace_table(field.id).map_err(VisitError::Consumer)?;

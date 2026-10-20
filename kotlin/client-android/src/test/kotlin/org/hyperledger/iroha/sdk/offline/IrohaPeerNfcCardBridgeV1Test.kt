@@ -1,7 +1,6 @@
 package org.hyperledger.iroha.sdk.offline
 
 import java.io.File
-import java.math.BigInteger
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
@@ -18,7 +17,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The host card emulation bridge: tap-1 Request preparation off the HCE thread, durable
+ * The host card emulation bridge: the receiver Request immediately available on the HCE thread, durable
  * BEGIN_PAYMENT and COMMIT replies gated by the RF activation epoch, and the durable deadline.
  */
 class IrohaPeerNfcCardBridgeV1Test {
@@ -40,17 +39,10 @@ class IrohaPeerNfcCardBridgeV1Test {
     }
 
     private class Callbacks : IrohaPeerNfcCardCallbacksV1 {
-        val offers = CopyOnWriteArrayList<IrohaPeerWireMessageV1>()
-        val preparations = CopyOnWriteArrayList<IrohaPeerNfcRequestPreparationV1>()
         val admissions = CopyOnWriteArrayList<Pair<IrohaPeerNfcPaymentAdmissionContextV1,
             IrohaPeerNfcCardCompletionV1<IrohaPeerNfcDurablePaymentAdmissionV1>>>()
         val commits = CopyOnWriteArrayList<Pair<IrohaPeerNfcCommitContextV1,
             IrohaPeerNfcCardCompletionV1<IrohaPeerNfcDurableAcknowledgementV1>>>()
-
-        override fun prepareRequest(offer: IrohaPeerWireMessageV1, preparation: IrohaPeerNfcRequestPreparationV1) {
-            offers += offer
-            preparations += preparation
-        }
 
         override fun admitPayment(
             context: IrohaPeerNfcPaymentAdmissionContextV1,
@@ -82,58 +74,19 @@ class IrohaPeerNfcCardBridgeV1Test {
         Replies().also { handle(command, it.handler) }
 
     @Test
-    fun `submit answers at once and the request is prepared asynchronously`() {
-        val endpoint = IrohaPeerNfcCardEndpointV1.intake(aid, IrohaPeerNfcOfferIntakeV1(policy, sessionId = session))
+    fun `the open Request is ready immediately without a wallet callback`() {
+        val request = Fixtures.message(IrohaPeerPayloadKind.REQUEST)
+        val receiver = IrohaPeerNfcReceiverSessionV1(session, request.encode())
+        val endpoint = IrohaPeerNfcCardEndpointV1.direct(aid, receiver)
         val callbacks = Callbacks()
         val bridge = bridge(endpoint, callbacks)
-        val offer = Fixtures.message(IrohaPeerPayloadKind.OFFER)
-        val offerBytes = offer.encode()
-        assertEquals(
-            IrohaPeerNfcStatusWordV1.SUCCESS,
-            bridge.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerBytes.copyOfRange(0, 84))).responses.single().statusWord,
-        )
-        bridge.send(IrohaPeerNfcCommandV1.WriteOffer(session, offer.wireHash, 0, offerBytes))
-        val submit = bridge.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offer.wireHash))
-        // 9000 precedes the wallet callback, which runs off the HCE thread.
-        assertEquals(IrohaPeerNfcStatusWordV1.SUCCESS, submit.responses.single().statusWord)
-        assertTrue(callbacks.offers.isEmpty())
-        assertEquals(1, queued.size)
-        runCallbacks()
-        assertEquals(listOf(offer), callbacks.offers.toList())
-        assertEquals(IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST, endpoint.intakeRecord().state)
-
-        // An RF loss does not lose the preparation; the late Request still installs.
-        bridge.onDeactivated(0)
-        callbacks.preparations.single().prepared(Fixtures.message(IrohaPeerPayloadKind.REQUEST).encode())
-        callbacks.preparations.single().declined(9)
+        val info = bridge.send(IrohaPeerNfcCommandV1.GetInfo).responses.single()
+        assertEquals(IrohaPeerNfcStatusWordV1.SUCCESS, info.statusWord)
+        assertEquals(IrohaPeerNfcPhaseV1.REQUEST_READY, IrohaPeerNfcInfoV1.decode(info.data()).phase)
         assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, endpoint.intakeRecord().state)
-        assertTrue(events.any { it is IrohaPeerNfcCardEventV1.RequestPrepared })
-        assertTrue(events.any { it is IrohaPeerNfcCardEventV1.Deactivated && it.reason == 0 })
-        // The replayed SUBMIT is idempotent and never prepares again.
-        bridge.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offer.wireHash))
-        runCallbacks()
-        assertEquals(1, callbacks.offers.size)
-    }
-
-    @Test
-    fun `an invalid prepared request is reported and the card keeps preparing`() {
-        val endpoint = IrohaPeerNfcCardEndpointV1.intake(aid, IrohaPeerNfcOfferIntakeV1(policy, sessionId = session))
-        val callbacks = Callbacks()
-        val bridge = bridge(endpoint, callbacks)
-        val offer = Fixtures.message(IrohaPeerPayloadKind.OFFER)
-        val offerBytes = offer.encode()
-        bridge.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerBytes.copyOfRange(0, 84)))
-        bridge.send(IrohaPeerNfcCommandV1.WriteOffer(session, offer.wireHash, 0, offerBytes))
-        bridge.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offer.wireHash))
-        runCallbacks()
-        callbacks.preparations.single().prepared(offerBytes)
-        assertTrue(
-            events.any {
-                it is IrohaPeerNfcCardEventV1.Failed &&
-                    it.failure == IrohaPeerNfcCardFailureV1.REQUEST_PREPARATION_FAILED
-            },
-        )
-        assertEquals(IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST, endpoint.intakeRecord().state)
+        assertTrue(queued.isEmpty())
+        assertTrue(callbacks.admissions.isEmpty())
+        assertTrue(callbacks.commits.isEmpty())
     }
 
     @Test
@@ -284,10 +237,6 @@ class IrohaPeerNfcCardBridgeV1Test {
         assertEquals(IrohaPeerNfcStatusWordV1.SECURITY_STATUS_NOT_SATISFIED, bridge.send(wrongSession).responses.single().statusWord)
         val early = IrohaPeerNfcCommandV1.Commit(session, receiver.identity.requestCanonicalHash, payment.wireHash)
         assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, bridge.send(early).responses.single().statusWord)
-        assertEquals(
-            IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED,
-            bridge.send(IrohaPeerNfcCommandV1.SubmitOffer(session, payment.wireHash)).responses.single().statusWord,
-        )
         val intake = IrohaPeerNfcIntakeRecordV1.decode(bridge.send(IrohaPeerNfcCommandV1.GetIntake).responses.single().data())
         assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, intake.state)
         assertTrue(queued.isEmpty())
@@ -304,39 +253,21 @@ class IrohaPeerNfcCardBridgeV1Test {
     }
 
     @Test
-    fun `the HCE path answers GET_ASK from the armed intake until an offer is bound`() {
-        val ask = IrohaPeerAskV1.of(BigInteger.valueOf(1_000), ByteArray(32) { 0x5c })
-        val endpoint = IrohaPeerNfcCardEndpointV1.intake(aid, IrohaPeerNfcOfferIntakeV1(policy, sessionId = session, ask = ask))
+    fun `the HCE path rejects retired Offer and Ask instructions`() {
+        val endpoint = IrohaPeerNfcCardEndpointV1.direct(aid,
+            IrohaPeerNfcReceiverSessionV1(session, Fixtures.message(IrohaPeerPayloadKind.REQUEST).encode()))
         val bridge = bridge(endpoint, Callbacks())
         val sent = CopyOnWriteArrayList<ByteArray>()
         val dispatcher = IrohaPeerNfcHostApduDispatcherV1(aid, { bridge }, { it.run() }, { sent += it })
-        val getAsk = IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetAsk)
-        fun answer(): IrohaPeerNfcAPDUResponseV1 = IrohaPeerNfcAPDUResponseV1.decode(requireNotNull(dispatcher.process(getAsk)))
-
-        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, answer().statusWord)
         assertContentEquals(byteArrayOf(0x90.toByte(), 0x00), dispatcher.process(IrohaPeerNfcAidSelectionV1(aid).command()))
-        val asked = answer()
-        assertEquals(IrohaPeerNfcStatusWordV1.SUCCESS, asked.statusWord)
-        assertContentEquals(ask.encode(), asked.data())
-        // GET_ASK is answered synchronously and never reaches the wallet callbacks.
+        for (instruction in listOf(0x31, 0x32, 0x33, 0x34)) {
+            val raw = byteArrayOf(0x80.toByte(), instruction.toByte(), 0, 0, 0)
+            val response = IrohaPeerNfcAPDUResponseV1.decode(requireNotNull(dispatcher.process(raw)))
+            assertEquals(IrohaPeerNfcStatusWordV1.INSTRUCTION_NOT_SUPPORTED, response.statusWord)
+        }
         assertTrue(queued.isEmpty())
         assertTrue(sent.isEmpty())
-
-        // Once the Offer is bound the card no longer asks.
-        val offer = Fixtures.message(IrohaPeerPayloadKind.OFFER)
-        val offerBytes = offer.encode()
-        bridge.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerBytes.copyOfRange(0, 84)))
-        bridge.send(IrohaPeerNfcCommandV1.WriteOffer(session, offer.wireHash, 0, offerBytes))
-        bridge.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offer.wireHash))
-        assertEquals(IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST, endpoint.intakeRecord().state)
-        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, answer().statusWord)
-
-        // A card without an ask answers 6985.
-        val plain = bridge(IrohaPeerNfcCardEndpointV1.intake(aid, policy), Callbacks())
-        assertEquals(
-            IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED,
-            plain.send(IrohaPeerNfcCommandV1.GetAsk).responses.single().statusWord,
-        )
+        assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, endpoint.intakeRecord().state)
     }
 
     /** Exchange-bound wallet envelopes of `fixtures/kagemusha/wallet_v1_vectors.json`, in IPM1. */
@@ -362,6 +293,7 @@ class IrohaPeerNfcCardBridgeV1Test {
         fun message(kind: IrohaPeerPayloadKind): IrohaPeerWireMessageV1 = IrohaPeerKagemushaWalletAdapterV1.wrap(
             hex(envelopes.first { (it["tag"] as Number).toInt() == kind.code }["canonical_hex"]),
             destinationAccountOriginal = if (kind == IrohaPeerPayloadKind.REQUEST) account else null,
+            payerCompanion = if (kind == IrohaPeerPayloadKind.PAYMENT) ByteArray(900) { 7 } else null,
         )
     }
 }

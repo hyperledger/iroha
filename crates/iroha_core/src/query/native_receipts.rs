@@ -506,7 +506,8 @@ mod tests {
         for malformed in [&[][..], &[0xFF][..]] {
             let mut payload = view.as_bytes();
             let mut replaced = Vec::new();
-            for field_index in 0..5 {
+            // Preserve all six fields, including the retained SCCP delta.
+            for field_index in 0..6 {
                 let (length, prefix) =
                     norito::core::read_len_from_slice_with_flags(payload, view.flags()).unwrap();
                 let value = &payload[prefix..prefix + length];

@@ -66,7 +66,9 @@ pub(crate) fn payload(input: &TransactionEntrypoint) -> Option<&TransactionPaylo
     match input {
         TransactionEntrypoint::External(signed) => Some(signed.payload()),
         TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction().payload()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 

@@ -228,7 +228,13 @@ impl<'borrow, 'block, 'state> WsvLedger<'borrow, 'block, 'state> {
     }
     pub(crate) fn retain_request(&mut self, request: KagemushaWalletRequestV1) -> Result<()> {
         let scheme = request.body.scheme_id;
-        request.verify(
+        // Every payer's completion of one open Request shares its signature and digest, so the
+        // ledger keeps the payer-neutral open form; a fee claim completes it from its Payment.
+        let request = KagemushaWalletRequestV1 {
+            body: request.body.open(),
+            ..request
+        };
+        request.verify_open(
             &self
                 .registration(&scheme, &request.body.asset_digest)?
                 .scheme,

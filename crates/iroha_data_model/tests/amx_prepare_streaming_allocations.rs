@@ -26,6 +26,7 @@ thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
     static DENIAL_ACTIVE: Cell<bool> = const { Cell::new(false) };
     static DENIAL_LAYOUT: Cell<Option<Layout>> = const { Cell::new(None) };
+    static DENIAL_SKIP: Cell<usize> = const { Cell::new(0) };
     static DENIAL_OCCURRED: Cell<bool> = const { Cell::new(false) };
     // Each allocation entry point has its own observable count.
     static REQUESTS: Cell<[usize; 3]> = const { Cell::new([0; 3]) };
@@ -42,11 +43,22 @@ static ALLOCATOR: TrackingAllocator = TrackingAllocator;
 /// The operation must use fallible allocation. Other layouts and threads are unaffected.
 /// The Boolean proves the allocator received the selected request; no error is fabricated.
 pub fn with_exact_allocation_denial<T>(layout: Layout, operation: impl FnOnce() -> T) -> (T, bool) {
+    with_nth_exact_allocation_denial(layout, 0, operation)
+}
+
+/// Refuse one actual matching request after `skip` earlier matching requests succeed.
+/// Other layouts/threads remain untouched; this observes real constructor prefixes.
+pub fn with_nth_exact_allocation_denial<T>(
+    layout: Layout,
+    skip: usize,
+    operation: impl FnOnce() -> T,
+) -> (T, bool) {
     struct Restore;
     impl Drop for Restore {
         fn drop(&mut self) {
             let _ = DENIAL_LAYOUT.try_with(|selected| selected.set(None));
             let _ = DENIAL_ACTIVE.try_with(|active| active.set(false));
+            let _ = DENIAL_SKIP.try_with(|skip| skip.set(0));
         }
     }
     assert!(
@@ -55,6 +67,7 @@ pub fn with_exact_allocation_denial<T>(layout: Layout, operation: impl FnOnce() 
     );
     DENIAL_ACTIVE.with(|active| active.set(true));
     DENIAL_OCCURRED.with(|occurred| occurred.set(false));
+    DENIAL_SKIP.with(|remaining| remaining.set(skip));
     DENIAL_LAYOUT.with(|selected| selected.set(Some(layout)));
     let restore = Restore;
     let result = operation();
@@ -67,6 +80,18 @@ fn deny_exact_layout(layout: Layout) -> bool {
     DENIAL_LAYOUT
         .try_with(|selected| {
             if selected.get() == Some(layout) {
+                let skipped = DENIAL_SKIP
+                    .try_with(|remaining| {
+                        let count = remaining.get();
+                        if count != 0 {
+                            remaining.set(count - 1);
+                        }
+                        count != 0
+                    })
+                    .unwrap_or(false);
+                if skipped {
+                    return false;
+                }
                 selected.set(None);
                 let _ = DENIAL_OCCURRED.try_with(|occurred| occurred.set(true));
                 true

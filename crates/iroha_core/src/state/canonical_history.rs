@@ -249,7 +249,7 @@ impl<'a> CanonicalHistorySource<'a> {
     fn block_with_original_admission(
         &self,
         height: NonZeroUsize,
-        original: Option<&crate::kura::NativeFrameRead<'_>>,
+        original: Option<&mut crate::kura::NativeFrameRead<'_>>,
         mut before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
     ) -> Result<iroha_data_model::block::SharedSignedBlock, ExecutionAttemptError<QueryExecutionFail>>
     {
@@ -284,34 +284,38 @@ impl<'a> CanonicalHistorySource<'a> {
                 QueryExecutionFail::Conversion(reason)
             })
         };
-        let source = self
+        let mut source = self
             .kura
             .native_frame_read(height_u64, expected)
             .map_err(storage_error)?
             .ok_or_else(missing)?;
-        let source = match original {
-            Some(original) if original.same_original_slot(&source) => original,
-            Some(_) => {
-                return Err(QueryExecutionFail::Conversion(
-                    "native event target differs from its original admitted slot".into(),
-                )
-                .into());
-            }
-            None => &source,
+        // Keep the two archive borrows independent; selecting a mutable handle
+        // must not equate the descriptor's lifetime with this captured State view.
+        let mut read = |source: &mut crate::kura::NativeFrameRead<'_>| {
+            let wire_len = source.wire_len();
+            before_read(1, wire_len)?;
+            let shell = SharedSignedBlock::reserve(&self.budget)
+                .map_err(|error| ExecutionAttemptError::Deferred(error.into()))?;
+            let bytes = source
+                .read_original(wire_len, &self.budget)
+                .map_err(storage_error)?
+                .ok_or_else(missing)?;
+            let block = iroha_data_model::block::decode_framed_signed_block(&bytes)
+                .map_err(canonical_source_error)?;
+            authenticate_canonical_block(height, expected, Some(shell.initialize(block))).map_err(
+                |error| {
+                    ExecutionAttemptError::Rejected(QueryExecutionFail::CanonicalHistory(error))
+                },
+            )
         };
-        let wire_len = source.wire_len();
-        before_read(1, wire_len)?;
-        let shell = SharedSignedBlock::reserve(&self.budget)
-            .map_err(|error| ExecutionAttemptError::Deferred(error.into()))?;
-        let bytes = source
-            .read_original(wire_len, &self.budget)
-            .map_err(storage_error)?
-            .ok_or_else(missing)?;
-        let block = iroha_data_model::block::decode_framed_signed_block(&bytes)
-            .map_err(canonical_source_error)?;
-        authenticate_canonical_block(height, expected, Some(shell.initialize(block))).map_err(
-            |error| ExecutionAttemptError::Rejected(QueryExecutionFail::CanonicalHistory(error)),
-        )
+        match original {
+            Some(original) if original.same_original_slot(&source) => read(original),
+            Some(_) => Err(QueryExecutionFail::Conversion(
+                "native event target differs from its original admitted slot".into(),
+            )
+            .into()),
+            None => read(&mut source),
+        }
     }
 
     /// Read execution identity through the original State tip, without inspecting
@@ -407,7 +411,7 @@ impl<'a> CanonicalHistorySource<'a> {
         &self,
         first: NonZeroUsize,
         last: NonZeroUsize,
-        original_target: &crate::kura::NativeFrameRead<'_>,
+        original_target: &mut crate::kura::NativeFrameRead<'_>,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
         mut visit: impl FnMut(
             crate::sumeragi::certified_chain::CommittedBlock,
@@ -510,7 +514,7 @@ impl<'a> CanonicalHistorySource<'a> {
         start: WalkStart,
         first: NonZeroUsize,
         last: NonZeroUsize,
-        original_target: Option<&crate::kura::NativeFrameRead<'_>>,
+        mut original_target: Option<&mut crate::kura::NativeFrameRead<'_>>,
         mut before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
         mut visit: impl FnMut(
             crate::sumeragi::certified_chain::AdmittedCommittedBlock,
@@ -561,7 +565,7 @@ impl<'a> CanonicalHistorySource<'a> {
                 )));
             }
             let original = if source_height == selected_last {
-                original_target
+                original_target.as_deref_mut()
             } else {
                 None
             };

@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     circuit::PrefixMode,
     vectors::{Mutation, sample_witness},
-    witness::SigmaRelation,
+    witness::{SigmaRelation, Violation},
 };
 use ff::Field;
 use iroha_plonk::{
@@ -92,6 +92,67 @@ impl Inline {
     }
     fn accepts(&self) -> bool {
         check_circuit(self, 16, &[], CheckMode::Strict).is_ok_and(|r| r.is_satisfied())
+    }
+}
+
+#[test]
+fn send_single_control_masks_bind_the_known_inline_relation() {
+    for (mask, mutation, violation) in [
+        (1, Mutation::QuotaExceeded, Violation::QuotaExceeded),
+        (2, Mutation::LeaseExpired, Violation::LeaseExpired),
+    ] {
+        let seed = 17 + u64::from(mask);
+        let relation = SigmaRelation::send(mask);
+        let step = sample_witness::<Fp>(seed, relation, Mutation::None);
+        let native = step.evaluate(relation);
+        assert!(native.is_honest(), "Send mask{mask}");
+        let honest = Inline {
+            statement: native.statement,
+            step,
+            native,
+            variant: Variant::Send,
+            relation,
+            known: true,
+        };
+        let report = check_circuit(&honest, 16, &[], CheckMode::Strict)
+            .expect("honest Send inline relation must synthesize");
+        assert!(report.is_satisfied(), "Send mask{mask}");
+        for field in [11, 15] {
+            let mut changed = honest.clone();
+            changed.statement[field] += Fp::ONE;
+            let report = check_circuit(&changed, 16, &[], CheckMode::Strict)
+                .expect("changed Send statement must reach constraint checking");
+            assert!(
+                !report.is_satisfied(),
+                "Send mask{mask} statement field{field}"
+            );
+        }
+        // Match the digest reference and statement to the corrupted witness so
+        // host digest checks cannot mask a missing quota/lease constraint. The
+        // strict checker must obtain a report, then reject the control violation.
+        let step = sample_witness::<Fp>(seed, relation, mutation);
+        let native = step.evaluate(relation);
+        assert!(
+            native.violations.contains(&violation),
+            "Send mask{mask} {mutation:?}"
+        );
+        let corrupted = Inline {
+            statement: native.statement,
+            step,
+            native,
+            ..honest.clone()
+        };
+        let report = check_circuit(&corrupted, 16, &[], CheckMode::Strict)
+            .expect("corrupted Send control must reach constraint checking");
+        assert!(!report.is_satisfied(), "Send mask{mask} {mutation:?}");
+        let known = synthesize(&honest, 16, None).unwrap();
+        let unknown = synthesize(&honest.without_witnesses(), 16, None).unwrap();
+        assert_eq!(known.tables.fixed(), unknown.tables.fixed());
+        assert_eq!(known.tables.permutation(), unknown.tables.permutation());
+        assert_eq!(
+            known.tables.advice_assigned(),
+            unknown.tables.advice_assigned()
+        );
     }
 }
 

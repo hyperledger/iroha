@@ -156,9 +156,8 @@ fn proof_fixture_uses_supplied_id_and_updates_status_index_without_finality() {
         assert!(
             view.world()
                 .proofs_by_status()
-                .get(&status)
-                .expect("status row")
-                .contains(&id)
+                .get(&(status, id.clone()))
+                .is_some()
         );
     }
     let view = state.view();
@@ -166,8 +165,8 @@ fn proof_fixture_uses_supplied_id_and_updates_status_index_without_finality() {
         !view
             .world()
             .proofs_by_status()
-            .get(&ProofStatus::Verified)
-            .is_some_and(|ids| ids.contains(&id))
+            .get(&(ProofStatus::Verified, id.clone()))
+            .is_some()
     );
 }
 
@@ -186,8 +185,8 @@ fn proof_tag_fixture_deduplicates_both_indexes_without_finality() {
     );
     for tag in [*b"AAAA", *b"ZZZZ"] {
         assert_eq!(
-            view.world().proofs_by_tag().get(&tag),
-            Some(&vec![id.clone()])
+            view.world().proofs_by_tag().get(&(tag, id.clone())),
+            Some(&())
         );
     }
 }

@@ -57,7 +57,7 @@ fn sample_world_rollback_publication_and_readers_retain_original_pool() {
     // EBR uses a process-global collector: isolate only this exact test so unrelated
     // test guards cannot postpone the reclamation these assertions measure.
     let pool = AllocationBudget::new(16 * 1024 * 1024);
-    let mut world = crate::state::World::new();
+    let mut world = crate::state::World::try_with_execution_budget([], [], [], &pool).unwrap();
     world.sumeragi_lanes = mv::cell::Cell::new(state(&pool));
     let reader = world.sumeragi_lanes.view();
     let pointer = reader.samples.as_ptr();

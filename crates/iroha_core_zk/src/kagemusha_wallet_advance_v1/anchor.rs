@@ -28,7 +28,7 @@
 //! Successful mutation acknowledgement is required even when a read finds the target value:
 //! readback resolves visibility, not persistence. Selected and Released acknowledgements
 //! protect against loss of only the final anchor write. They do not establish a bound on
-//! writes lost to power failure; the public SecItem API documents no durability fence.
+//! writes lost to power failure; the public `SecItem` API documents no durability fence.
 // TODO(G2-iOS): establish the platform persistence contract and qualify physical restore and
 // power-loss schedules. Loss of both Selected and Released updates followed by restoration
 // of pre-Advance files remains undetected if the payment key survives.
@@ -241,6 +241,9 @@ pub(super) fn kagemusha_wallet_create_anchor_v1<P: KagemushaWalletPlatformV1 + ?
         return Ok(());
     }
     let none = KagemushaWalletAnchorV1::none();
+    // The anchor only follows custody observed just now (custody transaction fence).
+    super::store::kagemusha_wallet_custody_fence_v1()
+        .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
     match platform.anchor_create(slot, &none.encode()?) {
         KagemushaWalletPublishOutcomeV1::Published => Ok(()),
         KagemushaWalletPublishOutcomeV1::NotPublished(
@@ -297,6 +300,9 @@ fn acknowledge_update<P: KagemushaWalletPlatformV1 + ?Sized>(
     slot: &KagemushaWalletSlotIdV1,
     target: &KagemushaWalletAnchorV1,
 ) -> Result<(), KagemushaWalletProviderErrorV1> {
+    // The anchor only follows custody observed just now (custody transaction fence).
+    super::store::kagemusha_wallet_custody_fence_v1()
+        .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
     match platform.anchor_update(slot, &target.encode()?) {
         KagemushaWalletPublishOutcomeV1::Published => Ok(()),
         KagemushaWalletPublishOutcomeV1::NotPublished(reason) => Err(not_published(reason)),

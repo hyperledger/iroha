@@ -4,7 +4,7 @@ use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
     a_relation::bootstrap::BootstrapPolicy,
     admin_sigma::BootstrapWitness,
-    operation_relation::objects::ObjectKind,
+    operation_relation::objects::{ObjectKind, signed_message_native},
     q_signature::{
         QSignatureCircuit, QSignaturePlan, SignatureKey, SignatureSlot, SignatureWitness,
     },
@@ -28,10 +28,7 @@ pub struct Signed {
 impl Signed {
     pub fn digest(&self) -> Fp {
         let end = self.kind.body_len();
-        let mut fields = vec![p_bytes_native(
-            self.kind.signing_domain(),
-            &self.bytes[..end],
-        )];
+        let mut fields = vec![signed_message_native(self.kind, &self.bytes[..end])];
         for offset in [16, 0, 48, 32] {
             fields.push(Fp::from_u128(u128::from_be_bytes(
                 self.bytes[end + offset..end + offset + 16]
@@ -71,7 +68,7 @@ pub fn small_id(a: u64, b: u64) -> Vec<u8> {
 }
 pub fn sign(kind: ObjectKind, mut body: Vec<u8>, secret: u64, nonce: u64) -> Signed {
     assert_eq!(body.len(), kind.body_len());
-    let digest = p_bytes_native(kind.signing_domain(), &body);
+    let digest = signed_message_native(kind, &body);
     let message_bytes = sha256_of_digest(&digest);
     let message = core::array::from_fn(|i| {
         u64::from_be_bytes(message_bytes[(3 - i) * 8..(4 - i) * 8].try_into().unwrap())

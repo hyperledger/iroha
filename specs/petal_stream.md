@@ -323,6 +323,26 @@ The reference algorithm, which the golden captures are calibrated to:
    division: lane `D` 0, 1, 2, 3, 5; lane `P` 0, 1, 3, 4, 6; lane `K` 0, 5, 11, 15, 22), and for lane `K` only also ⅔ (30).
    Lanes `D` and `P` stop at ½: with 11 and 13 parity bytes, a further erasure step leaves so few spare ones that it lets wrong
    codewords through (§11).
+7. **Merging the captures of one shown frame.** A camera sees each shown frame three or four times (30 fps against 8–10 fps),
+   and noise, display banding or hand shake can cost every one of those captures a tile lane. A scan session therefore keeps
+   the *tile evidence* of each capture that reads some lane but not both tile lanes of its frame: the 8×8 patch of every tile
+   sampled as in step 5 under that capture's pose, in camera levels, and that capture's finder levels (step 2). The capture's
+   shown frame is the `(tag, frame)` header (§5.3) that every lane decoded from it names; a capture whose lanes name different
+   frames (torn by a frame change) is not kept. Evidence is kept for the last 6 shown frames and at most 4 captures each (a
+   further capture replaces the oldest; about 128 KB per capture, 3 MB at most), and is dropped once both tile lanes of the
+   frame are read. Replacing an already active stream identity clears held evidence and completed-lane flags, even
+   when the new stream shares its 8-bit tag and frame counter. Accepting the first beacon keeps valid pre-beacon evidence.
+   From the second capture of a frame on, the session merges its captures:
+   * *Level read*: the patches of every capture are levelled by its own finder levels as in step 5, averaged cell by cell
+     (summed in capture order, then divided by the number of captures) and classified as in step 5.
+   * *Normalised read*, only for a lane the level read could not decode: the raw patches are averaged the same way, then read as
+     in step 5.
+   * Reed–Solomon as in step 6.
+
+   The session offers a merged lane only when its own header names the frame it was merged for, and counts merges and merged
+   lanes apart from single-capture lanes. For one template blur, averaging picks the hypothesis with the least template error
+   summed over the captures, and it averages sensor noise down; merging one capture reads exactly what that capture read alone.
+   Picking each tile from the capture most sure of it recovered less in every simulated condition (§8).
 
 **Tracking.** A scan session that decoded a frame reads the next ones by following that pose instead of searching the
 whole image, as long as the pose is at most 500 ms old. Each corner finder is re-found from where the previous pose puts it:
@@ -399,16 +419,40 @@ with a modern or legacy camera (lane `K` readable in 95–96 % of frames), **16.
 of 0.35 a legacy camera still completes as fast as in nominal light; without the normalised read of §7 step 5 a 7 552-byte
 payload needed 72 s and 32 s instead of 8.6 s. Completion was 100 % and no wrong payload was ever delivered.
 
+Merging the captures of one shown frame (§7 step 7) pays where those captures differ: sensor noise, display banding whose phase
+moves from capture to capture, and hand shake in a new direction each time. It cannot sharpen what every capture shares (focus
+blur, the pose, a 480p preview's pixels). Simulated for a 12,064-byte message with 6 trials of a 180 s horizon, the stresses
+redrawn for every capture (hand shake 0.5–1.5× its length in a new direction, banding with a new phase), the same trials
+received with and without merging:
+
+| Condition | Shown frames with lane `K`, single → merged | 8 fps, single → merged | 10 fps, single → merged |
+| --- | --- | --- | --- |
+| soft focus σ 1.8 px with sensor noise 13 | 34 → 44 % | 27.3 → 22.8 s (−16 %) | 23.1 → 20.5 s (−11 %) |
+| banding 50 % deep, 80 px period, legacy 720p | 2 → 2 % (lane `P` 4 → 31 %) | 103.8 → 79.9 s (−23 %) | 88.2 → 71.3 s (−19 %) |
+| banding 50 % deep, 80 px period, modern 720p | 12 → 13 % (lane `P` 40 → 55 %) | 54.1 → 46.9 s (−13 %) | 49.4 → 44.2 s (−11 %) |
+| hand shake 6 px, modern 720p | 82 → 88 % | 16.1 → 15.1 s (−6 %) | 14.2 → 13.2 s (−7 %) |
+| hand shake 4 px, legacy 720p | 89 → 92 % | 15.1 → 14.8 s (−2 %) | 13.0 → 12.5 s (−4 %) |
+| soft 720p camera (σ 1.8 px, noise 6) | 59 → 62 % | 19.9 → 19.2 s (−3 %) | 16.9 → 16.5 s (−2 %) |
+| nominal modern and legacy, noise 13–20 on a sharp camera, banding 30 % deep | 100 → 100 % | no change | no change |
+| focus blur alone (σ 2.0–2.2 px), 480p | unchanged | no change | no change |
+
+No merged lane was ever wrong. Picking each tile from the capture most sure of it instead of averaging recovered less in every
+row (soft focus with noise: 37 % of shown frames with lane `K` and 25.4 s, against 44 % and 22.8 s). The gain depends on how
+often real captures of one frame disagree, which the `ScanStats` merge counters of the device protocol show, and it needs every
+camera frame at the decoder: an app that drops frames leaves fewer captures to merge.
+
 Decode cost: at 1280×720 the reference decoder needs about 7.5 ms for a full search and 2 ms to track the pose of the
 previous frame; a frame whose corner blossom is hidden costs about 21 ms the first time (all three thresholds, the corner
 search) and is then tracked. A 7.5 KB stream through a tracking session averages 2.6–4.8 ms per camera frame, against
-7–12 ms without tracking. Ports are expected to stay within a factor of 20 of the reference.
+7–12 ms without tracking. A merge of three captures costs about two tracked decodes and runs only for captures that miss a
+tile lane. Ports are expected to stay within a factor of 20 of the reference.
 
 What this does and does not establish: it shows the format and decoder degrade gracefully — the lane that fails first is the
 katakana lane, then polarity, then the dots — and that localisation does not depend on the content. It does not replace
 physical qualification on the approved device list (autofocus behaviour, rolling shutter, OLED PWM flicker,
 screen glare and real ISP sharpening are only modelled). The device protocol is: show the stream at 8 fps at maximum brightness, hold the
-phone 20–30 cm away, record time-to-complete over 20 runs per device and distance, and file the lane statistics from `ScanStats`.
+phone 20–30 cm away, record time-to-complete over 20 runs per device and distance, and file the lane statistics from `ScanStats` (single-capture
+lanes, merges and merged lanes).
 
 Scanner guidance that follows from the lighting rows: a phone camera left on automatic exposure over-exposes a mostly black
 screen, so a scanner should use exposure compensation of about −1 EV (−2 EV on old cameras) where the camera API offers it, or lock
@@ -447,11 +491,18 @@ the beacon of one frame.
   `must_decode` lanes, the lanes the reference decoder reads (`reference_decoded`), the expected lane data, a `mirrored` flag
   and the `inferred_corner` (null, or the canonical index of a hidden corner blossom); two tracking pairs (`tracks`: a first
   frame to decode and a second frame to read by tracking its pose, with `must_track`, `reference_tracked` and
-  `inferred_corner`); and two negatives. A decoder must read the required lanes, must never return a lane with wrong data, must
-  reject the negatives, and conforming ports reproduce `reference_decoded`, `reference_tracked` and the inferred corners
-  exactly. Three captures exist for the normalised tile read of §7 (an over-exposed frame, veiling light, a shadow band), two for
-  the inferred corner (a covered blossom, a corner outside the frame), and the tracking pairs cover a small hand movement and a
-  thumb arriving over a blossom between two frames.
+  `inferred_corner`); two merge sets (`merges`: three or four 480p captures of one shown frame under one pose, each with its
+  own sensor noise or banding phase, with per-capture `must_decode` and `reference_decoded`, `must_merge` for the lanes the
+  merge of §7 step 7 must recover although no capture reads them alone, and `reference_merged`); one mixed set (`mixed_merges`:
+  three captures whose rings show `frame` and whose tile field shows `tiles_frame`, with `reference_merged` for what the merge
+  of their tile evidence reads); and two negatives. A decoder must read the required lanes, must never return a lane with wrong
+  data, must reject the negatives, and conforming ports reproduce `reference_decoded`, `reference_tracked`, `reference_merged`
+  and the inferred corners exactly. A scan session fed the captures of a merge set in order (30 fps) must recover its
+  `must_merge` lanes, and fed a mixed set it must merge but never offer a lane, since the merged lanes name `tiles_frame`.
+  Three captures exist for the normalised tile read of §7 (an over-exposed frame, veiling light, a shadow band), two for
+  the inferred corner (a covered blossom, a corner outside the frame), the tracking pairs cover a small hand movement and a
+  thumb arriving over a blossom between two frames, and the merge sets cover sensor noise (lane `K` from four captures) and
+  display banding (lane `P` from three captures that read only lane `D`).
 * Regenerate with `cargo run -p iroha_petal --example gen_fixtures -- fixtures/petal/petal_stream_v1.json` and
   `cargo run --release -p iroha_petal --example gen_captures -- fixtures/petal/petal_captures_v1.json`; `cargo test -p iroha_petal`
   fails if the files and the reference drift apart.

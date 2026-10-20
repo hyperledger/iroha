@@ -751,3 +751,169 @@ fn prepared_signature_custody_observation_requires_exact_source_and_completed_ow
     drop(foreign_source);
     assert_eq!(foreign.reserved_bytes(), 0);
 }
+
+mod penalty_action_tests;
+
+mod parent_service_tests;
+
+#[test]
+fn prepared_block_counter_physical_refusals_keep_original_charges_prefix_source_and_retry() {
+    use crate::amx_prepare_streaming_allocations::{
+        PhysicalObservation, with_nth_exact_allocation_denial,
+    };
+    for refused_counter in 0..2 {
+        let pool = AllocationBudget::new(1024 * 1024);
+        let foreign = AllocationBudget::new(pool.limit_bytes());
+        let original = fixture(1);
+        let wire = original.encode_wire().unwrap();
+        let (mut source, span) = source_for(&original, &pool);
+        let (substitution, _) = source_for(&original, &pool);
+        let (foreign_source, _) = source_for(&original, &foreign);
+        let source_pointer = source.as_slice().as_ptr();
+        let source_floor = pool.reserved_bytes();
+        let layouts = PreparedDecodeWorkspace::allocation_layouts();
+        assert_eq!(layouts[0], layouts[1]);
+        let controls: usize = layouts.iter().map(std::alloc::Layout::size).sum();
+        let mut decoder = PreparedSignedBlockSignaturesDecode::new(&pool).unwrap();
+        assert_eq!(pool.reserved_bytes(), source_floor + controls);
+        assert!(decoder.workspace.is_none());
+        let observation = PhysicalObservation::start();
+        let (result, refused) =
+            with_nth_exact_allocation_denial(layouts[0], refused_counter, || {
+                decoder.decode(&source, span, norito::canonical_decode_limits(wire.len()))
+            });
+        assert!(
+            refused,
+            "the actual selected counter allocation must be reached"
+        );
+        assert!(
+            matches!(result, Err(PreparedSignatureBlockError::ControlBacking(
+            SharedFromChargeError::Allocator { layout })) if layout == layouts[0])
+        );
+        assert_eq!(
+            pool.reserved_bytes(),
+            source_floor + controls,
+            "prepared block constructor refusal must retain both original counter charges"
+        );
+        assert!(decoder.belongs_to(&pool) && !decoder.belongs_to(&foreign));
+        assert!(decoder.workspace.is_none());
+        let first = observation.snapshot().single_live_pointer(layouts[0]);
+        assert_eq!(first.is_some(), refused_counter == 1);
+        for invalid in [
+            (&substitution, span),
+            (
+                &source,
+                SequenceSpan {
+                    start: span.start + 1,
+                    end: span.end,
+                },
+            ),
+        ] {
+            assert!(matches!(
+                decoder.decode(
+                    invalid.0,
+                    invalid.1,
+                    norito::canonical_decode_limits(wire.len())
+                ),
+                Err(PreparedSignatureBlockError::SourceChanged)
+            ));
+        }
+        assert!(matches!(
+            decoder.decode(
+                &foreign_source,
+                span,
+                norito::canonical_decode_limits(wire.len())
+            ),
+            Err(PreparedSignatureBlockError::Source)
+        ));
+        // Full original source includes the prefix outside the canonical frame.
+        source.as_mut_slice()[0] ^= 1;
+        assert!(matches!(
+            decoder.decode(&source, span, norito::canonical_decode_limits(wire.len())),
+            Err(PreparedSignatureBlockError::SourceChanged)
+        ));
+        source.as_mut_slice()[0] ^= 1;
+        let checkpoint = observation.checkpoint();
+        let (again, refused) = with_nth_exact_allocation_denial(layouts[0], 0, || {
+            decoder.decode(&source, span, norito::canonical_decode_limits(wire.len()))
+        });
+        assert!(refused);
+        assert!(
+            matches!(again, Err(PreparedSignatureBlockError::ControlBacking(
+            SharedFromChargeError::Allocator { layout })) if layout == layouts[0])
+        );
+        assert_eq!(observation.since(checkpoint).requests(), [1, 0, 0]);
+        assert_eq!(pool.reserved_bytes(), source_floor + controls);
+        if let Some(first) = first {
+            assert_eq!(observation.snapshot().retirements(first), 0);
+        }
+        let blocker = pool
+            .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+            .unwrap();
+        decoder.prepare_workspace().unwrap();
+        assert!(decoder.workspace_construction.is_none() && decoder.workspace.is_some());
+        assert_eq!(
+            pool.reserved_bytes(),
+            pool.limit_bytes(),
+            "counter retry cannot need replacement credit"
+        );
+        if let Some(first) = first {
+            assert_eq!(observation.snapshot().retirements(first), 0);
+        }
+        drop(observation);
+        drop(blocker);
+        let decoded = decoder
+            .decode(&source, span, norito::canonical_decode_limits(wire.len()))
+            .unwrap();
+        assert_eq!(source.as_slice().as_ptr(), source_pointer);
+        assert_eq!(decoded.encode_wire().unwrap(), wire);
+        assert!(decoded.signatures_admitted_to(&pool));
+        drop(decoded);
+        drop(decoder);
+        assert_eq!(pool.reserved_bytes(), source_floor);
+        drop(source);
+        drop(substitution);
+        drop(foreign_source);
+        assert_eq!(pool.reserved_bytes(), 0);
+        assert_eq!(foreign.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn original_shared_block_charge_survives_actual_allocator_refusal_and_retries_without_credit() {
+    use crate::amx_prepare_streaming_allocations::with_exact_allocation_denial;
+    let layout = SharedSignedBlock::allocation_layout();
+    let pool = AllocationBudget::new(layout.size() + 4096);
+    let original = fixture(1);
+    let wire = original.encode_wire().unwrap();
+    let mut reservation = pool.try_reserve(layout).unwrap();
+    let charge = reservation.try_split(layout).unwrap();
+    drop(reservation);
+    let (result, refused) =
+        with_exact_allocation_denial(layout, || SharedSignedBlock::reserve_from_charge(charge));
+    assert!(refused);
+    let (charge, error) = match result {
+        Err(error) => error,
+        Ok(_) => panic!("actual shared allocation refused"),
+    };
+    assert!(
+        matches!(error, SharedFromChargeError::Allocator { layout: observed } if observed == layout)
+    );
+    assert_eq!(charge.layout(), layout);
+    assert!(charge.belongs_to(&pool));
+    assert_eq!(pool.reserved_bytes(), layout.size());
+    let blocker = pool.try_reserve_bytes(4096).unwrap();
+    let shell = SharedSignedBlock::reserve_from_charge(charge)
+        .unwrap_or_else(|_| panic!("reuse original charge"));
+    let block = shell.initialize(original);
+    let reader = block.clone();
+    assert!(SharedSignedBlock::ptr_eq(&reader, &block));
+    assert!(reader.belongs_to(&pool));
+    assert_eq!(reader.encode_wire().unwrap(), wire);
+    drop(block);
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    drop(reader);
+    assert_eq!(pool.reserved_bytes(), 4096);
+    drop(blocker);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

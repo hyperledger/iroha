@@ -90,11 +90,19 @@ fn stage(block: &mut StateBlock<'_>) {
     block
         .world
         .proofs_by_status
-        .insert(ProofStatus::Submitted, BTreeSet::from([id(3)]));
+        .remove((ProofStatus::Submitted, id(0)));
     block
         .world
         .proofs_by_status
-        .insert(ProofStatus::Verified, BTreeSet::from([id(0)]));
+        .remove((ProofStatus::Verified, id(1)));
+    block
+        .world
+        .proofs_by_status
+        .insert((ProofStatus::Submitted, id(3)), ());
+    block
+        .world
+        .proofs_by_status
+        .insert((ProofStatus::Verified, id(0)), ());
 }
 fn assert_equal(actual: &CanonicalTablePairedSnapshot, expected: &CanonicalTablePairedSnapshot) {
     assert_eq!(actual.table_id(), expected.table_id());
@@ -104,6 +112,15 @@ fn assert_equal(actual: &CanonicalTablePairedSnapshot, expected: &CanonicalTable
     assert_eq!(actual.ordered_root(), expected.ordered_root());
 }
 fn restore_current_index(block: &mut StateBlock<'_>) {
+    let keys: Vec<_> = block
+        .world
+        .proofs_by_status
+        .iter()
+        .map(|(key, ())| key.clone())
+        .collect();
+    for key in keys {
+        block.world.proofs_by_status.remove(key);
+    }
     for (tag, status) in [
         ProofStatus::Submitted,
         ProofStatus::Verified,
@@ -113,8 +130,11 @@ fn restore_current_index(block: &mut StateBlock<'_>) {
     .enumerate()
     {
         block.world.proofs_by_status.insert(
-            status,
-            BTreeSet::from([id(u8::try_from(tag).expect("fixture value fits u8"))]),
+            (
+                status,
+                id(u8::try_from(tag).expect("fixture value fits u8")),
+            ),
+            (),
         );
     }
 }
@@ -174,7 +194,7 @@ fn moved_deleted_inserted_and_absent_rows_use_one_bounded_original_relation() {
 }
 
 #[test]
-fn missing_foreign_empty_and_wrong_status_members_fail_in_both_original_images() {
+fn missing_foreign_orphan_and_wrong_status_members_fail_in_both_original_images() {
     for previous in [false, true] {
         for mutation in 0..4 {
             let mut world = world();
@@ -182,8 +202,8 @@ fn missing_foreign_empty_and_wrong_status_members_fail_in_both_original_images()
                 match mutation {
                     0 => {
                         world.proofs_by_status = [
-                            (ProofStatus::Verified, BTreeSet::from([id(1)])),
-                            (ProofStatus::Rejected, BTreeSet::from([id(2)])),
+                            ((ProofStatus::Verified, id(1)), ()),
+                            ((ProofStatus::Rejected, id(2)), ()),
                         ]
                         .into_iter()
                         .collect();
@@ -191,17 +211,18 @@ fn missing_foreign_empty_and_wrong_status_members_fail_in_both_original_images()
                     1 => {
                         world
                             .proofs_by_status
-                            .insert(ProofStatus::Verified, BTreeSet::new());
+                            .insert((ProofStatus::Verified, id(9)), ());
                     }
                     2 => {
                         world
                             .proofs_by_status
-                            .insert(ProofStatus::Submitted, BTreeSet::from([id(0), id(9)]));
+                            .insert((ProofStatus::Submitted, id(9)), ());
                     }
                     3 => {
                         world.proofs_by_status = [
-                            (ProofStatus::Verified, BTreeSet::from([id(1)])),
-                            (ProofStatus::Rejected, BTreeSet::from([id(0), id(2)])),
+                            ((ProofStatus::Verified, id(1)), ()),
+                            ((ProofStatus::Rejected, id(0)), ()),
+                            ((ProofStatus::Rejected, id(2)), ()),
                         ]
                         .into_iter()
                         .collect();
@@ -216,26 +237,32 @@ fn missing_foreign_empty_and_wrong_status_members_fail_in_both_original_images()
             } else {
                 match mutation {
                     0 => {
-                        block.world.proofs_by_status.remove(ProofStatus::Submitted);
+                        block
+                            .world
+                            .proofs_by_status
+                            .remove((ProofStatus::Submitted, id(0)));
                     }
                     1 => {
                         block
                             .world
                             .proofs_by_status
-                            .insert(ProofStatus::Verified, BTreeSet::new());
+                            .insert((ProofStatus::Verified, id(9)), ());
                     }
                     2 => {
                         block
                             .world
                             .proofs_by_status
-                            .insert(ProofStatus::Submitted, BTreeSet::from([id(0), id(9)]));
+                            .insert((ProofStatus::Submitted, id(9)), ());
                     }
                     3 => {
-                        block.world.proofs_by_status.remove(ProofStatus::Submitted);
                         block
                             .world
                             .proofs_by_status
-                            .insert(ProofStatus::Rejected, BTreeSet::from([id(0), id(2)]));
+                            .remove((ProofStatus::Submitted, id(0)));
+                        block
+                            .world
+                            .proofs_by_status
+                            .insert((ProofStatus::Rejected, id(0)), ());
                     }
                     _ => unreachable!(),
                 }
@@ -250,7 +277,7 @@ fn missing_foreign_empty_and_wrong_status_members_fail_in_both_original_images()
                 },
                 mismatch: match mutation {
                     0 | 3 => GroupMismatch::MissingMember,
-                    1 => GroupMismatch::EmptyGroup,
+                    1 => GroupMismatch::ForeignMember,
                     2 => GroupMismatch::ForeignMember,
                     _ => unreachable!(),
                 },
@@ -365,7 +392,7 @@ fn later_target_changes_cannot_replace_either_original_checked_image() {
     }
     {
         let mut index = state.world.proofs_by_status.block();
-        index.insert(ProofStatus::Submitted, BTreeSet::from([id(0), id(4)]));
+        index.insert((ProofStatus::Submitted, id(4)), ());
         index.commit();
     }
     assert_equal(
@@ -389,8 +416,8 @@ fn real_replacement_retains_rewound_proofs_and_exact_physical_work() {
         rows.insert(id(0), record(0, ProofStatus::Verified));
         rows.commit();
         let mut index = state.world.proofs_by_status.block();
-        index.remove(ProofStatus::Submitted);
-        index.insert(ProofStatus::Verified, BTreeSet::from([id(0), id(1)]));
+        index.remove((ProofStatus::Submitted, id(0)));
+        index.insert((ProofStatus::Verified, id(0)), ());
         index.commit();
     }
     let mut block = state.block_and_revert(header());
@@ -435,13 +462,13 @@ fn real_replacement_retains_rewound_proofs_and_exact_physical_work() {
 }
 
 #[test]
-fn original_index_admission_can_defer_empty_bucket_diagnosis_without_success() {
+fn original_index_admission_can_defer_orphan_membership_diagnosis_without_success() {
     for previous in [false, true] {
         let mut world = world();
         if previous {
             world
                 .proofs_by_status
-                .insert(ProofStatus::Submitted, BTreeSet::new());
+                .insert((ProofStatus::Submitted, id(9)), ());
         }
         let state = state(world);
         let mut block = state.block(header());
@@ -451,14 +478,20 @@ fn original_index_admission_can_defer_empty_bucket_diagnosis_without_success() {
             block
                 .world
                 .proofs_by_status
-                .insert(ProofStatus::Submitted, BTreeSet::new());
+                .insert((ProofStatus::Submitted, id(9)), ());
         }
         freeze(&mut block);
         let row_identity = block.world.proofs.publication_identity();
         let index_identity = block.world.proofs_by_status.publication_identity();
-        // The valid current image costs 264. The predecessor then admits three
-        // current plus three undo index rows before inspecting its empty bucket.
-        let diagnosis_work = if previous { 264 + 6 } else { 3 };
+        let original = Original::retain(&block).unwrap();
+        let diagnosis_work = (0..100_000)
+            .find(|work| {
+                !matches!(
+                    validate_original_proofs(&original.rows, &original.index, *work),
+                    Err(GroupedOwnershipError::WorkLimit)
+                )
+            })
+            .expect("finite orphan membership diagnosis");
         let corruption = || GroupedOwnershipError::Corrupt {
             index: "world.proofs_by_status",
             image: if previous {
@@ -466,7 +499,7 @@ fn original_index_admission_can_defer_empty_bucket_diagnosis_without_success() {
             } else {
                 GroupImage::Current
             },
-            mismatch: GroupMismatch::EmptyGroup,
+            mismatch: GroupMismatch::ForeignMember,
         };
         for allowance in [diagnosis_work - 1, diagnosis_work, 100_000] {
             assert_eq!(

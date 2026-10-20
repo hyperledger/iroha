@@ -19,7 +19,7 @@ use iroha_kagemusha_proof::{
         own::OwnPolicy,
     },
     admin_sigma::StateWitness,
-    operation_relation::objects::ObjectKind,
+    operation_relation::objects::{ObjectKind, signed_message_native},
 };
 use iroha_pasta::{Ep, Fp, poseidon::hash_with_domain};
 use iroha_plonk::{
@@ -46,7 +46,7 @@ fn frame(raw: &[u8]) -> Vec<u8> {
 }
 fn digest(kind: ObjectKind, raw: &[u8]) -> Fp {
     let end = kind.body_len();
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+    let mut words = vec![signed_message_native(kind, &raw[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             raw[end + offset..end + offset + 16].try_into().unwrap(),

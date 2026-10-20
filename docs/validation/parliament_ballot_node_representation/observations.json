@@ -1,0 +1,111 @@
+{
+  "schema": "parliament-node-representation-engineering-observations-v1",
+  "captured_on": "2026-10-20",
+  "scope": "Local component testing and incomplete cross-crate compilation; no authenticated node ballot execution or network finality.",
+  "qualification_established": false,
+  "production_activation_authorized_by_this_record": false,
+  "full_candidate_source_integrity_established": false,
+  "source_snapshot_scope": "Selected files observed after the runs and Torii compiler fixes; not a before/after build manifest or a full compiler input inventory. Earlier qualification captures retain their original scope.",
+  "post_run_selected_source_sha256": {
+    "crates/iroha_parliament_ballot/src/entrypoint_tests.rs": "3e0fe14f37f383ac0fa5eb2d10d17da1562204de3818414ef869406d3eabf5e1",
+    "crates/iroha_parliament_ballot/src/lib.rs": "c3751de3cc2b086b250a447cfcfabaf7fe24a8693723a72076f213ce907f0b1b",
+    "crates/iroha_parliament_ballot/Cargo.toml": "e47c2c83c75649cb4ab4209ea7c8356335df5ad414b2825bb2db1f17cc19cafb",
+    "crates/iroha_data_model/src/transaction/signed.rs": "faf424ee60f8562845122e7d5d6e28d75f75bc6fa978f120964949758aa3da25",
+    "crates/iroha_data_model/src/transaction/signed/anonymous_ballot_tests.rs": "f85bb3a3c340cf15bdc7dc26ce573e698383257a2089c673f76e60019fa1565b",
+    "crates/iroha_data_model/src/transaction/error.rs": "bc856f54e713e24cbe53a412ff645f97d72eb91aa078af72c41b2ebed5c7adaf",
+    "crates/iroha_data_model/src/block/builder.rs": "287a5b05dab9463123e5a1c8e3322fd38a74e3d4164d8963f2f89bd5279303fd",
+    "crates/iroha_data_model/src/block/execution_output.rs": "ddf273963971a3bd3341d46c87194e252dd75944435486174811ba031886df46",
+    "crates/iroha_data_model/src/block/execution_output_ballot_tests.rs": "002d70b03950c5a7354d7ef9aa477d1e994b467e2c0905a7fde061af668d0b22",
+    "crates/norito/src/core.rs": "4fd8c78393e1aecaade13e8f6bba2aec7ca541a540bccc448deb5bf3cd750af5",
+    "crates/norito/src/lib.rs": "329bcf33e9371a35217d17236ef28bd6550fb5042a56f47cb76ebc85672b0c3b",
+    "crates/norito/tests/exact_slice.rs": "760de36b2ac09632c00782cbdc60689927ec7eed72fef83cd9f56796fde41132",
+    "crates/iroha_torii/src/lib.rs": "e086cbd8073747ea226c4a088ebc03629561fdf062882f9ae2ce74e9d7afaab5",
+    "crates/iroha_torii/src/routing.rs": "3962b08da62f3e378fad9a936d263d6a29d735cc7c1f77f223956fafc19e45f6",
+    "scripts/test_parliament_ballot_local.sh": "7e8285a8b3e60d4f5c330d176a861fcd341bd629523d5d0d7e8841c44892d3eb"
+  },
+  "logs": {
+    "protocol-full": {
+      "path": "docs/validation/parliament_ballot_node_representation/protocol-full.log",
+      "sha256": "cfe9cc86f76c54e054f0bc5d74cdbada4ad4870a2f0f81c9134c00f5dfad5338",
+      "bytes": 9121
+    },
+    "protocol-focused": {
+      "path": "docs/validation/parliament_ballot_node_representation/protocol-focused.log",
+      "sha256": "5f9daf288e86e36bf037a4d54e38fd9c62cc2cd25f717c2b49b13b20041f2487",
+      "bytes": 480
+    },
+    "norito-exact-slice": {
+      "path": "docs/validation/parliament_ballot_node_representation/norito-exact-slice.log",
+      "sha256": "6c90719788fa4911ec258e321d1cbc3759704f594811f6d1e74f289f3abfb6aa",
+      "bytes": 3908
+    },
+    "model-before-fix": {
+      "path": "docs/validation/parliament_ballot_node_representation/model-before-fix.log",
+      "sha256": "aa5bfa0366d0526039172d1bb353e600a7344083b000a6ba2ef579d24644ca97",
+      "bytes": 16119
+    },
+    "node-check": {
+      "path": "docs/validation/parliament_ballot_node_representation/node-check.log",
+      "sha256": "dd59a4e416d55061fbbf859be94243076d4ca10b4f8556219d39eaf5cc372d35",
+      "bytes": 27427
+    },
+    "model-retry": {
+      "path": "docs/validation/parliament_ballot_node_representation/model-retry.log",
+      "sha256": "6a9ccd118658f9afd286cb4b61181e3dfc3a783dd78dcb238b369e871ee678bb",
+      "bytes": 935
+    }
+  },
+  "results": {
+    "protocol-full": {
+      "passed": 82,
+      "failed": 0,
+      "ignored": 2,
+      "elapsed_test_seconds": 41.85
+    },
+    "protocol-focused": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "elapsed_test_seconds": 12.79,
+      "note": "Direct invocation of the same built test executable with the runner's four filters; part of the full suite, not four additional distinct tests."
+    },
+    "norito-exact-slice": {
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0,
+      "note": "Grouped integration target norito_group_02; includes nested state restoration and cumulative enclosing budget controls."
+    },
+    "model-before-fix": {
+      "passed": 120,
+      "failed": 1,
+      "failed_test": "transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_fixed_v1_ignores_and_restores_ambient_layout",
+      "note": "The failure led to using the existing isolated decode-state guard for exact slice decoding. The original model assertion was retained. The model suite has not subsequently passed."
+    },
+    "node-check": {
+      "status": "failed",
+      "compiler_findings": [
+        "Torii helper rename call site in lib.rs",
+        "Torii pending faucet claim authority projection in routing.rs"
+      ],
+      "source_fixes_present": true,
+      "fixes_recompiled": false,
+      "environment_failure": "Core lib test metadata could not create a temp directory: ENOSPC."
+    },
+    "model-retry": {
+      "status": "build_failed_before_tests",
+      "environment_failure": "Norito metadata write failed with ENOSPC."
+    }
+  },
+  "remaining_validation": [
+    "Rerun anonymous_ballot model tests on the shared decoder fix.",
+    "Finish Core, Torii, Rust client, CLI, block tooling and daemon all-target checks; execute focused Core/Torii regressions.",
+    "Check and exercise the Python native and Mochi consumer updates.",
+    "Capture new source-bound envelope/resource observations for any integration candidate; previous standalone evidence does not qualify changed consumers."
+  ],
+  "functional_work_remaining": "Authenticated registration acceptance through canonical sealing/publication, compact State and restore, signerless admission/execution, API/client submission and ordinary four-validator qualification.",
+  "external_requirements_unchanged": [
+    "Independent cryptographic review and accepted quantitative premises",
+    "Complete resource certificates and security accounting",
+    "Named validator/mobile baseline qualification; Intel work deferred to owner"
+  ]
+}

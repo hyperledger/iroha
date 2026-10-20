@@ -648,6 +648,59 @@ export function readTiles(patches, reference, sigmas) {
   return classify(WORK, sigmas, false, null);
 }
 
+/** Raw tile patches and finder levels from one independently decoded capture. */
+export function tileEvidence(image, frame, options = DEFAULT_DECODE_OPTIONS) {
+  if (!isDecodable(image, options) || (frame.inferredCorner !== null &&
+      (!Number.isInteger(frame.inferredCorner) || frame.inferredCorner < 0 || frame.inferredCorner > 3))) {
+    return null;
+  }
+  const m = frame.homography.values;
+  const reference = referenceLevels(image, m, frame.inferredCorner);
+  return reference === null ? null : { patches: samplePatches(image, m), reference };
+}
+
+/** Finder-level-normalised patches, with each capture levelled before it is averaged. */
+function levelledPatches(patches, reference) {
+  const out = new Float64Array(TILE_COUNT * CELLS);
+  for (let tile = 0; tile < TILE_COUNT; tile += 1) {
+    const u = clampUnit(TILE_CENTER_X[tile] / 1024);
+    const v = clampUnit(TILE_CENTER_Y[tile] / 1024);
+    const lit = mixCorners(reference.lit, u, v);
+    const dark = mixCorners(reference.dark, u, v);
+    const base = tile * CELLS;
+    for (let c = 0; c < CELLS; c += 1) {
+      out[base + c] = (patches[base + c] - dark) / (lit - dark);
+    }
+  }
+  return out;
+}
+
+/** Sequential cell-by-cell mean, matching the reference's floating-point sum order. */
+function meanPatches(sets) {
+  const mean = new Float64Array(TILE_COUNT * CELLS);
+  for (const set of sets) {
+    for (let i = 0; i < mean.length; i += 1) mean[i] += set[i];
+  }
+  for (let i = 0; i < mean.length; i += 1) mean[i] /= sets.length;
+  return mean;
+}
+
+/** Tile lanes recovered from captures of one shown frame; the caller checks lane headers. */
+export function mergeTiles(evidence, options = DEFAULT_DECODE_OPTIONS) {
+  if (evidence.length === 0) return { p: null, k: null };
+  const levelled = meanPatches(evidence.map((e) => levelledPatches(e.patches, e.reference)));
+  let words = tileWords(classify(levelled, options.templateSigmas, false, null));
+  let p = decodeWithErasures("P", words.p, words.pConfidence);
+  let k = decodeWithErasures("K", words.k, words.kConfidence);
+  if (p === null || k === null) {
+    const raw = meanPatches(evidence.map((e) => e.patches));
+    words = tileWords(readTilesNormalised(raw, options.templateSigmas));
+    if (p === null) p = decodeWithErasures("P", words.p, words.pConfidence);
+    if (k === null) k = decodeWithErasures("K", words.k, words.kConfidence);
+  }
+  return { p, k };
+}
+
 /**
  * The normalised read: every patch and every template is rescaled by its own contrast before
  * they are compared, so the judgement does not depend on absolute levels. Tiles whose contrast

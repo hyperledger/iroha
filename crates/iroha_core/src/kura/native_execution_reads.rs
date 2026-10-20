@@ -7,6 +7,11 @@
 pub struct NativeFrameBytes(iroha_allocation::ChargedBuffer<u8>);
 
 impl NativeFrameBytes {
+    /// Lend the same immutable charged source to the canonical prepared decoder.
+    pub(crate) fn charged_source(&self) -> &iroha_allocation::ChargedBuffer<u8> {
+        &self.0
+    }
+
     /// Borrow the exact initialized source, without separating its physical charge.
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
@@ -36,30 +41,90 @@ impl core::fmt::Debug for NativeFrameBytes {
     }
 }
 
-// Only the sole storage read can mutate this initialized fixed destination.
-struct NativeFrameDestination(iroha_allocation::ChargedBuffer<u8>);
+// Only the sole storage read can mutate this fixed destination. Backing retires
+// before its exact charge and pool; partial construction never leaves this owner.
+struct NativeFrameDestination {
+    bytes: Option<iroha_allocation::ChargedBuffer<u8>>,
+    charge: Option<iroha_allocation::AllocationCharge>,
+    length: Option<usize>,
+    budget: iroha_allocation::AllocationBudget,
+}
 impl NativeFrameDestination {
-    fn new(length: usize, budget: &iroha_allocation::AllocationBudget) -> Result<Self> {
-        let mut bytes = iroha_allocation::ChargedBuffer::new(length, budget)
-            .map_err(Error::NativeFrameAllocation)?;
-        let zeros = [0_u8; 8192];
-        while bytes.as_slice().len() < length {
-            let remaining = length - bytes.as_slice().len();
-            bytes
-                .append(&zeros[..remaining.min(zeros.len())])
-                .expect("zero fill stays within exact admitted backing");
+    fn new(budget: &iroha_allocation::AllocationBudget) -> Self {
+        Self {
+            bytes: None,
+            charge: None,
+            length: None,
+            budget: budget.clone(),
         }
-        Ok(Self(bytes))
+    }
+    fn prepare(&mut self, length: usize, height: u64) -> Result<&mut Self> {
+        if self.length.is_some_and(|original| original != length) {
+            return Err(Error::CanonicalBlockWireMismatch { height });
+        }
+        self.length = Some(length);
+        if self.bytes.is_none() {
+            if self.charge.is_none() {
+                let layout = std::alloc::Layout::array::<u8>(length).map_err(|_| {
+                    Error::NativeFrameAllocation(iroha_allocation::ChargedBufferError::Admission(
+                        iroha_allocation::AllocationRefusal::DemandOverflow,
+                    ))
+                })?;
+                let mut reservation = self.budget.try_reserve(layout).map_err(|original| {
+                    Error::NativeFrameAllocation(iroha_allocation::ChargedBufferError::Admission(
+                        original,
+                    ))
+                })?;
+                self.charge = Some(
+                    reservation
+                        .try_split(layout)
+                        .expect("exact raw frame charge"),
+                );
+            }
+            let charge = self
+                .charge
+                .take()
+                .expect("retained original raw frame charge");
+            match iroha_allocation::ChargedBuffer::try_from_charge(length, charge) {
+                Ok(bytes) => self.bytes = Some(bytes),
+                Err((charge, original)) => {
+                    self.charge = Some(charge);
+                    #[cfg(all(test, sumeragi_core_mutation = "HC469"))]
+                    drop(self.charge.take());
+                    return Err(Error::NativeFrameConstruction(original));
+                }
+            }
+            let bytes = self.bytes.as_mut().expect("completed original raw backing");
+            let zeros = [0_u8; 8192];
+            while bytes.as_slice().len() < length {
+                let remaining = length - bytes.as_slice().len();
+                bytes
+                    .append(&zeros[..remaining.min(zeros.len())])
+                    .expect("zero fill stays within exact admitted backing");
+            }
+        }
+        Ok(self)
+    }
+    fn take_completed(&mut self) -> NativeFrameBytes {
+        // A later independent read still owes current-scope logical admission and
+        // fresh physical backing. The original source/pool/extent remain bound.
+        NativeFrameBytes(self.bytes.take().expect("verified original raw frame"))
     }
 }
 impl AsRef<[u8]> for NativeFrameDestination {
     fn as_ref(&self) -> &[u8] {
-        self.0.as_slice()
+        self.bytes
+            .as_ref()
+            .expect("prepared raw backing")
+            .as_slice()
     }
 }
 impl AsMut<[u8]> for NativeFrameDestination {
     fn as_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut_slice()
+        self.bytes
+            .as_mut()
+            .expect("prepared raw backing")
+            .as_mut_slice()
     }
 }
 /// One descriptor-owner-bound durable slot, still untrusted until native verification.
@@ -71,6 +136,8 @@ pub(crate) struct NativeFrameRead<'kura> {
 
 // The two handle forms share these original journal descriptors and the sole read kernel.
 struct NativeFrameBinding {
+    destination: Option<NativeFrameDestination>,
+    sidecar: Option<StableSidecarMetadata>,
     height: u64,
     hash: HashOf<BlockHeader>,
     wire_len: u64,
@@ -100,7 +167,7 @@ impl NativeFrameRead<'_> {
     /// Load only this admitted slot, rechecking all durable metadata under storage guards.
     /// The returned bytes are untrusted and cannot authorize outputs by themselves.
     pub(crate) fn read(
-        self,
+        mut self,
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
@@ -109,7 +176,7 @@ impl NativeFrameRead<'_> {
 
     // The same bounded storage scan, lending the retained original descriptor across refusal.
     pub(crate) fn read_original(
-        &self,
+        &mut self,
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
@@ -150,7 +217,7 @@ impl OwnedNativeFrameRead {
         Arc::ptr_eq(&self.kura, &other.kura) && self.binding.same_original_slot(&other.binding)
     }
     pub(crate) fn read_original(
-        &self,
+        &mut self,
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
@@ -167,15 +234,19 @@ impl NativeFrameBinding {
             && Kura::native_frame_journal_objects_unchanged(&self.journals, &other.journals)
     }
     fn read_original(
-        &self,
+        &mut self,
         kura: &Kura,
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
-        // Failed backing and partial reads can refund this pool. Every storage guard
-        // must retire before a synchronous refund waker may reenter the same source.
+        // Retain failed construction and partial backing in this original binding.
+        // Consuming reads may abandon it, only after storage guards have retired.
+        // Current logical decode scopes are charged again on every attempted read;
+        // physical no-credit retry does not bypass a changed or narrower scope.
         budget.with_deferred_refund_notifications(|_| {
             let Self {
+                destination,
+                sidecar,
                 height,
                 hash,
                 wire_len,
@@ -184,6 +255,11 @@ impl NativeFrameBinding {
             } = self;
             let (height, hash, wire_len, start) = (*height, *hash, *wire_len, *start);
             if admitted_wire_len != wire_len {
+                return Err(Error::CanonicalBlockWireMismatch { height });
+            }
+            let destination =
+                destination.get_or_insert_with(|| NativeFrameDestination::new(budget));
+            if !destination.budget.same_pool(budget) {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
             let position = height - 1;
@@ -234,8 +310,9 @@ impl NativeFrameBinding {
                     &store.da_block_path(height),
                     &store.da_blocks_dir,
                     length,
+                    sidecar,
                     || {},
-                    |length| NativeFrameDestination::new(length, budget),
+                    |length| destination.prepare(length, height),
                 )?
                 else {
                     return Ok(None);
@@ -248,7 +325,7 @@ impl NativeFrameBinding {
                     norito::core::reserve_decode_allocation(length)
                 })
                 .map_err(Error::CodecAttempt)?;
-                let mut bytes = NativeFrameDestination::new(length, budget)?;
+                let bytes = destination.prepare(length, height)?;
                 store.read_block_data(slot.start, bytes.as_mut())?;
                 bytes
             };
@@ -265,7 +342,7 @@ impl NativeFrameBinding {
             {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
-            Ok(Some(NativeFrameBytes(bytes.0)))
+            Ok(Some(bytes.take_completed()))
         })
     }
 
@@ -286,6 +363,7 @@ impl NativeFrameBinding {
                 wire_len,
                 start,
                 journals,
+                ..
             } = self;
             let (height, hash, wire_len, start) = (*height, *hash, *wire_len, *start);
             if admitted_wire_len != wire_len || len == 0 {
@@ -296,7 +374,8 @@ impl NativeFrameBinding {
                 .filter(|end| *end <= wire_len)
                 .ok_or(Error::CanonicalBlockWireMismatch { height })?;
             // A refused window must not take a storage guard or decode the durable marker.
-            let mut bytes = NativeFrameDestination::new(len, pool)?;
+            let mut bytes = NativeFrameDestination::new(pool);
+            bytes.prepare(len, height)?;
             let position = height - 1;
             let (mut prune_releases, mut canonical_releases) = (
                 kura.prune_lock.defer_notifications(),
@@ -354,7 +433,7 @@ impl NativeFrameBinding {
             {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
-            Ok(Some(NativeFrameBytes(bytes.0)))
+            Ok(Some(bytes.take_completed()))
         })
     }
 }
@@ -546,6 +625,8 @@ impl Kura {
         Ok(Some(NativeFrameRead {
             kura: self,
             binding: NativeFrameBinding {
+                destination: None,
+                sidecar: None,
                 height,
                 hash,
                 wire_len,
@@ -1424,4 +1505,9 @@ impl Kura {
 #[cfg(test)]
 mod native_frame_release_tests {
     include!("native_frame_release_tests.rs");
+}
+
+#[cfg(test)]
+mod native_frame_continuation_tests {
+    include!("native_frame_continuation_tests.rs");
 }

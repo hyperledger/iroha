@@ -149,9 +149,17 @@ enum Pattern {
     Fixed {
         step: Column<Fixed>,
     },
+    /// A bank bus: the step and top indicators of the ternary code.
+    Indicators {
+        step: Column<Fixed>,
+        top: Column<Fixed>,
+    },
     Tagged {
         step: Column<Fixed>,
         tag_table: TableColumn,
+        /// Precomputed lookup coefficients `[a, s]` of `z` and `-2^15 z_next`
+        /// (banks only); `None` reads the pattern's indicator polynomials.
+        coefficients: Option<[Column<Fixed>; 2]>,
     },
 }
 
@@ -167,19 +175,32 @@ impl RunningSumConfig {
     /// column only when the pattern is zero, and must disable all four active
     /// codes. A scalar union of offset intervals is deliberately not used:
     /// the tuple's tag prevents cross-width aliases.
+    ///
+    /// The lookup reads the pattern's degree-four indicator polynomials, so its
+    /// argument needs degree fourteen. This single-bus form serves the compact
+    /// Omega, whose proof bytes are capped by the Payment budget: below degree
+    /// fourteen its equality columns need a second permutation set.
     pub fn configure_tagged<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         z: Column<Advice>,
     ) -> Self {
         let table = meta.lookup_table_column();
         let tag_table = meta.lookup_table_column();
-        Self::configure_tagged_on(meta, z, table, tag_table)
+        Self::configure_tagged_on(meta, z, table, tag_table, false)
     }
 
     /// Independent exact-width tuple lookups sharing one `(width,value)`
     /// table. Each bus authenticates one value, with its own fixed pattern.
     /// The empty list configures no table. A nonempty bank needs at least
     /// 65,528 usable rows, just as [`Self::configure_tagged`].
+    ///
+    /// Each bus also has two fixed columns with the lookup coefficients its
+    /// pattern determines: `a` is one on steps and tagged tops and `s` is one
+    /// on steps, both zero elsewhere. The lookup reads
+    /// `(15 + (a - s)(width - 15), a z - 2^15 s z_next)`, row by row the
+    /// tuple of the indicator form, with input degree two (argument degree
+    /// eight) instead of five (fourteen). Every pattern write goes through
+    /// [`Self::assign_tagged_code`], so the three columns agree.
     pub fn configure_tagged_bank<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         columns: &[Column<Advice>],
@@ -191,7 +212,7 @@ impl RunningSumConfig {
         let tag_table = meta.lookup_table_column();
         columns
             .iter()
-            .map(|z| Self::configure_tagged_on(meta, *z, table, tag_table))
+            .map(|z| Self::configure_tagged_on(meta, *z, table, tag_table, true))
             .collect()
     }
 
@@ -200,10 +221,12 @@ impl RunningSumConfig {
         z: Column<Advice>,
         table: TableColumn,
         tag_table: TableColumn,
+        precomputed: bool,
     ) -> Self {
         meta.enable_equality(z);
         let shift = meta.fixed_column();
         let step = meta.fixed_column();
+        let coefficients = precomputed.then(|| [meta.fixed_column(), meta.fixed_column()]);
         let indicator = |pattern: Expression<F>, code: u64| {
             let mut expression = Expression::Constant(F::ONE);
             let mut denominator = F::ONE;
@@ -217,15 +240,25 @@ impl RunningSumConfig {
             expression * denominator.invert().expect("distinct fixed pattern codes")
         };
         meta.lookup("exact tagged running-sum limb", |cells| {
+            // Query order is descriptor order; the indicator form keeps its own.
             let pattern = cells.query_fixed(step, Rotation::cur());
-            let active = indicator(pattern.clone(), 1);
-            let top = indicator(pattern, 2);
             let width = cells.query_fixed(shift, Rotation::cur());
             let cur = cells.query_advice(z, Rotation::cur());
             let next = cells.query_advice(z, Rotation::next());
+            let (top, value) = if let Some(columns) = coefficients {
+                let [limb, carry] =
+                    columns.map(|column| cells.query_fixed(column, Rotation::cur()));
+                // `a - s` is the tagged-top indicator: zero on steps and idle rows.
+                let value = limb.clone() * cur - carry.clone() * next * F::from(1 << 15);
+                (limb - carry, value)
+            } else {
+                let active = indicator(pattern.clone(), 1);
+                let top = indicator(pattern, 2);
+                let value = active * (cur.clone() - next * F::from(1 << 15)) + top.clone() * cur;
+                (top, value)
+            };
             let tag = Expression::Constant(F::from(15))
-                + top.clone() * (width - Expression::Constant(F::from(15)));
-            let value = active * (cur.clone() - next * F::from(1 << 15)) + top * cur;
+                + top * (width - Expression::Constant(F::from(15)));
             vec![(tag, tag_table), (value, table)]
         });
         meta.create_gate("algebraic narrow tagged top", |cells| {
@@ -244,9 +277,60 @@ impl RunningSumConfig {
             z,
             table,
             shift,
-            pattern: Pattern::Tagged { step, tag_table },
+            pattern: Pattern::Tagged {
+                step,
+                tag_table,
+                coefficients,
+            },
             limb_bits: LimbBits::new(15).expect("fixed limb width"),
         }
+    }
+
+    /// Writes tagged pattern `code` at `row` with any lookup coefficients it
+    /// determines, and `control` into the width column when given. A guarded
+    /// write also pins every written cell, including zeros, against another
+    /// owner's conflicting assignment.
+    ///
+    /// # Errors
+    /// A non-tagged configuration, a code above four, or a layout conflict.
+    pub(crate) fn assign_tagged_code<F: PastaField>(
+        &self,
+        region: &mut Region<'_, F>,
+        row: usize,
+        code: u64,
+        control: Option<u64>,
+        guarded: bool,
+    ) -> Result<(), Error> {
+        let Pattern::Tagged {
+            step, coefficients, ..
+        } = self.pattern
+        else {
+            return Err(Error::Synthesis);
+        };
+        if code > 4 {
+            return Err(Error::Synthesis);
+        }
+        let [limb, carry] = coefficients.map_or([None, None], |[limb, carry]| {
+            [
+                Some((limb, u64::from(matches!(code, 1 | 2)))),
+                Some((carry, u64::from(code == 1))),
+            ]
+        });
+        let cells = [
+            Some((step, code)),
+            limb,
+            carry,
+            control.map(|control| (self.shift, control)),
+        ];
+        for (column, value) in cells.into_iter().flatten() {
+            if guarded {
+                region.expect_fixed(column, row, F::from(value))?;
+            } else if value == 0 {
+                continue;
+            }
+            region.assign_fixed(column, row, F::from(value))?;
+        }
+        Ok(())
     }
     /// Configures the chip on `z` (made equality-enabled) with a new table
     /// column of `2^b` rows.
@@ -298,19 +382,30 @@ impl RunningSumConfig {
     /// memberships. On idle rows the factor column may carry another
     /// circuit-fixed pattern, provided that consumer is disabled on range rows.
     /// This replaces three selectors and a shift column without dropping any
-    /// range premise. Lookup inputs have degree three (argument degree six).
+    /// range premise. Lookup inputs have degree three (argument degree ten);
+    /// [`Self::configure_bank`] stores the two indicators instead.
     pub fn configure_compact<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         z: Column<Advice>,
         limb_bits: LimbBits,
     ) -> Self {
         let table = meta.lookup_table_column();
-        Self::configure_compact_on(meta, z, limb_bits, table)
+        Self::configure_compact_on(meta, z, limb_bits, table, false)
     }
 
     /// Independent range buses with one shared table. Each bus keeps its own
     /// fixed activation pattern; tuple membership is never used as independent
     /// range membership. The empty list configures no table or buses.
+    ///
+    /// Each bus stores the indicators of the ternary code of
+    /// [`Self::configure_compact`] in two fixed columns: a step column, one on
+    /// running-sum steps, and a top column, one on top and shifted-top rows;
+    /// both are zero elsewhere. The lookup reads `step (z - 2^b z_next) + top z`,
+    /// row by row the compact input, with input degree two (argument degree
+    /// eight) instead of three (ten). The top indicator times the factor
+    /// enables the shifted-top gate; the factor is nonzero only on shifted tops,
+    /// because a bank bus offers no idle-row overlay
+    /// ([`Self::compact_patterns`] is `None`).
     pub fn configure_bank<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         columns: &[Column<Advice>],
@@ -322,7 +417,7 @@ impl RunningSumConfig {
         let table = meta.lookup_table_column();
         columns
             .iter()
-            .map(|z| Self::configure_compact_on(meta, *z, limb_bits, table))
+            .map(|z| Self::configure_compact_on(meta, *z, limb_bits, table, true))
             .collect()
     }
 
@@ -331,24 +426,33 @@ impl RunningSumConfig {
         z: Column<Advice>,
         limb_bits: LimbBits,
         table: TableColumn,
+        indicators: bool,
     ) -> Self {
         meta.enable_equality(z);
         let shift = meta.fixed_column();
         let step = meta.fixed_column();
+        let top = indicators.then(|| meta.fixed_column());
         let radix = F::from(1_u64 << limb_bits.get());
         meta.lookup("compact running-sum limb", |cells| {
             let pattern = cells.query_fixed(step, Rotation::cur());
-            let enabled = pattern.clone()
-                * (iroha_plonk::cs::Expression::Constant(F::from(2)) - pattern.clone());
-            let top = pattern.clone()
-                * (pattern - iroha_plonk::cs::Expression::Constant(F::ONE))
-                * F::TWO_INV;
+            let (enabled, top) = if let Some(top) = top {
+                (pattern, cells.query_fixed(top, Rotation::cur()))
+            } else {
+                (
+                    pattern.clone()
+                        * (iroha_plonk::cs::Expression::Constant(F::from(2)) - pattern.clone()),
+                    pattern.clone()
+                        * (pattern - iroha_plonk::cs::Expression::Constant(F::ONE))
+                        * F::TWO_INV,
+                )
+            };
             let cur = cells.query_advice(z, Rotation::cur());
             let next = cells.query_advice(z, Rotation::next());
             vec![(enabled * (cur.clone() - next * radix) + top * cur, table)]
         });
         meta.create_gate("compact shifted top limb", |cells| {
-            let pattern = cells.query_fixed(step, Rotation::cur());
+            // The ternary code is two on tops; a bank reads its top indicator.
+            let pattern = cells.query_fixed(top.unwrap_or(step), Rotation::cur());
             let factor = cells.query_fixed(shift, Rotation::cur());
             let cur = cells.query_advice(z, Rotation::cur());
             let prev = cells.query_advice(z, Rotation::prev());
@@ -361,32 +465,89 @@ impl RunningSumConfig {
             z,
             table,
             shift,
-            pattern: Pattern::Fixed { step },
+            pattern: top.map_or(Pattern::Fixed { step }, |top| Pattern::Indicators {
+                step,
+                top,
+            }),
             limb_bits,
         }
     }
 
+    /// Writes compact code one (a step) or two (a top or shifted top) at
+    /// `row`: the ternary code itself, or a bank's matching indicator. Idle
+    /// rows are never written, so every unassigned code and indicator is zero.
+    ///
+    /// # Errors
+    /// A configuration without compact codes, another code, or a layout conflict.
+    fn assign_compact_code<F: PastaField>(
+        &self,
+        region: &mut Region<'_, F>,
+        row: usize,
+        code: u64,
+    ) -> Result<(), Error> {
+        let (column, value) = match (self.pattern, code) {
+            (Pattern::Fixed { step }, 1 | 2) => (step, code),
+            (Pattern::Indicators { step, .. }, 1) => (step, 1),
+            (Pattern::Indicators { top, .. }, 2) => (top, 1),
+            _ => return Err(Error::Synthesis),
+        };
+        region.assign_fixed(column, row, F::from(value))?;
+        Ok(())
+    }
+
     /// Compact `(pattern, factor)` columns, or `None` for the selector
-    /// layout. Pattern zero fully disables the range bus; another fixed gate
-    /// may reuse the factor on those rows only. Its gate must be disabled at
-    /// every active code returned by [`Self::compact_pattern_codes`], and assignments must be on
-    /// disjoint rows. This does not relax any active range check.
+    /// layout and bank buses. Pattern zero fully disables the range bus;
+    /// another fixed gate may reuse the factor on those rows only. Its gate must
+    /// be disabled at every active code returned by
+    /// [`Self::compact_pattern_codes`], and assignments must be on disjoint
+    /// rows. This does not relax any active range check.
     #[must_use]
     pub const fn compact_patterns(&self) -> Option<(Column<Fixed>, Column<Fixed>)> {
         match self.pattern {
             Pattern::Fixed { step } | Pattern::Tagged { step, .. } => Some((step, self.shift)),
-            Pattern::Selectors { .. } => None,
+            Pattern::Selectors { .. } | Pattern::Indicators { .. } => None,
         }
     }
 
     /// Active fixed pattern codes, all integers `1..=result`. Zero disables
-    /// the complete range relation. Selector-based configurations return zero.
+    /// the complete range relation. Selector-based configurations and bank
+    /// buses return zero.
     #[must_use]
     pub const fn compact_pattern_codes(&self) -> u64 {
         match self.pattern {
-            Pattern::Selectors { .. } => 0,
+            Pattern::Selectors { .. } | Pattern::Indicators { .. } => 0,
             Pattern::Fixed { .. } => 2,
             Pattern::Tagged { .. } => 4,
+        }
+    }
+
+    /// Asserts that every row's tagged lookup coefficients are the indicator
+    /// values of its pattern code in the synthesized fixed `columns`.
+    #[cfg(test)]
+    pub(crate) fn assert_tagged_coefficients<F: PastaField>(&self, columns: &[Vec<F>]) {
+        let Pattern::Tagged {
+            step,
+            coefficients: Some([limb, carry]),
+            ..
+        } = self.pattern
+        else {
+            panic!("precomputed tagged configuration");
+        };
+        let codes = &columns[step.index()];
+        assert!(codes.iter().any(|code| *code == F::from(2)));
+        for (row, code) in codes.iter().enumerate() {
+            let step = *code == F::ONE;
+            let top = *code == F::from(2);
+            assert_eq!(
+                columns[limb.index()][row],
+                F::from(u64::from(step || top)),
+                "row {row}"
+            );
+            assert_eq!(
+                columns[carry.index()][row],
+                F::from(u64::from(step)),
+                "row {row}"
+            );
         }
     }
 
@@ -787,36 +948,39 @@ impl<F: PastaField> RunningSumChip<F> {
         for limb in 0..shape.limbs - 1 {
             match self.config.pattern {
                 Pattern::Selectors { step, .. } => step.enable(region, start + limb)?,
-                Pattern::Fixed { step } | Pattern::Tagged { step, .. } => {
-                    region.assign_fixed(step, start + limb, F::ONE)?;
+                Pattern::Fixed { .. } | Pattern::Indicators { .. } => {
+                    self.config.assign_compact_code(region, start + limb, 1)?;
+                }
+                Pattern::Tagged { .. } => {
+                    self.config
+                        .assign_tagged_code(region, start + limb, 1, None, false)?;
                 }
             }
         }
         let top = start + shape.limbs - 1;
-        if let Pattern::Tagged { step, .. } = self.config.pattern {
+        if let Pattern::Tagged { .. } = self.config.pattern {
             let code = match shape.top_bits {
                 1 => 3,
                 2 => 4,
                 _ => 2,
             };
-            region.assign_fixed(step, top, F::from(code))?;
-            if shape.top_bits >= 3 {
-                region.assign_fixed(self.config.shift, top, F::from(shape.top_bits as u64))?;
-            }
+            let width = (shape.top_bits >= 3).then_some(shape.top_bits as u64);
+            self.config
+                .assign_tagged_code(region, top, code, width, false)?;
             return Ok(());
         }
         if let Pattern::Selectors { limb, .. } = self.config.pattern {
             region.enable_selector(String::new, &limb, top)?;
-        } else if let Pattern::Fixed { step } = self.config.pattern {
-            region.assign_fixed(step, top, F::from(2))?;
+        } else {
+            self.config.assign_compact_code(region, top, 2)?;
         }
         if shape.shifted() {
             let shifted = top + 1;
             if let Pattern::Selectors { limb, shift, .. } = self.config.pattern {
                 region.enable_selector(String::new, &limb, shifted)?;
                 shift.enable(region, shifted)?;
-            } else if let Pattern::Fixed { step } = self.config.pattern {
-                region.assign_fixed(step, shifted, F::from(2))?;
+            } else {
+                self.config.assign_compact_code(region, shifted, 2)?;
             }
             let factor = F::from(1_u64 << (shape.limb_bits - shape.top_bits));
             region.assign_fixed(self.config.shift, shifted, factor)?;

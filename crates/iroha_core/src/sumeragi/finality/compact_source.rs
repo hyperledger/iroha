@@ -131,7 +131,7 @@ pub fn read_commit_certificate(
         )
     };
     let expected = *view.block_hashes().get(index - 1).ok_or_else(unavailable)?;
-    let source = view
+    let mut source = view
         .kura()
         .native_frame_read(height.get(), expected)
         .map_err(|error| storage_error(height, error))?

@@ -1,7 +1,9 @@
 //! Signature custody through the sole canonical `SignedBlock` field/frame walk.
 //!
 //! This prepared owner funds signatures, four certificate byte leaves, DA proof-policy
-//! arrays/UTF-8 aliases, DA commitment arrays/tags/signatures and reusable decode controls.
+//! arrays/UTF-8 aliases, DA commitment arrays/tags/signatures, opaque parent-QC bytes,
+//! native penalty actions and reusable decode controls. Evidence and Core construction
+//! remain unowned; byte custody does not fund the independently decoded semantic QC.
 //! The actual header/confidential digest and beacon pulse use the same model-private
 //! inline destination through their generated Copy-field walks without heap scratch.
 //! Other block/result children still use their canonical owning leaves and remain
@@ -12,19 +14,27 @@ use super::{
     BlockPayload, BlockResult, BlockSignatureCustodyError, BlockSignatures, CommitCertificate,
     OutputFieldRef, PreparedBlockSignatures, SignedBlock, borrow_framed_signed_block_payload,
 };
+use crate::consensus::{
+    NposConsensusEffects, NposParentServiceCommitQc, NposPenaltyActions,
+    NposPenaltyActionsCustodyError, ParentServiceCustodyError, PreparedNposPenaltyActions,
+    PreparedParentServiceCommitQc,
+};
 use crate::da::commitment::{
     DaCommitmentBundle, DaCommitmentCustodyError, DaProofPolicyBundle, DaProofPolicyCustodyError,
     PreparedDaCommitmentBundle, PreparedDaProofPolicyBundle,
 };
 use crate::inline_fields::DecodedField;
-use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
+use iroha_allocation::{
+    AllocationBudget, ChargedBuffer, ChargedBufferError, SharedFromChargeError,
+};
 use iroha_crypto::Hash;
 use norito::core::DecodeRecordFields;
 use norito::{
     SerializePayload,
     core::{
         CanonicalField, DecodeField, DecodeIntoError, FieldDestination, PreparedDecodeError,
-        PreparedDecodeScopeError, PreparedDecodeWorkspace, PreparedRecordDestination, SequenceSpan,
+        PreparedDecodeScopeError, PreparedDecodeWorkspace, PreparedDecodeWorkspaceConstruction,
+        PreparedRecordDestination, SequenceSpan,
     },
 };
 
@@ -34,6 +44,9 @@ pub enum PreparedSignatureBlockError {
     /// Original pool/allocator refused the two actual canonical decode controls.
     #[error(transparent)]
     Storage(#[from] ChargedBufferError),
+    /// Physical construction refused an exact retained original counter charge.
+    #[error(transparent)]
+    ControlBacking(#[from] SharedFromChargeError),
     /// Actual reusable canonical control construction/reuse failed.
     #[error(transparent)]
     Scope(#[from] PreparedDecodeScopeError),
@@ -52,6 +65,12 @@ pub enum PreparedSignatureBlockError {
     /// Original DA commitment children refused; their exact source/owners remain retained.
     #[error(transparent)]
     Commitments(#[from] DaCommitmentCustodyError),
+    /// Original opaque parent-service byte custody refusal.
+    #[error(transparent)]
+    ParentService(#[from] ParentServiceCustodyError),
+    /// Original native action graph refusal; the same partial source owner remains live.
+    #[error(transparent)]
+    PenaltyActions(#[from] NposPenaltyActionsCustodyError),
     /// The original charged input, bytes or exact selected `SignedBlockWire` changed.
     #[error("prepared block signature decoder changed its original source")]
     SourceChanged,
@@ -90,36 +109,58 @@ impl Source {
 /// Explicit retirement leaves the original block holding the same custody for publication/recovery.
 /// TODO: prepare every other transaction, result, DA and authority graph child.
 pub struct PreparedSignedBlockSignaturesDecode {
+    parent_absent: bool,
+    parent_pending: Option<PreparedParentServiceCommitQc>,
+    parent_completed: Option<NposParentServiceCommitQc>,
+    penalty_absent: bool,
+    penalty_pending: Option<PreparedNposPenaltyActions>,
+    penalty_completed: Option<NposPenaltyActions>,
     commitments_pending: Option<PreparedDaCommitmentBundle>,
     commitments_completed: Option<DaCommitmentBundle>,
     policy_pending: Option<PreparedDaProofPolicyBundle>,
     policy_completed: Option<DaProofPolicyBundle>,
     certificate_pending: Option<PreparedCommitCertificate>,
     certificate_completed: Option<CommitCertificate>,
-    workspace: PreparedDecodeWorkspace,
+    workspace: Option<PreparedDecodeWorkspace>,
+    workspace_construction: Option<PreparedDecodeWorkspaceConstruction>,
     pending: Option<PreparedBlockSignatures>,
     completed: Option<BlockSignatures>,
     source: Option<Source>,
     budget: AllocationBudget,
 }
 impl PreparedSignedBlockSignaturesDecode {
-    /// Physically prepare both reusable canonical controls from one finite original pool.
+    /// Reserve both original counter charges before returning a retained continuation.
+    /// Physical construction happens inside `decode`, after the caller stores this owner
+    /// and the exact source has been bound. No physical constructor can discard a prefix.
     ///
     /// # Errors
-    /// Returns exact original capacity/control/allocator refusal before source consumption.
+    /// Returns the exact original finite-pool refusal before consuming any source.
     pub fn new(budget: &AllocationBudget) -> Result<Self, PreparedSignatureBlockError> {
         let mut reservation = budget
             .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
             .map_err(ChargedBufferError::Admission)?;
-        let workspace = PreparedDecodeWorkspace::from_reservation(budget, &mut reservation)?;
+        let charges = PreparedDecodeWorkspace::allocation_layouts().map(|layout| {
+            reservation
+                .try_split(layout)
+                .expect("both exact original counter charges")
+        });
+        let construction = PreparedDecodeWorkspaceConstruction::from_charges(budget, charges)
+            .unwrap_or_else(|_| unreachable!("charges split from this exact original pool"));
         Ok(Self {
+            parent_absent: false,
+            parent_pending: None,
+            parent_completed: None,
+            penalty_absent: false,
+            penalty_pending: None,
+            penalty_completed: None,
             commitments_pending: None,
             commitments_completed: None,
             policy_pending: None,
             policy_completed: None,
             certificate_pending: None,
             certificate_completed: None,
-            workspace,
+            workspace: None,
+            workspace_construction: Some(construction),
             pending: None,
             completed: None,
             source: None,
@@ -129,6 +170,22 @@ impl PreparedSignedBlockSignaturesDecode {
     /// Whether every retained control/collection/leaf keeps this same original pool.
     pub fn belongs_to(&self, budget: &AllocationBudget) -> bool {
         self.budget.same_pool(budget)
+            && self
+                .parent_pending
+                .as_ref()
+                .is_none_or(|owner| owner.belongs_to(budget))
+            && self
+                .parent_completed
+                .as_ref()
+                .is_none_or(|owner| owner.admitted_to(budget))
+            && self
+                .penalty_pending
+                .as_ref()
+                .is_none_or(|owner| owner.belongs_to(budget))
+            && self
+                .penalty_completed
+                .as_ref()
+                .is_none_or(|owner| owner.admitted_to(budget))
             && self
                 .commitments_pending
                 .as_ref()
@@ -153,7 +210,14 @@ impl PreparedSignedBlockSignaturesDecode {
                 .certificate_completed
                 .as_ref()
                 .is_none_or(|owner| owner.admitted_to(budget))
-            && self.workspace.belongs_to(budget)
+            && self
+                .workspace
+                .as_ref()
+                .is_none_or(|owner| owner.belongs_to(budget))
+            && self
+                .workspace_construction
+                .as_ref()
+                .is_none_or(|owner| owner.belongs_to(budget))
             && self
                 .pending
                 .as_ref()
@@ -166,6 +230,12 @@ impl PreparedSignedBlockSignaturesDecode {
     /// Abandon the exact source explicitly after its enclosing owner retires the attempt.
     /// Completed/partial signature and certificate custody retires before preparing another source.
     pub fn clear_consumed(&mut self) {
+        self.parent_absent = false;
+        self.parent_pending = None;
+        self.parent_completed = None;
+        self.penalty_absent = false;
+        self.penalty_pending = None;
+        self.penalty_completed = None;
         self.commitments_pending = None;
         self.commitments_completed = None;
         self.policy_pending = None;
@@ -280,6 +350,103 @@ impl PreparedSignedBlockSignaturesDecode {
         }
         Ok(self.commitments_completed.as_ref())
     }
+    /// Borrow the same original admitted penalty actions for this unchanged complete source.
+    /// This proves only action allocation custody, never parent-QC/evidence or protocol authority.
+    ///
+    /// # Errors
+    /// Rejects a foreign pool, changed allocation or any changed complete source bytes.
+    pub fn retained_npos_penalty_actions<'a>(
+        &'a self,
+        input: &ChargedBuffer<u8>,
+    ) -> Result<Option<&'a NposPenaltyActions>, PreparedSignatureBlockError> {
+        if !input.belongs_to(&self.budget) {
+            return Err(PreparedSignatureBlockError::Source);
+        }
+        if self
+            .source
+            .as_ref()
+            .is_some_and(|source| !source.matches(input.as_slice(), source.span))
+        {
+            return Err(PreparedSignatureBlockError::SourceChanged);
+        }
+        Ok(self.penalty_completed.as_ref())
+    }
+    /// Check exact action-owner identity after the same original full-source checks.
+    /// Absence must agree; equal values or a separately admitted owner cannot substitute it.
+    ///
+    /// # Errors
+    /// Preserves the source and pool errors of `retained_npos_penalty_actions`.
+    pub fn retains_npos_penalty_action_custody(
+        &self,
+        input: &ChargedBuffer<u8>,
+        block: &SignedBlock,
+    ) -> Result<bool, PreparedSignatureBlockError> {
+        let retained = self.retained_npos_penalty_actions(input)?;
+        Ok(match (retained, block.npos_consensus_effects()) {
+            (Some(original), Some(effects)) => {
+                NposPenaltyActions::ptr_eq(original, &effects.penalty_actions)
+            }
+            (None, None) => self.penalty_absent,
+            _ => false,
+        })
+    }
+
+    /// Borrow the original immutable parent-QC byte owner, without authenticating its semantics.
+    /// # Errors
+    /// Rejects changed complete source allocation/content or a foreign pool.
+    pub fn retained_parent_service<'a>(
+        &'a self,
+        input: &ChargedBuffer<u8>,
+    ) -> Result<Option<&'a NposParentServiceCommitQc>, PreparedSignatureBlockError> {
+        if !input.belongs_to(&self.budget) {
+            return Err(PreparedSignatureBlockError::Source);
+        }
+        if self
+            .source
+            .as_ref()
+            .is_some_and(|source| !source.matches(input.as_slice(), source.span))
+        {
+            return Err(PreparedSignatureBlockError::SourceChanged);
+        }
+        Ok(self.parent_completed.as_ref())
+    }
+    /// Whether the block retains the same original parent-QC owner or its decoded absence.
+    /// # Errors
+    /// Preserves the exact source/pool errors of `retained_parent_service`.
+    pub fn retains_parent_service_custody(
+        &self,
+        input: &ChargedBuffer<u8>,
+        block: &SignedBlock,
+    ) -> Result<bool, PreparedSignatureBlockError> {
+        let offered = block
+            .npos_consensus_effects()
+            .and_then(|effects| effects.parent_service_commit_qc.as_ref());
+        Ok(match (self.retained_parent_service(input)?, offered) {
+            (Some(original), Some(offered)) => NposParentServiceCommitQc::ptr_eq(original, offered),
+            (None, None) => self.parent_absent,
+            _ => false,
+        })
+    }
+
+    fn prepare_workspace(&mut self) -> Result<(), PreparedSignatureBlockError> {
+        if self.workspace.is_some() {
+            return Ok(());
+        }
+        let pending = self
+            .workspace_construction
+            .take()
+            .ok_or(PreparedSignatureBlockError::Source)?;
+        match pending.try_finish() {
+            Ok(workspace) => self.workspace = Some(workspace),
+            Err((pending, error)) => {
+                if !cfg!(all(test, sumeragi_model_mutation = "DM54")) {
+                    self.workspace_construction = Some(pending);
+                }
+                return Err(error.into());
+            }
+        }
+        Ok(())
+    }
     /// Decode the original complete `SignedBlockWire` through its one canonical field walk.
     ///
     /// # Errors
@@ -300,6 +467,7 @@ impl PreparedSignedBlockSignaturesDecode {
         } else {
             self.source = Some(Source::new(input.as_slice(), span));
         }
+        self.prepare_workspace()?;
         let bytes = span
             .get(input.as_slice())
             .map_err(|_| PreparedSignatureBlockError::Source)?;
@@ -313,8 +481,24 @@ impl PreparedSignedBlockSignaturesDecode {
             }
             Ok(framed)
         })?;
+        #[cfg(all(test, sumeragi_model_mutation = "DM49"))]
+        {
+            self.penalty_pending = None;
+            self.penalty_completed = None;
+        }
+        #[cfg(all(test, sumeragi_model_mutation = "DM52"))]
+        {
+            self.parent_pending = None;
+            self.parent_completed = None;
+        }
         let mut destination = Fields {
+            parent_absent: &mut self.parent_absent,
+            parent_pending: &mut self.parent_pending,
+            parent_completed: &mut self.parent_completed,
             input,
+            penalty_absent: &mut self.penalty_absent,
+            penalty_pending: &mut self.penalty_pending,
+            penalty_completed: &mut self.penalty_completed,
             budget: &self.budget,
             pending: &mut self.pending,
             completed: &mut self.completed,
@@ -330,6 +514,8 @@ impl PreparedSignedBlockSignaturesDecode {
             certificate: DecodedField::Missing,
         };
         self.workspace
+            .as_mut()
+            .expect("complete original counter controls")
             .decode_canonical_archive_into::<SignedBlock, _>(framed, limits, &mut destination)
             .map_err(retain_field_failure)?;
         let block = SignedBlock {
@@ -358,6 +544,12 @@ impl PreparedSignedBlockSignaturesDecode {
     }
 }
 struct Fields<'a> {
+    parent_absent: &'a mut bool,
+    parent_pending: &'a mut Option<PreparedParentServiceCommitQc>,
+    parent_completed: &'a mut Option<NposParentServiceCommitQc>,
+    penalty_absent: &'a mut bool,
+    penalty_pending: &'a mut Option<PreparedNposPenaltyActions>,
+    penalty_completed: &'a mut Option<NposPenaltyActions>,
     input: &'a ChargedBuffer<u8>,
     budget: &'a AllocationBudget,
     pending: &'a mut Option<PreparedBlockSignatures>,
@@ -453,6 +645,12 @@ impl DecodeField<1, BlockPayload> for Fields<'_> {
     ) -> Result<(), DecodeIntoError<Self::Error>> {
         field.with_payload(|bytes| {
             let mut payload = PayloadFields {
+                parent_absent: self.parent_absent,
+                parent_pending: self.parent_pending,
+                parent_completed: self.parent_completed,
+                penalty_absent: self.penalty_absent,
+                penalty_pending: self.penalty_pending,
+                penalty_completed: self.penalty_completed,
                 input: self.input,
                 budget: self.budget,
                 commitments_pending: self.commitments_pending,
@@ -478,9 +676,15 @@ impl DecodeField<1, BlockPayload> for Fields<'_> {
     }
 }
 // TODO: prepare the remaining payload fields' real transaction,
-// pin authorization, NPoS and execution-context child graphs. Their owning
+// pin authorization, NPoS evidence and execution-context child graphs. Their owning
 // canonical leaves below do not gain physical funding from either immutable DA child.
 struct PayloadFields<'a> {
+    parent_absent: &'a mut bool,
+    parent_pending: &'a mut Option<PreparedParentServiceCommitQc>,
+    parent_completed: &'a mut Option<NposParentServiceCommitQc>,
+    penalty_absent: &'a mut bool,
+    penalty_pending: &'a mut Option<PreparedNposPenaltyActions>,
+    penalty_completed: &'a mut Option<NposPenaltyActions>,
     input: &'a ChargedBuffer<u8>,
     budget: &'a AllocationBudget,
     commitments_pending: &'a mut Option<PreparedDaCommitmentBundle>,
@@ -536,11 +740,193 @@ payload_owned_field!(
     Option<crate::da::pin_intent::DaPinIntentBundle>,
     da_pin_intents
 );
-payload_owned_field!(
-    5,
-    Option<crate::consensus::NposConsensusEffects>,
-    npos_consensus_effects
-);
+impl DecodeField<5, Option<NposConsensusEffects>> for PayloadFields<'_> {
+    type Value = ();
+    fn decode_field(
+        &mut self,
+        field: CanonicalField<'_, Option<NposConsensusEffects>>,
+    ) -> Result<(), DecodeIntoError<Self::Error>> {
+        let effects = field.decode_optional(|field| {
+            field.with_payload(|bytes| {
+                let mut fields = PenaltyEffectsFields {
+                    parent_absent: self.parent_absent,
+                    parent_pending: self.parent_pending,
+                    parent_completed: self.parent_completed,
+                    input: self.input,
+                    budget: self.budget,
+                    pending: self.penalty_pending,
+                    completed: self.penalty_completed,
+                };
+                let ((parent_service_commit_qc, evidence_admissions, penalty_actions), used) =
+                    NposConsensusEffects::decode_fields(bytes, &mut fields)?;
+                if used != bytes.len() {
+                    return Err(norito::Error::LengthMismatch.into());
+                }
+                Ok(NposConsensusEffects {
+                    parent_service_commit_qc,
+                    evidence_admissions,
+                    penalty_actions,
+                })
+            })
+        })?;
+        if effects.is_none() {
+            *self.parent_absent = true;
+        }
+        *self.penalty_absent = effects.is_none();
+        self.npos_consensus_effects = DecodedField::Decoded(effects);
+        Ok(())
+    }
+}
+// TODO: retain the actual evidence graph under its model owner; parent-QC bytes
+// do not fund its independently decoded semantic QC graph.
+// The canonical owning leaves below do not gain funding from the action child.
+struct PenaltyEffectsFields<'a> {
+    parent_absent: &'a mut bool,
+    parent_pending: &'a mut Option<PreparedParentServiceCommitQc>,
+    parent_completed: &'a mut Option<NposParentServiceCommitQc>,
+    input: &'a ChargedBuffer<u8>,
+    budget: &'a AllocationBudget,
+    pending: &'a mut Option<PreparedNposPenaltyActions>,
+    completed: &'a mut Option<NposPenaltyActions>,
+}
+impl FieldDestination for PenaltyEffectsFields<'_> {
+    type Error = FieldFailure;
+}
+fn parent_failure(error: ParentServiceCustodyError) -> DecodeIntoError<FieldFailure> {
+    match error {
+        ParentServiceCustodyError::Decode(original) => {
+            DecodeIntoError::Codec(original.into_error())
+        }
+        original => DecodeIntoError::Destination(FieldFailure::ParentService(original)),
+    }
+}
+impl DecodeField<0, Option<NposParentServiceCommitQc>> for PenaltyEffectsFields<'_> {
+    type Value = Option<NposParentServiceCommitQc>;
+    fn decode_field(
+        &mut self,
+        field: CanonicalField<'_, Option<NposParentServiceCommitQc>>,
+    ) -> Result<Self::Value, DecodeIntoError<Self::Error>> {
+        let value = field.decode_optional(|field| {
+            field.with_payload(|bytes| {
+                let start = bytes
+                    .as_ptr()
+                    .addr()
+                    .checked_sub(self.input.as_slice().as_ptr().addr())
+                    .ok_or(norito::Error::LengthMismatch)?;
+                let end = start
+                    .checked_add(bytes.len())
+                    .ok_or(norito::Error::LengthMismatch)?;
+                let plan = PreparedParentServiceCommitQc::from_source(
+                    self.input,
+                    SequenceSpan { start, end },
+                    self.budget,
+                )
+                .map_err(parent_failure)?;
+                if self.parent_completed.is_none() {
+                    if self.parent_pending.is_none() {
+                        *self.parent_pending = Some(plan);
+                    }
+                    self.parent_pending
+                        .as_mut()
+                        .expect("same original parent-QC attempt")
+                        .prepare(self.input)
+                        .map_err(parent_failure)?;
+                    match self
+                        .parent_pending
+                        .take()
+                        .expect("complete original parent-QC")
+                        .finish(self.input)
+                    {
+                        Ok(value) => *self.parent_completed = Some(value),
+                        Err((owner, error)) => {
+                            *self.parent_pending = Some(owner);
+                            return Err(parent_failure(error));
+                        }
+                    }
+                }
+                Ok(self
+                    .parent_completed
+                    .as_ref()
+                    .expect("same original parent-QC bytes")
+                    .clone())
+            })
+        })?;
+        *self.parent_absent = value.is_none();
+        Ok(value)
+    }
+}
+impl DecodeField<1, Vec<crate::block::consensus::Evidence>> for PenaltyEffectsFields<'_> {
+    type Value = Vec<crate::block::consensus::Evidence>;
+    fn decode_field(
+        &mut self,
+        field: CanonicalField<'_, Self::Value>,
+    ) -> Result<Self::Value, DecodeIntoError<Self::Error>> {
+        Ok(field.decode_owned()?)
+    }
+}
+fn penalty_failure(error: NposPenaltyActionsCustodyError) -> DecodeIntoError<FieldFailure> {
+    match error {
+        NposPenaltyActionsCustodyError::Decode(original) => {
+            DecodeIntoError::Codec(original.into_error())
+        }
+        NposPenaltyActionsCustodyError::Codec(original) => DecodeIntoError::Codec(original),
+        original => DecodeIntoError::Destination(FieldFailure::PenaltyActions(original)),
+    }
+}
+impl DecodeField<2, NposPenaltyActions> for PenaltyEffectsFields<'_> {
+    type Value = NposPenaltyActions;
+    fn decode_field(
+        &mut self,
+        field: CanonicalField<'_, NposPenaltyActions>,
+    ) -> Result<Self::Value, DecodeIntoError<Self::Error>> {
+        if cfg!(all(test, sumeragi_model_mutation = "DM48")) {
+            return Ok(field.decode_owned()?);
+        }
+        field.with_payload(|bytes| {
+            let start = bytes
+                .as_ptr()
+                .addr()
+                .checked_sub(self.input.as_slice().as_ptr().addr())
+                .ok_or(norito::Error::LengthMismatch)?;
+            let end = start
+                .checked_add(bytes.len())
+                .ok_or(norito::Error::LengthMismatch)?;
+            let plan = PreparedNposPenaltyActions::from_source(
+                self.input,
+                SequenceSpan { start, end },
+                self.budget,
+            )
+            .map_err(penalty_failure)?;
+            if self.completed.is_none() {
+                if self.pending.is_none() {
+                    *self.pending = Some(plan);
+                }
+                self.pending
+                    .as_mut()
+                    .expect("same original action attempt")
+                    .prepare(self.input)
+                    .map_err(penalty_failure)?;
+                match self
+                    .pending
+                    .take()
+                    .expect("complete original actions")
+                    .finish(self.input)
+                {
+                    Ok(owner) => *self.completed = Some(owner),
+                    Err((owner, error)) => {
+                        *self.pending = Some(owner);
+                        return Err(penalty_failure(error));
+                    }
+                }
+            }
+            Ok(self
+                .completed
+                .as_ref()
+                .expect("same original immutable actions")
+                .clone())
+        })
+    }
+}
 impl DecodeField<6, Option<crate::consensus::FinalizedGlobalThresholdBeaconPulseV1>>
     for PayloadFields<'_>
 {
@@ -739,6 +1125,10 @@ owned_field!(2, Option<BlockResult>, result);
 #[derive(Debug, thiserror::Error)]
 enum FieldFailure {
     #[error(transparent)]
+    ParentService(ParentServiceCustodyError),
+    #[error(transparent)]
+    PenaltyActions(NposPenaltyActionsCustodyError),
+    #[error(transparent)]
     Signature(BlockSignatureCustodyError),
     #[error(transparent)]
     Certificate(CertificateCustodyError),
@@ -749,6 +1139,12 @@ enum FieldFailure {
 }
 fn retain_field_failure(error: PreparedDecodeError<FieldFailure>) -> PreparedSignatureBlockError {
     match error {
+        PreparedDecodeError::Destination(FieldFailure::ParentService(original)) => {
+            PreparedSignatureBlockError::ParentService(original)
+        }
+        PreparedDecodeError::Destination(FieldFailure::PenaltyActions(original)) => {
+            PreparedSignatureBlockError::PenaltyActions(original)
+        }
         PreparedDecodeError::Codec(original) => {
             PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(original))
         }

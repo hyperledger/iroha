@@ -47,7 +47,7 @@ const SCHEMA: [Atom; 5] = [
 pub struct PaymentInputs<'a, S: StatementView> {
     /// Exact signed Request carried by this Payment.
     pub request: &'a RequestCells,
-    /// Payer credential from the retained Offer.
+    /// Payer credential from the retained Payment companion.
     pub payer: &'a CredentialCells,
     /// Send statement verified by the incoming sigma slot.
     pub statement: &'a S,
@@ -110,6 +110,24 @@ impl IncomingPaymentCells {
         // A fabricated field-only encoding verdict cannot supply byte provenance.
         predecessor.carrier()?;
         let mut payment = PaymentCells::from_run(uint, hash, region, run, inputs)?;
+        // The Request content address covers only the receiver's signed terms.
+        // Its payer wallet, account and send ordinal are the projection of the
+        // hard-linked payer credential and Send statement (total integer view),
+        // so a fixed Payment has one completed Request: no prover can choose
+        // other payer fields to manufacture a false verdict.
+        for index in [3, 4] {
+            for (a, b) in inputs
+                .request
+                .object()
+                .identifier(index)?
+                .iter()
+                .zip(inputs.payer.object().identifier(index)?)
+            {
+                GlueChip::assert_equal(region, a, b)?;
+            }
+        }
+        let ordinal = inputs.statement.integer::<128>(uint, region, 20)?;
+        GlueChip::assert_equal(region, inputs.request.object().word(7)?, ordinal.word())?;
         let pred = predecessor.checked().fields();
         let recv = receiver.fields();
         let statement = inputs.statement.fields();
@@ -256,7 +274,9 @@ impl PaymentCells {
     /// wrong SEC1 prefix, wrong version or invalid source body gives a false
     /// predicate. The Request, payer credential and package content addresses
     /// are hard-linked to the supplied component tapes: substituting a preimage
-    /// is not an incoming verification failure that can authorize a burn.
+    /// is not an incoming verification failure that can authorize a burn. The
+    /// auxiliary Request must use canonical field atoms, because its terms hash
+    /// commits their decoded words rather than the original byte encoding.
     ///
     /// # Errors
     /// Wrong fixed length/segments, a non-Send statement, wrong receipt class or
@@ -274,6 +294,12 @@ impl PaymentCells {
         if run.len() != Self::BYTES || inputs.receipt.kind() != ObjectKind::Receipt {
             return Err(Error::Synthesis);
         }
+        // The Request's terms hash identifies canonical field words. Reject an
+        // alternative noncanonical encoding even for a proposed false verdict;
+        // otherwise its soft zero export could turn a valid Payment into a burn.
+        // This does not harden version/semantic checks or any original Payment
+        // bytes, whose malformed values retain their total false verdict.
+        inputs.request.object().assert_canonical_fields(region)?;
         let mut offset = 0;
         let mut fields = Vec::new();
         let mut checks = Vec::new();

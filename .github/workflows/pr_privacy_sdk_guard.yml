@@ -361,12 +361,12 @@ jobs:
       - name: Download frozen source-bound privacy lock input
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: privacy-jvm-native-abi29-${{ github.sha }}
-          path: ${{ runner.temp }}/privacy-jvm-native-abi29
+          name: privacy-jvm-native-abi31-${{ github.sha }}
+          path: ${{ runner.temp }}/privacy-jvm-native-abi31
       - name: Authenticate canonical privacy graph snapshot
         run: |
           source ci/privacy_sdk_cargo_lockfile.sh
-          release_lock="$RUNNER_TEMP/privacy-jvm-native-abi29/Cargo.lock"
+          release_lock="$RUNNER_TEMP/privacy-jvm-native-abi31/Cargo.lock"
           [[ "$("$MOBILE_SDK_PYTHON_BINARY" -I -S -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$release_lock")" == "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" ]]
           [[ "$("$MOBILE_SDK_PYTHON_BINARY" -I -S -c 'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("Cargo.lock").read_bytes()).hexdigest())')" == "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" ]]
           cmp -s "$release_lock" Cargo.lock
@@ -405,11 +405,11 @@ jobs:
         run: chmod -R a-w "$GITHUB_WORKSPACE"
       - name: Swift privacy native fail-closed contract
         run: python3 -I -B scripts/tests/check_privacy_swift_native_contract_test.py
-      - name: Rebuild exact ABI29 XCFramework under full Xcode
+      - name: Rebuild exact ABI31 XCFramework under full Xcode
         run: scripts/build_norito_xcframework.sh --lockfile-path "$IROHA_PRIVACY_RELEASE_CARGO_LOCKFILE_PATH"
-      - name: Privacy Swift SDK parse and native ABI29 tests
+      - name: Privacy Swift SDK parse and native ABI31 tests
         run: ci/check_privacy_swift_sdk.sh
-      - name: Revalidate frozen Swift inputs and ABI29 artifacts
+      - name: Revalidate frozen Swift inputs and ABI31 artifacts
         if: always()
         run: |
           source ci/privacy_sdk_cargo_lockfile.sh
@@ -459,16 +459,16 @@ jobs:
         env:
           CARGO_NET_OFFLINE: "false"
         run: cargo fetch --locked
-      - name: Privacy JVM and Java SDK native ABI29 tests
+      - name: Privacy JVM and Java SDK native ABI31 tests
         env:
           PRIVACY_JVM_SDK_PYTHON_BIN: ${{ steps.privacy-jvm-python.outputs.python-path }}
-          PRIVACY_JVM_NATIVE_EXPORT_DIR: ${{ runner.temp }}/privacy-jvm-native-abi29
+          PRIVACY_JVM_NATIVE_EXPORT_DIR: ${{ runner.temp }}/privacy-jvm-native-abi31
         run: ci/check_privacy_jvm_sdk.sh
-      - name: Upload source-bound privacy JVM native ABI29 input
+      - name: Upload source-bound privacy JVM native ABI31 input
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: privacy-jvm-native-abi29-${{ github.sha }}
-          path: ${{ runner.temp }}/privacy-jvm-native-abi29
+          name: privacy-jvm-native-abi31-${{ github.sha }}
+          path: ${{ runner.temp }}/privacy-jvm-native-abi31
           if-no-files-found: error
           retention-days: 1
       - name: Verify final privacy JVM Cargo lock isolation
@@ -491,39 +491,39 @@ jobs:
         with:
           python-version: "3.12"
           update-environment: false
-      - name: Download source-bound privacy native ABI29 input
+      - name: Download source-bound privacy native ABI31 input
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: privacy-jvm-native-abi29-${{ github.sha }}
-          path: ${{ runner.temp }}/privacy-jvm-native-abi29
-      - name: Authenticate exact ABI29 C# privacy input
+          name: privacy-jvm-native-abi31-${{ github.sha }}
+          path: ${{ runner.temp }}/privacy-jvm-native-abi31
+      - name: Authenticate exact ABI31 C# privacy input
         env:
           PRIVACY_CSHARP_PYTHON: ${{ steps.privacy-csharp-python.outputs.python-path }}
         run: |
-          input="$RUNNER_TEMP/privacy-jvm-native-abi29"
+          input="$RUNNER_TEMP/privacy-jvm-native-abi31"
           source ci/privacy_sdk_cargo_lockfile.sh
           [[ "$("$PRIVACY_CSHARP_PYTHON" -I -S -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$input/Cargo.lock")" == "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" ]]
           [[ "$("$PRIVACY_CSHARP_PYTHON" -I -S -c 'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("Cargo.lock").read_bytes()).hexdigest())')" == "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" ]]
           "$PRIVACY_CSHARP_PYTHON" -I -S scripts/check_native_sdk_artifact.py verify \
             --artifact "$input/libconnect_norito_bridge.so" \
-            --manifest "$input/native-sdk-abi29-csharp.json" \
+            --manifest "$input/native-sdk-abi31-csharp.json" \
             --source-root "$GITHUB_WORKSPACE"
-      - name: Privacy C# SDK tests through authenticated ABI29
+      - name: Privacy C# SDK tests through authenticated ABI31
         env:
-          LD_LIBRARY_PATH: ${{ runner.temp }}/privacy-jvm-native-abi29
-          PRIVACY_CSHARP_NATIVE_ARTIFACT: ${{ runner.temp }}/privacy-jvm-native-abi29/libconnect_norito_bridge.so
-          PRIVACY_CSHARP_NATIVE_MANIFEST: ${{ runner.temp }}/privacy-jvm-native-abi29/native-sdk-abi29-csharp.json
+          LD_LIBRARY_PATH: ${{ runner.temp }}/privacy-jvm-native-abi31
+          PRIVACY_CSHARP_NATIVE_ARTIFACT: ${{ runner.temp }}/privacy-jvm-native-abi31/libconnect_norito_bridge.so
+          PRIVACY_CSHARP_NATIVE_MANIFEST: ${{ runner.temp }}/privacy-jvm-native-abi31/native-sdk-abi31-csharp.json
           PRIVACY_CSHARP_PYTHON_BIN: ${{ steps.privacy-csharp-python.outputs.python-path }}
         run: ci/check_privacy_csharp_sdk.sh
-      - name: Revalidate ABI29 C# privacy input after execution
+      - name: Revalidate ABI31 C# privacy input after execution
         if: always()
         env:
           PRIVACY_CSHARP_PYTHON: ${{ steps.privacy-csharp-python.outputs.python-path }}
         run: |
-          input="$RUNNER_TEMP/privacy-jvm-native-abi29"
+          input="$RUNNER_TEMP/privacy-jvm-native-abi31"
           "$PRIVACY_CSHARP_PYTHON" -I -S scripts/check_native_sdk_artifact.py verify \
             --artifact "$input/libconnect_norito_bridge.so" \
-            --manifest "$input/native-sdk-abi29-csharp.json" \
+            --manifest "$input/native-sdk-abi31-csharp.json" \
             --source-root "$GITHUB_WORKSPACE"
 
   privacy_javascript_sdk_tests:
@@ -555,13 +555,13 @@ jobs:
       - name: Download frozen source-bound privacy lock input
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: privacy-jvm-native-abi29-${{ github.sha }}
-          path: ${{ runner.temp }}/privacy-jvm-native-abi29
+          name: privacy-jvm-native-abi31-${{ github.sha }}
+          path: ${{ runner.temp }}/privacy-jvm-native-abi31
       - name: Authenticate canonical privacy graph snapshot
         env:
           PRIVACY_JS_PYTHON: ${{ steps.privacy-js-python.outputs.python-path }}
         run: |
-          release_lock="$RUNNER_TEMP/privacy-jvm-native-abi29/Cargo.lock"
+          release_lock="$RUNNER_TEMP/privacy-jvm-native-abi31/Cargo.lock"
           source ci/privacy_sdk_cargo_lockfile.sh
           [[ "$("$PRIVACY_JS_PYTHON" -I -S -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$release_lock")" == "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" ]]
           [[ "$("$PRIVACY_JS_PYTHON" -I -S -c 'import hashlib,pathlib; print(hashlib.sha256(pathlib.Path("Cargo.lock").read_bytes()).hexdigest())')" == "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" ]]
@@ -571,7 +571,7 @@ jobs:
         run: env -u RUSTC_BOOTSTRAP "$(rustup which --toolchain 1.93.1 cargo)" fetch --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml"
       - name: Install JavaScript SDK dependencies
         run: npm ci --prefix javascript/iroha_js
-      - name: Privacy JavaScript SDK tests through authenticated N-API ABI29
+      - name: Privacy JavaScript SDK tests through authenticated N-API ABI31
         env:
           PRIVACY_JS_SDK_PYTHON_BIN: ${{ steps.privacy-js-python.outputs.python-path }}
         run: ci/check_privacy_js_sdk.sh

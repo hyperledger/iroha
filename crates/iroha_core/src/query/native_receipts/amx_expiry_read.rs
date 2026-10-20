@@ -254,6 +254,26 @@ pub fn expiry_amx_decision<'v, V: StateReadOnly>(
     })
 }
 
+// The full borrowed reader is constructed before polling descends into the
+// original native certificate decoder. Keep its inline move temporaries in this
+// separate frame; the same already-admitted buffer owns the reader afterward.
+#[inline(never)]
+fn prepare_borrowed_source<'v, V: StateReadOnly>(
+    view: &'v V,
+    height: u64,
+    transaction: [u8; 32],
+    budget: &iroha_allocation::AllocationBudget,
+) -> Result<ChargedBuffer<NativeAmxRecordProofReadV1<'v, V>>, ChargedBufferError> {
+    let mut borrowed = ChargedBuffer::new(1, budget)?;
+    borrowed.push_reserved(amx_record_proof(
+        view,
+        height,
+        AmxRecordKind::Decision,
+        transaction,
+    ));
+    Ok(borrowed)
+}
+
 impl<V: StateReadOnly> NativeAmxExpiryDecisionReadV1<'_, V> {
     /// Whether retiring this wrapper preserves every admitted unfinished source in its cursor.
     /// A false result requires keeping this borrower and captured view through refusal.
@@ -334,14 +354,12 @@ impl<V: StateReadOnly> NativeAmxExpiryDecisionReadV1<'_, V> {
         }
         if slot.read.is_none() {
             if self.borrowed.is_none() {
-                let mut borrowed = ChargedBuffer::new(1, budget)?;
-                borrowed.push_reserved(amx_record_proof(
+                self.borrowed = Some(prepare_borrowed_source(
                     self.view,
                     height,
-                    AmxRecordKind::Decision,
                     self.transaction,
-                ));
-                self.borrowed = Some(borrowed);
+                    budget,
+                )?);
             }
             let issued = self
                 .borrowed

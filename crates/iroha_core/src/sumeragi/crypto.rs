@@ -13,6 +13,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::execution_attempt::ExecutionDeferred;
+use iroha_allocation::AllocatorRefusal;
 use iroha_crypto::{
     Algorithm, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey, PublicKey as IrohaPublicKey,
     bls::consensus::{self, ConsensusAggregateScratch, ConsensusDigest},
@@ -24,6 +25,8 @@ use iroha_sumeragi::{
 };
 use parking_lot::{Mutex, RwLock};
 
+#[cfg(test)]
+mod allocation_tests;
 pub(crate) mod funded;
 
 /// Request-local committee construction preserves resource refusal separately from bad keys.
@@ -212,23 +215,24 @@ impl BlsCrypto {
             admitted.insert(core, Arc::new(verified));
         }
         let scratch = ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-            .unwrap_or_else(|never| match never {});
+            .map_err(|error| QueryCommitteeError::Resource(scratch_construction_error(error)))?;
         Ok(Self {
             admitted: RwLock::new(admitted),
             aggregate_scratch: Some(Mutex::new(scratch)),
         })
     }
 
-    fn with_scratch(&self, verify: impl FnOnce(&mut ConsensusAggregateScratch) -> bool) -> bool {
-        if let Some(scratch) = &self.aggregate_scratch {
-            verify(&mut scratch.lock())
-        } else {
-            // Dynamic node callers retain their original independent per-call scratch.
-            let mut scratch =
-                ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-                    .unwrap_or_else(|never| match never {});
-            verify(&mut scratch)
-        }
+    /// Refuse a node build whose linked pairing context cannot run aggregate verification.
+    ///
+    /// Without a request-owned scratch, [`Crypto::verify_aggregate`] and
+    /// [`Crypto::verify_aggregate_multi`] use the shared bounded stack pairing context.
+    /// An unsupported linked context would reject every valid QC and TC there as a bad
+    /// signature, so node startup calls this before preparing any state.
+    ///
+    /// # Errors
+    /// The linked context size and the supported stack bound.
+    pub fn check_pairing_geometry() -> Result<(), consensus::UnsupportedPairingGeometry> {
+        consensus::check_pairing_geometry()
     }
 
     /// Admit a committee key: verify its proof of possession `pop` once and keep the parsed
@@ -333,6 +337,22 @@ fn verify_individual(pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
     consensus::verify_public_key(key, &digest, &sig.0)
 }
 
+// The physical allocator cause stays original; neither refusal becomes a key verdict.
+fn scratch_construction_error(
+    error: consensus::AggregateScratchError<core::convert::Infallible>,
+) -> ExecutionDeferred {
+    match error {
+        consensus::AggregateScratchError::Admission(never) => match never {},
+        consensus::AggregateScratchError::Allocator { error, layout } => {
+            AllocatorRefusal::from_vec_reserve(error, layout).into()
+        }
+        // Node startup refuses this linked build; a request on one still fails locally.
+        consensus::AggregateScratchError::UnsupportedGeometry { .. } => {
+            ivm::error::ExecutionDeferral::VerifierInitializationUnavailable.into()
+        }
+    }
+}
+
 fn aggregate_signatures(sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
     // Both owners preserve the local refusal without constructing a sentinel signature
     // or allocating a second input graph.
@@ -371,7 +391,17 @@ impl Crypto for BlsCrypto {
         let Some(input) = AggregateInput::prepare(pks, digest, lookup) else {
             return false;
         };
-        self.with_scratch(|scratch| input.verify(scratch, lookup, agg))
+        if let Some(scratch) = &self.aggregate_scratch {
+            input.verify(&mut scratch.lock(), lookup, agg)
+        } else {
+            // Dynamic node verification uses the shared bounded stack context, so
+            // this boolean protocol trait cannot hide a physical allocator refusal.
+            consensus::verify_fast_aggregate_iter(
+                input.keys.iter().filter_map(|key| lookup(key)),
+                &input.digest,
+                &agg.0,
+            )
+        }
     }
 
     fn verify_aggregate_multi(
@@ -384,7 +414,19 @@ impl Crypto for BlsCrypto {
         let Some(input) = AggregateGroups::prepare(groups, lookup) else {
             return false;
         };
-        self.with_scratch(|scratch| input.verify(scratch, lookup, agg))
+        if let Some(scratch) = &self.aggregate_scratch {
+            input.verify(&mut scratch.lock(), lookup, agg)
+        } else {
+            // `prepare` admitted only canonical preimages, so this drops no group; the
+            // same form as the scratch relation has no panic on the verification path.
+            consensus::verify_aggregate_multi_iter(
+                input.groups.iter().filter_map(|(keys, message)| {
+                    ConsensusDigest::from_preimage(message)
+                        .map(|digest| (keys.iter().filter_map(move |key| lookup(key)), digest))
+                }),
+                &agg.0,
+            )
+        }
     }
 }
 
@@ -514,7 +556,7 @@ mod tests {
         context: Hash32([0x51; 32]),
     };
 
-    fn message(view: u64) -> Vec<u8> {
+    pub(super) fn message(view: u64) -> Vec<u8> {
         iroha_sumeragi::preimage::vote_preimage(
             VoteKind::Commit,
             &I,
@@ -526,7 +568,7 @@ mod tests {
         )
     }
 
-    fn key_pair(seed: u8) -> KeyPair {
+    pub(super) fn key_pair(seed: u8) -> KeyPair {
         KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal)
     }
 
@@ -534,7 +576,7 @@ mod tests {
         bls_normal_pop_prove(key_pair.private_key()).unwrap()
     }
 
-    fn query_members(pairs: &[KeyPair]) -> Vec<ValidatorCommitteeMemberV1> {
+    pub(super) fn query_members(pairs: &[KeyPair]) -> Vec<ValidatorCommitteeMemberV1> {
         pairs
             .iter()
             .map(|pair| ValidatorCommitteeMemberV1 {

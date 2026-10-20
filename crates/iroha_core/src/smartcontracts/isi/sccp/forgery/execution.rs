@@ -17,7 +17,6 @@ use super::{
 use crate::{
     state::{
         EvidencePreparationError, StateReadOnly, StateStorageAdmissionError, StateTransaction,
-        WorldReadOnly,
         sccp_forgery_custody::{ForgeryStorageError, OffenceKey},
     },
     sumeragi::evidence::record::{PreparedSccpRecord, RetainedEvidenceRecord, prepare_sccp_claim},
@@ -36,7 +35,7 @@ use event_graph::prepare_events;
 use iroha_data_model::sccp::events::SccpEvent;
 
 /// A protocol rejection is distinct from a retained local storage/source refusal.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[allow(
     variant_size_differences,
     reason = "retain original inline resource/refusal owners without a new allocation"
@@ -68,9 +67,9 @@ impl ForgeryExecutionError {
                 // The original local cause lives outside deterministic instruction errors.
                 // Its sticky owner rejects the carrier before receipts or apply; even a
                 // diagnostic allocation here could fail while reporting allocator refusal.
-                #[cfg(all(test, sumeragi_core_mutation = "HC435"))]
+                #[cfg(all(test, sumeragi_core_mutation = "HC907"))]
                 let message = local.to_string().into_boxed_str();
-                #[cfg(not(all(test, sumeragi_core_mutation = "HC435")))]
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC907")))]
                 let message = Box::<str>::default();
                 stx.arm_local_storage_refusal(local);
                 InstructionExecutionError::InvariantViolation(message)
@@ -106,6 +105,19 @@ impl ForgeryExecutionError {
             Self::Verification(ForgeryVerificationError::Allocation(error)) => {
                 Ok(StateStorageAdmissionError::SccpEvidence(
                     EvidencePreparationError::Admission(error),
+                ))
+            }
+            // The pairing scratch is the only physical allocation of verification: a local
+            // allocator refusal of its exact admitted layout, never a protocol rejection.
+            // TODO(S8): retain the original move-only AllocatorRefusal once the preparation
+            // error owns it.
+            Self::Verification(ForgeryVerificationError::PhysicalAllocation(_)) => {
+                Ok(StateStorageAdmissionError::SccpEvidence(
+                    EvidencePreparationError::Allocator {
+                        requested_bytes:
+                            iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_layout()
+                                .size(),
+                    },
                 ))
             }
             Self::Verification(

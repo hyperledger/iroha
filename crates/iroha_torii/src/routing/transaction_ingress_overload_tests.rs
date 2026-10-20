@@ -67,8 +67,13 @@ mod transaction_ingress_overload_tests {
         }
     }
     routing_test! { async transaction_ingress_allows_latency_saturated_queue_before_capacity
+        let mut world = World::default();
+        crate::test_utils::bind_fixture_root(
+            &mut world,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        );
         let state = Arc::new(State::new_for_testing(
-            World::default(),
+            world,
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         ));

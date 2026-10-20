@@ -39,6 +39,9 @@ fn frozen_pending(state: &State, header: BlockHeader) -> Box<StateBlock<'_>> {
 
 #[test]
 fn original_package_read_retains_completed_current_index_on_later_physical_refusal() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
     let mut block = frozen_pending(&state, proposal.header());
@@ -138,6 +141,9 @@ fn control_data_bytes_for_test() -> usize {
 
 #[test]
 fn original_package_read_same_limit_retry_preserves_monotonic_work_and_exact_source() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = frozen_pending(&state, proposal.header());
     let budget = state.ivm_execution_budget();
@@ -203,6 +209,15 @@ fn original_package_read_same_limit_retry_preserves_monotonic_work_and_exact_sou
 
 #[test]
 fn original_package_read_foreign_scope_and_changed_source_refuse_without_reacquisition() {
+    // Keep this exact retirement observation separate from other test readers.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_package_read_tests::original_package_read_foreign_scope_and_changed_source_refuse_without_reacquisition",
+    ) {
+        return;
+    }
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = frozen_pending(&state, proposal.header());
     let budget = state.ivm_execution_budget();
@@ -241,6 +256,9 @@ fn original_package_read_foreign_scope_and_changed_source_refuse_without_reacqui
 
 #[test]
 fn original_package_read_outside_reader_refuses_retirement_without_physical_wait() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = frozen_pending(&state, proposal.header());
     let budget = state.ivm_execution_budget();

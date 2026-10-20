@@ -189,6 +189,51 @@ impl StreamAuthorization for ToriiStreamReadAuthorization {
     }
 }
 
+/// Explorer's fallible read decision, retaining its funded fixed route scope.
+///
+/// Capacity/history refusals remain distinct from authorization revocation. A
+/// cached decision never grants a new query owner or extends decoder custody.
+pub struct ExplorerStreamReadAuthorization {
+    context: crate::stream_control::ExplorerReadContext,
+    decision: Option<StreamReadDecision>,
+}
+
+impl ExplorerStreamReadAuthorization {
+    pub(crate) fn new(context: crate::stream_control::ExplorerReadContext) -> Self {
+        Self {
+            context,
+            decision: None,
+        }
+    }
+
+    pub(crate) fn visibility(&mut self) -> Result<&DataspaceReadVisibility, crate::Error> {
+        if self.decision.as_ref().is_none_or(|decision| {
+            !decision.is_current_at(self.context.committed_height(), tokio::time::Instant::now())
+        }) {
+            self.revalidate()?;
+        }
+        Ok(&self
+            .decision
+            .as_ref()
+            .expect("successful read installs its decision")
+            .visibility)
+    }
+
+    pub(crate) fn revalidate(&mut self) -> Result<(), crate::Error> {
+        // Clear stale authority before a fallible read. A refusal cannot leave
+        // the previous decision available to a subsequent poll.
+        self.decision = None;
+        let (height, visibility) = self.context.current_read_scope()?;
+        self.decision = Some(StreamReadDecision {
+            height,
+            decided_at: tokio::time::Instant::now(),
+            authorized: true,
+            visibility,
+        });
+        Ok(())
+    }
+}
+
 /// Event subscription whose transaction scopes come from an explicit block store.
 pub(crate) struct ScopedEventStream {
     authorization: ToriiStreamReadAuthorization,
@@ -543,5 +588,32 @@ mod tests {
         );
         assert_eq!(authorization.visibility(), &hidden);
         assert!(!authorization.authorization_is_current());
+    }
+    #[test]
+    fn explorer_authorization_reuses_scope_until_height_or_deadline_changes() {
+        let context = crate::stream_control::ExplorerReadContext::all_for_tests_at(0);
+        let mut authorization = ExplorerStreamReadAuthorization::new(context);
+        assert!(authorization.decision.is_none());
+        assert!(authorization.visibility().unwrap().can_read_all());
+        let pinned = tokio::time::Instant::now() + STREAM_AUTHORIZATION_CHECK_INTERVAL;
+        authorization.decision.as_mut().unwrap().decided_at = pinned;
+        assert!(authorization.visibility().unwrap().can_read_all());
+        assert_eq!(authorization.decision.as_ref().unwrap().decided_at, pinned);
+        authorization.decision.as_mut().unwrap().height = usize::MAX;
+        authorization.visibility().unwrap();
+        assert_ne!(authorization.decision.as_ref().unwrap().decided_at, pinned);
+        authorization.decision.as_mut().unwrap().decided_at =
+            tokio::time::Instant::now() - STREAM_AUTHORIZATION_CHECK_INTERVAL;
+        authorization.visibility().unwrap();
+        assert!(
+            authorization
+                .decision
+                .as_ref()
+                .unwrap()
+                .is_current_at(0, tokio::time::Instant::now())
+        );
+        authorization.decision.as_mut().unwrap().decided_at = pinned;
+        authorization.revalidate().unwrap();
+        assert_ne!(authorization.decision.as_ref().unwrap().decided_at, pinned);
     }
 }

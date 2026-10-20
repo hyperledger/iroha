@@ -221,8 +221,9 @@ pub(crate) fn public_bytes(fields: &[Fp; 18]) -> Vec<u8> {
     out
 }
 fn signed_digest(kind: ObjectKind, raw: &[u8]) -> Fp {
+    use iroha_kagemusha_proof::operation_relation::objects::signed_message_native;
     let end = kind.body_len();
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+    let mut words = vec![signed_message_native(kind, &raw[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             raw[end + offset..end + offset + 16].try_into().unwrap(),
@@ -856,7 +857,7 @@ enum ContinuationMutation {
     OwnReceiptVerdict,
     /// Q1 slot 1: the soft Send receipt verdict, projected by Signatures.
     IncomingSignatureVerdict,
-    /// Another step witness for ReceiveTransition, with the statement unchanged.
+    /// Another step witness for `ReceiveTransition`, with the statement unchanged.
     Step,
     CarriedP,
     WPart,
@@ -1757,7 +1758,7 @@ fn assert_foreign_wrapper_rejects(circuit: &Stage, previous_wrapper: &[u8]) {
     }
 }
 #[test]
-#[ignore = "real receiver Bootstrap, inline own step, incoming sigma, two Qs and nine fixed A with eight W; run optimized"]
+#[ignore = "real receiver Bootstrap, inline own step, incoming sigma, two Qs and five fixed A with four W; run optimized"]
 fn genuine_receive_burn_owner_chain_preserves_all_proofs_and_result_claims() {
     receive_owner_chain(IngestionCapacity::Descriptor);
 }
@@ -1769,7 +1770,7 @@ fn canonical_envelope_receive_burn_owner_chain() {
 }
 
 #[test]
-#[ignore = "current genuine Bootstrap, invalid original sigma, full9A8W and strict original-import/custody replay"]
+#[ignore = "current genuine Bootstrap, invalid original sigma, full5A4W and strict original-import/custody replay"]
 fn bootstrap_only_invalid_sigma_burn_imports_all_native_sources_and_checkpoints() {
     let receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
         bootstrap_outer::bootstrap_chain::BootstrapIdentity::Receiver,
@@ -1785,7 +1786,7 @@ fn bootstrap_only_invalid_sigma_burn_imports_all_native_sources_and_checkpoints(
     );
     let _ = prove_bootstrap_invalid_sigma_source(source);
     eprintln!(
-        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE full9A8W=true incoming_Q_soft_false=true exact_resigned_originals=true all_modes_Trivial=true consumed_root_unchanged=true adjusted_spendable_balance_zero=true no_Load_trust=true strict_original_import_and_canonical_custody_all17=true terminal_omega=false"
+        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE full5A4W=true incoming_Q_soft_false=true exact_resigned_originals=true all_modes_Trivial=true consumed_root_unchanged=true adjusted_spendable_balance_zero=true no_Load_trust=true strict_original_import_and_canonical_custody_all9=true terminal_omega=false"
     );
 }
 
@@ -1863,28 +1864,6 @@ pub fn canonical_envelope_receive_accepts_exact_payer_and_receiver_heads(
     assert_eq!(
         source.own.witness.after.lineage[14], source.own.witness.before.lineage[14],
         "accepted value never enters the burn accumulator"
-    );
-    let _ = prove_receive_owner_chain(source);
-}
-
-/// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Shared builder; some component harnesses select other branches.
-pub fn canonical_envelope_receive_renewed_accepts_exact_payer_and_receiver_heads(
-    fixture: &compact_catalog::LoadFixture,
-) {
-    let wallets = compact_catalog::compact_payer_load_and_receiver(fixture);
-    let (receiver, payer) = shared_wallet_heads(&wallets);
-    let source = source_variant(
-        receiver,
-        Some(payer),
-        IngestionCapacity::CanonicalEnvelope,
-        Variant::ReceiveRenewed,
-        None,
-    );
-    assert_exact_payer_source(&source);
-    assert_eq!(
-        source.own.witness.after.lineage[14], source.own.witness.before.lineage[14],
-        "renewed accepted value never enters the burn accumulator"
     );
     let _ = prove_receive_owner_chain(source);
 }
@@ -2118,7 +2097,7 @@ fn owner_rows(source: &Arc<Source>) -> Vec<usize> {
     sizes
 }
 
-/// Size all nine fixed Receive owners at the canonical maximum envelope, over a
+/// Size all five fixed Receive owners at the canonical maximum envelope, over a
 /// genuine receiver Bootstrap predecessor and the real Q keys. Each stage must
 /// fit the unchanged k16 gate; no proof is produced.
 fn every_owner_fits_k16(variant: Variant) {
@@ -2133,13 +2112,13 @@ fn every_owner_fits_k16(variant: Variant) {
         None,
     ));
     let plan = source.plan.context();
-    assert_eq!(plan.stage_count(), 9);
-    let partitions: [&[usize]; 9] = [&[], &[0], &[], &[], &[], &[1], &[], &[], &[]];
+    assert_eq!(plan.stage_count(), 5);
+    let partitions: [&[usize]; 5] = [&[], &[0], &[], &[1], &[]];
     for (stage, q) in partitions.into_iter().enumerate() {
         assert_eq!(plan.q_partition(stage), Some(q));
     }
     let rows = owner_rows(&source);
-    assert_eq!(rows.len(), 9);
+    assert_eq!(rows.len(), 5);
     for (stage, rows) in rows.iter().enumerate() {
         eprintln!(
             "RECEIVE_CAPACITY {variant:?} A{} tasks={:?} Q={:?} rows={rows} k16_fit={} actual_proof=false",
@@ -2159,14 +2138,14 @@ fn every_owner_fits_k16(variant: Variant) {
 }
 
 #[test]
-#[ignore = "real receiver Bootstrap predecessor; sizes ordinary Receive A1..A9 at the canonical envelope without proving; run optimized"]
-fn receive_owners_a1_to_a9_fit_k16() {
+#[ignore = "real receiver Bootstrap predecessor; sizes ordinary Receive A1..A5 at the canonical envelope without proving; run optimized"]
+fn receive_owners_fit_k16() {
     every_owner_fits_k16(Variant::Receive);
 }
 
 #[test]
-#[ignore = "real receiver Bootstrap predecessor; sizes ReceiveRenewed A1..A9 at the canonical envelope without proving; run optimized"]
-fn receive_renewed_owners_a1_to_a9_fit_k16() {
+#[ignore = "real receiver Bootstrap predecessor; sizes ReceiveRenewed A1..A5 at the canonical envelope without proving; run optimized"]
+fn receive_renewed_owners_fit_k16() {
     every_owner_fits_k16(Variant::ReceiveRenewed);
 }
 
@@ -2732,7 +2711,7 @@ impl NativeCheckpoints {
         assert_eq!(terminal.incoming_vesta, source.incoming_head.vesta);
         assert_eq!(terminal.predecessor_vesta, source.predecessor.vesta);
         eprintln!(
-            "NATIVE_RECEIVE_RESTORE all9A_all8W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all17=true native_producer_retains_no_PK=true rebuilt_PK_proof_bytes_equal=true canonical_custody_all17_exact_bytes=true fresh_session_from_originals=true own_receipt_slot0_hard=true quoted_objects_soft_but_context_bound=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
+            "NATIVE_RECEIVE_RESTORE all5A_all4W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all9=true native_producer_retains_no_PK=true rebuilt_PK_proof_bytes_equal=true canonical_custody_all9_exact_bytes=true fresh_session_from_originals=true own_receipt_slot0_hard=true quoted_objects_soft_but_context_bound=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
         );
         terminal
     }
@@ -2840,8 +2819,8 @@ pub(crate) struct AuthenticatedReceive {
     pub(crate) payment_digest: Fp,
     /// Exact accepted-credit verdict constrained by all result and mode owners.
     pub(crate) accepted_credit: bool,
-    /// Actual own σ_recv whose original digest the own receipt signs. Receive A
-    /// proves the step inline; the payer's ArchiveReceive verifies this proof.
+    /// Actual own `σ_recv` whose original digest the own receipt signs. Receive A
+    /// proves the step inline; the payer's `ArchiveReceive` verifies this proof.
     pub(crate) sigma: Vec<u8>,
     /// Original Request, payer credential, Send receipt, Payment, incoming Omega,
     /// incoming sigma, own receipt and quoted credential/certificate.
@@ -2861,12 +2840,19 @@ pub(crate) struct AuthenticatedReceive {
 )]
 pub(crate) fn receive_terminal_identity(
     wallets: &compact_catalog::SharedKeyWallets,
+    variant: Variant,
 ) -> (iroha_plonk::DescriptorBinding, VerifyingKey<Eq>) {
+    assert!(matches!(
+        variant,
+        Variant::Receive | Variant::ReceiveRenewed
+    ));
     let (receiver, payer) = shared_wallet_heads(wallets);
-    terminal_identity_from_source(source(
+    terminal_identity_from_source(source_variant(
         receiver,
         Some(payer),
         IngestionCapacity::CanonicalEnvelope,
+        variant,
+        None,
     ))
 }
 
@@ -3003,23 +2989,28 @@ fn terminal_identity_from_source(
     unreachable!("Receive has a fixed nonempty terminal schedule")
 }
 
-/// Prove Receive from these original same-key wallets, including an optional
-/// adversarial original Vesta claim with its distinct same-challenges correction.
+/// Prove either Receive variant from these original same-key wallets, including
+/// an optional adversarial Vesta claim with its distinct same-challenges correction.
 #[allow(
     dead_code,
     reason = "used by the separate Receive Omega integration target"
 )]
 pub(crate) fn authenticated_receive_from_wallets(
     wallets: compact_catalog::SharedKeyWallets,
+    variant: Variant,
     correction: Option<EqAffine>,
 ) -> AuthenticatedReceive {
+    assert!(matches!(
+        variant,
+        Variant::Receive | Variant::ReceiveRenewed
+    ));
     let (receiver, payer) = shared_wallet_heads(&wallets);
     drop(wallets); // Release the superseded source packages before proving the Receive chain.
     let source = source_with_correction(
         receiver,
         Some(payer),
         IngestionCapacity::CanonicalEnvelope,
-        Variant::Receive,
+        variant,
         Some(true),
         correction,
         true,
@@ -3027,6 +3018,13 @@ pub(crate) fn authenticated_receive_from_wallets(
     assert_exact_payer_source(&source);
     assert!(source.objects_valid);
     assert_eq!(source.corrected_vesta, correction.is_some());
+    assert_eq!(source.accept, correction.is_none());
+    if source.accept {
+        assert_eq!(
+            source.own.witness.after.lineage[14], source.own.witness.before.lineage[14],
+            "{variant:?} accepted value never enters the burn accumulator"
+        );
+    }
     prove_receive_owner_chain(source).unwrap()
 }
 

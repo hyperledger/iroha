@@ -185,6 +185,7 @@ def _governance_client(session: RecordingSession) -> ToriiClient:
         session=session,
         local_signing_context=LocalSigningContext(GOVERNANCE_NETWORK_ID),
         sorafs_alias_policy=TEST_SORAFS_ALIAS_POLICY,
+        chain_discriminant=753,
     )
 
 
@@ -314,6 +315,7 @@ def test_governance_ballot_307_is_one_shot_even_when_post_retries_are_configured
         retry_on_methods=["POST"],
         max_retries=4,
         sorafs_alias_policy=TEST_SORAFS_ALIAS_POLICY,
+        chain_discriminant=753,
     )
     with pytest.raises(RuntimeError, match="unexpected status 307"):
         client.governance_submit_plain_ballot(

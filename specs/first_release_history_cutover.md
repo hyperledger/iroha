@@ -111,6 +111,16 @@ block policy. The pinned replay reads these exact values from the restored
 State and still verifies the native certified result, World root and execution
 tip. No old-cap exception or alternate decoder is retained.
 
+The 2026-10-20 capture replaces the preceding pinned frames with the current
+canonical block, transaction and result layouts. Its signed genesis funds the
+fixture's fee payers, and both ordinary `Log` transactions carry the exact Nexus
+fee limits required by the committed root policy. This declares `fresh_genesis`
+for the history wire, genesis and execution semantics represented by this
+fixture. The previous capture is rejected during canonical frame decoding; it
+is replaced directly, without an alternate decoder or a replay exception. The
+four-validator exporter and pinned replay check the new frames, complete World
+root and execution tip through the existing production paths.
+
 ## Deliberately incompatible change
 
 A change is incompatible when it alters the bytes, validity or certified result

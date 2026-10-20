@@ -1032,8 +1032,8 @@ fn multi_year_dormancy_rejects_before_mutation_and_bounded_sweeps_preserve_waive
             assert!(
                 stx.world
                     .asset_definition_nonzero_holders
-                    .get(&policy.ds_asset_id)
-                    .is_none_or(|holders| !holders.contains(&owner))
+                    .get(&(policy.ds_asset_id.clone(), owner.clone()))
+                    .is_none()
             );
             assert_eq!(
                 receipts(&stx.world, &owner, None, 100).unwrap().len(),
@@ -1457,7 +1457,8 @@ fn seed_due_native_renewals(
         norito::codec::Encode::encode(&policy),
     );
     assert_eq!(
-        crate::sns::policy_by_id(&transaction.world, DOMAIN_NAME_SUFFIX_ID).unwrap(),
+        crate::sns::policy_by_id(&transaction.world, DOMAIN_NAME_SUFFIX_ID)
+            .expect("fixture uses the production SNS policy codec"),
         Some(policy.clone()),
         "SNS fixtures use the actual fixed-v1 bare policy storage owner"
     );
@@ -1493,6 +1494,11 @@ fn seed_due_native_renewals(
         transaction.world.smart_contract_state.insert(
             crate::sns::record_storage_key(&selector),
             norito::codec::Encode::encode(&record),
+        );
+        assert_eq!(
+            crate::sns::record_by_selector(&transaction.world, &selector)
+                .expect("fixture uses the production SNS record codec"),
+            Some(record.clone())
         );
         assert_eq!(
             crate::sns::get_name_record_by_selector(&transaction.world, &selector, now).unwrap(),

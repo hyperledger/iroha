@@ -1,0 +1,21 @@
+{
+  "audit_method": "extension/path/type allowlist; private-key PEM, GitHub, AWS, OpenAI/Anthropic and Slack token regexes; generic literal credential assignment review against HEAD and test-only context",
+  "binary_build_artifacts_included": false,
+  "dependencies_excluded": true,
+  "generic_assignment_reviews": [
+    {
+      "disposition": "preexisting HEAD test-only configuration fixture; values omitted",
+      "line": 3206,
+      "path": "crates/iroha_core/src/smartcontracts/isi/query.rs"
+    },
+    {
+      "disposition": "preexisting HEAD test-only configuration fixture; values omitted",
+      "line": 3242,
+      "path": "crates/iroha_core/src/smartcontracts/isi/query.rs"
+    }
+  ],
+  "high_confidence_credential_pattern_hits": 0,
+  "limitation": "Pattern and context review is not proof of absence of every possible secret. No credential values were printed by the audit.",
+  "restricted_asset_files_included": false,
+  "scope": "all included UTF-8 source files and generated patch"
+}

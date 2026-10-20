@@ -18,6 +18,10 @@ fn accept_transaction_metadata(
             "PRTRY:NTS_UNHEALTHY",
             format!("failed to accept transaction: {err}"),
         ),
+        iroha_core::tx::AcceptTransactionFail::AnonymousBallotUnavailable => (
+            "anonymous_ballot_unavailable",
+            "Anonymous ballot State/context verification is locally unavailable.".to_owned(),
+        ),
         iroha_core::tx::AcceptTransactionFail::TransactionLimit(limit) => (
             "transaction_rejected",
             format!("failed to accept transaction: {}", limit.reason),
@@ -105,7 +109,7 @@ async fn handler_post_transactions_batch(
                         PreparedTransactionIngress::Fresh(transaction) => {
                             let prepared =
                                 prepare_fresh_transaction_ingress(&worker_app, transaction)?;
-                            ordinary_transaction_ingress::authenticate(
+                            ordinary_transaction_ingress::authenticate_lifecycle_certificate(
                                 &worker_app,
                                 prepared.transaction.entrypoint(),
                                 &prepared.routing_plan,
@@ -897,38 +901,50 @@ fn trigger_completion_query_response(
     let mut remaining_work = routing::app_query_limits().max_fetch_size;
     let mut remaining_bytes =
         iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(remaining_work);
-    for height in (from_height..=requested_to).rev() {
-        scanned_blocks = scanned_blocks.saturating_add(1);
-        let height_usize = usize::try_from(height)
-            .ok()
-            .and_then(NonZeroUsize::new)
-            .ok_or_else(|| {
-                pipeline_status_projection_error("completion height exceeds host index")
-            })?;
-        let carrier = app
-            .state
-            .read_finalized_execution_carrier(height_usize, remaining_work, remaining_bytes)
-            .map_err(crate::canonical_history::query_attempt_error)?;
-        remaining_work -= carrier.work_items();
-        remaining_bytes -= carrier.wire_bytes();
-        let mut reached_limit = false;
-        visit_trigger_completion_records_for_block(carrier.block(), height, |record| {
-            if !trigger_completion_record_matches(
-                &record,
-                query.id.as_deref(),
-                query.entrypoint_hash.as_deref(),
-                outcome,
-            ) {
-                return true;
+    // HTTP observation: one request owner authenticates every carrier through State/checkpoint
+    // ancestry. Each read stays inside the unchanged remaining cumulative work and bytes.
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
+    owner.scope(|| {
+        for height in (from_height..=requested_to).rev() {
+            scanned_blocks = scanned_blocks.saturating_add(1);
+            let height_usize = usize::try_from(height)
+                .ok()
+                .and_then(NonZeroUsize::new)
+                .ok_or_else(|| {
+                    pipeline_status_projection_error("completion height exceeds host index")
+                })?;
+            let original = read_pipeline_execution_carrier_within(
+                app,
+                height_usize,
+                remaining_work,
+                remaining_bytes,
+            )?;
+            remaining_work -= original.carrier.work_items();
+            remaining_bytes -= original.carrier.wire_bytes();
+            let mut reached_limit = false;
+            visit_trigger_completion_records_for_block(
+                original.carrier.block(),
+                height,
+                |record| {
+                    if !trigger_completion_record_matches(
+                        &record,
+                        query.id.as_deref(),
+                        query.entrypoint_hash.as_deref(),
+                        outcome,
+                    ) {
+                        return true;
+                    }
+                    completions.push(record);
+                    reached_limit = u64::try_from(completions.len()).unwrap_or(u64::MAX) >= limit;
+                    !reached_limit
+                },
+            )?;
+            if reached_limit {
+                break;
             }
-            completions.push(record);
-            reached_limit = u64::try_from(completions.len()).unwrap_or(u64::MAX) >= limit;
-            !reached_limit
-        })?;
-        if reached_limit {
-            break;
         }
-    }
+        Ok::<(), Error>(())
+    })?;
     if app.state.view().block_hashes().get(anchor_index).copied() != Some(anchor) {
         return Err(pipeline_status_projection_error(
             "completion history changed during authentication",
@@ -1137,11 +1153,21 @@ fn read_pipeline_execution_carrier(
     app: &SharedAppState,
     height: NonZeroUsize,
 ) -> Result<AuthenticatedPipelineCarrier, Error> {
-    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
     let work = routing::app_query_limits().max_fetch_size;
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+    read_pipeline_execution_carrier_within(app, height, work, bytes)
+}
+// A multi-carrier scan passes its remaining cumulative work and bytes, so each read is
+// refused inside that bound instead of being charged after a wider read.
+fn read_pipeline_execution_carrier_within(
+    app: &SharedAppState,
+    height: NonZeroUsize,
+    work: u64,
+    bytes: u64,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
     let carrier = owner.scope(|| {
         let budget = owner.canonical_history_budget();
-        let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
         // G1 still requires its actual certified H2. Only successors use the original
         // State/checkpoint ancestry. Refusal never selects another reader or pool.
         if height == NonZeroUsize::MIN {
@@ -1242,12 +1268,26 @@ fn canonical_transaction_outcome_from_matches(
     })
 }
 
-fn pipeline_status_from_state(
-    state: &CoreState,
+// Prepared-submit replay is an HTTP observation like status and details: authenticate the
+// exact carrier through State/checkpoint ancestry under the request owner, and retain that
+// carrier and owner through the membership recheck. It records no pipeline cache entry.
+fn pipeline_status_from_request(
+    app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
 ) -> Result<Option<PipelineStatusEntry>, Error> {
-    canonical_transaction_outcome(state, hash)
-        .map(|outcome| outcome.map(CanonicalTransactionOutcome::into_pipeline_status_entry))
+    canonical_transaction_read_with_authenticator(&app.state, hash, |anchor| {
+        let original = read_pipeline_transaction_carrier(app, anchor)?;
+        let outcome = original.owner.scope(|| {
+            canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
+                original
+                    .carrier
+                    .visit_network_transactions(anchor.block_hash, visitor)
+                    .map_err(|error| crate::canonical_history::query_attempt_error(error.into()))
+            })
+        })?;
+        Ok((outcome.into_pipeline_status_entry(), original))
+    })
+    .map(|read| read.map(|(entry, _original)| entry))
 }
 fn pipeline_status_terminal_or_state_entry(
     app: &SharedAppState,
@@ -1661,7 +1701,7 @@ fn transaction_details_authority_is_involved(
     authority: &AccountId,
     transaction: &CommittedTransaction,
 ) -> bool {
-    let already_involved = transaction.entrypoint().authority() == authority
+    let already_involved = transaction.entrypoint().authority_opt() == Some(authority)
         || transaction
             .result()
             .batch_transfer_outcomes()
@@ -1707,7 +1747,7 @@ fn transaction_details_authority_is_involved(
     })
 }
 fn canonical_transaction_details_for_indexed_identity(
-    app: &AppState,
+    app: &SharedAppState,
     block_height: NonZeroUsize,
     indexed_identity: &HashOf<TransactionEntrypoint>,
 ) -> Result<CommittedTransaction, Error> {
@@ -1722,41 +1762,45 @@ fn canonical_transaction_details_for_indexed_identity(
         })?;
     let work = routing::app_query_limits().max_fetch_size;
     let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
-    let carrier = app
-        .state
-        .read_finalized_execution_carrier(block_height, work, bytes)
-        .map_err(crate::canonical_history::query_attempt_error)?;
-    if carrier.block().hash() != expected_hash {
-        return Err(pipeline_status_projection_error(
-            "native carrier differs from its exact committed binding",
-        ));
-    }
-    let mut matched = None;
-    let mut duplicate = false;
-    for (input_index, entrypoint) in carrier.block().network_entrypoints().enumerate() {
-        if transaction_entrypoint_matches_indexed_identity(entrypoint, indexed_identity) {
-            let input_index =
-                u32::try_from(input_index).map_err(pipeline_status_projection_error)?;
-            duplicate |= matched.replace(input_index).is_some();
+    // HTTP observation uses the original State/checkpoint ancestry and request owner.
+    // The deterministic on-chain reader still authenticates and meters its full prefix.
+    let original = read_pipeline_execution_carrier(app, block_height)?;
+    original.owner.scope(|| {
+        let carrier = &original.carrier;
+        if carrier.block().hash() != expected_hash {
+            return Err(pipeline_status_projection_error(
+                "native carrier differs from its exact committed binding",
+            ));
         }
-    }
-    if duplicate {
-        return Err(pipeline_status_projection_error(
-            "indexed identity selects multiple Network inputs",
-        ));
-    }
-    let input_index = matched.ok_or_else(|| {
-        pipeline_status_projection_error("indexed identity is absent from its finalized carrier")
-    })?;
-    let transaction = carrier
-        .transaction_at(input_index, bytes)
-        .map_err(pipeline_status_projection_error)?;
-    if app.state.view().block_hashes().get(block_height.get() - 1) != Some(&expected_hash) {
-        return Err(pipeline_status_projection_error(
-            "canonical carrier changed during identity lookup",
-        ));
-    }
-    Ok(transaction)
+        let mut matched = None;
+        let mut duplicate = false;
+        for (input_index, entrypoint) in carrier.block().network_entrypoints().enumerate() {
+            if transaction_entrypoint_matches_indexed_identity(entrypoint, indexed_identity) {
+                let input_index =
+                    u32::try_from(input_index).map_err(pipeline_status_projection_error)?;
+                duplicate |= matched.replace(input_index).is_some();
+            }
+        }
+        if duplicate {
+            return Err(pipeline_status_projection_error(
+                "indexed identity selects multiple Network inputs",
+            ));
+        }
+        let input_index = matched.ok_or_else(|| {
+            pipeline_status_projection_error(
+                "indexed identity is absent from its finalized carrier",
+            )
+        })?;
+        let transaction = carrier
+            .transaction_at(input_index, bytes)
+            .map_err(pipeline_status_projection_error)?;
+        if app.state.view().block_hashes().get(block_height.get() - 1) != Some(&expected_hash) {
+            return Err(pipeline_status_projection_error(
+                "canonical carrier changed during identity lookup",
+            ));
+        }
+        Ok(transaction)
+    })
 }
 /// This code is reserved for absence of the one authenticated committed proof.
 /// Generic route/account failures must never masquerade as delayed proof visibility.
@@ -1786,11 +1830,8 @@ fn pipeline_transaction_details_response(
         .ok_or_else(transaction_details_not_found_error)?;
     // State already binds this exact carrier. Its authenticated Network projection must not
     // depend on a complete auxiliary index of every unrelated historical transaction.
-    let transaction = canonical_transaction_details_for_indexed_identity(
-        app.as_ref(),
-        block_height,
-        &entrypoint_hash,
-    )?;
+    let transaction =
+        canonical_transaction_details_for_indexed_identity(app, block_height, &entrypoint_hash)?;
     if !is_operator && !transaction_details_authority_is_involved(authority, &transaction) {
         return Err(Error::Query(
             iroha_data_model::ValidationFail::NotPermitted(
@@ -1800,6 +1841,38 @@ fn pipeline_transaction_details_response(
     }
     let hash = entrypoint_hash.to_string();
     Ok(PipelineTransactionDetailsResponse { hash, transaction })
+}
+// Keep native acquisition, authorization, projection and encoding under the same
+// admitted request. Extracted response bytes retain that owner through their last slice.
+fn pipeline_transaction_details_http_response(
+    app: &SharedAppState,
+    authority: &AccountId,
+    entrypoint_hash: HashOf<TransactionEntrypoint>,
+    format: ResponseFormat,
+    owner: &crate::history_producer::HistoryProducerOwner,
+) -> Result<Response, Error> {
+    use http_body_util::BodyExt as _;
+
+    owner.scope(|| {
+        let response = pipeline_transaction_details_response(app, authority, entrypoint_hash)?;
+        if matches!(format, ResponseFormat::Json) {
+            return owner.json(&response);
+        }
+        let capacity = crate::native_projection_response::capacity;
+        let encoded = crate::utils::encode_norito_bounded(&response, owner.response_bytes())
+            .map_err(|_| capacity())?;
+        let bytes =
+            crate::response_memory_custody::owned(encoded, owner).map_err(|_| capacity())?;
+        let source = http_body_util::Full::new(bytes)
+            .map_err(|never: std::convert::Infallible| match never {});
+        let body = crate::response_memory_custody::body(source, owner).map_err(|_| capacity())?;
+        let mut response = Response::new(body);
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static(crate::utils::NORITO_MIME_TYPE),
+        );
+        Ok(response)
+    })
 }
 fn pipeline_status_proxy_query(
     hash: &HashOf<SignedTransaction>,
@@ -2052,9 +2125,11 @@ async fn handler_pipeline_transaction_details(
     let authority = verified.authority().clone();
     let entrypoint_hash = exact_transaction_details_query_hash(&verified)?;
     admit_signed_query_authority(app.as_ref(), &authority).await?;
+    // The guard keeps the general/heavy query permits until the response is built. This
+    // route inherits no fanout memory, so the producer owner is one fail-fast reservation.
     let _admission = acquire_signed_query_physical_admission(app.as_ref(), &verified).await?;
-    let response = pipeline_transaction_details_response(&app, &authority, entrypoint_hash)?;
-    Ok(crate::utils::respond_with_format(response, format))
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app)?;
+    pipeline_transaction_details_http_response(&app, &authority, entrypoint_hash, format, &owner)
 }
 async fn handler_trigger_completions(
     State(app): State<SharedAppState>,

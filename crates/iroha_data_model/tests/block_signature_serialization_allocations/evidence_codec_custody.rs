@@ -57,6 +57,13 @@ fn workspace(pool: &AllocationBudget) -> PreparedDecodeWorkspace {
 }
 #[test]
 fn original_evidence_real_allocator_refusal_keeps_exact_source_and_same_bytes_retry() {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REFUSE.with(|v| v.set(None));
+            REFUSE_SKIP_MATCHES.with(|v| v.set(0));
+        }
+    }
     let proof = proof();
     let expected = proof.decode_native().unwrap();
     let pool = AllocationBudget::new(1 << 20);
@@ -69,13 +76,6 @@ fn original_evidence_real_allocator_refusal_keeps_exact_source_and_same_bytes_re
         panic!("original QC pair")
     };
     let layout = Layout::array::<u8>(first.signers.as_bytes().len()).unwrap();
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            REFUSE.with(|v| v.set(None));
-            REFUSE_SKIP_MATCHES.with(|v| v.set(0));
-        }
-    }
     REFUSE_SKIP_MATCHES.with(|v| assert_eq!(v.get(), 0));
     REFUSE.with(|v| assert!(v.replace(Some(layout)).is_none()));
     let reset = Reset;
@@ -322,6 +322,13 @@ fn native_protocol_sequence_ceiling_stays_terminal_with_equal_caller_limits() {
 
 #[test]
 fn completed_native_decode_precedes_real_pair_output_allocator_refusal_and_exact_retry() {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REFUSE.with(|v| v.set(None));
+            REFUSE_SKIP_MATCHES.with(|v| v.set(0));
+        }
+    }
     let proof = proof();
     let expected = proof.decode_native().unwrap();
     let NativeEvidence::ConflictingCertificates(ref first, ref second) = expected else {
@@ -340,13 +347,6 @@ fn completed_native_decode_precedes_real_pair_output_allocator_refusal_and_exact
     let pointer = source.as_slice().as_ptr();
     let hash = Hash::new(source.as_slice());
     let floor = pool.reserved_bytes();
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            REFUSE.with(|v| v.set(None));
-            REFUSE_SKIP_MATCHES.with(|v| v.set(0));
-        }
-    }
     REFUSE_SKIP_MATCHES.with(|v| assert_eq!(v.get(), 0));
     REFUSE.with(|v| assert!(v.replace(Some(layout)).is_none()));
     let reset = Reset;

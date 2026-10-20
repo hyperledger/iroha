@@ -239,7 +239,7 @@ fn scalar_dispatch_residues(
                 opening.aux_next.try_into().unwrap(),
                 fixed.try_into().unwrap(),
                 &prepared.public[1].der.map(native_value),
-                log19.post_base.der(),
+                &log19.post_base.der(),
                 log19.der_public,
             )
             .unwrap()

@@ -254,25 +254,32 @@ fn receiver_projection_rejects_foreign_mapping_and_unavailable_custody() {
 }
 
 fn originals() -> (
-    KagemushaWalletOfferV1,
+    KagemushaWalletPayerCompanionV1,
     KagemushaWalletRequestV1,
     KagemushaWalletCreditedV1,
 ) {
-    let mut offer = None;
-    let mut request = None;
-    for row in vectors()["envelopes"].as_array().unwrap() {
-        let envelope: KagemushaWalletEnvelopeV1 =
-            archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()).unwrap();
-        match envelope.message {
-            KagemushaWalletMessageV1::Offer { offer: value } => offer = Some(value),
-            KagemushaWalletMessageV1::Request { request: value } => request = Some(value),
-            _ => {}
-        }
-    }
+    let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
+    let request = vectors()["envelopes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|row| {
+            let envelope: KagemushaWalletEnvelopeV1 =
+                archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap())
+                    .unwrap();
+            match envelope.message {
+                KagemushaWalletMessageV1::Request { request } => Some(request),
+                _ => None,
+            }
+        })
+        .unwrap()
+        .complete_with(&payment.signed_request().unwrap())
+        .unwrap();
+    let companion = fixture("KagemushaWalletPayerCompanionV1");
     let complete: KagemushaWalletCompletionRecordV1 = fixture("KagemushaWalletCompletionRecordV1");
     (
-        offer.unwrap(),
-        request.unwrap(),
+        companion,
+        request,
         KagemushaWalletCreditedV1::from_receive(archive::decode(&complete.output).unwrap())
             .unwrap(),
     )
@@ -287,7 +294,7 @@ fn payer_projection_wallet(
     folded_pending: Option<bool>,
 ) -> (Wallet, [u8; 32], Vec<u8>) {
     use crate::kagemusha_wallet_state_v1::preparation_custody::SourceCustodyV1;
-    let (offer, request, credited) = originals();
+    let (companion, request, credited) = originals();
     let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
     let credited_digest = credited
         .verify_for(&fixture("KagemushaWalletSchemeV1"), &request, &payment)
@@ -304,7 +311,7 @@ fn payer_projection_wallet(
     };
     let mut w = wallet();
     let (_, mut manifest) = w.manifest().unwrap();
-    w.wallet_id = offer.payer_credential.body.wallet_id;
+    w.wallet_id = companion.payer_credential.body.wallet_id;
     w.archive.wallet = w.wallet_id;
     manifest.wallet_id = w.wallet_id;
     let mut pending = map_tree::PersistentMapV1::default();
@@ -325,7 +332,7 @@ fn payer_projection_wallet(
             online_charge: 0,
         },
     );
-    current.credential = offer.payer_credential.clone();
+    current.credential = companion.payer_credential.clone();
     let mut c = current.capsule.body().clone();
     c.wallet_id = w.wallet_id;
     c.kind = KagemushaWalletOperationKindV1::ArchiveSent;
@@ -341,7 +348,7 @@ fn payer_projection_wallet(
         &mut w.archive,
         &c.successor_state,
         &current.credential.to_canonical_bytes().unwrap(),
-        &archive::encode(&offer.certificates).unwrap(),
+        &archive::encode(&companion.certificates).unwrap(),
     )
     .unwrap();
     let selected_pending = if core_pending {
@@ -367,7 +374,7 @@ fn payer_projection_wallet(
         ),
         (
             KagemushaWalletRetainedInputRoleV1::CertificateSet,
-            archive::encode(&offer.certificates).unwrap(),
+            archive::encode(&companion.certificates).unwrap(),
         ),
     ]
     .into_iter()
@@ -528,7 +535,7 @@ fn payer_projection_wallet(
         archive::encode(&request).unwrap(),
         anchor.clone(),
         current.credential.to_canonical_bytes().unwrap(),
-        archive::encode(&offer.certificates).unwrap(),
+        archive::encode(&companion.certificates).unwrap(),
     );
     w.retain_delivery_test_mapping(
         intent,
@@ -666,7 +673,7 @@ fn noop_later_candidate_uses_ordinary_native_preparation_and_never_reissues_send
             .bytes()[3..5],
         [3, 1]
     );
-    let (offer, request, _) = originals();
+    let (companion, request, _) = originals();
     let payment = fixture("KagemushaWalletPaymentV1");
     // This fixture represents an already retained new private intent. Its only proof provider
     // refuses Archive planning, so the test establishes genuine dispatcher re-entry, not success.
@@ -675,8 +682,8 @@ fn noop_later_candidate_uses_ordinary_native_preparation_and_never_reissues_send
         [84; 32],
         archive::encode(&request).unwrap(),
         newer.clone(),
-        offer.payer_credential.to_canonical_bytes().unwrap(),
-        archive::encode(&offer.certificates).unwrap(),
+        companion.payer_credential.to_canonical_bytes().unwrap(),
+        archive::encode(&companion.certificates).unwrap(),
     );
     payer.retain_delivery_test_preparing(intent).unwrap();
     assert!(matches!(
@@ -693,4 +700,74 @@ fn noop_later_candidate_uses_ordinary_native_preparation_and_never_reissues_send
         payer.credited_status_for_send(&send, &anchor).unwrap(),
         RequestStatusV1::Outcome(Completion::Complete(_))
     ));
+}
+
+#[test]
+fn verified_delivery_checks_a_new_receipt_before_any_archive_without_writing() {
+    let (mut receiver, _, receive) = receive_projection_wallet(false);
+    snapshot_test_fold(&mut receiver);
+    let newer = receiver
+        .receive_credit_projection(&receive)
+        .unwrap()
+        .bytes()[92..]
+        .to_vec();
+    for pending in [false, true] {
+        let (mut payer, send, anchor) = payer_projection_wallet(pending, Some(true));
+        // A completed Archive of the same original is projected through its anchor.
+        assert_eq!(
+            payer.verified_delivery_projection(&send, &anchor).unwrap(),
+            payer
+                .delivery_credit_projection(&send, &anchor, &[])
+                .unwrap()
+        );
+        let (companion, request, _) = originals();
+        let payment = fixture("KagemushaWalletPaymentV1");
+        let intent = NativeIntentV1::retained_delivery_test_originals(
+            &payment,
+            [84; 32],
+            archive::encode(&request).unwrap(),
+            newer.clone(),
+            companion.payer_credential.to_canonical_bytes().unwrap(),
+            archive::encode(&companion.certificates).unwrap(),
+        );
+        payer.retain_delivery_test_preparing(intent).unwrap();
+        let root = payer.manifest().unwrap().0;
+        let snapshot = payer.snapshot().unwrap();
+        let result = payer
+            .verified_delivery_projection(&send, &newer)
+            .unwrap()
+            .bytes();
+        assert_eq!(result[2..5], [2, 4, u8::from(pending)]);
+        assert_eq!(result.len(), 92);
+        assert_eq!(&result[88..92], &[0; 4]);
+        assert_eq!(payer.manifest().unwrap().0, root);
+        assert_eq!(payer.snapshot().unwrap(), snapshot);
+        assert_eq!(payer.custody.signatures, 0);
+        assert_eq!(payer.proofs.preparations.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            payer.credited_status_for_send(&send, &newer).unwrap(),
+            RequestStatusV1::Preparing
+        ));
+        assert!(
+            payer
+                .verified_delivery_projection(&[0x98; 32], &newer)
+                .is_err()
+        );
+        let mut foreign: KagemushaWalletCreditedV1 = archive::decode(&newer).unwrap();
+        let KagemushaWalletCreditedEvidenceV1::Status { status } = &mut foreign.evidence else {
+            panic!("status")
+        };
+        status.opening.credit_id = field(99);
+        assert!(
+            payer
+                .verified_delivery_projection(&send, &archive::encode(&foreign).unwrap())
+                .is_err()
+        );
+        payer.proofs.reject = true;
+        assert!(
+            payer.verified_delivery_projection(&send, &newer).is_err(),
+            "proof refusal is not a verdict"
+        );
+        assert_eq!(payer.manifest().unwrap().0, root);
+    }
 }

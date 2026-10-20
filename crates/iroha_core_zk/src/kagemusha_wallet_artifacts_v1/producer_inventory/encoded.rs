@@ -12,7 +12,10 @@ use std::{
     sync::Mutex,
 };
 
-use iroha_fs::{FileSnapshot, PendingPrivateFile, PrivateDirectory, SealedPrivateFile};
+use iroha_fs::{
+    FileSnapshot, PendingPrivateFile, PrivateDirectory, PrivateReadScope, ScopedSealedPrivateFile,
+    SealedPrivateFile,
+};
 use rand::rand_core::TryRngCore as _;
 use sha2::{Digest as _, Sha256};
 
@@ -211,6 +214,37 @@ impl StoredSource for SealedPrivateFile {
     }
 }
 
+impl StoredSource for ScopedSealedPrivateFile<'_> {
+    fn recheck(&self) -> io::Result<()> {
+        // The same leaf checks; the enclosing read transaction owns the ancestry walk.
+        self.revalidate()
+    }
+}
+
+/// A retained encoded file: bounded extent and native snapshot after its strict leaf checks.
+trait RetainedStored: StoredSource {
+    fn extent(&self) -> io::Result<u64>;
+    fn native_snapshot(&self) -> io::Result<FileSnapshot>;
+}
+
+impl RetainedStored for SealedPrivateFile {
+    fn extent(&self) -> io::Result<u64> {
+        self.len()
+    }
+    fn native_snapshot(&self) -> io::Result<FileSnapshot> {
+        self.snapshot()
+    }
+}
+
+impl RetainedStored for ScopedSealedPrivateFile<'_> {
+    fn extent(&self) -> io::Result<u64> {
+        self.len()
+    }
+    fn native_snapshot(&self) -> io::Result<FileSnapshot> {
+        self.snapshot()
+    }
+}
+
 struct StoredReader<R = SealedPrivateFile> {
     file: R,
     expected: BlobV1,
@@ -385,6 +419,32 @@ impl EncodedDirectoryOriginalsV1 {
         digest: [u8; 32],
     ) -> io::Result<Option<(SealedPrivateFile, FileSnapshot)>> {
         self.directory.revalidate()?;
+        self.observe(digest, |name| {
+            self.directory
+                .open_retained_read_only_optional(name, ENCODED_ORIGINAL_MAX_BYTES_V1)
+        })
+    }
+
+    // The same admission inside one closed read transaction of this directory. The
+    // transaction checks the complete ancestry at its entry and before any ordinary result
+    // leaves; every leaf check of the file itself is unchanged.
+    fn scoped_file<'scope>(
+        &self,
+        scope: &PrivateReadScope<'scope>,
+        digest: [u8; 32],
+    ) -> io::Result<Option<(ScopedSealedPrivateFile<'scope>, FileSnapshot)>> {
+        self.observe(digest, |name| {
+            scope.open_sealed_optional(name, ENCODED_ORIGINAL_MAX_BYTES_V1)
+        })
+    }
+
+    // Sole admission of one retained encoded file for either owner of its ancestry checks:
+    // transport membership, the initial-absence rule, exact stored extent and observed snapshot.
+    fn observe<F: RetainedStored>(
+        &self,
+        digest: [u8; 32],
+        open: impl FnOnce(String) -> io::Result<Option<F>>,
+    ) -> io::Result<Option<(F, FileSnapshot)>> {
         let identity = self
             .originals
             .get(&digest)
@@ -393,20 +453,17 @@ impl EncodedDirectoryOriginalsV1 {
             .observed
             .lock()
             .map_err(|_| invalid("original custody ownership poisoned"))?;
-        let Some(file) = self
-            .directory
-            .open_retained_read_only_optional(hex::encode(digest), ENCODED_ORIGINAL_MAX_BYTES_V1)?
-        else {
+        let Some(file) = open(hex::encode(digest))? else {
             if observed.contains_key(&digest) {
                 return Err(invalid("retained encoded original disappeared"));
             }
             return Ok(None);
         };
         super::opening_metrics::record_stored_file_opened();
-        if file.len()? != identity.stored.bytes {
+        if file.extent()? != identity.stored.bytes {
             return Err(invalid("encoded file extent differs"));
         }
-        let snapshot = file.snapshot()?;
+        let snapshot = file.native_snapshot()?;
         if observed
             .get(&digest)
             .is_some_and(|previous| *previous != snapshot)
@@ -476,32 +533,36 @@ impl EncodedDirectoryOriginalsV1 {
     /// An original never observed, missing, replaced or changed; a stored extent or hash
     /// mismatch; or changed directory custody.
     pub fn revalidate_admitted(&self) -> Result<(), Error> {
-        self.directory.revalidate().map_err(|_| Error::Inventory)?;
         let observed = self.observed.lock().map_err(|_| Error::Inventory)?.clone();
         if !observed.keys().eq(self.originals.keys()) {
             return Err(Error::Inventory);
         }
-        let mut buffer = [0_u8; 16 << 10];
-        for (&digest, identity) in &self.originals {
-            let (file, snapshot) = self
-                .retained_file(digest)
-                .map_err(|_| Error::Inventory)?
-                .ok_or(Error::Inventory)?;
-            // The helper just compared this snapshot with observed custody; keep its native
-            // file held through this independent comparison and the whole stored read.
-            if observed.get(&digest) != Some(&snapshot) {
-                return Err(Error::Inventory);
-            }
-            let mut stored = StoredReader {
-                file,
-                expected: identity.stored,
-                hash: Sha256::new(),
-                bytes: 0,
-            };
-            while stored.read(&mut buffer).map_err(|_| Error::Inventory)? != 0 {}
-            stored.finish().map_err(|_| Error::Inventory)?;
-        }
-        self.directory.revalidate().map_err(|_| Error::Inventory)
+        // One closed read transaction checks the complete ancestry at its entry and exit,
+        // not around every file and read; each file keeps all of its own checks.
+        self.directory
+            .read_scope(|scope| -> io::Result<()> {
+                let mut buffer = [0_u8; 16 << 10];
+                for (&digest, identity) in &self.originals {
+                    let (file, snapshot) = self
+                        .scoped_file(scope, digest)?
+                        .ok_or_else(|| invalid("observed encoded original disappeared"))?;
+                    // The helper just compared this snapshot with observed custody; keep its
+                    // native file held through this independent comparison and the whole read.
+                    if observed.get(&digest) != Some(&snapshot) {
+                        return Err(invalid("observed encoded original changed"));
+                    }
+                    let mut stored = StoredReader {
+                        file,
+                        expected: identity.stored,
+                        hash: Sha256::new(),
+                        bytes: 0,
+                    };
+                    while stored.read(&mut buffer)? != 0 {}
+                    stored.finish()?;
+                }
+                Ok(())
+            })
+            .map_err(|_| Error::Inventory)
     }
 }
 impl OriginalSourceV1 for EncodedDirectoryOriginalsV1 {

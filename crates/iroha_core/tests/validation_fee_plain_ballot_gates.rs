@@ -150,6 +150,8 @@ fn validation_fee_proposal_rejects_plain_ballot_without_state_effects() {
             status: GovernanceProposalStatus::Proposed,
         },
     );
+    let plain_context =
+        iroha_core::query::standalone_plain_test_fixture::context(&state_transaction.gov, 0);
     state_transaction.world.governance_referenda_mut().insert(
         referendum_id.clone(),
         GovernanceReferendumRecord {
@@ -157,10 +159,7 @@ fn validation_fee_proposal_rejects_plain_ballot_without_state_effects() {
             h_end: BALLOT_HEIGHT + 100,
             status: GovernanceReferendumStatus::Open,
             mode: iroha_core::state::GovernanceReferendumMode::Plain,
-            plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                &state_transaction.gov,
-                0,
-            ),
+            plain_context,
             plain_result: iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
         },
     );

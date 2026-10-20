@@ -50,6 +50,8 @@ rustls = { version = "0.23.35", default-features = false, features = ["ring", "s
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"] }
 
 [features]
+# Non-shipping adapters for Criterion measurements of the production record path.
+bench = []
 # Test-only Sumeragi §13.4 mutations; refused in ordinary dependency builds.
 mutation-testing = []
 # Expose opaque reply-route minting only to dependent-crate test builds.
@@ -57,9 +59,15 @@ test-fixtures = []
 # Optional QUIC transport; TLS-over-TCP remains the mandatory fallback.
 quic = ["dep:quinn"]
 [dev-dependencies]
+criterion = { workspace = true }
 iroha_config_base = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "time", "macros"] }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "receive_credit"
+harness = false
+required-features = ["bench"]
 
 [[test]]
 name = "mod"

@@ -1,0 +1,184 @@
+{
+  "schema": "parliament-historical-remaining-sha3-internal-finite-review-v1",
+  "accepted_on": "2026-10-19",
+  "internal_finite_evidence_review_accepted": true,
+  "review_authority": "Coordinating Codex agent /root; separate readback of completed evidence, not an external cryptographic or owner qualification attestation.",
+  "scope": "Eight selected historical fixed-descriptor SHA3 remainder model fixtures, instruction63 through wrapperRET90 to Profile226, under the retained premises.",
+  "scope_flags": {
+    "historical_candidate_only": true,
+    "native_execution": false,
+    "universal_SHA3_equivalence_proved": false,
+    "full_Profile_proved": false,
+    "full_ABI_proved": false,
+    "current_candidate_qualified": false,
+    "complete_64MiB_certificate": false,
+    "independent_external_cryptographic_review": false,
+    "production_qualified": false,
+    "qualifies_canonical_input_worker": false,
+    "hermetic_execution": false,
+    "intermediate_observations_reconstructed": false,
+    "intermediate_commitments_recomputed_by_closing_check": false
+  },
+  "counts": {
+    "fixtures": 8,
+    "step_comparisons": 119168,
+    "conditional_round_substitutions": 576,
+    "lane_roots_compared": 14400,
+    "retained_finite_hashlib_controls": 24,
+    "origin_positive_controls": 8,
+    "origin_domain_refusals": 10,
+    "active_comparator_refusals": 8,
+    "final_comparator_refusals": 30,
+    "substitution_refusals": 2,
+    "owner_module_objects": 33,
+    "review_module_objects_per_fixture": 59,
+    "authenticated_input_paths": 5420
+  },
+  "sources": {
+    "review": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor/SOURCE_SHA256SUMS",
+      "sha256": "059bd696abc24d9cf4bfeb5193ad5bc9683d3b426306bed0e1d3060b7473a44e",
+      "members": 17
+    },
+    "owner": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-stage/development1/snapshot/SOURCE_SHA256SUMS",
+      "sha256": "5835fdf654ba4672d197008f29558f30bdd7b450de5baaad278584d158832d7a",
+      "members": 11
+    },
+    "closing_assessment": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment/SOURCE_SHA256SUMS",
+      "sha256": "7a2f5c029acbfeb2190f24581cfcca205c0da85548707d83dab2ed2fc537fcf3",
+      "members": 5
+    }
+  },
+  "fixture_captures": [
+    {
+      "case_index": 0,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture0-capture1-20261018/SHA256SUMS",
+      "sha256": "51944ecfe4258c89c20b7c6f5ac9164515fd9e41d2c85d2b96a46c75b5df93bf",
+      "members": 50
+    },
+    {
+      "case_index": 1,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture1-capture1-20261018/SHA256SUMS",
+      "sha256": "f8db6e52b1e4fca2f8496fbf2ddaff3ae99b6ae021ff1397b5a48c696fca381d",
+      "members": 46
+    },
+    {
+      "case_index": 2,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture2-capture1-20261018/SHA256SUMS",
+      "sha256": "42b74d4bbcbaa4c2cf4b0dc2f0490d99be73e2fb166f442514a7364776304130",
+      "members": 46
+    },
+    {
+      "case_index": 3,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture3-capture1-20261018/SHA256SUMS",
+      "sha256": "72eff7339f962359dea51ad0717182fcdd861f200b346e871d80b2a5616a1211",
+      "members": 46
+    },
+    {
+      "case_index": 4,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture4-capture1-20261019/SHA256SUMS",
+      "sha256": "5f1cf21b28df7d580bc949798940ce96d6fa8f0a562f30605db26dda444d4102",
+      "members": 46
+    },
+    {
+      "case_index": 5,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture5-capture1-20261019/SHA256SUMS",
+      "sha256": "62c691cd685c45d89441122bde942cd0b5af55d2c8ee27005c6e8b9809143b61",
+      "members": 46
+    },
+    {
+      "case_index": 6,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture6-capture1-20261019/SHA256SUMS",
+      "sha256": "d8cc68076e70073894a0e46d1b5dbf69642ad78bc953f89641e3ae12aa582ae6",
+      "members": 46
+    },
+    {
+      "case_index": 7,
+      "manifest_path": ".codex/parliament-native-profile-remaining-sha3-review-successor-fixture7-capture1-20261019/SHA256SUMS",
+      "sha256": "ee5c5401aafb5238898f0be5a73a0cc32c991c431be89a2106724289aa4a3f4b",
+      "members": 46
+    }
+  ],
+  "completed_outputs": {
+    "aggregate": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-aggregate1-20261019/SHA256SUMS",
+      "sha256": "217ce0bdc6a6fc7827533cd626d84dc4b77bbecab223ed83dc368aae3009342e",
+      "members": 1
+    },
+    "aggregate_process_capture": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-aggregate-capture1-20261019/SHA256SUMS",
+      "sha256": "dc47abdddf91a78c5a37dcb9773223bc4b77650cba95424c39325dcca43021fa",
+      "members": 27
+    },
+    "assessment_process_capture": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment-capture1-20261019/SHA256SUMS",
+      "sha256": "71d1763f1cea7b1e26967eace5c8ee5f1feff261a8d0dba693d45582029c6727",
+      "members": 18
+    },
+    "postcheck": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment-capture1-20261019/run/POSTCHECK.json",
+      "sha256": "eb1f09c5aa07c2294a9651c953dcf251b5a9c4c3e620b5f8cf21c3371ab4c8a9"
+    },
+    "input_custody": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment-capture1-20261019/run/INPUT_CUSTODY.json",
+      "sha256": "8ca2d49791b0355c795dc27e50ed40dbaf0498a42ce0bb30a58bc6b7f2fae2ba"
+    }
+  },
+  "process_status": {
+    "fixture_children_reaped_exit_zero": 8,
+    "fixture_outer_launchers_reported_reaped_exit_zero_by_root": 8,
+    "aggregate_child_pid": 20130,
+    "aggregate_parent_pid": 20126,
+    "aggregate_child_and_launcher_reaped_exit_zero": true,
+    "assessment_child_pid": 22969,
+    "assessment_parent_pid": 22968,
+    "assessment_child_and_launcher_reaped_exit_zero": true,
+    "retry_performed": false,
+    "aggregate_and_assessment_stderr_empty": true
+  },
+  "checker_tests": {
+    "source": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment-prep2/SOURCE_SHA256SUMS",
+      "sha256": "93c61e98eb45608a305397c2a42e4e91709368bbdee16b2dc9dec9be5dffb5df",
+      "members": 5
+    },
+    "capture": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment-prep2-tests1-20261019/SHA256SUMS",
+      "sha256": "0d36c178e670e44de66515ed0121e4bdc06d59c7e641e24c2e5ce282881c1343",
+      "members": 15
+    },
+    "passed": 46,
+    "failures": 0,
+    "errors": 0,
+    "checker_tests_expectations_byte_identical_to_closing_source": true
+  },
+  "provenance_correction": {
+    "path": ".codex/parliament-b6-remaining-hash-continuation-20261018/OWNER_PROVENANCE_CORRECTION.json",
+    "sha256": "f174c0eea7db452a39a5bf4de7648836cdca74fcbbfe2ebcefd4a6e03a0a6021",
+    "explicitly_recovered_owner_module_paths": 4,
+    "inaccurate_blanket_no_restored_execution_claim_accepted": false,
+    "frozen_records_changed": false
+  },
+  "preserved_unaccepted_evidence": {
+    "interrupted_predecessor_inventory": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-recovery-20261018/SHA256SUMS",
+      "sha256": "e0dd0c8676655e5fc97af8dadc6937bc89cfbf316a8e8d4a629ab496f2807cc5",
+      "members": 7
+    },
+    "failed_first_synthetic_capture": {
+      "path": ".codex/parliament-native-profile-remaining-sha3-review-successor-assessment-prep-tests1-20261019/SHA256SUMS",
+      "sha256": "c84d82785215eb017c1bf86f7718d693df9fc1672de4126017a377834ea9cf05",
+      "members": 15
+    },
+    "partial_predecessor_cases_used": false
+  },
+  "frozen_independent_review_accepted_fields_remain_false": true,
+  "local_evidence_only": true,
+  "notes": [
+    "Retained round, decoder, mapping and Python/hashlib/runtime premises are not discharged by the closing data check.",
+    "Owner and review fixture families differ; they are not represented as identical suites.",
+    "No model, checker or solver was rerun to write this documentation receipt."
+  ]
+}

@@ -324,3 +324,147 @@ fn scoped_owned_optional_exit_refuses_replaced_owner_after_success_absence_and_e
         );
     }
 }
+
+fn sealed_store() -> (tempfile::TempDir, PrivateDirectory) {
+    let temporary = tempfile::tempdir().unwrap();
+    let directory = PrivateDirectory::open_or_create(temporary.path().join("private")).unwrap();
+    for (name, bytes) in [("first", &b"first"[..]), ("second", &b"second"[..])] {
+        let mut file = directory
+            .create_retained_private(format!("{name}.partial"), 64)
+            .unwrap();
+        io::Write::write_all(&mut file, bytes).unwrap();
+        file.seal_read_only()
+            .unwrap()
+            .publish_new_name(name)
+            .unwrap();
+    }
+    (temporary, directory)
+}
+
+#[test]
+fn scoped_sealed_files_keep_leaf_checks_and_walk_the_ancestry_only_at_scope_exits() {
+    let (_temporary, directory) = sealed_store();
+    let expected: Vec<_> = ["first", "second"]
+        .into_iter()
+        .map(|name| {
+            directory
+                .open_retained_read_only_optional(name, 64)
+                .unwrap()
+                .unwrap()
+                .snapshot()
+                .unwrap()
+        })
+        .collect();
+    let before = CustodyWorkV1::current_thread();
+    let snapshots = directory
+        .read_scope(|scope| {
+            let mut snapshots = Vec::new();
+            for (name, bytes) in [("first", &b"first"[..]), ("second", &b"second"[..])] {
+                let mut file = scope.open_sealed_optional(name, 64)?.unwrap();
+                assert_eq!(file.len()?, bytes.len() as u64);
+                let mut read = Vec::new();
+                io::Read::read_to_end(&mut file, &mut read)?;
+                assert_eq!(read, bytes);
+                file.revalidate()?;
+                snapshots.push(file.snapshot()?);
+            }
+            assert!(scope.open_sealed_optional("missing", 64)?.is_none());
+            // The original extent ceiling is enforced before any byte is read.
+            assert!(scope.open_sealed_optional("second", 5).is_err());
+            Ok::<_, io::Error>(snapshots)
+        })
+        .unwrap();
+    // Same native snapshots as the per-call capability, from one walk at entry and exit.
+    assert_eq!(snapshots, expected);
+    assert_eq!(
+        CustodyWorkV1::current_thread().since(before).ancestry_walks,
+        2
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_sealed_open_refuses_links_writable_modes_and_replaced_leaves_like_retained_opens() {
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
+    for attack in ["hardlink", "symlink", "permissions"] {
+        let (_temporary, directory) = sealed_store();
+        let original = directory.path().join("first");
+        let alias = directory.path().join("alias");
+        match attack {
+            "hardlink" => fs::hard_link(&original, &alias).unwrap(),
+            "symlink" => {
+                fs::rename(&original, &alias).unwrap();
+                symlink("alias", &original).unwrap();
+            }
+            "permissions" => {
+                fs::set_permissions(&original, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let expected = directory
+            .open_retained_read_only_optional("first", 64)
+            .unwrap_err();
+        let actual = directory
+            .read_scope(|scope| scope.open_sealed_optional("first", 64).map(|_| ()))
+            .unwrap_err();
+        assert_eq!(actual.kind(), expected.kind(), "{attack}");
+        assert_eq!(actual.to_string(), expected.to_string(), "{attack}");
+    }
+    // A leaf changed after its scoped open fails that file's own revalidation, exactly as a
+    // per-call retained file does. The mode stays changed, so no timestamp granularity matters.
+    let (_temporary, directory) = sealed_store();
+    let path = directory.path().join("first");
+    let retained = directory
+        .open_retained_read_only_optional("first", 64)
+        .unwrap()
+        .unwrap();
+    let refused = directory
+        .read_scope(|scope| {
+            let file = scope.open_sealed_optional("first", 64)?.unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            file.revalidate()
+        })
+        .unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        retained.revalidate().unwrap_err().to_string()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_sealed_reads_cannot_leave_after_the_directory_is_displaced() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (temporary, directory) = sealed_store();
+    let original = directory.path().to_path_buf();
+    let displaced = temporary.path().join("displaced-sealed");
+    let result = directory.read_scope(|scope| {
+        let mut file = scope.open_sealed_optional("first", 64)?.unwrap();
+        let mut bytes = Vec::new();
+        io::Read::read_to_end(&mut file, &mut bytes)?;
+        fs::rename(&original, &displaced).unwrap();
+        fs::create_dir(&original).unwrap();
+        fs::set_permissions(&original, fs::Permissions::from_mode(0o700)).unwrap();
+        // Leaf checks use only the held directory, so this file still verifies. The
+        // transaction's exit observes the displaced ancestry before any result leaves.
+        file.revalidate()?;
+        Ok::<_, io::Error>(bytes)
+    });
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        directory.revalidate().unwrap_err().to_string()
+    );
+    fs::remove_dir(&original).unwrap();
+    fs::rename(&displaced, &original).unwrap();
+    let reread = directory
+        .read_scope(|scope| {
+            let mut bytes = Vec::new();
+            io::Read::read_to_end(
+                &mut scope.open_sealed_optional("first", 64)?.unwrap(),
+                &mut bytes,
+            )?;
+            Ok::<_, io::Error>(bytes)
+        })
+        .unwrap();
+    assert_eq!(reread, b"first");
+}

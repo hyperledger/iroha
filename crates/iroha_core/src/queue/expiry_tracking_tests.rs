@@ -208,7 +208,10 @@ fn expiry_deadline_matches_the_expiry_predicate_at_its_exact_boundary() {
         deadline,
         tx.creation_time() + Duration::from_millis(100) + Duration::from_nanos(1)
     );
-    assert!(!queue.is_expired_at(&tx, deadline - Duration::from_nanos(1)));
+    let last_live = deadline
+        .checked_sub(Duration::from_nanos(1))
+        .expect("the deadline follows signed creation");
+    assert!(!queue.is_expired_at(&tx, last_live));
     assert!(queue.is_expired_at(&tx, deadline));
     drop(time_handle);
 }

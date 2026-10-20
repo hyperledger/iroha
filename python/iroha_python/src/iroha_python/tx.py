@@ -36,6 +36,7 @@ from .crypto import (
     _is_native_crypto_instance,
     _normalize_lane_privacy_attachment,
     _require_network_id,
+    _require_chain_discriminant,
     build_signed_transaction,
 )
 from .settlement import SettlementLeg, SettlementPlan
@@ -154,12 +155,14 @@ class TransactionConfig:
     network_id: NetworkId
     authority: str
     fee_payment: Mapping[str, Any]
+    chain_discriminant: int
     creation_time_ms: Optional[int] = None
     ttl_ms: Optional[int] = None
     nonce: Optional[int] = None
     metadata: Optional[Mapping[str, Any]] = None
 
     def __post_init__(self) -> None:
+        chain_discriminant = _require_chain_discriminant(self.chain_discriminant, "TransactionConfig.chain_discriminant")
         network_id = _require_network_id(
             self.network_id,
             "TransactionConfig.network_id",
@@ -202,6 +205,7 @@ class TransactionConfig:
             "network_id",
             network_id,
         )
+        object.__setattr__(self, "chain_discriminant", chain_discriminant)
         object.__setattr__(self, "authority", authority)
         object.__setattr__(self, "fee_payment", fee_payment)
         object.__setattr__(self, "creation_time_ms", creation_time_ms)
@@ -1469,6 +1473,7 @@ class TransactionDraft:
             self._config.authority,
             private_key,
             fee_payment=_thaw_json(self._config.fee_payment),
+            chain_discriminant=self._config.chain_discriminant,
             instructions=payload_instructions,
             entries=payload_entries,
             creation_time_ms=self._creation_time_ms,
@@ -1624,6 +1629,7 @@ class TransactionDraft:
             self._config.network_id,
             self._config.authority,
             json.dumps(_thaw_json(self._config.fee_payment), separators=(",", ":")),
+            chain_discriminant=self._config.chain_discriminant,
         )
         if self._privacy_capability_manifest is not None:
             builder.bind_privacy_exact12_capability_manifest_v1(

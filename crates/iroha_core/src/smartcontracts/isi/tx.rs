@@ -935,7 +935,7 @@ pub(crate) fn read_finalized_event_carrier(
     if max_work == 0 || max_bytes == 0 {
         return Err(QueryExecutionFail::GasBudgetExceeded.into());
     }
-    let target = kura
+    let mut target = kura
         .native_frame_read(
             u64::try_from(height.get()).map_err(|_| QueryExecutionFail::GasBudgetExceeded)?,
             expected_hash,
@@ -953,7 +953,13 @@ pub(crate) fn read_finalized_event_carrier(
     }
     let (verified, source_blocks, wire_bytes) =
         crate::sumeragi::certified_chain::read_event_execution(
-            source, chain_id, network, height, &target, max_work, max_bytes,
+            source,
+            chain_id,
+            network,
+            height,
+            &mut target,
+            max_work,
+            max_bytes,
         )?;
     let block = verified.block().clone();
     if block.hash() != expected_hash {

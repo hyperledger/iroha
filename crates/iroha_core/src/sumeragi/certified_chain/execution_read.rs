@@ -315,18 +315,17 @@ pub fn read_authenticated_execution(
     unreachable!("the admitted prefix always includes H2")
 }
 
-// One original source/frame owner is shared by one-shot reads and durable replay.
-// Its bytes and shell survive a later refusal; ordinary nested decoder destinations
-// still retire on decode failure. TODO: complete deep nested graph custody separately.
+// The same acquisition kernel owns raw backing, shell and prepared decoder for
+// one-shot reads and durable replay. The completed graph retires before its decoder
+// and source custody. TODO: complete ordinary nested body/result/evidence funding.
 struct PendingExecutionFrame<'source> {
-    source: crate::kura::NativeFrameRead<'source>,
+    block: Option<iroha_data_model::block::SharedSignedBlock>,
+    acquisition: native_acquisition::NativeCarrierAcquisition<'source>,
     current: u64,
     expected: HashOf<IrohaHeader>,
     length: u64,
     next: u64,
-    wire: Option<crate::kura::NativeFrameBytes>,
-    shell: Option<iroha_data_model::block::ReservedSharedSignedBlock>,
-    block: Option<iroha_data_model::block::SharedSignedBlock>,
+    canonical_checked: bool,
 }
 impl<'source> PendingExecutionFrame<'source> {
     fn new(
@@ -336,6 +335,7 @@ impl<'source> PendingExecutionFrame<'source> {
         height: u64,
         limits: NativeExecutionReadLimits,
         total: u64,
+        budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Self, NativeExecutionReadError> {
         let source = kura
             .native_frame_read(current, expected)
@@ -368,15 +368,27 @@ impl<'source> PendingExecutionFrame<'source> {
             limits.max_source_wire_bytes,
         )?;
 
+        let index = usize::try_from(current)
+            .ok()
+            .and_then(NonZeroUsize::new)
+            .ok_or(ChainReadError::NotCommitted { height: current })?;
+        let maximum =
+            usize::try_from(length).map_err(|_| ChainReadError::NotInView { height: current })?;
         Ok(Self {
-            source,
+            block: None,
+            acquisition: native_acquisition::NativeCarrierAcquisition::from_admitted_source(
+                kura,
+                source,
+                index,
+                expected,
+                budget.clone(),
+                maximum,
+            ),
             current,
             expected,
             length,
             next,
-            wire: None,
-            shell: None,
-            block: None,
+            canonical_checked: false,
         })
     }
 
@@ -387,78 +399,58 @@ impl<'source> PendingExecutionFrame<'source> {
         kura: &Kura,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<iroha_data_model::block::SharedSignedBlock, NativeExecutionReadError> {
-        if self.wire.is_some() {
-            let current = kura
-                .native_frame_read(self.current, self.expected)
-                .map_err(|error| execution_frame_storage_error(error, self.current))?
-                .ok_or(ChainReadError::NotInView {
-                    height: self.current,
-                })?;
-            if !self.source.same_original_slot(&current) {
-                return Err(ChainReadError::NotInView {
-                    height: self.current,
-                }
-                .into());
-            }
-        }
-        if let Some(block) = &self.block {
-            return Ok(block.clone());
-        }
-        if self.wire.is_none() {
-            self.wire = Some(
-                self.source
-                    .read_original(self.length, budget)
-                    .map_err(|error| execution_frame_storage_error(error, self.current))?
-                    .ok_or(ChainReadError::NotInView {
-                        height: self.current,
-                    })?,
-            );
-        }
-        if self.shell.is_none() {
-            self.shell = Some(
-                iroha_data_model::block::SharedSignedBlock::reserve(budget)
-                    .map_err(|error| NativeExecutionReadError::Deferred(error.into()))?,
-            );
-        }
-        let wire = self.wire.as_ref().expect("original frame retained");
-        let block = iroha_data_model::block::decode_framed_signed_block(wire).map_err(|error| {
-            match crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
-                NativeExecutionReadError::Storage {
-                    height: self.current,
-                    reason: error.to_string(),
-                }
-            }) {
-                ExecutionAttemptError::Rejected(error) => error,
-                ExecutionAttemptError::Deferred(local) => NativeExecutionReadError::Deferred(local),
-            }
-        })?;
-        if block.header().height().get() != self.current || block.hash() != self.expected {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC471"))
+            && !self
+                .acquisition
+                .matches_owner(kura, self.current, self.expected, budget)
+        {
             return Err(ChainReadError::NotInView {
                 height: self.current,
             }
             .into());
         }
-        let identity =
-            block
-                .canonical_wire_identity()
-                .map_err(|error| NativeExecutionReadError::Storage {
-                    height: self.current,
-                    reason: error.to_string(),
-                })?;
-        if identity != (self.length, Hash::new(wire)) {
-            return Err(ChainReadError::Malformed {
-                height: self.current,
-                reason: "stored native execution is not the exact canonical frame".into(),
-            }
-            .into());
+        if self.block.is_none() {
+            // Completion moves the original prepared graph; a later prefix refusal
+            // keeps that graph here instead of asking the acquisition to deliver again.
+            self.block = Some(self.acquisition.complete()?);
+        } else {
+            self.acquisition.recheck_original_source()?;
         }
         let block = self
-            .shell
-            .take()
-            .expect("original shared shell retained")
-            .initialize(block);
-        self.block = Some(block.clone());
-        Ok(block)
+            .block
+            .as_ref()
+            .expect("original delivered execution graph");
+        if !self.canonical_checked {
+            let wire = self
+                .acquisition
+                .original_bytes()
+                .expect("original acquired frame");
+            let identity = block.canonical_wire_identity().map_err(|error| {
+                NativeExecutionReadError::Storage {
+                    height: self.current,
+                    reason: error.to_string(),
+                }
+            })?;
+            if identity != (self.length, Hash::new(wire)) {
+                return Err(ChainReadError::Malformed {
+                    height: self.current,
+                    reason: "stored native execution is not the exact canonical frame".into(),
+                }
+                .into());
+            }
+            self.canonical_checked = true;
+        }
+        Ok(block.clone())
+    }
+
+    fn take_wire(&mut self) -> crate::kura::NativeFrameBytes {
+        assert!(
+            self.canonical_checked,
+            "canonical execution check precedes delivery"
+        );
+        self.acquisition
+            .take_delivered_bytes()
+            .expect("original canonical wire")
     }
 }
 
@@ -496,13 +488,10 @@ fn read_admitted_execution_frame(
     ),
     NativeExecutionReadError,
 > {
-    let mut original = PendingExecutionFrame::new(kura, current, expected, height, limits, total)?;
+    let mut original =
+        PendingExecutionFrame::new(kura, current, expected, height, limits, total, budget)?;
     let block = original.read_block(kura, budget)?;
-    Ok((
-        block,
-        original.wire.take().expect("original canonical wire"),
-        original.next,
-    ))
+    Ok((block, original.take_wire(), original.next))
 }
 
 /// One durable replay operation over its caller's retained immutable hash cut.
@@ -520,6 +509,9 @@ pub(crate) struct NativeExecutionReadAttempt<'source> {
     limits: NativeExecutionReadLimits,
     budget: iroha_allocation::AllocationBudget,
     prefix: Option<iroha_allocation::ChargedBuffer<CertifiedPrefix>>,
+    // A failed physical constructor retains this exact charge; no second pool
+    // reservation may replace it. Completed backing owns the charge instead.
+    prefix_charge: Option<iroha_allocation::AllocationCharge>,
     genesis_frame: super::AdmittedFrameRead,
     pending: Option<PendingExecutionFrame<'source>>,
     retained_wire: Option<crate::kura::NativeFrameBytes>,
@@ -561,6 +553,7 @@ impl<'source> NativeExecutionReadAttempt<'source> {
             limits,
             budget: budget.clone(),
             prefix: None,
+            prefix_charge: None,
             genesis_frame: super::AdmittedFrameRead::default(),
             pending: None,
             retained_wire: None,
@@ -600,6 +593,7 @@ impl<'source> NativeExecutionReadAttempt<'source> {
                     self.height,
                     self.limits,
                     self.total,
+                    &self.budget,
                 )?);
             }
             let original = self.pending.as_mut().expect("same current original frame");
@@ -611,22 +605,11 @@ impl<'source> NativeExecutionReadAttempt<'source> {
             }
             let block = original.read_block(self.kura, &self.budget)?;
             if self.current == GENESIS_HEIGHT {
-                if self.prefix.is_none() {
-                    self.prefix = Some(
-                        iroha_allocation::ChargedBuffer::new(1, &self.budget).map_err(|error| {
-                            match error {
-                                iroha_allocation::ChargedBufferError::Admission(original) => {
-                                    NativeExecutionReadError::Deferred(original.into())
-                                }
-                                iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                                    NativeExecutionReadError::Deferred(
-                                        ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
-                                    )
-                                }
-                            }
-                        })?,
-                    );
-                }
+                prepare_execution_read_prefix_backing(
+                    &mut self.prefix,
+                    &mut self.prefix_charge,
+                    &self.budget,
+                )?;
                 initialize_execution_read_prefix(
                     self.prefix.as_mut().expect("original prepaid prefix slot"),
                     &mut self.genesis_frame,
@@ -636,7 +619,7 @@ impl<'source> NativeExecutionReadAttempt<'source> {
                     &self.budget,
                 )?;
                 if self.height == GENESIS_HEIGHT {
-                    self.retained_wire = original.wire.take();
+                    self.retained_wire = Some(original.take_wire());
                 }
             } else {
                 let authority = advance_execution_read_prefix(
@@ -653,7 +636,7 @@ impl<'source> NativeExecutionReadAttempt<'source> {
                     let wire = if self.height == GENESIS_HEIGHT {
                         self.retained_wire.take().expect("original genesis wire")
                     } else {
-                        original.wire.take().expect("original target wire")
+                        original.take_wire()
                     };
                     self.total = original.next;
                     self.pending = None;
@@ -672,6 +655,54 @@ impl<'source> NativeExecutionReadAttempt<'source> {
         }
         unreachable!("admitted original prefix includes H2")
     }
+}
+
+// The durable attempt owns both fields before entering this sole constructor.
+// Source and original-pool checks occur in read_block on every retry, before
+// this physical-only phase. Existing prefix decoder and source limits are unchanged.
+// No CertifiedPrefix temporary occupies the caller's default stack.
+fn prepare_execution_read_prefix_backing(
+    prefix: &mut Option<iroha_allocation::ChargedBuffer<CertifiedPrefix>>,
+    charge: &mut Option<iroha_allocation::AllocationCharge>,
+    budget: &iroha_allocation::AllocationBudget,
+) -> Result<(), NativeExecutionReadError> {
+    if prefix.is_some() {
+        return Ok(());
+    }
+    if charge.is_none() {
+        let layout = std::alloc::Layout::new::<CertifiedPrefix>();
+        let mut reservation = budget
+            .try_reserve(layout)
+            .map_err(|original| NativeExecutionReadError::Deferred(original.into()))?;
+        *charge = Some(
+            reservation
+                .try_split(layout)
+                .expect("exact original prefix backing charge"),
+        );
+    }
+    match iroha_allocation::ChargedBuffer::try_from_charge(
+        1,
+        charge
+            .take()
+            .expect("retained original prefix backing charge"),
+    ) {
+        Ok(backing) => *prefix = Some(backing),
+        Err((original_charge, original)) => {
+            *charge = Some(original_charge);
+            #[cfg(all(test, sumeragi_core_mutation = "HC472"))]
+            drop(charge.take());
+            return Err(
+                match iroha_allocation::AllocatorRefusal::try_from(original) {
+                    Ok(original) => NativeExecutionReadError::Deferred(original.into()),
+                    Err(original) => NativeExecutionReadError::Storage {
+                        height: GENESIS_HEIGHT,
+                        reason: original.to_string(),
+                    },
+                },
+            );
+        }
+    }
+    Ok(())
 }
 
 // Reuse the existing stack-safe admitted construction in the original retained
@@ -1168,3 +1199,9 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod continuation_tests;
+
+#[cfg(test)]
+mod prefix_construction_tests;

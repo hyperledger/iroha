@@ -104,6 +104,7 @@ impl native::ConfidentialUnshieldOutputV3 {
 /// Obtain `root` from authenticated ledger state. A full tree is useful for
 /// local wallets; remote wallets can supply one path per actual input instead.
 /// No absent-input path is required. Membership is verified during proving.
+#[derive(Clone, Copy)]
 pub enum ConfidentialTree<'a> {
     /// Ordered commitment leaves and their expected ledger root.
     Commitments {
@@ -160,15 +161,14 @@ impl ConfidentialTree<'_> {
             if index >= leaf_bound {
                 return Err(ConfidentialProverError::InputIndex);
             }
-            if let Self::Paths { paths, .. } = self {
-                if paths[position]
+            if let Self::Paths { paths, .. } = self
+                && paths[position]
                     .directions
                     .iter()
                     .enumerate()
                     .any(|(level, &direction)| usize::from(direction) != ((index >> level) & 1))
-                {
-                    return Err(ConfidentialProverError::PathIndexMismatch);
-                }
+            {
+                return Err(ConfidentialProverError::PathIndexMismatch);
             }
             if first == Some(index) {
                 return Err(ConfidentialProverError::DuplicateInput);
@@ -253,6 +253,10 @@ impl ConfidentialProver {
     /// be prepared, or `Proving` if native membership, relation construction,
     /// proof generation or self-verification fails. Consumed openings are cleared
     /// on both success and failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "This API consumes secret input and output openings so their Drop implementations zeroize them on success, refusal, and unwind; borrowed slices would leave those originals live in the caller."
+    )]
     pub fn prove_transfer(
         &self,
         tree: ConfidentialTree<'_>,
@@ -322,6 +326,10 @@ impl ConfidentialProver {
     /// Returns `KeyPreparation` if the selected canonical key cannot be prepared,
     /// or `Proving` if native membership, relation construction, proof generation
     /// or self-verification fails. Consumed openings are cleared on either outcome.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "This API consumes secret input openings so their Drop implementations zeroize them on every exit; borrowing would change the documented secret-lifetime contract."
+    )]
     pub fn prove_unshield(
         &self,
         tree: ConfidentialTree<'_>,

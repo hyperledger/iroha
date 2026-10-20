@@ -51,7 +51,7 @@ pub struct JointAuxiliaryBindingV1 {
 }
 impl JointAuxiliaryBindingV1 {
     pub(crate) fn new_v1(
-        binding: ZkX509CredentialPreAuxBindingV1,
+        binding: &ZkX509CredentialPreAuxBindingV1,
         roots: [Digest; 2],
     ) -> Result<Self, Error> {
         let proof_instance = binding.proof_instance_v1();
@@ -78,7 +78,7 @@ impl JointAuxiliaryBindingV1 {
     }
     pub(crate) fn matches_v1(
         &self,
-        binding: ZkX509CredentialPreAuxBindingV1,
+        binding: &ZkX509CredentialPreAuxBindingV1,
         family: JointSubproofV1,
         root: Digest,
     ) -> bool {

@@ -50,13 +50,24 @@ pub(super) fn enrollment_issuer(
 ) -> KagemushaWalletSignerCertificateV1 {
     // The standalone certificate vector exercises a different signer role. Recover the
     // actual enrollment original from the authenticated session that carries this wallet.
+    let companion: KagemushaWalletPayerCompanionV1 = fixture("KagemushaWalletPayerCompanionV1");
+    if let Some(certificate) = companion
+        .certificates
+        .certificates
+        .iter()
+        .find(|certificate| certificate.certificate_digest() == credential.body.issuer_certificate)
+    {
+        credential
+            .verify(&fixture("KagemushaWalletSchemeV1"), certificate)
+            .unwrap();
+        return *certificate;
+    }
     for row in vectors()["envelopes"].as_array().expect("envelopes") {
         let envelope: KagemushaWalletEnvelopeV1 = archive::decode(
             &hex::decode(row["canonical_hex"].as_str().expect("hex")).expect("hex"),
         )
         .expect("envelope");
         let certificates = match envelope.message {
-            KagemushaWalletMessageV1::Offer { offer } => offer.certificates,
             KagemushaWalletMessageV1::Request { request } => request.certificates,
             _ => continue,
         };
@@ -158,10 +169,12 @@ pub(crate) fn seal_body(body: KagemushaWalletRecoveryBodyV1) -> KagemushaWalletR
         .expect("synthetic opening")
 }
 
-pub(super) fn frozen(
+// Keep the body editable until the caller has supplied every operation-specific original.
+// `frozen` below still validates and seals every completed synthetic fixture.
+fn frozen_body(
     previous: Option<&FrozenTransition>,
     effect: KagemushaWalletEffectV1,
-) -> FrozenTransition {
+) -> (KagemushaWalletCredentialV1, KagemushaWalletRecoveryBodyV1) {
     let credential = credential();
     let mut c = fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
         .body()
@@ -276,9 +289,17 @@ pub(super) fn frozen(
     if kind == KagemushaWalletOperationKindV1::Send {
         c.retained_inputs = vec![request_input];
     }
+    (credential, c)
+}
+
+pub(super) fn frozen(
+    previous: Option<&FrozenTransition>,
+    effect: KagemushaWalletEffectV1,
+) -> FrozenTransition {
+    let (credential, body) = frozen_body(previous, effect);
     let result = FrozenTransition {
         credential,
-        capsule: seal_body(c),
+        capsule: seal_body(body),
     };
     result.validate().expect("frozen");
     result
@@ -312,8 +333,12 @@ fn rebind_frozen_successor(value: &mut FrozenTransition, mut c: KagemushaWalletR
         .expect("valid synthetic body")
         .seal([0; 32])
         .expect("synthetic opening");
+    assert_frozen_boundaries(value);
+}
+
+fn assert_frozen_boundaries(value: &FrozenTransition) {
     let c = &value.capsule;
-    // Each existing self-contained boundary still passes after the commitment is rebound.
+    // Each self-contained boundary passes for both rebound and newly sealed fixtures.
     assert_eq!(
         KagemushaWalletRecoveryCapsuleV1::decode_canonical(
             &c.to_canonical_bytes(),
@@ -377,6 +402,8 @@ pub(super) struct MemoryArchive {
     reads: Arc<AtomicUsize>,
     draft_reads: Arc<AtomicUsize>,
     pub(super) fail_remove: bool,
+    // One exact removal may fail before or after unlink, to exercise durable retirement retry.
+    fail_remove_at: Option<(ArchiveKey, bool)>,
     capsule_writes: Arc<AtomicUsize>,
     fail_put: Arc<Mutex<Option<(ArchiveKey, bool)>>>,
     // Content-addressed objects whose reads fail: once (transient) or until revealed.
@@ -392,6 +419,7 @@ impl MemoryArchive {
             reads: Arc::default(),
             draft_reads: Arc::default(),
             fail_remove: false,
+            fail_remove_at: None,
             capsule_writes: Arc::default(),
             fail_put: Arc::default(),
             hidden: Arc::default(),
@@ -425,7 +453,22 @@ impl ArchiveStore for MemoryArchive {
         if std::mem::take(&mut self.fail_remove) {
             return Err(Error::WitnessLost("test removal unavailable"));
         }
+        let fault = if self
+            .fail_remove_at
+            .as_ref()
+            .is_some_and(|(selected, _)| *selected == key)
+        {
+            self.fail_remove_at.take().map(|(_, after)| after)
+        } else {
+            None
+        };
+        if fault == Some(false) {
+            return Err(Error::WitnessLost("test removal before unlink"));
+        }
         self.records.lock().expect("records").remove(&key);
+        if fault == Some(true) {
+            return Err(Error::WitnessLost("test removal after unlink"));
+        }
         Ok(())
     }
 
@@ -804,6 +847,8 @@ pub(super) struct TestProofs {
     fail_preparation_proof: bool,
     fail_preparation_plan: bool,
     fail_preparation_validation: bool,
+    // Mock ArchiveSent plans for deferred-Archive dispatch; otherwise Archive planning is refused.
+    archive_plans: bool,
     fail_commit_derivation: bool,
     preparation_payload: Vec<u8>,
     advance_checks: Arc<AtomicUsize>,
@@ -1996,28 +2041,21 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
                 .amount,
         },
     );
-    // Dispatcher intake also decodes credential/certificates. Replace the general
-    // simulator's [1] placeholders with the genuine same-payer Offer originals.
-    let payer = vectors()["envelopes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find_map(|row| {
-            let envelope: KagemushaWalletEnvelopeV1 =
-                archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap())
-                    .unwrap();
-            match envelope.message {
-                KagemushaWalletMessageV1::Offer { offer } => Some(offer),
-                _ => None,
-            }
-        })
-        .unwrap();
+    // Dispatcher intake uses the genuine companion credential and issuer originals.
+    let payer: KagemushaWalletPayerCompanionV1 = fixture("KagemushaWalletPayerCompanionV1");
     let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
     assert_eq!(
         payer.payer_credential.credential_digest(),
         payment.send.statement.credential_digest
     );
-    payer.verify(&fixture("KagemushaWalletSchemeV1")).unwrap();
+    payer.check_payment(&payment).unwrap();
+    payer
+        .payer_credential
+        .verify(
+            &fixture("KagemushaWalletSchemeV1"),
+            &enrollment_issuer(&payer.payer_credential),
+        )
+        .unwrap();
     let mut body = receive.capsule.body().clone();
     for input in &mut body.retained_inputs {
         match input.role {
@@ -3463,4 +3501,175 @@ fn frozen_quota_validation_preserves_nested_original_refusal_and_exact_retry() {
         read_model_original(|| malformed.validate(), Error::Invalid("G1 validation")),
         Err(Error::Invalid("G1 validation"))
     ));
+}
+
+#[test]
+fn preparation_draft_immutable_contract_matches_memory_and_filesystem() {
+    // The lifecycle crash tests must not accidentally rely on an overwriting mock store.
+    fn check(store: &mut impl ArchiveStore) {
+        let key = ArchiveKey::PreparationDraft([0x6d; 32]);
+        store.put(key, b"old source plan").unwrap();
+        store.put(key, b"old source plan").unwrap();
+        assert!(store.put(key, b"new source plan").is_err());
+        assert_eq!(
+            store.get(key, 128).unwrap().unwrap().as_slice(),
+            b"old source plan"
+        );
+        store.remove(key).unwrap();
+        store.remove(key).unwrap();
+        store.put(key, b"new source plan").unwrap();
+        assert_eq!(
+            store.get(key, 128).unwrap().unwrap().as_slice(),
+            b"new source plan"
+        );
+    }
+    check(&mut MemoryArchive::new());
+    let (fs, _) = prepared_fs();
+    let c = credential();
+    let mut store =
+        FsArchive::new(fs, Slot([0x55; 32]), c.body.scheme_id, c.body.wallet_id).expect("archive");
+    check(&mut store);
+}
+
+#[test]
+fn every_preparation_draft_unlink_crash_retires_before_replacement_and_keeps_original() {
+    // Storage-level coverage of both redundant copies and directory durability. The lifecycle
+    // tests separately exercise the authenticated Entry publication with explicit mock custody.
+    let (base, _) = prepared_fs();
+    let c = credential();
+    let key = ArchiveKey::PreparationDraft([0x6e; 32]);
+    let original = b"exact retained Credited original";
+    let mut store = FsArchive::new(
+        base.clone(),
+        Slot([0x55; 32]),
+        c.body.scheme_id,
+        c.body.wallet_id,
+    )
+    .expect("archive");
+    let retained = store.write_object(original, 128).expect("retain original");
+    store.put(key, b"old source plan").expect("old draft");
+    base.power_loss(PowerLoss::DropUnsynced);
+    let probe = base.fork();
+    let mut store = FsArchive::new(
+        probe.clone(),
+        Slot([0x55; 32]),
+        c.body.scheme_id,
+        c.body.wallet_id,
+    )
+    .expect("probe archive");
+    let from = probe.steps();
+    store.remove(key).expect("probe retirement");
+    let count = probe.steps() - from;
+    assert!(count > 0);
+    for offset in 0..count {
+        let fs = base.fork();
+        let mut store = FsArchive::new(
+            fs.clone(),
+            Slot([0x55; 32]),
+            c.body.scheme_id,
+            c.body.wallet_id,
+        )
+        .expect("archive");
+        fs.inject(fs.steps() + offset, Fault::CrashAfter);
+        let _ = store.remove(key);
+        fs.power_loss(PowerLoss::DropUnsynced);
+        let mut store = FsArchive::new(
+            fs.clone(),
+            Slot([0x55; 32]),
+            c.body.scheme_id,
+            c.body.wallet_id,
+        )
+        .expect("restart archive");
+        assert_eq!(
+            store.read_object(&retained, 128).unwrap().as_slice(),
+            original,
+            "cut {offset}"
+        );
+        if let Some(held) = store.get(key, 128).unwrap() {
+            assert_eq!(held.as_slice(), b"old source plan", "cut {offset}");
+        }
+        // Repeat retirement after every uncertain outcome, before using the immutable key.
+        store.remove(key).expect("resume retirement");
+        store
+            .put(key, b"new source plan")
+            .expect("replacement draft");
+        fs.power_loss(PowerLoss::DropUnsynced);
+        let mut store = FsArchive::new(fs, Slot([0x55; 32]), c.body.scheme_id, c.body.wallet_id)
+            .expect("second restart archive");
+        assert_eq!(
+            store.get(key, 128).unwrap().unwrap().as_slice(),
+            b"new source plan",
+            "cut {offset}"
+        );
+        assert_eq!(
+            store.read_object(&retained, 128).unwrap().as_slice(),
+            original,
+            "cut {offset}"
+        );
+    }
+}
+
+/// Decode a pinned payload retained from the installed d7 wallet without rewriting it.
+/// This is the persisted Manifest boundary only; the fixture contains no protected marker.
+#[test]
+#[ignore = "requires an owner-retained d7 checkpoint payload and its pinned provider digest"]
+fn retained_d7_manifest_payload_decodes_and_reencodes_exactly() {
+    let path = std::env::var_os("IROHA_KAGEMUSHA_RETAINED_MANIFEST")
+        .expect("owner-retained d7 checkpoint path is required");
+    let expected = std::env::var("IROHA_KAGEMUSHA_RETAINED_MANIFEST_DIGEST")
+        .expect("owner-recorded archive-checkpoint digest is required");
+    let expected: [u8; 32] = hex::decode(expected)
+        .expect("checkpoint digest must be hexadecimal")
+        .try_into()
+        .expect("checkpoint digest must have 32 bytes");
+    let limit = crate::kagemusha_wallet_advance_v1::KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1;
+    let file = std::fs::File::open(path).expect("read retained checkpoint without mutation");
+    let mut bounded = std::io::Read::take(file, (limit + 1) as u64);
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut bounded, &mut bytes).expect("read retained checkpoint bytes");
+    assert!(
+        !bytes.is_empty() && bytes.len() <= limit,
+        "bounded checkpoint payload"
+    );
+    assert_eq!(
+        crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_checkpoint_digest_v1(&bytes),
+        expected,
+        "exact owner-pinned checkpoint payload"
+    );
+    let manifest: super::manifest::Manifest =
+        archive::decode(&bytes).expect("installed d7 checkpoint remains readable");
+    assert!(
+        manifest.indexed.is_some(),
+        "retained selected checkpoint has an indexed source"
+    );
+    assert!(
+        !manifest
+            .folded
+            .zip(manifest.indexed)
+            .is_some_and(|(folded, indexed)| folded > indexed),
+        "folded source cannot exceed indexed source"
+    );
+    assert_eq!(
+        manifest.checkpoint_count == 0,
+        manifest.checkpoint_digest == [0; 32],
+        "checkpoint count and digest have the same presence"
+    );
+    let reencoded = archive::encode(&manifest).expect("canonical checkpoint re-encoding");
+    assert!(
+        reencoded == bytes,
+        "all persisted Manifest fields re-encode byte-for-byte"
+    );
+    // Exercise the production manifest-read boundary with explicitly mock custody. This
+    // does not reconstruct the phone's protected marker or establish a full wallet reopen.
+    let mut reader = wallet();
+    reader.scheme_id = manifest.scheme_id;
+    reader.wallet_id = manifest.wallet_id;
+    reader.custody.checkpoint = Some((expected, bytes.clone()));
+    let (selected_digest, selected) = reader.manifest().expect("retained manifest read boundary");
+    assert_eq!(selected_digest, expected, "same checkpoint identity");
+    let selected_bytes = archive::encode(&selected).expect("selected checkpoint re-encoding");
+    assert!(
+        selected_bytes == bytes,
+        "manifest read preserves every original byte"
+    );
 }

@@ -8927,13 +8927,8 @@ async fn handler_contracts_activity_get(
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
-        &app,
-        &headers,
-        &method,
-        &uri,
-        "v1/contracts/activity",
-    )?;
+    let visibility =
+        torii_one_shot_caller_from_headers(&app, &headers, &method, &uri, "v1/contracts/activity")?;
     let rate_limit_bypassed =
         limits::is_allowed_by_cidr(&headers, Some(remote_ip), &app.api_rate_limit_bypass_nets);
     let limits = crate::routing::app_query_limits();
@@ -8951,7 +8946,7 @@ async fn handler_contracts_activity_get(
         &app,
         routing::collection_sources::CollectionTarget::ContractActivity,
         query,
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
     )
     .await
 }
@@ -8965,7 +8960,7 @@ async fn handler_contracts_events_get(
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
     let visibility =
-        torii_dataspace_context_from_headers(&app, &headers, &method, &uri, "v1/contracts/events")?;
+        torii_one_shot_caller_from_headers(&app, &headers, &method, &uri, "v1/contracts/events")?;
     let rate_limit_bypassed =
         limits::is_allowed_by_cidr(&headers, Some(remote_ip), &app.api_rate_limit_bypass_nets);
     let limits = crate::routing::app_query_limits();
@@ -8983,7 +8978,7 @@ async fn handler_contracts_events_get(
         &app,
         routing::collection_sources::CollectionTarget::ContractEvents,
         query,
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
     )
     .await
 }
@@ -9029,9 +9024,7 @@ async fn handler_contracts_activity_query(
         )
         .await?;
     }
-    let visibility = caller
-        .into_dataspace_context(Arc::clone(&app))
-        .current_visibility();
+    let visibility = caller.dataspace_visibility(app.as_ref());
     routing::collection_sources::execute_collection_response(
         Some(&app),
         &app.state,
@@ -9084,9 +9077,7 @@ async fn handler_contracts_events_query(
         )
         .await?;
     }
-    let visibility = caller
-        .into_dataspace_context(Arc::clone(&app))
-        .current_visibility();
+    let visibility = caller.dataspace_visibility(app.as_ref());
     routing::collection_sources::execute_collection_response(
         Some(&app),
         &app.state,
@@ -9107,7 +9098,7 @@ async fn handler_contracts_rollups_swaps_fills_get(
     AxQuery(params): AxQuery<crate::routing::ContractRollupSwapsFillsParams>,
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -9134,7 +9125,7 @@ async fn handler_contracts_rollups_swaps_fills_get(
     }
     routing::handle_v1_contracts_rollups_swaps_fills_get(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         crate::NoritoQuery(params),
         app.telemetry.clone(),
     )
@@ -9151,7 +9142,7 @@ async fn handler_contracts_rollups_swaps_candles_get(
     AxQuery(params): AxQuery<crate::routing::ContractRollupSwapsCandlesParams>,
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -9178,7 +9169,7 @@ async fn handler_contracts_rollups_swaps_candles_get(
     }
     routing::handle_v1_contracts_rollups_swaps_candles_get(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         crate::NoritoQuery(params),
         app.telemetry.clone(),
     )
@@ -9195,7 +9186,7 @@ async fn handler_contracts_rollups_uranai_markets_history_get(
     AxQuery(params): AxQuery<crate::routing::UranaiMarketHistoryParams>,
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -9222,7 +9213,7 @@ async fn handler_contracts_rollups_uranai_markets_history_get(
     }
     routing::handle_v1_contracts_rollups_uranai_markets_history_get(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         crate::NoritoQuery(params),
         app.telemetry.clone(),
     )
@@ -9239,7 +9230,7 @@ async fn handler_contracts_rollups_trader_activity_get(
     AxQuery(params): AxQuery<crate::routing::ContractEventGetParams>,
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -9267,7 +9258,7 @@ async fn handler_contracts_rollups_trader_activity_get(
     }
     routing::handle_v1_contracts_rollups_trader_activity_get(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         crate::NoritoQuery(params),
         app.telemetry.clone(),
     )
@@ -9284,7 +9275,7 @@ async fn handler_contracts_rollups_trader_account_get(
     AxQuery(params): AxQuery<crate::routing::TraderRollupAccountParams>,
 ) -> Result<Response, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -9310,7 +9301,7 @@ async fn handler_contracts_rollups_trader_account_get(
     }
     routing::handle_v1_contracts_rollups_trader_account_get(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         crate::NoritoQuery(params),
         app.telemetry.clone(),
     )
@@ -10992,7 +10983,7 @@ async fn handler_explorer_account_qr(
     AxPath(account_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11014,7 +11005,7 @@ async fn handler_explorer_account_qr(
         parse_account_id_for_endpoint(&app, &account_raw, CONTEXT_EXPLORER_ACCOUNT_QR)?;
     routing::handle_v1_explorer_account_qr(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         account_id,
         app.telemetry.clone(),
     )
@@ -11031,7 +11022,7 @@ async fn handler_explorer_domain_detail(
     AxPath(domain_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11046,7 +11037,7 @@ async fn handler_explorer_domain_detail(
     let domain_id = parse_domain_id(&domain_raw)?;
     routing::handle_v1_explorer_domain_detail(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         domain_id,
     )
     .await
@@ -11062,7 +11053,7 @@ async fn handler_explorer_asset_definition_detail(
     AxPath(def_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11082,7 +11073,7 @@ async fn handler_explorer_asset_definition_detail(
     }
     let definition_id = parse_asset_definition_id(app.as_ref(), &def_raw)?;
     if !visibility
-        .current_visibility()
+        .dataspace_visibility(app.as_ref())
         .allows_asset_definition(&app.state.world_view(), &definition_id)
     {
         return Err(routing::explorer_not_found());
@@ -11109,7 +11100,7 @@ async fn handler_explorer_asset_definition_econometrics(
     AxPath(def_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11129,7 +11120,7 @@ async fn handler_explorer_asset_definition_econometrics(
     }
     let definition_id = parse_asset_definition_id(app.as_ref(), &def_raw)?;
     if !visibility
-        .current_visibility()
+        .dataspace_visibility(app.as_ref())
         .allows_asset_definition(&app.state.world_view(), &definition_id)
     {
         return Err(routing::explorer_not_found());
@@ -11156,7 +11147,7 @@ async fn handler_explorer_asset_definition_snapshot(
     AxPath(def_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11176,7 +11167,7 @@ async fn handler_explorer_asset_definition_snapshot(
     }
     let definition_id = parse_asset_definition_id(app.as_ref(), &def_raw)?;
     if !visibility
-        .current_visibility()
+        .dataspace_visibility(app.as_ref())
         .allows_asset_definition(&app.state.world_view(), &definition_id)
     {
         return Err(routing::explorer_not_found());
@@ -11203,7 +11194,7 @@ async fn handler_explorer_asset_detail(
     AxPath(asset_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11218,7 +11209,7 @@ async fn handler_explorer_asset_detail(
     let asset_id = parse_asset_id(&asset_raw)?;
     routing::handle_v1_explorer_asset_detail(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         asset_id,
     )
     .await
@@ -11234,13 +11225,8 @@ async fn handler_explorer_nft_detail(
     AxPath(nft_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
-        &app,
-        &headers,
-        &method,
-        &uri,
-        "v1/explorer/nfts/{id}",
-    )?;
+    let visibility =
+        torii_one_shot_caller_from_headers(&app, &headers, &method, &uri, "v1/explorer/nfts/{id}")?;
     let allowed =
         limits::is_allowed_by_cidr(&headers, Some(remote_ip), &app.api_rate_limit_bypass_nets);
     if !allowed {
@@ -11249,7 +11235,7 @@ async fn handler_explorer_nft_detail(
     let nft_id = parse_nft_id(&nft_raw)?;
     routing::handle_v1_explorer_nft_detail(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         nft_id,
     )
     .await
@@ -11265,13 +11251,8 @@ async fn handler_explorer_rwa_detail(
     AxPath(rwa_raw): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
-        &app,
-        &headers,
-        &method,
-        &uri,
-        "v1/explorer/rwas/{id}",
-    )?;
+    let visibility =
+        torii_one_shot_caller_from_headers(&app, &headers, &method, &uri, "v1/explorer/rwas/{id}")?;
     let allowed =
         limits::is_allowed_by_cidr(&headers, Some(remote_ip), &app.api_rate_limit_bypass_nets);
     if !allowed {
@@ -11280,7 +11261,7 @@ async fn handler_explorer_rwa_detail(
     let rwa_id = parse_rwa_id(&rwa_raw)?;
     routing::handle_v1_explorer_rwa_detail(
         app.state.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         rwa_id,
     )
     .await
@@ -11296,7 +11277,7 @@ async fn handler_explorer_block_detail(
     AxPath(identifier): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11311,7 +11292,7 @@ async fn handler_explorer_block_detail(
     routing::handle_v1_explorer_block_detail_admitted(
         app.state.clone(),
         app.telemetry.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         identifier,
         acquire_query_admission(&app, true).await?,
     )
@@ -11328,7 +11309,7 @@ async fn handler_explorer_transaction_detail(
     AxPath(hash): AxPath<String>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11349,7 +11330,7 @@ async fn handler_explorer_transaction_detail(
     match crate::routing::handle_v1_explorer_transaction_detail_admitted(
         app.state.clone(),
         app.telemetry.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         hash,
         acquire_query_admission(&app, true).await?,
     )
@@ -11403,7 +11384,7 @@ async fn handler_explorer_instruction_detail(
     AxPath((hash, index)): AxPath<(String, u64)>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11424,7 +11405,7 @@ async fn handler_explorer_instruction_detail(
     match crate::routing::handle_v1_explorer_instruction_detail_admitted(
         app.state.clone(),
         app.telemetry.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         hash,
         index,
         acquire_query_admission(&app, true).await?,
@@ -11446,7 +11427,7 @@ async fn handler_explorer_instruction_contract_view(
     AxPath((hash, index)): AxPath<(String, u64)>,
 ) -> Result<AxResponse, Error> {
     let remote_ip = remote.ip();
-    let visibility = torii_dataspace_context_from_headers(
+    let visibility = torii_one_shot_caller_from_headers(
         &app,
         &headers,
         &method,
@@ -11467,7 +11448,7 @@ async fn handler_explorer_instruction_contract_view(
     if let Err(error) = crate::routing::handle_v1_explorer_instruction_detail_admitted(
         app.state.clone(),
         app.telemetry.clone(),
-        visibility.current_visibility(),
+        visibility.dataspace_visibility(app.as_ref()),
         hash.clone(),
         index,
         acquire_query_admission(&app, true).await?,
@@ -11476,12 +11457,8 @@ async fn handler_explorer_instruction_contract_view(
     {
         return Ok(explorer_json_error_response(error));
     }
-    match crate::contract_sources::handle_get_instruction_contract_view(
-        app.state.clone(),
-        hash,
-        index,
-    )
-    .await
+    match crate::contract_sources::handle_get_instruction_contract_view(app.clone(), hash, index)
+        .await
     {
         Ok(response) => Ok(response.into_response()),
         Err(error) => Ok(explorer_json_error_response(error)),
@@ -13879,7 +13856,9 @@ fn signed_transaction_hash_for_entrypoint(
     match entrypoint {
         TransactionEntrypoint::External(signed) => Some(signed.hash()),
         TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction().hash()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 fn transaction_entrypoint_matches_indexed_identity(
@@ -14950,6 +14929,11 @@ impl ToriiAccountReadVisibility {
         matches!(self, Self::Signed(_))
     }
 
+    /// Resolve one-shot visibility without constructing a stream baseline.
+    fn dataspace_visibility(&self, app: &AppState) -> routing::DataspaceReadVisibility {
+        torii_dataspace_read_visibility(app, self.caller())
+    }
+
     fn into_dataspace_context(self, app: SharedAppState) -> ToriiDataspaceReadContext {
         let caller = match self {
             Self::Signed(account_id) => Some(account_id),
@@ -15093,6 +15077,17 @@ fn torii_visibility_account_from_headers(
         });
     }
     Ok(ToriiAccountReadVisibility::None)
+}
+
+#[cfg(feature = "app_api")]
+fn torii_one_shot_caller_from_headers(
+    app: &SharedAppState,
+    headers: &HeaderMap,
+    method: &Method,
+    uri: &Uri,
+    endpoint: &'static str,
+) -> Result<ToriiAccountReadVisibility, Error> {
+    torii_visibility_account_from_headers(app, headers, method, uri, &[], endpoint)
 }
 
 #[cfg(feature = "app_api")]
@@ -28858,8 +28853,12 @@ async fn submit_prepared_transaction_ingress(
     } = prepared;
 
     require_current_transaction_route(&routing_plan)?;
-    ordinary_transaction_ingress::authenticate(app, transaction.entrypoint(), &routing_plan)
-        .map_err(|message| Error::Query(iroha_data_model::ValidationFail::NotPermitted(message)))?;
+    ordinary_transaction_ingress::authenticate_lifecycle_certificate(
+        app,
+        transaction.entrypoint(),
+        &routing_plan,
+    )
+    .map_err(|message| Error::Query(iroha_data_model::ValidationFail::NotPermitted(message)))?;
     if (committed_replay && !app.queue.is_expired(&transaction))
         || app
             .queue
@@ -43402,6 +43401,14 @@ impl IntoResponse for Error {
                 }
                 response
             }
+            Self::AcceptTransaction(err @ AcceptTransactionFail::AnonymousBallotUnavailable) => {
+                let (code, detail) = accept_transaction_metadata(&err);
+                utils::respond_with_status_and_format(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    ErrorEnvelope::new(code, detail),
+                    format,
+                )
+            }
             Self::AcceptTransaction(err) => {
                 let (code, detail) = accept_transaction_metadata(&err);
                 let details = ErrorDetails {
@@ -43475,7 +43482,7 @@ impl Error {
                 envelope
             }
             Self::AcceptTransaction(err) => {
-                iroha_logger::warn!(?err, "Transaction rejected during admission");
+                iroha_logger::warn!(?err, "Transaction admission did not complete");
                 let (code, detail) = accept_transaction_metadata(&err);
                 ErrorEnvelope::new(code, detail)
             }
@@ -43601,6 +43608,9 @@ impl Error {
         match self {
             Query(e) => Self::query_status_code(e),
             NativeEvidenceDecode(_) => StatusCode::TOO_MANY_REQUESTS,
+            AcceptTransaction(AcceptTransactionFail::AnonymousBallotUnavailable) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             AcceptTransaction(_) => StatusCode::BAD_REQUEST,
             AppQueryValidation { .. } => StatusCode::BAD_REQUEST,
             #[cfg(feature = "app_api")]
@@ -43764,6 +43774,9 @@ fn validate_native_transaction_submission_identity(
 }
 #[cfg(all(test, feature = "connect"))]
 mod native_transaction_proxy_tests;
+
+#[cfg(test)]
+mod anonymous_ballot_test_support;
 
 #[cfg(test)]
 mod service_checked_writer_test_support;

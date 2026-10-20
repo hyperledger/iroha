@@ -393,10 +393,12 @@ struct ReleaseNotify(Arc<Pool>);
 impl Drop for ReleaseNotify {
     fn drop(&mut self) {
         // This is the final field: all byte/count subleases are already
-        // released. A waiter registers in `blocked` before it retries its
-        // reservation, so either that retry observes this release or this
-        // load observes the registration (both are `SeqCst` and the budgets
-        // are mutex-ordered between them); no wake-up can be lost.
+        // released. A waiter registers in `blocked`, then fences, then retries
+        // its reservation. With a `SeqCst` fence on both sides, either that
+        // retry observes this release or this load observes the registration,
+        // whatever ordering the individual budgets use internally (mutexes or
+        // semaphore atomics); no wake-up can be lost.
+        std::sync::atomic::fence(Ordering::SeqCst);
         if self.0.blocked.load(Ordering::SeqCst) > 0 {
             self.0.changed.notify_waiters();
         }
@@ -410,6 +412,8 @@ pub(super) struct BlockedOnRelease<'a>(&'a Pool);
 impl<'a> BlockedOnRelease<'a> {
     pub(super) fn register(pool: &'a Pool) -> Self {
         pool.blocked.fetch_add(1, Ordering::SeqCst);
+        // Pairs with the fence in `ReleaseNotify::drop` (store-buffer order).
+        std::sync::atomic::fence(Ordering::SeqCst);
         Self(pool)
     }
 }

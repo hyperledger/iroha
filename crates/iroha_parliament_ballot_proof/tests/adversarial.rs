@@ -358,4 +358,4 @@ const CAMPAIGN_DIGEST: &str = "cace017fe544236ec94320349a6a6617c8df88d2ae0e149ce
 
 /// The pinned digest of the candidate-row campaign of production builds.
 #[cfg(not(feature = "diagnostics"))]
-const CAMPAIGN_DIGEST: &str = "CANDIDATE_ONLY_DIGEST_TO_PIN";
+const CAMPAIGN_DIGEST: &str = "f1ba36105c13c57fdedababfebf04f0ec3017f7b7303a90784a7eaf1bf5ee059";

@@ -57,6 +57,23 @@ fn new_state(
     state.install_lane_manifests_for_testing(&lane_manifests);
     state
 }
+/// Install the gas prices in the exact committed World that the fixture executes.
+fn install_pipeline_gas_fixture(
+    state: &mut State,
+    pipeline: iroha_config::parameters::actual::Pipeline,
+) {
+    {
+        let mut parameters = state.world.parameters.block();
+        for parameter in crate::pipeline_gas_policy::parameters_for_testing(pipeline.gas.clone()) {
+            parameters
+                .set_parameter(parameter)
+                .expect("valid committed fixture gas policy");
+        }
+        parameters.commit();
+    }
+    assert_eq!(state.pipeline_snapshot().gas, pipeline.gas);
+    state.set_pipeline(pipeline);
+}
 fn new_account_in_domain(account_id: &AccountId, _domain: &str) -> Account {
     Account::new(account_id.clone()).build(account_id)
 }
@@ -182,7 +199,7 @@ fn non_vm_instructions_charge_fees() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let native_chain = crate::block::tests::component_chain(state);
     let state = native_chain.state();
     // 3) Build a simple native ISI transaction (SetKeyValue<Account>)
@@ -307,7 +324,7 @@ fn non_vm_instructions_charge_restricted_gas_asset_on_current_route() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let native_chain = crate::block::tests::component_chain(state);
     let state = native_chain.state();
     let instruction: InstructionBox = iroha_data_model::isi::SetKeyValue::account(
@@ -456,7 +473,7 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let native_chain = crate::block::tests::component_chain(state);
     let state = native_chain.state();
 
@@ -613,8 +630,16 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor_via_overlay_pipeline() {
     let chain: ChainId = "00000000-0000-0000-0000-000000000000".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
     {
-        let nexus = state.nexus.get_mut();
-        nexus.fees.sponsor_vault_custody_account_id = custody_id.clone();
+        let mut fees = state.nexus_snapshot().fees;
+        fees.sponsor_vault_custody_account_id = custody_id.clone();
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.into_custom_parameter()
+                    .expect("explicit sponsor custody policy"),
+            ))
+            .expect("valid committed sponsor custody policy");
+        parameters.commit();
     }
     let program_id = default_fee_sponsor_program_id(&sponsor_id);
     let instruction: InstructionBox = iroha_data_model::isi::SetKeyValue::account(
@@ -694,7 +719,7 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor_via_overlay_pipeline() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
 
     let mut native_chain = crate::block::tests::component_chain(state);
     let state = Arc::clone(native_chain.state());
@@ -842,7 +867,7 @@ fn genesis_overlay_pipeline_transactions_remain_fee_free() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let instruction: InstructionBox = iroha_data_model::isi::SetKeyValue::account(
         alice_id.clone(),
         "k".parse().unwrap(),
@@ -853,7 +878,17 @@ fn genesis_overlay_pipeline_transactions_remain_fee_free() {
     let pipeline = state.installed_pipeline().clone();
     let mut config = iroha_core::sumeragi::test_chain::TestChainConfig::new(state.world, 0);
     config.genesis_key = alice_kp;
+    config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
     config.genesis_instructions = vec![instruction];
+    config
+        .genesis_parameters
+        .push(iroha_data_model::parameter::Parameter::Custom(
+            iroha_data_model::parameter::system::SumeragiNposParameters {
+                xor_asset_definition_id: asset_def_id.clone(),
+                ..Default::default()
+            }
+            .into_custom_parameter(),
+        ));
     config.pipeline = pipeline;
     config.nexus = Some(nexus);
     let native_chain = iroha_core::sumeragi::test_chain::CertifiedTestChain::start(config)
@@ -1017,7 +1052,7 @@ fn ivm_syscall_charges_fees() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let native_chain = crate::block::tests::component_chain(state);
     let state = native_chain.state();
     let scall = encoding::wide::encode_sys(
@@ -1201,7 +1236,7 @@ fn ivm_gas_fees_transfer_exact_signed_asset_quantity() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let native_chain = crate::block::tests::component_chain(state);
     let state = native_chain.state();
     // 3) Build a minimal IVM program that consumes gas
@@ -1327,7 +1362,7 @@ fn block_gas_rejection_rolls_back_actual_fee_and_business_effects() {
         liquidity: GasLiquidity::Tier2,
         volatility: GasVolatility::Stable,
     }];
-    state.set_pipeline(pipeline);
+    install_pipeline_gas_fixture(&mut state, pipeline);
     let fee_payment = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
             FeeChargeKind::PipelineGas,

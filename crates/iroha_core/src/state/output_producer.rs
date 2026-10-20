@@ -479,7 +479,8 @@ impl ExecutionOutputProducer<'_, '_, '_> {
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     Some(reveal.signed_transaction().hash())
                 }
-                TransactionEntrypoint::SealedCommitment(_) => None,
+                TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => None,
             };
             transaction.current_entrypoint_index = Some(u64::from(input_index));
             transaction.tx_call_hash = Some(call);

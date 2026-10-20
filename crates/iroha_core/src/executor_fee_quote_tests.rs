@@ -262,6 +262,10 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
         [],
     );
     seed_test_asset_supply(&mut world, &fee_asset);
+    let mut fees = iroha_config::parameters::actual::Nexus::default().fees;
+    fees.successful_claim_fee_exempt_authorities
+        .insert(authority.clone());
+    author_component_fee_policy(&world, &fees);
     let state = state_after_genesis(world);
     let mut payload = original_claim_fee_payload(
         authority.clone(),
@@ -273,18 +277,14 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
     let transaction = TransactionBuilder::from_payload(payload)
         .unwrap()
         .sign(ALICE_KEYPAIR.private_key());
-    let mut block = state.block(BlockHeader::new(
+    let header = BlockHeader::new(
         nonzero!(2_u64),
         Some(state.view().latest_block_hash().unwrap()),
         None,
         50,
         0,
-    ));
-    block
-        .nexus
-        .fees
-        .successful_claim_fee_exempt_authorities
-        .insert(authority.clone());
+    );
+    let mut block = state.block(header);
     let payer = AssetId::new(fee_asset, authority.clone());
     let marker = DomainId::try_new("refused_claim", "universal").unwrap();
     {
@@ -315,7 +315,9 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
         block.world.assets().get(&payer).unwrap().as_ref(),
         &Quantity::from(100_u32)
     );
-    let mut retry = block.transaction();
+    drop(block);
+    let mut retry_block = state.block(header);
+    let mut retry = retry_block.transaction();
     validate_transaction_fee_admission(&mut retry, &transaction).unwrap();
     assert!(!retry.is_execution_deferred());
     assert_eq!(

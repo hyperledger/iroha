@@ -162,6 +162,21 @@ are rejected.
    The selected cache is reused through rustup, source seals, every hermetic Cargo
    command and artifact verification; builds remain locked and offline.
 
+   Public ballot-proof test originals in the dependency closure are sealed by
+   complete bytes, including the eight retained `.proof` vectors, both
+   `SHA256SUMS` inventories, and the retained parser corpus archive. Their exact
+   filenames are reviewed in `scripts/norito_bridge_source_seal.py`; `.proof`
+   and archive extensions are not generally admitted. See the owning crate's
+   [fixture](../crates/iroha_parliament_ballot_proof/tests/fixtures/README.md),
+   [reference](../crates/iroha_parliament_ballot_proof/tests/reference/README.md),
+   and [fuzz](../crates/iroha_parliament_ballot_proof/fuzz/README.md) notes for
+   their public test provenance. This changes no signing or artifact admission.
+   The same exact-name policy covers the included public IPA generator parameter
+   files, six PQClean known-answer responses and expected trybuild diagnostics.
+   Rust modules below a directory named `artifacts` are admitted only by their
+   complete reviewed source paths; arbitrary operational directories remain
+   prohibited. Complete source bytes are retained in the seal in every case.
+
    Cargo also reads configuration from its working directory and every ancestor.
    If the checkout is below a home directory containing rejected Cargo overrides,
    select `MOBILE_SDK_CARGO_INVOCATION_DIR` as an existing owned, writable,

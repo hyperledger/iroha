@@ -3,7 +3,10 @@ import Foundation
 /// Native-authenticated evidence for one credit. Display data never grants operation permission.
 public struct KagemushaWalletCreditProjectionV1: Sendable, Equatable {
     public enum Evidence: UInt8, Sendable { case unfolded = 1, credited = 2, burned = 3 }
-    public enum Archive: UInt8, Sendable { case receiver = 0, awaitingFold = 1, removed = 2, retained = 3 }
+    /// `notArchived`: Native verified this receipt for the payer's Send; its Archive has not completed.
+    public enum Archive: UInt8, Sendable {
+        case receiver = 0, awaitingFold = 1, removed = 2, retained = 3, notArchived = 4
+    }
     public let evidence: Evidence
     public let archive: Archive
     public let corePending: Bool
@@ -62,5 +65,15 @@ extension KagemushaWalletV1 {
         guard newerCredited.map({ !$0.isEmpty }) ?? true else { throw KagemushaWalletErrorV1.invalidInput }
         return try KagemushaWalletCreditProjectionV1(setup(.init(selector: 44, identity: sendRequestId,
             first: archiveCredited, second: newerCredited ?? Data()))).requirePayer()
+    }
+
+    /// Verify the receiver's receipt for one exact committed Send before any Archive: the same
+    /// binding and verifier as `acceptCreditedForSend`, with no Advance, so the Send's fold keeps
+    /// running. Archive it later with the same original. A completed Archive of that original
+    /// returns its `deliveryProjection`.
+    public func verifiedDelivery(sendRequestId: Data, credited: Data) throws
+        -> KagemushaWalletCreditProjectionV1 {
+        try KagemushaWalletCreditProjectionV1(setup(.init(selector: 54, identity: sendRequestId,
+            first: credited))).requirePayer()
     }
 }

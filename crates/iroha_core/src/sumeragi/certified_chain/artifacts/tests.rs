@@ -3,7 +3,9 @@
 use super::*;
 use crate::state::World;
 use crate::sumeragi::{
-    certified_chain::{CertifiedPrefix, QcVerification},
+    certified_chain::{
+        CertifiedPrefix, PrefixHeader, PrefixQc, QcVerification, VerificationReadError,
+    },
     test_chain::{CertifiedTestChain, Signers, TestChainConfig},
 };
 use iroha_data_model::{block::CommitCertificate, sumeragi_finality::EpochValidationScope};
@@ -79,6 +81,11 @@ fn assert_prefix_artifacts_keep_exact_source_and_all_bulk_owners_in_original_poo
     ));
     assert!(owner.payload.admitted_to(&budget));
     assert!(owner.decoded.availability.admitted_to(&budget));
+    assert!(owner.belongs_to(&budget));
+    assert!(
+        !owner.belongs_to(&AllocationBudget::new(1 << 26)),
+        "completed prefix artifacts reject a foreign original pool"
+    );
     assert!(!owner.payload.admitted_to(&AllocationBudget::new(1 << 26)));
     let mut expected = Vec::new();
     source
@@ -86,11 +93,28 @@ fn assert_prefix_artifacts_keep_exact_source_and_all_bulk_owners_in_original_poo
         .unwrap();
     assert_eq!(owner.payload.as_slice(), expected);
     assert_eq!(
-        norito::encode_canonical(&owner.decoded.commit_qc).unwrap(),
+        norito::encode_canonical(&*owner.decoded.commit_qc).unwrap(),
         source.commit_certificate().unwrap().commit_qc()
     );
     assert!(budget.reserved_bytes() > expected.len() + owner.decoded.availability.as_slice().len());
+    let retained = budget.reserved_bytes();
+    let header = std::ptr::from_ref(&**owner.header());
+    let bitmap = owner.decoded.commit_qc.signers.as_bytes().as_ptr();
+    let table = owner.decoded.availability.as_slice().as_ptr();
+    let payload = owner.payload.as_slice().as_ptr();
+    let mut shared = None;
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| shared = Some(owner.clone())),
+        0
+    );
     drop(owner);
+    assert_eq!(budget.reserved_bytes(), retained);
+    let shared = shared.unwrap();
+    assert_eq!(std::ptr::from_ref(&**shared.header()), header);
+    assert_eq!(shared.decoded.commit_qc.signers.as_bytes().as_ptr(), bitmap);
+    assert_eq!(shared.decoded.availability.as_slice().as_ptr(), table);
+    assert_eq!(shared.payload.as_slice().as_ptr(), payload);
+    drop(shared);
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -106,9 +130,10 @@ fn assert_prefix_artifacts_refusal_keeps_table_and_completed_projection(
     let source = frame(chain, 2);
     let measure = AllocationBudget::new(1 << 26);
     let decoded = CertificateRead::new(Clone::clone(&source), measure.clone())
-        .complete(&measure)
+        .complete_for_prefix(&measure)
         .unwrap_or_else(|_| panic!("bounded candidate"));
     let certificate_bytes = measure.reserved_bytes();
+    let metadata_bytes = decoded.header.allocation_bytes() + decoded.commit_qc.allocation_bytes();
     let table_len = decoded.availability.as_slice().len();
     drop(decoded);
     let measured = read(Clone::clone(&source), &measure);
@@ -124,7 +149,7 @@ fn assert_prefix_artifacts_refusal_keeps_table_and_completed_projection(
         .unwrap();
     assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
     assert_eq!(budget.reserved_bytes(), 0);
-    budget.set_limit_bytes(table_len);
+    budget.set_limit_bytes(metadata_bytes + table_len);
     let (job, error) = job.complete(&budget).err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
     let Stage::Certificate(ref partial) = job.stage else {
@@ -182,8 +207,10 @@ fn assert_prefix_artifacts_reject_foreign_pool_and_drop_partial_owners_once(
     let measure = AllocationBudget::new(1 << 26);
     let owner = read(Clone::clone(&source), &measure);
     let table_len = owner.decoded.availability.as_slice().len();
+    let metadata_bytes =
+        owner.decoded.header.allocation_bytes() + owner.decoded.commit_qc.allocation_bytes();
     drop(owner);
-    let budget = AllocationBudget::new(table_len);
+    let budget = AllocationBudget::new(metadata_bytes + table_len);
     let foreign = AllocationBudget::new(1 << 26);
     let (job, error) = PrefixArtifactsRead::new(source, budget.clone())
         .complete(&foreign)
@@ -194,10 +221,10 @@ fn assert_prefix_artifacts_reject_foreign_pool_and_drop_partial_owners_once(
     assert_eq!(foreign.reserved_bytes(), 0);
     let (job, error) = job.complete(&budget).err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
-    assert_eq!(budget.reserved_bytes(), table_len);
+    assert_eq!(budget.reserved_bytes(), metadata_bytes + table_len);
     let (job, error) = job.complete(&foreign).err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    assert_eq!(budget.reserved_bytes(), table_len);
+    assert_eq!(budget.reserved_bytes(), metadata_bytes + table_len);
     drop(job);
     assert_eq!(budget.reserved_bytes(), 0);
 }
@@ -209,6 +236,58 @@ fn prefix_artifacts_cannot_be_rebound_to_equal_hash_carrier_or_changed_header() 
     );
 }
 
+#[test]
+fn admitted_prefix_rejects_foreign_completed_metadata_before_frame_allocation() {
+    with_prefix_chain(
+        assert_admitted_prefix_rejects_foreign_completed_metadata_before_frame_allocation,
+    );
+}
+
+#[inline(never)]
+fn assert_admitted_prefix_rejects_foreign_completed_metadata_before_frame_allocation(
+    chain: &CertifiedTestChain,
+) {
+    use crate::{
+        execution_attempt::ExecutionAttemptError, sumeragi::certified_chain::AdmittedPrefixPush,
+    };
+    let budget = AllocationBudget::new(32 << 20);
+    let foreign = AllocationBudget::new(32 << 20);
+    let mut prefix = CertifiedPrefix::new_admitted(
+        chain.state().chain_id_ref(),
+        chain.network_id(),
+        frame(chain, 1),
+        &budget,
+    )
+    .unwrap();
+    let original_tip = prefix.as_slice()[0].prefix.tip.id();
+    let artifacts = read(frame(chain, 2), &foreign);
+    let original_bytes = budget.reserved_bytes();
+    let foreign_bytes = foreign.reserved_bytes();
+    let mut read = AdmittedPrefixPush::default();
+    let mut outcome = None;
+    let allocations = crate::test_allocations::allocations_during(|| {
+        outcome = Some(read.complete_prepared_with_finish(
+            &mut prefix.as_mut_slice()[0],
+            &artifacts,
+            &budget,
+            |_| (),
+        ));
+    });
+    assert!(
+        matches!(outcome, Some(Err(ExecutionAttemptError::Deferred(ref original)))
+        if original.allocation_refusal().is_none()),
+        "HC955 prefix advancement rejects foreign metadata before allocating"
+    );
+    assert_eq!(allocations, 0);
+    assert!(read.frame.committed.is_none() && read.frame.result.is_none());
+    assert_eq!(prefix.as_slice()[0].prefix.tip.id(), original_tip);
+    assert_eq!(budget.reserved_bytes(), original_bytes);
+    assert_eq!(foreign.reserved_bytes(), foreign_bytes);
+    drop((artifacts, prefix, read));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(foreign.reserved_bytes(), 0);
+}
+
 #[inline(never)]
 fn assert_prefix_artifacts_cannot_be_rebound_to_equal_hash_carrier_or_changed_header(
     chain: &CertifiedTestChain,
@@ -218,18 +297,34 @@ fn assert_prefix_artifacts_cannot_be_rebound_to_equal_hash_carrier_or_changed_he
     let owner = read(Clone::clone(&source), &budget);
     let replacement = crate::block::reserve_block_for_tests().initialize(source.as_ref().clone());
     assert_eq!(replacement.hash(), source.hash());
-    let header = owner.decoded.header.clone();
-    assert!(matches!(
-        owner.into_parts(&replacement, &header),
-        Err(ChainReadError::HeaderMismatch { height: 2 })
-    ));
+    let local = |result: Result<_, VerificationReadError>| {
+        matches!(result, Err(VerificationReadError::Deferred(original))
+            if original.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation
+                && original.allocation_refusal().is_none())
+    };
+    // Carrier and funded header identity are local custody, never a verdict on equal bytes.
+    let header = PrefixHeader::Funded(owner.decoded.header.clone());
+    assert!(local(owner.into_parts(&replacement, &header)));
+    drop(header);
     let owner = read(Clone::clone(&source), &budget);
-    let mut header = owner.decoded.header.clone();
+    let other = read(Clone::clone(&source), &budget);
+    assert_eq!(*other.decoded.header, *owner.decoded.header);
+    let header = PrefixHeader::Funded(other.decoded.header.clone());
+    assert!(local(owner.into_parts(&source, &header)));
+    drop((header, other));
+    // An independently decoded header must equal the sole funded decoder's value.
+    let owner = read(Clone::clone(&source), &budget);
+    let mut header = (*owner.decoded.header).clone();
     header.origin_view += 1;
     assert!(matches!(
-        owner.into_parts(&source, &header),
-        Err(ChainReadError::HeaderMismatch { height: 2 })
+        owner.into_parts(&source, &PrefixHeader::Decoded(header)),
+        Err(VerificationReadError::Source(
+            ChainReadError::HeaderMismatch { height: 2 }
+        ))
     ));
+    let owner = read(Clone::clone(&source), &budget);
+    let header = PrefixHeader::Decoded((*owner.decoded.header).clone());
+    assert!(owner.into_parts(&source, &header).is_ok());
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -292,7 +387,21 @@ fn assert_funded_prefix_keeps_quorum_checks_and_matches_portable_prefix(
             expected_anchor.map(|a| a.successor())
         );
         drop(actual);
-        assert_eq!(budget.reserved_bytes(), 0);
+        // The tip keeps the sole funded header owner its frame was verified with.
+        assert_eq!(
+            budget.reserved_bytes(),
+            retained_header_bytes(&funded.prefix.tip)
+        );
+    }
+    drop(funded);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+// The exact funded header graph that a prepared prefix tip retains in the original pool.
+fn retained_header_bytes(tip: &crate::sumeragi::certified_chain::CommittedBlock) -> usize {
+    match tip.header.as_ref().expect("non-genesis prepared tip") {
+        PrefixHeader::Funded(header) => header.allocation_bytes(),
+        PrefixHeader::Decoded(_) => panic!("a prepared push retains its sole funded header owner"),
     }
 }
 
@@ -331,7 +440,10 @@ fn assert_funded_boundary_keeps_original_certificate_without_application_seals_u
             .push_prepared(read(frame(chain, height), &budget))
             .unwrap();
     }
-    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(
+        budget.reserved_bytes(),
+        retained_header_bytes(&prefix.prefix.tip)
+    );
     let original = frame(chain, 10);
     let tampered = changed_qc(&original, |qc| qc.agg_sig.0[0] ^= 1);
     assert!(matches!(
@@ -347,10 +459,21 @@ fn assert_funded_boundary_keeps_original_certificate_without_application_seals_u
     let qc = receipt.commit_qc().unwrap();
     assert_eq!(qc.signers.count_ones(), 3);
 
-    // The receipt retains independently decoded QC metadata. Its transient
-    // original-funded table and proposal retire after full availability verification.
-    assert_eq!(budget.reserved_bytes(), 0);
+    // The receipt and new tip share the sole funded header owner, and the receipt keeps the
+    // funded QC owner. The transient original-funded table and proposal retire after full
+    // availability verification.
+    let Some(PrefixQc::Funded(funded_qc)) = receipt.commit_qc.as_ref() else {
+        panic!("a prepared receipt retains its sole funded QC owner")
+    };
+    let header_bytes = retained_header_bytes(&prefix.prefix.tip);
+    assert_eq!(header_bytes, retained_header_bytes(receipt.committed()));
+    assert_eq!(
+        budget.reserved_bytes(),
+        header_bytes + funded_qc.allocation_bytes()
+    );
     drop(receipt);
+    assert_eq!(budget.reserved_bytes(), header_bytes);
+    drop(prefix);
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -416,6 +539,7 @@ fn assert_funded_original_boundary_result_graph_is_borrowed_without_redecoding(
     let artifacts = read(Clone::clone(&original), &budget);
     let original_bitmap = artifacts.decoded.commit_qc.signers.as_bytes().as_ptr();
     let original_signature = artifacts.decoded.commit_qc.agg_sig;
+    let qc_bytes = artifacts.decoded.commit_qc.allocation_bytes();
 
     let retained = budget.reserved_bytes();
     assert!(retained > 0);
@@ -455,9 +579,9 @@ fn assert_funded_original_boundary_result_graph_is_borrowed_without_redecoding(
     assert_eq!(qc.signers.as_bytes().as_ptr(), original_bitmap);
     assert_eq!(qc.agg_sig, original_signature);
 
-    // The receipt retains independently decoded QC metadata. Its transient
-    // original-funded table and proposal retire after full availability verification.
-    assert_eq!(budget.reserved_bytes(), 0);
+    // The receipt retains the same original QC bitmap, ledger and shared control.
+    // Its transient header, table and proposal retire after full availability verification.
+    assert_eq!(budget.reserved_bytes(), qc_bytes);
     assert!(budget.reserved_bytes() <= retained);
     drop(certified);
     assert_eq!(budget.reserved_bytes(), 0);

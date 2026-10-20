@@ -337,7 +337,7 @@ where
     }
 
     /// Positively identify a platform-only orphan for an independently authorized lookup.
-    /// This is no custody/recovery authority: `status` still reports KeyWithoutMarker.
+    /// This is no custody/recovery authority: `status` still reports `KeyWithoutMarker`.
     /// A directory, retained Phase/Slot, or any unknown answer cannot qualify.
     pub(crate) fn key_only_orphan(
         &mut self,

@@ -48,22 +48,53 @@ fn pending_slash_visits_original_key_order_and_retains_ineligible_and_unvisited_
     assert!(!pending.contains_key(&requests[0]));
     assert_eq!(pending[&requests[1]].amount, Quantity::from(10_u64));
     assert_eq!(pending[&requests[2]].amount, Quantity::from(5_u64));
-    // The satisfied prefix must not inspect a later malformed request.
+    // A positive slash that exactly consumes the first eligible request is satisfied
+    // there: the traversal must keep the later malformed request without reading it.
+    let mut ordered = [Hash::new(b"satisfied-first"), Hash::new(b"malformed-later")];
+    ordered.sort_unstable();
+    let [first, later] = ordered;
+    let unbonding = |request_id| PublicLaneUnbonding {
+        request_id,
+        amount: Quantity::from(10_u64),
+        release_at_ms: 0,
+        slashable_through_height: 2,
+        liability_release_height: 2,
+    };
+    let mut satisfied = [(
+        (LaneId::SINGLE, validator.clone(), validator.clone()),
+        PublicLaneStakeShare {
+            lane_id: LaneId::SINGLE,
+            validator: validator.clone(),
+            staker: validator.clone(),
+            bonded: Quantity::zero(),
+            pending_unbonds: [
+                (first, unbonding(first)),
+                (later, unbonding(Hash::new(b"malformed"))),
+            ]
+            .into_iter()
+            .collect(),
+            metadata: Metadata::default(),
+        },
+    )];
+    let later_before = satisfied[0].1.pending_unbonds[&later].clone();
+    slash_pending_unbond_group(
+        &mut satisfied,
+        &validator,
+        &validator,
+        true,
+        &Quantity::from(10_u64),
+        Some(2),
+    )
+    .unwrap();
+    assert!(!satisfied[0].1.pending_unbonds.contains_key(&first));
+    assert_eq!(satisfied[0].1.pending_unbonds[&later], later_before);
+    // A slash that needs a malformed eligible request fails without any change.
     shares[0]
         .1
         .pending_unbonds
         .get_mut(&requests[2])
         .unwrap()
         .request_id = Hash::new(b"malformed");
-    slash_pending_unbond_group(
-        &mut shares,
-        &validator,
-        &validator,
-        true,
-        &Quantity::zero(),
-        Some(2),
-    )
-    .unwrap();
     let before = shares.clone();
     assert!(
         slash_pending_unbond_group(&mut shares, &validator, &validator, true, &amount, Some(2))
@@ -84,7 +115,7 @@ fn numeric_index_rejects_foreign_ledger_before_consuming_original_reservation() 
     let result = materialize_index_quantity(aggregate, &mut reservation, &mut ledger);
     assert!(
         matches!(result, Err(EvidencePreparationError::Invariant)),
-        "HC402 numeric index must reject a foreign charge ledger before allocating"
+        "HC900 numeric index must reject a foreign charge ledger before allocating"
     );
     assert_eq!(reservation.remaining_bytes(), layout.size());
     assert!(ledger.as_slice().is_empty());

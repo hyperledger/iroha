@@ -52,6 +52,9 @@ pub(in crate::state) fn start(block: &mut StateBlock<'_>, budget: &AllocationBud
 
 #[test]
 fn original_musubi_group_retains_all_fourteen_pairs_and_borrows_frozen_revision() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     for replacement in [false, true] {
         let (state, proposal) = fixture();
         if replacement {
@@ -571,6 +574,9 @@ fn original_musubi_group_retains_all_fourteen_pairs_and_borrows_frozen_revision(
 
 #[test]
 fn original_musubi_group_later_table_refusal_retains_completed_pair_and_exact_pool() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     let budget = state.ivm_execution_budget();
@@ -670,6 +676,9 @@ fn original_musubi_group_later_table_refusal_retains_completed_pair_and_exact_po
 
 #[test]
 fn original_musubi_group_work_and_callback_refusal_keep_cumulative_original_prefix() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     let budget = state.ivm_execution_budget();
@@ -738,6 +747,9 @@ fn original_musubi_group_work_and_callback_refusal_keep_cumulative_original_pref
 
 #[test]
 fn original_musubi_group_control_refusal_returns_original_scope_and_frozen_rows() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
     let baseline = budget.reserved_bytes();
@@ -828,6 +840,9 @@ fn original_musubi_group_control_refusal_returns_original_scope_and_frozen_rows(
 
 #[test]
 fn original_musubi_group_foreign_scope_or_changed_source_cannot_reacquire() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     let budget = state.ivm_execution_budget();
@@ -866,6 +881,9 @@ fn original_musubi_group_foreign_scope_or_changed_source_cannot_reacquire() {
 
 #[test]
 fn original_musubi_group_partial_thaw_retains_scope_until_actual_outside_reader_retires() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     let budget = state.ivm_execution_budget();
@@ -920,6 +938,15 @@ fn original_musubi_group_partial_thaw_retains_scope_until_actual_outside_reader_
 
 #[test]
 fn original_musubi_group_foreign_frozen_revision_refuses_without_copied_authority() {
+    // Keep this exact retirement observation separate from other test readers.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::original_musubi_group_foreign_frozen_revision_refuses_without_copied_authority",
+    ) {
+        return;
+    }
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::MusubiResolverIndexRevisionV1;
     use crate::state::block_field::BlockField;
     let (state, proposal) = fixture();
@@ -984,6 +1011,16 @@ fn original_musubi_group_foreign_frozen_revision_refuses_without_copied_authorit
 
 #[test]
 fn original_musubi_group_callback_state_publication_refuses_and_drops_exact_result() {
+    // Exact retirement accounting must not share the global EBR collector with
+    // unrelated parallel tests and their reader lifetimes.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::original_musubi_group_callback_state_publication_refuses_and_drops_exact_result",
+    ) {
+        return;
+    }
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use std::cell::Cell;
 
     struct Returned<'a>(&'a Cell<usize>);
@@ -1091,6 +1128,9 @@ fn original_musubi_group_callback_state_publication_refuses_and_drops_exact_resu
 
 #[test]
 fn original_musubi_group_equal_same_predecessor_revision_substitution_retains_original_pair() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::block_field::BlockField;
     use std::cell::Cell;
     let (state, proposal) = fixture();
@@ -1193,6 +1233,9 @@ fn original_musubi_group_equal_same_predecessor_revision_substitution_retains_or
 
 #[test]
 fn original_musubi_group_revision_reader_refusal_retains_completed_tables_and_exact_scope() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     for current in [false, true] {
         let (state, proposal) = fixture();
         let mut block = pending(&state, proposal.header(), false);
@@ -1311,6 +1354,9 @@ fn original_predecessor_pointers<K: mv::Key, V: mv::Value>(
 
 #[test]
 fn original_musubi_group_retained_predecessor_descriptors_use_exact_pair_and_scope() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     for replacement in [false, true] {
         let (state, proposal) = fixture();
         // Establish a real committed original populated State. Ordinary mode

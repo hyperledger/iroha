@@ -62,6 +62,10 @@ pub enum AnonymousBallotCodecErrorV1 {
     /// The Norito canonical codec refused the value or the bytes.
     #[error("Norito canonical codec failed: {0}")]
     Codec(String),
+    /// Canonical decoding could not run because its allocator or original enclosing
+    /// budget refused it. This is local unavailability, not malformed input.
+    #[error("Norito canonical decoding is unavailable: {0}")]
+    DecodeUnavailable(norito::core::DecodeLocalRefusal),
     /// An `Enc` frame header is not the pinned canonical layout.
     #[error("`Enc` frame header is not the pinned canonical layout: {0}")]
     FrameLayout(&'static str),
@@ -225,14 +229,19 @@ pub fn enc<T: norito::NoritoSerialize>(value: &T) -> Result<Vec<u8>, AnonymousBa
 ///
 /// # Errors
 /// [`AnonymousBallotCodecErrorV1::FrameLayout`] for another header and
-/// [`AnonymousBallotCodecErrorV1::Codec`] for any decode failure.
+/// [`AnonymousBallotCodecErrorV1::Codec`] for invalid bytes or a protocol limit;
+/// [`AnonymousBallotCodecErrorV1::DecodeUnavailable`] retains an original allocator
+/// or enclosing-budget refusal.
 pub fn decode_enc<T>(bytes: &[u8]) -> Result<T, AnonymousBallotCodecErrorV1>
 where
     T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>,
 {
-    check_canonical_layout()?;
-    check_enc_header::<T>(bytes)?;
-    norito::decode_canonical::<T>(bytes).map_err(|error| AnonymousBallotCodecErrorV1::codec(&error))
+    decode_enc_bounded_with_limits(
+        bytes,
+        "Enc frame",
+        usize::MAX,
+        norito::canonical_decode_limits(bytes.len()),
+    )
 }
 
 /// `Enc(value)`, refused when it exceeds `max` bytes.
@@ -264,6 +273,31 @@ pub fn decode_enc_bounded<T>(
 where
     T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>,
 {
+    decode_enc_bounded_with_limits(
+        bytes,
+        kind,
+        max,
+        norito::canonical_decode_limits(bytes.len()),
+    )
+}
+
+/// Decode a bounded `Enc` with schema limits inside its refusal-classification boundary.
+///
+/// The outer size and pinned header are checked before decoder controls are created.
+/// Schema and canonical-default ceilings are protocol limits; only original refusals
+/// from the allocator or a caller's enclosing budget become local unavailability.
+///
+/// # Errors
+/// As [`decode_enc_bounded`], including the original local refusal owner.
+pub(super) fn decode_enc_bounded_with_limits<T>(
+    bytes: &[u8],
+    kind: &'static str,
+    max: usize,
+    limits: norito::DecodeLimits,
+) -> Result<T, AnonymousBallotCodecErrorV1>
+where
+    T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>,
+{
     if bytes.len() > max {
         return Err(AnonymousBallotCodecErrorV1::TooLarge {
             kind,
@@ -271,7 +305,14 @@ where
             max,
         });
     }
-    decode_enc(bytes)
+    check_canonical_layout()?;
+    check_enc_header::<T>(bytes)?;
+    norito::decode_canonical_for_admission(bytes, limits).map_err(|error| {
+        match error.into_local_refusal() {
+            Ok(refusal) => AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal),
+            Err(error) => AnonymousBallotCodecErrorV1::codec(error.error()),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -396,6 +437,61 @@ mod tests {
             decode_enc_bounded::<BallotBodyContextV1>(&bytes, "context", bytes.len() - 1),
             Err(AnonymousBallotCodecErrorV1::TooLarge { .. })
         ));
+    }
+
+    #[test]
+    fn schema_limits_are_invalid_even_when_an_enclosing_limit_has_the_same_ceiling() {
+        let value = vec![1_u16, 2, 3];
+        let bytes = enc(&value).expect("canonical sequence");
+        let limits = norito::DecodeLimits::new(2, usize::MAX, usize::MAX, usize::MAX, 32);
+        let decode = || {
+            decode_enc_bounded_with_limits::<Vec<u16>>(&bytes, "test sequence", bytes.len(), limits)
+        };
+        let expected = Err(AnonymousBallotCodecErrorV1::codec(
+            &norito::Error::SequenceLengthExceeded {
+                length: 3,
+                limit: 2,
+            },
+        ));
+        assert_eq!(decode(), expected);
+        assert_eq!(norito::with_decode_limits_scope(limits, decode), expected);
+        assert_eq!(decode_enc::<Vec<u16>>(&bytes), Ok(value));
+    }
+
+    #[test]
+    fn canonical_decoders_retain_original_enclosing_refusals() {
+        let value = vec![1_u16, 2, 3];
+        let bytes = enc(&value).expect("canonical sequence");
+        let limits = norito::DecodeLimits::new(2, usize::MAX, usize::MAX, usize::MAX, 32);
+        for bounded in [false, true] {
+            let result = norito::with_decode_limits_scope(limits, || {
+                if bounded {
+                    decode_enc_bounded::<Vec<u16>>(&bytes, "test sequence", bytes.len())
+                } else {
+                    decode_enc::<Vec<u16>>(&bytes)
+                }
+            });
+            let Err(AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal)) = result else {
+                panic!("the original caller refusal must not become malformed bytes");
+            };
+            assert_eq!(
+                refusal.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(
+                refusal.resource_error(),
+                norito::core::DecodeResourceError::SequenceLengthExceeded {
+                    length: 3,
+                    limit: 2,
+                }
+            );
+            assert_eq!(
+                AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal.clone()),
+                AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal),
+                "cloning retains the same refusal owner"
+            );
+        }
+        assert_eq!(decode_enc::<Vec<u16>>(&bytes), Ok(value));
     }
 
     #[test]

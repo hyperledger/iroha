@@ -468,38 +468,81 @@ impl FileLaneBlockStore {
         })
     }
 
-    /// Release only explicitly cancelled proposal reads. Select under separate nonblocking
-    /// guards, then destroy original jobs, authority and paid bodies after every guard is gone.
+    /// Release only explicitly cancelled request reads without waiting on native I/O.
+    /// Observe the exact live interest across unlock so cancellation cannot be lost between
+    /// the first flag read and a concurrent nonblocking cleanup attempt. A busy native owner
+    /// inherits cleanup; original jobs and funded bodies drop after both guards are gone.
     pub(super) fn release_cancelled_reads(&self) {
         Self::with_original_refunds(&self.budget, || {
-            let read = {
+            let (mut read, observed_read) = {
                 let Some(mut state) = self.state.try_lock() else {
                     return;
                 };
-                if state
+                let cancelled = state
                     .read
                     .as_ref()
-                    .is_some_and(|read| read.interest.cancelled())
-                {
-                    state.read.take()
+                    .is_some_and(|read| read.interest.cancelled());
+                #[cfg(test)]
+                refund_tests::after_cancellation_observation(false);
+                if cancelled {
+                    (state.read.take(), None)
                 } else {
-                    None
+                    (None, state.read.as_ref().map(|read| read.interest.clone()))
                 }
             };
-            let batch = {
-                self.batch_read.try_lock().and_then(|mut slot| {
-                    if slot
+            let (mut batch, observed_batch) =
+                self.batch_read.try_lock().map_or((None, None), |mut slot| {
+                    let cancelled = slot
                         .as_ref()
-                        .is_some_and(|pending| pending.interest.cancelled())
-                    {
-                        slot.take()
+                        .is_some_and(|pending| pending.interest.cancelled());
+                    #[cfg(test)]
+                    refund_tests::after_cancellation_observation(true);
+                    if cancelled {
+                        (slot.take(), None)
                     } else {
-                        None
+                        (None, slot.as_ref().map(|pending| pending.interest.clone()))
                     }
-                })
-            };
-            drop(read);
-            drop(batch);
+                });
+            // The original flag was read under its native guard. Recheck only after unlock:
+            // cancellation before unlock is ours; cancellation after this check can acquire
+            // the free guard, or the intervening native owner inherits its cleanup duty.
+            // Cancellation is monotonic, so one matching nonblocking retry is sufficient.
+            if !cfg!(all(test, sumeragi_core_mutation = "HC438")) {
+                if let Some(interest) = observed_read
+                    .as_ref()
+                    .filter(|interest| interest.cancelled())
+                {
+                    read = self.state.try_lock().and_then(|mut state| {
+                        if state
+                            .read
+                            .as_ref()
+                            .is_some_and(|pending| pending.interest.same_request(interest))
+                        {
+                            state.read.take()
+                        } else {
+                            None
+                        }
+                    });
+                }
+                if let Some(interest) = observed_batch
+                    .as_ref()
+                    .filter(|interest| interest.cancelled())
+                {
+                    batch = self.batch_read.try_lock().and_then(|mut slot| {
+                        if slot
+                            .as_ref()
+                            .is_some_and(|pending| pending.interest.same_request(interest))
+                        {
+                            slot.take()
+                        } else {
+                            None
+                        }
+                    });
+                }
+            }
+            // Never revoke promoted historical interest or another request that adopted the
+            // slot. Even the temporary shared-control observations release outside guards.
+            drop((read, batch, observed_read, observed_batch));
         });
     }
 

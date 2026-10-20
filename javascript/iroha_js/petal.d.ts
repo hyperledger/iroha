@@ -755,6 +755,12 @@ export interface PetalScanStats {
   readonly tracked: number;
   /** Frames read with one corner finder hidden and inferred. */
   readonly inferred: number;
+  /** Merges of two or more captures of one shown frame. */
+  readonly merges: number;
+  /** Lane P reads recovered by merging captures. */
+  readonly mergedP: number;
+  /** Lane K reads recovered by merging captures. */
+  readonly mergedK: number;
 }
 
 /** The result of offering one camera frame. */
@@ -766,6 +772,8 @@ export interface PetalScanOutcome {
   readonly error: PetalDecodeErrorCode | null;
   /** Lanes that decoded, as letters from `"PKD"`. */
   readonly lanes: string;
+  /** Tile lanes newly recovered by merging captures, as letters from "PK". */
+  readonly merged: string;
   readonly progress: PetalProgress;
   /** The finished payload, delivered exactly once. */
   readonly completed: PetalCompleted | null;

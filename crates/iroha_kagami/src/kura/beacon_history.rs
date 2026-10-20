@@ -175,7 +175,8 @@ impl Projection {
         let tx = match entrypoint {
             TransactionEntrypoint::External(tx) => Some(tx),
             TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         };
         let occurrence = norito::json!({
             "carrier_height": (block.header().height().get()), "carrier_hash": (block.hash().to_string()),

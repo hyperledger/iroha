@@ -65,6 +65,28 @@ impl LaneBlockSource for OriginalFrames {
     > {
         self.block(lane, incarnation, height)
     }
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.block(lane, incarnation, height)
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        self.wait_for(lane, incarnation, height, timeout)
+    }
     fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
@@ -846,7 +868,7 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
             proposal.set_npos_consensus_effects(Some(NposConsensusEffects {
                 parent_service_commit_qc,
                 evidence_admissions: vec![proof.clone()],
-                penalty_actions: Vec::new(),
+                penalty_actions: Default::default(),
             }));
         },
     );
@@ -1033,13 +1055,21 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     let original_pool = state.ivm_execution_budget();
     let original_base = original_pool.reserved_bytes();
     original_pool.set_limit_bytes(original_base);
-    assert!(evidence::pending_evidence_admissions(&state, carrier, generation).is_empty());
+    // A retryable local refusal of the only report ends selection without it. The
+    // proposal is not aborted and the refused original reader is not discarded.
+    let selected = evidence::pending_evidence_admissions(&state, carrier, generation)
+        .expect("HC914 retryable original-pool exhaustion must not abort the proposal");
+    assert!(selected.as_slice().is_empty());
+    drop(selected);
     let waiting = budget.reserved_bytes();
     assert!(
         waiting > retained,
         "the refused original reader remains owned by State"
     );
-    assert!(evidence::pending_evidence_admissions(&state, carrier, generation).is_empty());
+    let repeated = evidence::pending_evidence_admissions(&state, carrier, generation)
+        .expect("retry under the same exhaustion still yields a proposal selection");
+    assert!(repeated.as_slice().is_empty());
+    drop(repeated);
     assert_eq!(
         budget.reserved_bytes(),
         waiting,
@@ -1047,7 +1077,9 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     );
     original_pool.set_limit_bytes(1 << 30);
     assert_eq!(
-        evidence::pending_evidence_admissions(&state, carrier, generation),
+        evidence::pending_evidence_admissions(&state, carrier, generation)
+            .unwrap()
+            .as_slice(),
         std::slice::from_ref(&proof)
     );
     assert_eq!(original_pool.reserved_bytes(), original_base);
@@ -1996,7 +2028,9 @@ fn local_proposer_skips_terminal_lane_source_without_deleting_observation() {
     let preparation = state.evidence_preparation_budget().reserved_bytes();
     let original_pool = state.ivm_execution_budget().reserved_bytes();
     assert_eq!(
-        evidence::pending_evidence_admissions(state, 5, state.state_view_generation()),
+        evidence::pending_evidence_admissions(state, 5, state.state_view_generation())
+            .unwrap()
+            .as_slice(),
         vec![root]
     );
     assert!(
@@ -2008,6 +2042,81 @@ fn local_proposer_skips_terminal_lane_source_without_deleting_observation() {
         preparation
     );
     assert_eq!(state.ivm_execution_budget().reserved_bytes(), original_pool);
+    assert_eq!(state.view().world().consensus_evidence().iter().count(), 0);
+}
+
+#[test]
+fn local_proposer_keeps_earlier_selection_and_effects_when_later_report_retries() {
+    use crate::sumeragi::{evidence, penalties::PenaltyApplier, test_chain::Signers};
+    let (chain, _guard) = anchored_chain(7);
+    let mut reader = LaneProofRead::new(capture(&chain), 3)
+        .unwrap_or_else(|_| panic!("original native coverage"));
+    reader.poll().unwrap();
+    let native = vote_pair(&reader, 3);
+    let scope = reader.scope;
+    let lane = iroha_data_model::block::consensus::Evidence::from_native(&native).unwrap();
+    drop(reader);
+    let (root_native, root) = (1..=255_u8)
+        .find_map(|marker| {
+            let proof = Evidence::ConflictingCertificates(
+                chain.commit_qc(3, Hash32([marker; 32]), Hash32([0x32; 32]), Signers::Quorum),
+                chain.commit_qc(3, Hash32([0; 32]), Hash32([0x34; 32]), Signers::LastThree),
+            );
+            let wire = iroha_data_model::block::consensus::Evidence::from_native(&proof).unwrap();
+            (evidence::evidence_key(&wire) < evidence::evidence_key(&lane)).then_some((proof, wire))
+        })
+        .expect("bounded deterministic fixture selects an earlier canonical root key");
+    let state = chain.state();
+    assert!(evidence::observe(state, &root_native).unwrap());
+    assert!(evidence::observe_lane(state, scope.lane, scope.incarnation, &native).unwrap());
+    let carrier = state.view().height() as u64 + 1;
+    let header = iroha_data_model::block::BlockHeader::new(
+        std::num::NonZeroU64::new(carrier).unwrap(),
+        None,
+        None,
+        carrier * 1_000,
+        0,
+    );
+    let preparation = state.evidence_preparation_budget();
+    let prepared = preparation.reserved_bytes();
+    let limit = preparation.limit_bytes();
+    let pool = state.ivm_execution_budget();
+    let base = pool.reserved_bytes();
+    let derive = |bytes| {
+        preparation.set_limit_bytes(bytes);
+        PenaltyApplier::new(state, None).derive_npos_consensus_effects(&header)
+    };
+    let mut high = prepared + (1 << 24);
+    assert_eq!(
+        derive(high).unwrap().evidence_admissions,
+        [root.clone(), lane.clone()]
+    );
+    // Find the smallest original preparation pool that admits any report. Each
+    // refused attempt is a temporary capacity refusal that retains no local job.
+    let mut low = prepared;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        match derive(middle) {
+            Ok(effects) if !effects.evidence_admissions.is_empty() => high = middle,
+            _ => low = middle,
+        }
+    }
+    // That pool funds the earlier report alone. Admitting the later report needs a
+    // strictly larger retained candidate set and is refused retryably: selection
+    // keeps the earlier report and the proposal keeps its effects.
+    let effects = derive(high).expect("the smallest admitting pool yields proposal effects");
+    assert_eq!(
+        effects.evidence_admissions,
+        [root.clone()],
+        "HC914 a retryable later report must not abort the proposal effects"
+    );
+    assert!(effects.penalty_actions.is_empty());
+    assert_eq!(preparation.reserved_bytes(), prepared);
+    assert_eq!(pool.reserved_bytes(), base);
+    let effects = derive(limit).expect("restored original capacity admits both reports");
+    assert_eq!(effects.evidence_admissions, [root, lane]);
+    assert_eq!(preparation.reserved_bytes(), prepared);
+    assert_eq!(pool.reserved_bytes(), base);
     assert_eq!(state.view().world().consensus_evidence().iter().count(), 0);
 }
 
@@ -2116,18 +2225,58 @@ fn original_lane_observer_late_policy_refusal_retains_observation_and_retries() 
                 .is_some()
         );
     });
-    // Scope admission consumes exactly one original policy read. The existing
-    // retained collection requires a second read before pruning any entry.
-    let error = norito::with_decode_limits_scope(limits(policy_bytes), || {
+    // Admission encodes the canonical evidence after the first policy read. Its
+    // exact bounded pair frames consume this same cumulative decoder allowance.
+    // Fund that complete prefix so the intended refusal is the later prune read,
+    // never an earlier canonicalization refusal accepted under the wrong label.
+    let before_prune = || {
+        assert!(
+            state
+                .view()
+                .world()
+                .sumeragi_npos_parameters()
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            iroha_data_model::block::consensus::Evidence::from_native(&native).unwrap(),
+            original
+        );
+    };
+    let prefix_bytes = norito::with_decode_limits_scope(limits(ceiling), || {
+        before_prune();
+        let norito::Error::TotalAllocationExceeded { attempted, limit } =
+            norito::core::reserve_decode_allocation(ceiling + 1).unwrap_err()
+        else {
+            panic!("non-charging complete-prefix allocation probe");
+        };
+        assert_eq!(limit, u64::try_from(ceiling).unwrap());
+        usize::try_from(attempted).unwrap() - ceiling - 1
+    });
+    assert!(prefix_bytes > policy_bytes);
+    let expected = norito::with_decode_limits_scope(limits(prefix_bytes), || {
+        before_prune();
+        state.view().world().sumeragi_npos_parameters().unwrap_err()
+    });
+    let ExecutionAttemptError::Deferred(expected) = expected else {
+        panic!("the second original policy read must retain its refusal");
+    };
+    let expected = expected.decode_refusal().unwrap().resource_error();
+    assert!(matches!(expected,
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
+        if limit == u64::try_from(prefix_bytes).unwrap() && attempted > limit));
+    let error = norito::with_decode_limits_scope(limits(prefix_bytes), || {
         evidence::observe_lane(state, scope.lane, scope.incarnation, &native)
     })
     .unwrap_err();
-    assert!(
-        matches!(
-            error,
-            evidence::EvidenceAdmissionError::Policy(ExecutionAttemptError::Deferred(_))
-        ),
-        "{error:?}"
+    let evidence::EvidenceAdmissionError::Policy(ExecutionAttemptError::Deferred(actual)) = error
+    else {
+        panic!("the late original policy read must refuse: {error:?}");
+    };
+    assert_eq!(
+        actual.decode_refusal().unwrap().resource_error(),
+        expected,
+        "the exact original late policy refusal must survive observation"
     );
     assert_eq!(
         state.evidence_preparation_budget().reserved_bytes(),
@@ -2144,7 +2293,9 @@ fn original_lane_observer_late_policy_refusal_retains_observation_and_retries() 
     );
     let carrier = state.view().height() as u64 + 1;
     assert_eq!(
-        evidence::pending_evidence_admissions(state, carrier, state.state_view_generation()),
+        evidence::pending_evidence_admissions(state, carrier, state.state_view_generation())
+            .unwrap()
+            .as_slice(),
         [original]
     );
 }

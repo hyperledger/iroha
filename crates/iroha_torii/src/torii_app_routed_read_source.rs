@@ -989,18 +989,8 @@ fn execute_torii_explorer_asset_definition_local_source_read_admitted(
             ResponseFormat::Json,
         );
     };
-    let assets = world
-        .asset_definition_assets()
-        .get(definition_id)
-        .map_or(0, |assets| {
-            u32::try_from(
-                assets
-                    .iter()
-                    .filter(|asset_id| visibility.allows_asset(&world, asset_id))
-                    .count(),
-            )
-            .unwrap_or(u32::MAX)
-        });
+    let assets =
+        crate::explorer::definition_instance_count_from_world(&world, definition_id, visibility);
     let zero_locked_quantity = iroha_primitives::numeric::Quantity::zero();
     let (locked_quantity, circulating_quantity) = if definition_id == &app.state.gov.voting_asset_id
     {
@@ -1199,9 +1189,11 @@ mod service_source_depth_tests {
     fn original_asset_alias_projection_keeps_actual_lease_status_and_refusal_depth() {
         let binding = binding();
         for observed in [10, 60, 76] {
-            let expected =
-                norito::json::to_json(&routing::asset_alias_binding_dto(&binding, observed))
-                    .unwrap();
+            let expected = norito::json::to_json(
+                &norito::json::to_value(&routing::asset_alias_binding_dto(&binding, observed))
+                    .unwrap(),
+            )
+            .unwrap();
             audit(&expected, |sink| {
                 write_torii_asset_alias_binding_json(&binding, observed, sink)
             });

@@ -453,12 +453,7 @@ impl Execute for OpenGameSessionV1 {
         };
         let network = st.network_id().clone();
         let custody = game_custody_account_v1(&network, &self.session_id, &self.asset_definition);
-        if st
-            .world
-            .assets_by_account
-            .get(&custody)
-            .is_some_and(|assets| !assets.is_empty())
-        {
+        if st.world.assets_in_account_iter(&custody).next().is_some() {
             return Err(invalid(
                 "game custody must be empty before session creation",
             ));
@@ -1677,9 +1672,8 @@ mod tests {
         assert!(
             st.world
                 .domain_asset_definitions
-                .get(domain)
-                .unwrap()
-                .contains(&session.asset_definition),
+                .get(&((domain).clone(), session.asset_definition.clone()))
+                .is_some(),
             "the test must exercise actual domain cascade membership"
         );
         let error = iroha_data_model::isi::Unregister::domain(domain.clone())

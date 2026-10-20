@@ -32,9 +32,6 @@ enum IrohaPeerNfcReaderFailureCodeV1: String, Sendable {
     case peerAcknowledgementNotDurable = "peer.acknowledgementNotDurable"
     case peerPeerRejected = "peer.peerRejected"
     case peerPeerPersistenceFailure = "peer.peerPersistenceFailure"
-    case peerOfferDeclined = "peer.offerDeclined"
-    case peerRequestPreparationTimedOut = "peer.requestPreparationTimedOut"
-    case peerInvalidAsk = "peer.invalidAsk"
     case adapterInvalidCommandAPDU = "adapter.invalidCommandAPDU"
     case adapterUnavailable = "adapter.unavailable"
     case adapterCardEmulationUnavailable = "adapter.cardEmulationUnavailable"
@@ -109,9 +106,6 @@ struct IrohaPeerNfcReaderTerminalDiagnosticV1: Equatable, Sendable {
             case .acknowledgementNotDurable: return (.peerAcknowledgementNotDurable, nil, nil)
             case .peerRejected(let operation): return (.peerPeerRejected, operation, nil)
             case .peerPersistenceFailure(let operation): return (.peerPeerPersistenceFailure, operation, nil)
-            case .offerDeclined: return (.peerOfferDeclined, nil, nil)
-            case .requestPreparationTimedOut: return (.peerRequestPreparationTimedOut, nil, nil)
-            case .invalidAsk: return (.peerInvalidAsk, nil, nil)
             }
         }
         if error is CancellationError { return (.cancelled, nil, nil) }

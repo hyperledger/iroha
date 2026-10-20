@@ -178,7 +178,8 @@ class PetalDecodeResult internal constructor(
  * Reed–Solomon erasures.
  *
  * After a frame decodes, [track] reads the next ones from its pose without the
- * finder search (what [PetalScanSession] does within 500 ms).
+ * finder search (what [PetalScanSession] does within 500 ms). The session also averages
+ * captures of the same shown frame to recover tile lanes lost to noise or display banding.
  *
  * The tile *level read* judges every patch against the light and dark levels
  * measured at the finders. When it leaves lane `P` or `K` unreadable, the
@@ -363,6 +364,68 @@ object PetalDecoder {
         var total = -0.0
         for (tile in 0 until reads.count) total += reads.error[tile]
         return total / reads.count.toDouble()
+    }
+
+    /** One capture's raw tile patches and finder levels, held independently of decoding scratch. */
+    internal class TileEvidence(patches: DoubleArray, reference: Reference) {
+        val patches = patches.copyOf()
+        val reference = Reference(reference.lit.copyOf(), reference.dark.copyOf())
+    }
+
+    /** Samples a usable capture under its canonical decoded pose for later averaging. */
+    internal fun tileEvidence(
+        image: PetalLuma,
+        frame: PetalDecodedFrame,
+        options: PetalDecodeOptions,
+        workspace: PetalWorkspace,
+    ): TileEvidence? {
+        if (!supported(image, options) || frame.inferredCorner?.let { it !in 0..3 } == true) return null
+        val h = frame.homography.m
+        val reference = referenceLevels(image, h, frame.inferredCorner ?: NO_CORNER) ?: return null
+        samplePatches(image, h, workspace)
+        return TileEvidence(workspace.patches, reference)
+    }
+
+    /**
+     * Tile lanes from captures of one shown frame. The level read averages patches levelled by
+     * each capture's own finder levels; missing lanes then use the normalised mean raw patches.
+     * Summation follows capture order, exactly as the reference decoder does. The caller must
+     * group captures by their decoded lane headers and check the recovered lane's own header.
+     */
+    internal fun mergeTiles(
+        evidence: Collection<TileEvidence>,
+        options: PetalDecodeOptions,
+        workspace: PetalWorkspace,
+    ): TileLanes {
+        if (evidence.isEmpty()) return TileLanes(null, null)
+        val mean = workspace.scaled
+        Arrays.fill(mean, 0.0)
+        for (capture in evidence) {
+            for (tile in 0 until PetalLayout.TILE_COUNT) {
+                val lit = capture.reference.litAt(PetalLayout.TILE_CENTER_X[tile], PetalLayout.TILE_CENTER_Y[tile])
+                val dark = capture.reference.darkAt(PetalLayout.TILE_CENTER_X[tile], PetalLayout.TILE_CENTER_Y[tile])
+                val base = tile * CELLS
+                for (cell in base until base + CELLS) mean[cell] += (capture.patches[cell] - dark) / (lit - dark)
+            }
+        }
+        val count = evidence.size.toDouble()
+        for (cell in mean.indices) mean[cell] /= count
+        Arrays.fill(workspace.erased, false)
+        var words = tileWords(classify(mean, options, false, workspace.erased, workspace))
+        var p = decodeWithErasures(PetalLane.P, words.p, words.pConfidence)
+        var k = decodeWithErasures(PetalLane.K, words.k, words.kConfidence)
+        if (p == null || k == null) {
+            val raw = workspace.patches
+            Arrays.fill(raw, 0.0)
+            for (capture in evidence) {
+                for (cell in raw.indices) raw[cell] += capture.patches[cell]
+            }
+            for (cell in raw.indices) raw[cell] /= count
+            words = tileWords(readTilesNormalised(options, workspace))
+            if (p == null) p = decodeWithErasures(PetalLane.P, words.p, words.pConfidence)
+            if (k == null) k = decodeWithErasures(PetalLane.K, words.k, words.kConfidence)
+        }
+        return TileLanes(p, k)
     }
 
     internal fun decode(image: PetalLuma, options: PetalDecodeOptions, workspace: PetalWorkspace): PetalDecodeResult {

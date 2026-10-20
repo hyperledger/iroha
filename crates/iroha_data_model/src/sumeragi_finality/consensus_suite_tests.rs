@@ -102,3 +102,44 @@ fn proof_crypto_multi_message_aggregate_binds_each_allowlisted_digest() {
     assert!(!crypto.verify_aggregate_multi(&[], &aggregate));
     assert!(crypto.aggregate(&[]).is_err());
 }
+
+#[test]
+fn proof_crypto_stack_pairing_matches_explicit_scratch_on_valid_and_rejected_proofs() {
+    use iroha_crypto::bls::consensus::ConsensusAggregateScratch;
+
+    let fixture = Fixture::new();
+    let (crypto, committee) = ProofCrypto::new(&fixture.validators).unwrap();
+    let block = decode_framed_signed_block(&fixture.second.block_wire).unwrap();
+    let qc: Qc = norito::decode_canonical(block.commit_certificate().unwrap().commit_qc()).unwrap();
+    let message = qc.preimage();
+    let digest = ConsensusDigest::from_preimage(&message).unwrap();
+    let key = &committee.members()[0];
+    let pair = fixture
+        .keys
+        .iter()
+        .find(|pair| pair.public_key().try_to_bytes().unwrap().1 == key.as_bytes())
+        .unwrap();
+    let signature = consensus::sign_preimage(pair.private_key(), &message).unwrap();
+    let admitted = crypto.keys.get(key).unwrap();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
+    for signature in [signature, [0; 96], signature] {
+        let aggregate = AggregateSignature(signature);
+        assert_eq!(
+            crypto.verify_aggregate(&[key], &message, &aggregate),
+            scratch.verify_fast_aggregate(core::iter::once(admitted), &digest, &signature),
+            "portable stack and admitted original scratch have the same relation",
+        );
+        let groups = [(vec![key], message.clone())];
+        assert_eq!(
+            crypto.verify_aggregate_multi(&groups, &aggregate),
+            scratch.verify_aggregate_multi(
+                core::iter::once((core::iter::once(admitted), digest)),
+                &signature
+            ),
+        );
+        assert!(!crypto.verify_aggregate(&[key, key], &message, &aggregate));
+        assert!(
+            !crypto.verify_aggregate_multi(&[groups[0].clone(), groups[0].clone()], &aggregate)
+        );
+    }
+}

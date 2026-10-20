@@ -4,8 +4,9 @@
 Requires Python 3.12, full Xcode (DEVELOPER_DIR or xcode-select), rustup and the
 repository's locked dependencies. No artifact selector may already be set. This
 local-unit recipe never modifies dist or qualifies release/device artifacts.
-Cargo reuses a stable target lane; each run retains create-only evidence and logs
-under target/qualification. No child is timed out, killed, or retried on failure.
+Cargo reuses a stable target lane; each run retains create-only Swift build
+outputs, evidence and logs under target/qualification. No child is timed out,
+killed, or retried on failure.
 """
 from __future__ import annotations
 
@@ -83,6 +84,11 @@ def run_suite(root: Path, target: Path, jobs: int | None, config: dict[str, str]
     capture, artifact = run / "capture", run / "artifact"
     temporary = run / "temporary"
     temporary.mkdir(mode=0o700)
+    # Xcode-backed SwiftPM can retain an older embedded resource bundle in a
+    # reused .build tree even after updating the sibling product bundle. Keep
+    # this run's executable and bundled fixtures in one fresh build directory.
+    swift_scratch = run / "swift-build"
+    swift_scratch.mkdir(mode=0o700)
     config_path = run / "native-tools.json"
     unit.save(config_path, config)
     environment = dict(environment, DEVELOPER_DIR=config["developer_dir"],
@@ -110,7 +116,7 @@ def run_suite(root: Path, target: Path, jobs: int | None, config: dict[str, str]
     try:
         run_step([swift, "test", "--package-path", str(root / "IrohaSwift"),
                   "--configuration", "debug", "--disable-automatic-resolution",
-                  "--manifest-cache", "none", "--scratch-path", str(root / "IrohaSwift/.build")],
+                  "--manifest-cache", "none", "--scratch-path", str(swift_scratch)],
                  root=root / "IrohaSwift", environment=swift_environment, log=run / "swift-test.log")
     except (subprocess.CalledProcessError, OSError) as error:
         test_failure = error

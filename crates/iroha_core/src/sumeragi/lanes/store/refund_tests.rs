@@ -460,3 +460,143 @@ fn busy_original_native_operation_inherits_cancelled_read_cleanup_before_returni
         "the original busy native operation must finish cancelled read cleanup before returning"
     );
 }
+
+// The test thread alone pauses after the actual cancellation observation and before unlock.
+// Other threads run the ordinary native nonblocking cleanup without an injected pause.
+struct CancellationObservation {
+    batch: bool,
+    callback: Box<dyn FnOnce()>,
+}
+thread_local! {
+    static CANCELLATION_OBSERVATION: std::cell::RefCell<Option<CancellationObservation>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(super) fn after_cancellation_observation(batch: bool) {
+    let callback = CANCELLATION_OBSERVATION.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot
+            .as_ref()
+            .is_some_and(|selected| selected.batch == batch)
+        {
+            slot.take().map(|selected| selected.callback)
+        } else {
+            None
+        }
+    });
+    if let Some(callback) = callback {
+        callback();
+    }
+}
+
+fn cancellation_after_native_cleanup_observation(batch: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let store = open(
+        dir.path(),
+        &source,
+        Arc::new(crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    store.append(&body, &qc).unwrap();
+    let baseline = budget.reserved_bytes();
+    let ceiling = budget.limit_bytes();
+    let raw = usize::try_from(fs::metadata(store.dir.join(frame_name(1))).unwrap().len()).unwrap();
+    let mut request = ProposalReadScope::new();
+    request.admit(&budget).unwrap();
+    let pressure = budget
+        .try_reserve_bytes(ceiling - budget.reserved_bytes() - raw)
+        .unwrap();
+    assert!(matches!(
+        store.proposal_batch(1, &request),
+        Err(Attempt::Deferred(_))
+    ));
+    drop(pressure);
+    if batch {
+        // Move the actually authenticated original frame into its real batch owner.
+        // Payload interpretation is irrelevant to cancellation; the body and QC stay exact.
+        let interest = ReadInterest::proposal(&request, &budget).unwrap();
+        let (prepared, original) = store.take_prepared(1, &interest).unwrap().unwrap();
+        let (restored, certificate) = prepared.into_parts();
+        assert_eq!(restored, body);
+        assert_eq!(certificate, qc);
+        *store.batch_read.lock() = Some(PendingBatch {
+            interest: original,
+            read: BatchRead {
+                body: restored,
+                qc: certificate,
+            },
+        });
+    }
+    assert!(store.retains_pending_work());
+    let before = fs::read(store.dir.join(frame_name(1))).unwrap();
+    let (entered, returned, resumed) = std::thread::scope(|threads| {
+        let (enter_send, enter_receive) = std::sync::mpsc::channel();
+        let (resume_send, resume_receive) = std::sync::mpsc::channel();
+        let cleanup_store = &*store;
+        let holder = threads.spawn(move || {
+            let resumed = Arc::new(AtomicBool::new(false));
+            let observed = resumed.clone();
+            CANCELLATION_OBSERVATION.with(|slot| {
+                assert!(slot.borrow().is_none());
+                *slot.borrow_mut() = Some(CancellationObservation {
+                    batch,
+                    callback: Box::new(move || {
+                        let _ = enter_send.send(());
+                        observed.store(
+                            resume_receive.recv_timeout(Duration::from_secs(5)).is_ok(),
+                            Ordering::SeqCst,
+                        );
+                    }),
+                });
+            });
+            cleanup_store.release_cancelled_reads();
+            CANCELLATION_OBSERVATION.with(|slot| {
+                slot.borrow_mut().take();
+            });
+            resumed.load(Ordering::SeqCst)
+        });
+        let entered = enter_receive.recv_timeout(Duration::from_secs(5)).is_ok();
+        drop(request);
+        let (done_send, done_receive) = std::sync::mpsc::channel();
+        let cancellation_store = &*store;
+        let cancellation = threads.spawn(move || {
+            cancellation_store.release_cancelled_reads();
+            let _ = done_send.send(());
+        });
+        let returned = done_receive.recv_timeout(Duration::from_secs(5)).is_ok();
+        let _ = resume_send.send(());
+        let resumed = holder.join().unwrap();
+        cancellation.join().unwrap();
+        (entered, returned, resumed)
+    });
+    let cleaned = !store.retains_pending_work() && budget.reserved_bytes() == baseline;
+    // Record the original no-successor result before explicit diagnostic cleanup.
+    store.release_cancelled_reads();
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(fs::read(store.dir.join(frame_name(1))).unwrap(), before);
+    let (restored, certificate) = store.committed_body(1).unwrap().unwrap();
+    assert_eq!(restored, body);
+    assert_eq!(certificate, qc);
+    drop((restored, certificate, store, body, qc));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(
+        entered && returned && resumed,
+        "actual cleanup observation and nonblocking cancellation must complete"
+    );
+    assert!(
+        cleaned,
+        "cancellation after the original cleanup observation must release that exact read without successor traffic"
+    );
+}
+
+#[test]
+fn state_read_cancellation_after_cleanup_observation_cannot_be_lost() {
+    cancellation_after_native_cleanup_observation(false);
+}
+
+#[test]
+fn batch_read_cancellation_after_cleanup_observation_cannot_be_lost() {
+    cancellation_after_native_cleanup_observation(true);
+}

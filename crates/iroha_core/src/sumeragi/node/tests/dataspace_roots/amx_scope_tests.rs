@@ -8,7 +8,10 @@ use iroha_data_model::{
     sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture},
 };
 
-fn coordinator_instructions() -> (Vec<InstructionBox>, [u8; 32]) {
+fn coordinator_instructions(
+    genesis_time_ms: u64,
+    original_cadence_ms: u64,
+) -> (Vec<InstructionBox>, [u8; 32]) {
     let mut instructions = [21, 22]
         .into_iter()
         .map(|id| {
@@ -35,7 +38,12 @@ fn coordinator_instructions() -> (Vec<InstructionBox>, [u8; 32]) {
             })
             .collect(),
         deadline: 8,
-        expires_at_ms: 1_000_000,
+        expires_at_ms: genesis_time_ms
+            .checked_add(
+                iroha_data_model::sumeragi_amx::amx_max_time_window_ms(original_cadence_ms)
+                    .unwrap(),
+            )
+            .unwrap(),
         nonce: [13; 32],
     };
     let tx = transaction.id().unwrap();
@@ -45,7 +53,7 @@ fn coordinator_instructions() -> (Vec<InstructionBox>, [u8; 32]) {
 
 #[test]
 fn signed_private_genesis_cannot_install_global_amx_coordinator() {
-    let (instructions, _) = coordinator_instructions();
+    let (instructions, _) = coordinator_instructions(1_000, 100);
     let parent = chain(4, 200);
     let parent = NetworkId::from_genesis_hash(parent.genesis.hash());
     let result = DataspaceChain::with_genesis_instructions(
@@ -89,13 +97,34 @@ fn signed_private_genesis_cannot_install_global_amx_coordinator() {
 
 #[test]
 fn signed_global_genesis_keeps_original_amx_coordinator_authority() {
-    let (instructions, tx) = coordinator_instructions();
     let mut config = TestChainConfig::new(World::new(), 1_000);
+    let (mut instructions, tx) = coordinator_instructions(
+        config.genesis_time_ms,
+        config.genesis_block_cadence_ms.get(),
+    );
+    // Signed global genesis installs coordinator authority. Relayable Begin records need
+    // a non-genesis quorum-certified carrier, as required by the native AMX proof reader.
+    let begin = instructions
+        .pop()
+        .expect("the final instruction begins the AMX");
     config.genesis_instructions = instructions;
-    let chain = CertifiedTestChain::start(config).unwrap();
+    let genesis_key = config.genesis_key.clone();
+    let mut chain = CertifiedTestChain::start(config).unwrap();
     let view = chain.state().view();
     assert_eq!(view.height(), 1);
     assert_eq!(chain.kura().blocks_count(), 1);
     assert_eq!(view.world().sumeragi_amx().dataspaces.len(), 2);
-    assert!(view.world().sumeragi_amx().transaction(&tx).is_some());
+    assert!(view.world().sumeragi_amx().transaction(&tx).is_none());
+    drop(view);
+    let begin = chain.sign(&genesis_key, [begin], 1_099);
+    assert_eq!(chain.commit_at(1_100, vec![begin]), [true]);
+    let view = chain.state().view();
+    assert_eq!(view.height(), 2);
+    assert_eq!(chain.kura().blocks_count(), 2);
+    assert_eq!(view.world().sumeragi_amx().dataspaces.len(), 2);
+    let amx = view.world().sumeragi_amx();
+    let entry = amx
+        .transaction(&tx)
+        .expect("certified Begin retains the transaction");
+    assert_eq!(entry.begun_at, 2);
 }

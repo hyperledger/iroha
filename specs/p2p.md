@@ -297,18 +297,27 @@ p2p_scion_outbound_total 0
 
 Iroha can optionally use a relay hub to improve reachability when some peers are behind NAT/firewalls or in censored networks. This is an application-level relay (forwarding encrypted frames), not a special Internet routing mechanism.
 
-Every relay envelope carries an end-to-end origin signature over a
-domain-separated commitment to the origin, final target, and canonical
-application payload. First-release node and target identities are
-BLS-normal, so relay admission has one fixed 96-byte signature geometry and no
-per-algorithm verification branch. Hubs preserve that signature and may only
-decrement the unsigned hop-limit (`relay_ttl`). Receivers verify the signature
-against the origin peer key before forwarding or local delivery, so selecting a
-hub grants routing authority but never grants authority to impersonate another
-peer's semantic origin. Unsigned relay envelopes are not accepted. TTL is
-deliberately hop-local rather than cryptographically monotonic: the shipped
-forwarder only decrements it, while a Byzantine relay can still replay a valid
-envelope or replace its TTL without changing any signed semantic field.
+A relay envelope that a hop may forward carries an end-to-end origin
+signature over a domain-separated commitment to the origin, final target, and
+canonical application payload. The origin signs at the hand-off to such a hop:
+a direct frame addressed to another peer, or a broadcast sent to a relay hub.
+First-release node and target identities are BLS-normal, so relay admission
+has one fixed 96-byte signature geometry and no per-algorithm verification
+branch. Hubs preserve that signature and may only decrement the unsigned
+hop-limit (`relay_ttl`). Receivers verify every present signature against the
+origin peer key before forwarding or local delivery, and accept a frame whose
+origin differs from the authenticated sender only from a relay hub, so
+selecting a hub grants routing authority but never grants authority to
+impersonate another peer's semantic origin. Only signed frames are forwarded.
+A frame that the next hop consumes itself is link-local and carries no origin
+signature: the authenticated session (TLS channel binding, the identity-bound
+handshake, and the per-direction AEAD binding with per-class sequences)
+already proves its sender. A receiver accepts an unsigned frame only when its
+origin is the authenticated sender and it targets the receiver or is a
+broadcast. TTL is deliberately hop-local rather than cryptographically
+monotonic: the shipped forwarder only decrements it, while a Byzantine relay
+can still replay a valid envelope or replace its TTL without changing any
+signed semantic field.
 Ingress and forwarded-egress scheduling derive priority from the authenticated
 payload topic; the envelope has no competing priority metadata.
 Every receiver clamps that mutable TTL to its own configured `relay_ttl` before

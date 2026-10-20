@@ -278,7 +278,7 @@ def remote_entry(e, stream):
         with self.assertRaisesRegex(transfer.TransferError, "byte closure"):
             transfer.load_signed_modules({"taira_retry": b""}, self.root)
 
-    def preparation_fixture(self, scope="basic"):
+    def preparation_fixture(self, scope="basic", target="aarch64-unknown-linux-gnu", machine=183):
         import taira_release as release
         output = self.root / "preparation"
         output.mkdir(mode=0o700)
@@ -286,7 +286,7 @@ def remote_entry(e, stream):
         attempt = output / "attempts/000001"
         attempt.mkdir(mode=0o700)
         (attempt / "bin").mkdir(mode=0o700)
-        header = b"\x7fELF\x02\x01\x01" + b"\x00" * 9 + b"\x02\x00\xb7\x00"
+        header = b"\x7fELF\x02\x01\x01" + b"\x00" * 9 + b"\x02\x00" + machine.to_bytes(2, "little")
         rows = []
         for name, package in zip(transfer.NAMES, transfer.PACKAGES):
             path = attempt / "bin" / name
@@ -296,7 +296,7 @@ def remote_entry(e, stream):
         (attempt / "bin").chmod(0o500)
         base = dict.fromkeys(transfer.BASE_FIELDS, "fixture")
         base.update(commit="a" * 40, tree="b" * 40, signer_fingerprint="C" * 40,
-            target="aarch64-unknown-linux-gnu", profile="release", jobs=6, native_check_scope=scope,
+            target=target, profile="release", jobs=6, native_check_scope=scope,
             source_unchanged=True, toolchain_unchanged=True, release_qualified=False, deployed=False,
             source_snapshot_sha256=transfer.sha(release.canonical_json_bytes([])),
             source_root=str(self.root / "source"))
@@ -313,6 +313,46 @@ def remote_entry(e, stream):
         plan = {"expected_commit": "a" * 40, "expected_signer": "C" * 40,
                 "preparation": {"path": str(output / "result.json"), "sha256": transfer.sha(raw)}}
         return release, plan, result, output
+
+    def test_preparation_admits_exact_x86_receipt_and_refuses_crossed_elf(self):
+        release, plan, expected, output = self.preparation_fixture(target="x86_64-unknown-linux-gnu", machine=62)
+        with patch.object(release, "commit_entries", return_value=b""), patch.object(release, "frozen_snapshot", return_value=[]):
+            self.assertEqual(transfer.admit_preparation(plan, {"taira_release": release}, "b" * 40), expected)
+            # Substitute the target in all locally consistent records and rebind
+            # their digest, leaving the real x86 bytes unchanged. ELF must still refuse.
+            expected["target"] = "aarch64-unknown-linux-gnu"
+            request = release.read_record(output / "request.json")
+            request["target"] = expected["target"]
+            for path, value in [(output / "request.json", request),
+                    (output / "checks.json", {"request": request, "passed": True}),
+                    (output / "result.json", expected), (output / expected["attempt"] / "capture.json", expected)]:
+                path.chmod(0o600)
+                path.write_bytes(release.canonical_json_bytes(value))
+                path.chmod(0o400)
+            plan["preparation"]["sha256"] = transfer.sha(release.canonical_json_bytes(expected))
+            with self.assertRaisesRegex(release.PrepareError, "ELF differs from receipt target"):
+                transfer.admit_preparation(plan, {"taira_release": release}, "b" * 40)
+
+    def test_x86_artifact_support_does_not_widen_native_host_authority(self):
+        request = {"build": {"target": "x86_64-unknown-linux-gnu"}}
+        with open(os.devnull, "rb") as stream, patch.object(transfer.sys, "platform", "linux"), patch.object(transfer.platform, "machine", return_value="aarch64"), patch.object(transfer.os, "geteuid", return_value=0), patch.object(transfer, "native_guest") as execute:
+            with self.assertRaisesRegex(transfer.TransferError, "target differs from the admitted AArch64 host"):
+                transfer.remote_entry({"operation": "native-exec", "request": request, "modules": {}}, stream)
+            execute.assert_not_called()
+        with open(os.devnull, "rb") as stream, patch.object(transfer.sys, "platform", "linux"), patch.object(transfer.platform, "machine", return_value="x86_64"), patch.object(transfer.os, "geteuid", return_value=0), patch.object(transfer, "native_guest") as execute:
+            with self.assertRaisesRegex(transfer.TransferError, "requires AArch64 Linux root"):
+                transfer.remote_entry({"operation": "native-exec", "request": request, "modules": {}}, stream)
+            execute.assert_not_called()
+        # Provider rejection remains independent of artifact architecture.
+        plan = {"schema": transfer.SCHEMA, "provider": "macstadium-dublin",
+                "preparation": {"path": "/private/result.json", "sha256": "a" * 64},
+                "expected_commit": "b" * 40, "expected_signer": "C" * 40,
+                "guest_ssh": [], "backing_ssh": [], "backing_path": "/private/backing",
+                "runtime_root": "/private/runtime"}
+        transfer.validate_plan(plan)
+        plan["provider"] = "ovh"
+        with self.assertRaisesRegex(transfer.TransferError, "exact MacStadium transfer plan required"):
+            transfer.validate_plan(plan)
 
     def test_preparation_admits_exact_capture_and_refuses_changed_binary_or_native_checkpoint(self):
         release, plan, expected, output = self.preparation_fixture()
@@ -427,10 +467,12 @@ class NativeInvocationTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(transfer, "NATIVE_RUNTIME", str(self.runtime)).start()
         release, preparation, self.build, output = self.fixture.preparation_fixture(
-            getattr(self, "preparation_scope", "basic"))
+            getattr(self, "preparation_scope", "basic"),
+            target=getattr(self, "preparation_target", "aarch64-unknown-linux-gnu"))
         self.preparation = preparation
-        if sys.platform == "linux":
-            image = Path(sys.executable).resolve().read_bytes()
+        if sys.platform == "linux" or hasattr(self, "native_image"):
+            image = (self.native_image if hasattr(self, "native_image")
+                     else Path(sys.executable).resolve().read_bytes())
             for row in self.build["artifacts"]:
                 path = Path(row["path"])
                 path.chmod(0o600)
@@ -484,6 +526,50 @@ class NativeInvocationTests(unittest.TestCase):
             "--plan", "a", "--native-plan", "b", "--output-dir", "c"], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"not allowed with argument", result.stderr)
+
+    def test_native_selected_image_header_must_match_bound_target_before_execution(self):
+        # Exercise actual files, hashes and import/preparation receipts through
+        # native_guest. Only the child execution is substituted: this portable
+        # header control grants no host authority and executes no fixture image.
+        for target, machine in [("aarch64-unknown-linux-gnu", 183),
+                                ("x86_64-unknown-linux-gnu", 62)]:
+            for offset, byte in [(None, None), (4, 1), (5, 2), (6, 0), (16, 1),
+                                 (17, 1), (18, 0), (19, 1)]:
+                header = bytearray(64)
+                header[:7] = b"\x7fELF\x02\x01\x01"
+                header[16] = 3
+                header[18:20] = machine.to_bytes(2, "little")
+                if offset is not None:
+                    header[offset] = byte
+                case = NativeInvocationTests(methodName="runTest")
+                case.preparation_target, case.native_image = target, bytes(header)
+                try:
+                    case.setUp()
+                    with self.subTest(target=target, offset=offset), \
+                         patch.object(transfer.os, "supports_fd", {os.execve}), \
+                         patch.object(transfer, "native_child", return_value={"state": "fixture-header-admitted"}) as child:
+                        if offset is None:
+                            result = transfer.native_guest(case.value)
+                            self.assertEqual(result["executable_sha256"], transfer.sha(header))
+                            child.assert_called_once()
+                        else:
+                            with self.assertRaisesRegex(transfer.TransferError, "ELF differs from exact receipt target"):
+                                transfer.native_guest(case.value)
+                            child.assert_not_called()
+                            attempt = case.runtime / "native-invocations" / case.plan["invocation_id"]
+                            self.assertEqual((attempt / "request.json").read_bytes(), transfer.canonical(case.value))
+                            self.assertFalse((attempt / "result.json").exists())
+                finally:
+                    case.doCleanups()
+
+    def test_native_preparation_target_substitution_breaks_original_digest_binding(self):
+        build = copy.deepcopy(self.build)
+        build["target"] = "x86_64-unknown-linux-gnu"
+        with self.assertRaisesRegex(transfer.TransferError, "native preparation identity differs"):
+            transfer.admit_native_records(self.plan, "b" * 40, build, self.request, self.completed)
+        build["target"] = "x86_64-unknown-linux-musl"
+        with self.assertRaisesRegex(transfer.TransferError, "native preparation identity differs"):
+            transfer.admit_native_records(self.plan, "b" * 40, build, self.request, self.completed)
 
     def test_receipts_bind_preparation_exact_roles_and_completed_import(self):
         self.assertEqual(transfer.admit_native_records(self.plan, "b" * 40, self.build,

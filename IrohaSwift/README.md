@@ -178,9 +178,9 @@ the same live handle without repeating authorization.
 retry/status, folding and activity. Request publication durably selects its exact
 original. A signed blacklist is local-only: `installBlacklist(list:certificates:)` stores
 it on the phone (a replacement's version must increase), and Native then refuses to pay a
-listed receiver and to request or accept money from a listed payer with
+listed receiver or accept a Payment from a listed payer with
 `KagemushaWalletErrorV1.blockedStatus` (-15); no proof, wallet state or peer message
-carries it. Offer/Request setup bytes are
+carries it. An open Request names no payer. Request setup bytes are
 canonical object frames, while peer transports require an Envelope frame. Use
 `envelope(_:original:)` and `original(_:envelope:)` for native, bounded conversion
 with the expected kind and this wallet's scheme; conversion grants no authority.
@@ -372,17 +372,17 @@ of an exchange use the same one. Pass it as
 their own registration use the protocol identifier `F0504B45504B524E464301`
 (`IrohaPeerNfcApplicationIdentifierV1.protocolDefault`), as shown.
 
-The receiver's `IrohaPeerNfcCardSessionControllerV1.startIntake` awaits the
-payer's Offer and calls `prepareRequest` to produce the Request. The payer can
-use `IrohaPeerNfcReaderServiceV1.run(offer:)` to keep a reader session open through
+The receiver creates its open Request with `KagemushaWalletV1.request(setupId:amount:)`
+and hosts its carrier with `IrohaPeerNfcCardSessionControllerV1.start(sessionID:receiveRequest:)`.
+The payer uses `IrohaPeerNfcReaderServiceV1.run` to keep one reader session open through
 Request, hardware-backed payment approval, durable checkpoint creation, Payment
 and Credited acknowledgement. Its operation deadline includes approval and wallet
-work. For slower approval or proof preparation, `readRequest(offer:)` closes the
-first reader session after reading the Request; the application then confirms and
-stores the exact Payment before automatically calling `run(restoredCheckpoint:)`.
-That second session must rediscover the still-held peer to meet a one-hold product
-requirement. Validate that behavior on real devices; automatic session creation
-alone does not establish a continuous physical hold.
+work. The durable checkpoint callback reviews the Request, authorizes Send and retains
+both the exact Payment and `paymentCompanion(payment:)` before delivery. The companion
+comes from that retained Send's historical credential and issuer, including after renewal.
+A normal payment keeps the same connection throughout; a new contact recovers an
+interrupted exchange. The separate `readRequest()` utility reads the open Request and
+ends its session; it is not the continuous-hold payment path.
 
 If contact is interrupted, `run(restoredCheckpoint:)` resumes the exact retained
 Payment without another debit. A receiver whose card session stops restarts with
@@ -435,8 +435,18 @@ device.
 
 A Nearby receiver may advertise before it holds a Request:
 `IrohaPeerNearbyDiscoveryContextV1.freshReceiver(profile:)` binds the session to a
-random value, and the Offer, Request, Payment and Credited then all travel inside the
-authenticated session.
+random value. After HELLO and AUTH, the receiver sends the open Request, the payer
+sends Payment with its PayerCompanion, and the receiver sends Credited inside the
+authenticated session. The payer receives four records and the receiver three;
+retired encrypted-Ask kind 4 is rejected.
+
+The three user-visible codes are Request, Payment and Receipt (Credited), in that order.
+Request uses the `KWRQAC1` carrier with its destination-account original; Payment uses
+`KWPYPC1` with its exact payer companion. Their respective payload bounds are 14,112
+and 12,064 bytes; each envelope remains bounded at 10,000 bytes. Native authenticates
+both originals when `receiveWithCompanion(requestId:payment:companion:)` receives the Payment.
+`paymentCompanion(payment:)` uses setup selector 55; `verifiedDelivery(sendRequestId:credited:)`
+uses selector 54 to verify receipt evidence separately from the later ArchiveSent operation.
 
 #### NoritoBridge policy (SwiftPM)
 
@@ -511,7 +521,7 @@ A separate `MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR` input may select a producer-vali
 single-host macOS archive for debug unit tests. It requires genuine current-source
 static capture, normalization, complete-archive native consumer checks, and the
 explicit `local-unit` artifact schema. It retains every package test and exact
-ABI-30 admission. It cannot be selected together with the external/release input;
+ABI-31 admission. It cannot be selected together with the external/release input;
 iOS and Release compilation reject it. It is never accepted by the canonical
 three-slice validator, pin owner, archive owner, or release publication.
 
@@ -527,9 +537,12 @@ Unset `MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR`, `MOBILE_SDK_APPLE_ARTIFACT_DIR`, and
 `MOBILE_SDK_REQUIRE_EXTERNAL_APPLE_ARTIFACT` before running it. The command builds
 the current native source, produces and verifies its local-unit artifact, then
 runs every Swift test and verifies the inputs again. Cargo reuses
-`target/native-sdk-host-local` (override with an absolute `--target-dir`); SwiftPM
-reuses `IrohaSwift/.build`. Fresh artifacts and logs remain under
-`target/qualification/swift-local-*`. `--jobs` optionally sets the Cargo job budget.
+`target/native-sdk-host-local` (override with an absolute `--target-dir`). SwiftPM
+uses a fresh `swift-build` directory inside each
+`target/qualification/swift-local-*` run so XCTest loads the current bundled
+fixtures together with its executable. Earlier `IrohaSwift/.build` outputs remain
+untouched. Fresh artifacts and logs remain beside the Swift build outputs.
+`--jobs` optionally sets the Cargo job budget.
 The command leaves `dist/` untouched and never accepts a stale ABI. Direct
 `swift test` still requires a matching artifact to be prepared and selected first.
 
@@ -879,6 +892,14 @@ analyzer.attach(to: videoDataOutput)
   read against the light and dark levels of the finders; a lane that stays
   unreadable is read again with every patch normalised by its own contrast, so
   over-exposure, veiling light, glare and shadows cancel out.
+- `PetalScanSession` averages up to four captures of each of the last six
+  shown frames to recover tile lanes lost to noise or display banding.
+  Independently decoded lane headers identify each group; unkeyed or torn
+  captures are excluded, and recovered lanes must name the same shown frame.
+  `PetalScanOutcome.merged` reports recovered lanes separately from the lanes
+  read in one capture; `PetalScanStats.merges`, `.mergedP` and `.mergedK` count
+  the attempts and recoveries. `PetalDecoder.tileEvidence(_:frame:)` and
+  `.mergeTiles(_:)` expose the same averaging for custom camera pipelines.
 - When a thumb, a glare or the edge of the frame hides one corner blossom,
   three blossoms that form a corner still locate the code: the fourth corner is
   inferred, refined against the dotted rings and reported as
@@ -897,9 +918,9 @@ analyzer.attach(to: videoDataOutput)
   callback and an `AsyncStream`, and stops after the payload completes.
   Scanner setup: use the 1280×720 session preset
   (`AVCaptureSession.Preset.hd1280x720`) where the device sustains about five
-  decoded frames per second and fall back to 640×480 only when it cannot (at
-  480p only lanes `P` and `D` read, so a 7.5 KB payment takes roughly four
-  times longer). Automatic exposure over-exposes a mostly black screen, so set
+  decoded frames per second and fall back to 640×480 only when it cannot.
+  Lane `K` is harder to read at 480p; averaging repeated captures of a shown
+  frame can recover it. Automatic exposure over-exposes a mostly black screen, so set
   the exposure target bias to about −1 EV
   (`AVCaptureDevice.setExposureTargetBias`) or lock the exposure once the code
   has been seen (`specs/petal_stream.md` section 8, "Scanner guidance").
@@ -1102,7 +1123,7 @@ let finality = try await torii.waitForDetachedAssetTransferFinality(
 )
 ```
 
-Preparation fails closed unless ABI-30 native inspection proves the versioned
+Preparation fails closed unless ABI-31 native inspection proves the versioned
 scaffold has the exact authority, network identity, protocol receipt chain, definition, source scope, amount,
 destination, memo, typed fee payer, creation time, TTL, and no extra metadata.
 The prepare route obtains the canonical fee quote and replaces only the charge
@@ -1141,7 +1162,7 @@ guard assessment.intentHash == intentHash.map { String(format: "%02X", $0) }.joi
 let canonicalMarker = try assessment.marker()
 ```
 
-The three ABI-30 retail fee operations use native typed Norito and reject
+The three ABI-31 retail fee operations use native typed Norito and reject
 noncanonical markers. Local decoding does not verify that an assessment is
 current or authorized. Signed read and verified finality remain required before
 payment approval; admission checks the assessment against ledger state.
@@ -1612,7 +1633,7 @@ stale native bridge fail closed. The signed fetch bypasses local cached response
 and sends `Cache-Control: no-cache, no-store` for current committed state.
 `PrivacyExact12CapabilityAdmissionV1` issues
 an opaque per-protocol token only when the committed row is active, ready, and
-byte-identical to the ABI30 native-validated compiled catalog. The generic
+byte-identical to the ABI31 native-validated compiled catalog. The generic
 transaction-frame initializer rejects `SubmitPrivacyProofV1`, and the admitted
 factory revalidates the native catalog, manifest, consensus action ceiling, and
 complete final V1 envelope profile tuple both at construction and final encoding.
@@ -1623,7 +1644,7 @@ Final batch encoding also compares the token and statement against the batch's
 exact `networkId`; an admission from another network cannot be reused. Managed
 fixture projection and standalone native validation do not mint network authority.
 
-ABI30 requires exactly six privacy C exports, including
+ABI31 requires exactly six privacy C exports, including
 `iroha_privacy_validate_exact12_capability_manifest_v1`. Swift passes the exact
 Torii archive to the canonical Rust validator before projecting its fields.
 Rust checks the complete release and deployment records, artifact counts,
@@ -1635,7 +1656,7 @@ without the manifest validator is unavailable.
 envelopes, submit instructions, transaction intents, unsigned payloads, signed
 transactions, and transaction hashes for all twelve rows;
 `validateExact12FixtureBundleV1(_:)`
-accepts only the canonical bundle and enforces a 2 MiB input ceiling. ABI 30
+accepts only the canonical bundle and enforces a 2 MiB input ceiling. ABI 31
 availability requires both compiled-catalog symbols, both exact-12 fixture symbols,
 the capability-manifest validator, the zeroizing-free symbol, and successful typed probes. Generic
 request/build/verify dispatch and free-form selectors are absent; proofs use
@@ -2681,7 +2702,7 @@ one scalar field. They have no hash marker, alias tag or issuance timestamp.
 The roster root remains a separate marked Iroha hash.
 
 Account-controller policies retain the full u16 member count (1–65,535). The
-public address constructors and parsers require the ABI-30 Rust address codec
+public address constructors and parsers require the ABI-31 Rust address codec
 for complete key and policy admission. Canonical I105 parsers reject surrounding
 Unicode whitespace; unavailable native validation is an
 explicit error. The
@@ -2705,7 +2726,7 @@ account ordering, establish rekey authority or verify an authorization proof.
 all five private actions and a complex private create to Rust-owned model
 bytes. Its synthetic proofs are wire fixtures. Proof generation, native bridge
 qualification and four-validator execution require separate evidence. The
-canonical Swift package always requires the real ABI30 NoritoBridge artifact.
+canonical Swift package always requires the real ABI31 NoritoBridge artifact.
 
 `ValidatorStakingNoritoV1` decodes first-release authority generations, epoch
 authorizations, signed all-edge beacon DKG records, committee transitions,

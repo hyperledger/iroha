@@ -218,12 +218,14 @@ fn complete_comparison_proposal() -> SignedBlock {
             ManifestDigest::new([0x22; 32]),
         )]));
     proposal.payload.npos_consensus_effects = Some(NposConsensusEffects {
-        penalty_actions: vec![NposPenaltyAction::MarkConsensusEvidenceApplied(
-            NposMarkConsensusEvidenceAppliedAction {
-                evidence_key: Hash::new(b"comparison evidence"),
-                height: 2,
-            },
-        )],
+        penalty_actions: crate::consensus::NposPenaltyActions::from_untrusted(vec![
+            NposPenaltyAction::MarkConsensusEvidenceApplied(
+                NposMarkConsensusEvidenceAppliedAction {
+                    evidence_key: Hash::new(b"comparison evidence"),
+                    height: 2,
+                },
+            ),
+        ]),
         ..NposConsensusEffects::default()
     });
     proposal
@@ -334,8 +336,7 @@ fn checked_resultless_comparison_binds_signatures_and_all_seven_payload_fields()
                 .npos_consensus_effects
                 .as_mut()
                 .unwrap()
-                .penalty_actions
-                .clear();
+                .penalty_actions = Default::default();
         }),
     ];
     for (field, edit) in edits {
@@ -821,6 +822,11 @@ fn merged_execution_projects_exact_original_signed_proposal_in_every_borrowed_op
     let (original, mut expanded) = merged_projection_fixture();
     expanded.result = Some(BlockResult::default());
     let expected = original.encode_wire().unwrap();
+    assert_ne!(expanded.header(), original.header());
+    assert_eq!(
+        original.canonical_resultless_header().unwrap(),
+        original.header()
+    );
     assert_ne!(expanded.encode_wire().unwrap(), expected);
     assert_eq!(
         expanded
@@ -840,6 +846,10 @@ fn merged_execution_projects_exact_original_signed_proposal_in_every_borrowed_op
     let merge_rows = expanded.lane_merge().unwrap().merges.as_ptr();
     for flags in [0, norito::core::header_flags::COMPACT_LEN] {
         let _ambient = norito::core::DecodeFlagsGuard::enter(flags);
+        assert_eq!(
+            expanded.canonical_resultless_header().unwrap(),
+            original.header()
+        );
         assert_eq!(
             expanded.resultless_proposal_wire_len().unwrap(),
             expected.len()
@@ -905,6 +915,7 @@ fn merged_projection_rejects_impossible_suffix_before_writing() {
             _ => unreachable!(),
         }
         let mut destination = vec![0xa5];
+        assert!(malformed.canonical_resultless_header().is_err());
         assert!(malformed.resultless_proposal_wire_len().is_err());
         assert!(
             malformed
@@ -968,11 +979,15 @@ fn parent_service_original_changes_complete_proposal_commitment() {
     let mut left = plain_signed_block();
     let mut right = left.clone();
     let mut effects = crate::consensus::NposConsensusEffects {
-        parent_service_commit_qc: Some(vec![0x21, 0x32]),
+        parent_service_commit_qc: Some(
+            crate::consensus::NposParentServiceCommitQc::from_untrusted(vec![0x21, 0x32]),
+        ),
         ..Default::default()
     };
     left.set_npos_consensus_effects(Some(effects.clone()));
-    effects.parent_service_commit_qc = Some(vec![0x21, 0x33]);
+    effects.parent_service_commit_qc = Some(
+        crate::consensus::NposParentServiceCommitQc::from_untrusted(vec![0x21, 0x33]),
+    );
     right.set_npos_consensus_effects(Some(effects));
     left.validate_proposal_commitments().unwrap();
     right.validate_proposal_commitments().unwrap();

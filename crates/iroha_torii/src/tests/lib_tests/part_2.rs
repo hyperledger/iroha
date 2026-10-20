@@ -135,24 +135,19 @@ fn onboarding_permission_target_matches_canonical_tokens_and_defers_local_constr
     assert_eq!(torii_permission_target(token).unwrap(), expected);
 }
 #[test]
-fn onboarding_account_diagnostic_preserves_original_address_refusal() {
+fn onboarding_account_diagnostic_borrows_retained_keys_without_decode_admission() {
     let key_pair =
         checked_torii_test_ed25519_keypair(0x98, "derive onboarding diagnostic fixture key");
     let authority = AccountId::new(key_pair.public_key().clone());
     let expected = authority.to_string();
     assert_eq!(onboarding_account_literal(&authority).unwrap(), expected);
-    let refused = norito::with_decode_limits_scope(
+    let rendered = norito::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
         || onboarding_account_literal(&authority),
     );
-    assert!(
-        matches!(
-            refused,
-            Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
-            )))
-        ),
-        "{refused:?}"
+    assert_eq!(
+        rendered.expect("rendering retained keys does not decode input"),
+        expected
     );
     assert_eq!(onboarding_account_literal(&authority).unwrap(), expected);
 }

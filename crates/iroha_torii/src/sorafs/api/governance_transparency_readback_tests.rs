@@ -284,12 +284,9 @@ fn governance_dag_file_backed_gets_are_admitted_and_offloaded() {
     assert!(worker.contains("let _permit = permit;\n            operation(&state)"));
     let recovery_source = include_str!("../../panic_recovery.rs");
     let blocking_wrapper = recovery_source
-        .split("pub(crate) fn spawn_blocking_recoverable")
+        .split("pub fn spawn_blocking_recoverable")
         .nth(1)
-        .and_then(|tail| {
-            tail.split("pub(crate) async fn catch_async_recoverable")
-                .next()
-        })
+        .and_then(|tail| tail.split("pub async fn catch_async_recoverable").next())
         .expect("blocking panic-recovery implementation");
     assert!(blocking_wrapper.contains("tokio::task::spawn_blocking(move ||"));
     assert!(blocking_wrapper.contains("catch_unwind_suppressed(operation)"));

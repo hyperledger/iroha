@@ -13,7 +13,7 @@ use std::time::Duration;
 
 fn control(stop: &AtomicBool) -> SccpNativeReadControl<'_> {
     SccpNativeReadControl {
-        deadline: Instant::now() + Duration::from_secs(30),
+        deadline: Instant::now() + Duration::from_secs(3_600),
         stop,
     }
 }

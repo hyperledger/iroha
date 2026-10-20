@@ -39,8 +39,6 @@ public enum IrohaPeerNearbyRecordKindV1: UInt8, Sendable {
     case hello = 1
     case authentication = 2
     case encryptedMessage = 3
-    /// The receiver's `IAK1` ask, sealed like a message (`IrohaPeerNearbySessionV1.sealAsk`).
-    case encryptedAsk = 4
 }
 
 public enum IrohaPeerNearbyErrorV1: Error, Equatable, Sendable {
@@ -110,9 +108,9 @@ public struct IrohaPeerNearbyDiscoveryContextV1: Equatable, Sendable {
 
     /// Receiver context for a session that starts before the receiver holds a
     /// Request: a random session identifier and a random 32-byte binding in
-    /// place of the Request hash. The Offer, Request, Payment and Credited then
-    /// all travel inside the authenticated session
-    /// (`specs/kagemusha_wallet_wire_v1.md` §6).
+    /// place of the Request hash. The receiver's open Request, the payer's
+    /// Payment and the receiver's Credited then all travel inside the
+    /// authenticated session (`specs/kagemusha_wallet_wire_v1.md` §6).
     public static func freshReceiver(profile: IrohaPeerPayloadProfile) throws -> Self {
         var generator = SystemRandomNumberGenerator()
         func randomNonzero(_ count: Int) -> Data {
@@ -574,18 +572,13 @@ public struct IrohaPeerNearbyEncryptedRecordV1: Equatable, Sendable {
     public let sessionID: Data
     public let sequence: UInt64
     public let ciphertextAndTag: Data
-    /// `encryptedMessage` for an `IPM1` message or `encryptedAsk` for the
-    /// receiver's ask, sealed in exactly 72 bytes. The header, kind included,
-    /// is the AEAD associated data.
-    public let kind: IrohaPeerNearbyRecordKindV1
 
     public init(
         profile: IrohaPeerPayloadProfile,
         senderRole: IrohaPeerNearbyRoleV1,
         sessionID: Data,
         sequence: UInt64,
-        ciphertextAndTag: Data,
-        kind: IrohaPeerNearbyRecordKindV1 = .encryptedMessage
+        ciphertextAndTag: Data
     ) throws {
         guard profile.rawValue != 0 else { throw IrohaPeerNearbyErrorV1.invalidProfile }
         guard sessionID.count == 16,
@@ -596,24 +589,17 @@ public struct IrohaPeerNearbyEncryptedRecordV1: Equatable, Sendable {
               ciphertextAndTag.count <= IrohaPeerNearbyV1.maximumMessageBytes + 16 else {
             throw IrohaPeerNearbyErrorV1.messageTooLarge
         }
-        guard kind == .encryptedMessage || kind == .encryptedAsk else {
-            throw IrohaPeerNearbyErrorV1.invalidRecordKind
-        }
-        guard kind != .encryptedAsk || ciphertextAndTag.count == IrohaPeerAskV1.recordBytes + 16 else {
-            throw IrohaPeerNearbyErrorV1.invalidLength
-        }
         self.profile = profile
         self.senderRole = senderRole
         self.sessionID = Data(sessionID)
         self.sequence = sequence
         self.ciphertextAndTag = Data(ciphertextAndTag)
-        self.kind = kind
     }
 
     fileprivate func header() -> Data {
         var output = IrohaPeerNearbyV1.magic
         output.append(IrohaPeerNearbyV1.wireVersion)
-        output.append(kind.rawValue)
+        output.append(IrohaPeerNearbyRecordKindV1.encryptedMessage.rawValue)
         output.appendUInt16BE(profile.rawValue)
         output.append(senderRole.rawValue)
         output.append(0)
@@ -640,8 +626,7 @@ public struct IrohaPeerNearbyEncryptedRecordV1: Equatable, Sendable {
         guard bytes[4] == IrohaPeerNearbyV1.wireVersion else {
             throw IrohaPeerNearbyErrorV1.unsupportedVersion
         }
-        guard let kind = IrohaPeerNearbyRecordKindV1(rawValue: bytes[5]),
-              kind == .encryptedMessage || kind == .encryptedAsk else {
+        guard bytes[5] == IrohaPeerNearbyRecordKindV1.encryptedMessage.rawValue else {
             throw IrohaPeerNearbyErrorV1.invalidRecordKind
         }
         guard let profile = IrohaPeerPayloadProfile(rawValue: readUInt16BE(bytes, at: 6)),
@@ -663,8 +648,7 @@ public struct IrohaPeerNearbyEncryptedRecordV1: Equatable, Sendable {
             senderRole: role,
             sessionID: Data(bytes[10..<26]),
             sequence: readUInt64BE(bytes, at: 26),
-            ciphertextAndTag: Data(bytes[headerLength..<bytes.count]),
-            kind: kind
+            ciphertextAndTag: Data(bytes[headerLength..<bytes.count])
         )
     }
 }
@@ -923,26 +907,6 @@ public final class IrohaPeerNearbySessionV1: @unchecked Sendable {
     }
 
     public func seal(_ message: Data) throws -> IrohaPeerNearbyEncryptedRecordV1 {
-        try seal(message, kind: .encryptedMessage)
-    }
-
-    /// Seals the receiver's ask as an `encryptedAsk` record, the first record the
-    /// receiver sends after authentication, so the payer builds its Offer for
-    /// the asked amount. It shares the key, nonce rule and per-direction sequence
-    /// of ``seal(_:)``. Only the receiver seals an ask.
-    public func sealAsk(_ ask: IrohaPeerAskV1) throws -> IrohaPeerNearbyEncryptedRecordV1 {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        try requireActive()
-        guard localRole == .receiver else { throw IrohaPeerNearbyErrorV1.invalidRole }
-        return try seal(ask.encode(), kind: .encryptedAsk)
-    }
-
-    /// One sealing path for both kinds; internal so tests can seal hostile asks.
-    func seal(
-        _ message: Data,
-        kind: IrohaPeerNearbyRecordKindV1
-    ) throws -> IrohaPeerNearbyEncryptedRecordV1 {
         stateLock.lock()
         defer { stateLock.unlock() }
         try requireActive()
@@ -956,8 +920,7 @@ public final class IrohaPeerNearbySessionV1: @unchecked Sendable {
             senderRole: localRole,
             sessionID: sessionID,
             sequence: sequence,
-            ciphertextAndTag: Data(repeating: 0, count: message.count + 16),
-            kind: kind
+            ciphertextAndTag: Data(repeating: 0, count: message.count + 16)
         )
         let nonce = try Self.nonce(senderRole: localRole, sequence: sequence)
         let sealed: AES.GCM.SealedBox
@@ -980,42 +943,15 @@ public final class IrohaPeerNearbySessionV1: @unchecked Sendable {
             senderRole: localRole,
             sessionID: sessionID,
             sequence: sequence,
-            ciphertextAndTag: sealed.ciphertext + sealed.tag,
-            kind: kind
+            ciphertextAndTag: sealed.ciphertext + sealed.tag
         )
     }
 
     public func open(_ record: IrohaPeerNearbyEncryptedRecordV1) throws -> Data {
-        try open(record, kind: .encryptedMessage) { $0 }
-    }
-
-    /// Opens the receiver's ask sealed by ``sealAsk(_:)``. Only the sender (the
-    /// payer) opens an ask, only from an `encryptedAsk` record of the receiver;
-    /// replay, reordering, tampering and routing fail exactly as in ``open(_:)``,
-    /// and an authenticated plaintext that is not a valid ask advances nothing.
-    ///
-    /// - Throws: ``IrohaPeerNearbyErrorV1``, or ``IrohaPeerAskErrorV1`` when the
-    ///   authenticated plaintext is not a valid `IAK1` ask.
-    public func openAsk(_ record: IrohaPeerNearbyEncryptedRecordV1) throws -> IrohaPeerAskV1 {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        try requireActive()
-        guard localRole == .sender else { throw IrohaPeerNearbyErrorV1.invalidRole }
-        return try open(record, kind: .encryptedAsk, decode: IrohaPeerAskV1.decode)
-    }
-
-    /// One opening path for both kinds: the record's kind must be `kind`, and
-    /// the sequence advances only once `decode` accepted the plaintext.
-    private func open<Value>(
-        _ record: IrohaPeerNearbyEncryptedRecordV1,
-        kind: IrohaPeerNearbyRecordKindV1,
-        decode: (Data) throws -> Value
-    ) throws -> Value {
         stateLock.lock()
         defer { stateLock.unlock() }
         try requireActive()
         guard let inboundKey else { throw IrohaPeerNearbyErrorV1.notAuthenticated }
-        guard record.kind == kind else { throw IrohaPeerNearbyErrorV1.invalidRecordKind }
         guard record.profile == profile else { throw IrohaPeerNearbyErrorV1.invalidProfile }
         guard record.senderRole == localRole.peer else { throw IrohaPeerNearbyErrorV1.invalidRole }
         guard record.sessionID == sessionID else { throw IrohaPeerNearbyErrorV1.invalidSession }
@@ -1025,7 +961,6 @@ public final class IrohaPeerNearbySessionV1: @unchecked Sendable {
         let tagStart = record.ciphertextAndTag.count - 16
         let nonce = try Self.nonce(senderRole: record.senderRole, sequence: record.sequence)
         let box: AES.GCM.SealedBox
-        let decoded: Result<Value, Error>
         do {
             box = try AES.GCM.SealedBox(
                 nonce: nonce,
@@ -1040,15 +975,13 @@ public final class IrohaPeerNearbySessionV1: @unchecked Sendable {
             guard inboundSequence < UInt64.max else {
                 throw IrohaPeerNearbyErrorV1.replayOrReordering
             }
-            decoded = Result { try decode(plaintext) }
+            inboundSequence += 1
+            return plaintext
         } catch let error as IrohaPeerNearbyErrorV1 {
             throw error
         } catch {
             throw IrohaPeerNearbyErrorV1.authenticationFailed
         }
-        let value = try decoded.get()
-        inboundSequence += 1
-        return value
     }
 
     /// Captures verifier input and marks authentication in flight. The caller

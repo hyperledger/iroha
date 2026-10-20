@@ -754,35 +754,31 @@ fn restore_adopts_original_startup_pool_before_runtime_configuration() {
             }
             .into_state_from_json(snapshot)
         };
-        // A restored State retains scalar, native-tip and AMX owners in the same
-        // startup pool. Measure the retained owners and transient restore
+        // A restored State retains every admitted World and native-tip owner in
+        // the same startup pool. Measure the retained owners and transient restore
         // demand independently, preserving the original exact 137-byte window
         // above the real peak while the startup reservation remains held.
         let probe_budget = iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         );
         assert_eq!(probe_budget.reserved_bytes(), 0);
+        // Hold one epoch across each restore so reclamation of replaced SCCP
+        // generations cannot make the independently repeated peak timing-dependent.
+        let construction_pin = crossbeam_epoch::pin();
         let probe = restore(probe_budget.clone(), snapshot.clone()).unwrap();
-        let retained_bytes = probe_budget.reserved_bytes();
         let restore_peak = probe_budget.peak_reserved_bytes();
-        let retained_layout_bytes = mv::cell::CellInitialization::<u64>::allocation_layouts()
-            .into_iter()
-            .chain(mv::cell::CellInitialization::<Option<NativeExecutionTip>>::allocation_layouts())
-            .chain(mv::cell::CellInitialization::<
-                crate::sumeragi::amx::RetainedNativeAmx,
-            >::allocation_layouts())
-            .map(|layout| layout.size())
-            .sum::<usize>();
-        let retired_ebr_bytes =
-            Cell::<u64, iroha_allocation::AllocationCharge>::allocation_layouts()
+        drop(construction_pin);
+        let retained_layout_bytes =
+            mv::cell::CellInitialization::<Option<NativeExecutionTip>>::allocation_layouts()
                 .into_iter()
-                .chain(native_execution_tip::TipCell::allocation_layouts())
-                .chain(Cell::<
-                    crate::sumeragi::amx::RetainedNativeAmx,
-                    iroha_allocation::AllocationCharge,
-                >::allocation_layouts())
                 .map(|layout| layout.size())
-                .sum::<usize>();
+                .sum::<usize>()
+                + initial_custody_test_support::world_live_bytes();
+        let retired_ebr_bytes = native_execution_tip::TipCell::allocation_layouts()
+            .into_iter()
+            .map(|layout| layout.size())
+            .sum::<usize>()
+            + initial_custody_test_support::world_retired_bytes();
         let lock_releases = [
             probe.latest_block_header.observe_release(),
             probe.da_commitments.observe_release(),
@@ -806,12 +802,16 @@ fn restore_adopts_original_startup_pool_before_runtime_configuration() {
         // Count every actual admitted lock control without retaining a release
         // observation across State retirement.
         drop(lock_releases);
-        assert_eq!(retained_bytes, retained_layout_bytes + notification_bytes);
+        let retained_bytes = retained_layout_bytes + notification_bytes;
+        // Restoring SCCP replaces initial scalar generations. Reclaim those
+        // transient owners before comparing exact live custody.
+        initial_custody_test_support::reclaim_to(&probe_budget, retained_bytes);
+        assert_eq!(probe_budget.reserved_bytes(), retained_bytes);
         assert!(retired_ebr_bytes > 0);
         assert!(retired_ebr_bytes < retained_bytes);
         assert!(restore_peak >= retained_bytes);
-        // The scalar, native-tip and AMX EBR generations remain charged while this
-        // reader pin prevents reclamation. Unborrowed publication identities
+        // Every funded World and native-tip EBR generation remains charged while
+        // this reader pin prevents reclamation. Unborrowed publication identities
         // and notification owners free with State and refund their own charges.
         let retirement_pin = crossbeam_epoch::pin();
         drop(probe);
@@ -830,8 +830,11 @@ fn restore_adopts_original_startup_pool_before_runtime_configuration() {
         assert_eq!(probe_budget.reserved_bytes(), 0);
         let budget = iroha_allocation::AllocationBudget::new(restore_peak + 137);
         let held = budget.try_reserve_bytes(120).unwrap();
+        let construction_pin = crossbeam_epoch::pin();
         let mut restored = restore(budget.clone(), snapshot).unwrap();
         assert_eq!(budget.peak_reserved_bytes(), restore_peak + 120);
+        drop(construction_pin);
+        initial_custody_test_support::reclaim_to(&budget, retained_bytes + 120);
         let prepared = restored.pipeline_ivm_prepared_cache.read().clone();
         let trigger = restored.trigger_ivm_cache.lock().prepared_contract_cache();
         let query = restored

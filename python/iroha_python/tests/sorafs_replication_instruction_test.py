@@ -341,7 +341,7 @@ def test_replication_payloads_convert_to_native_instructions() -> None:
         archive = base64.b64decode(encoded_archive, validate=True)
         assert archive.startswith(b"NRT0")
         assert base64.b64encode(archive).decode("ascii") == encoded_archive
-        assert Instruction.from_json(payload).to_json() == payload
+        assert Instruction.from_json(payload, chain_discriminant=753).to_json() == payload
 
     assert (
         Instruction.complete_replication_order(

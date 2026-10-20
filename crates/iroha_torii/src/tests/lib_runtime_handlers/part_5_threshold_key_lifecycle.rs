@@ -201,9 +201,13 @@ async fn ordinary_sealed_commitment_retains_exact_local_custody_and_requires_one
     );
     let multi_route = RoutingPlan::native_amx(coordinator, vec![participant]);
     assert!(
-        super::ordinary_transaction_ingress::authenticate(&app, &entrypoint, &multi_route)
-            .expect_err("sealed commitment must not bypass the single-route guard")
-            .contains("multi-route transaction admission is unsupported")
+        super::ordinary_transaction_ingress::authenticate_lifecycle_certificate(
+            &app,
+            &entrypoint,
+            &multi_route
+        )
+        .expect_err("sealed commitment must not bypass the single-route guard")
+        .contains("multi-route transaction admission is unsupported")
     );
     let before = lifecycle_pending_wire(&app);
     let response = super::handler_post_transaction_entrypoint(
@@ -239,8 +243,10 @@ fn ordinary_sealed_reveal_authenticates_exact_lifecycle_certificate() {
         &key,
         vec![Log::new(Level::INFO, "revealed application".to_owned()).into()],
     ));
-    super::ordinary_transaction_ingress::authenticate(&app, &ordinary, &route)
-        .expect("ordinary sealed reveal accepts its single route");
+    super::ordinary_transaction_ingress::authenticate_lifecycle_certificate(
+        &app, &ordinary, &route,
+    )
+    .expect("ordinary sealed reveal accepts its single route");
     let exact = reveal(lifecycle_ordinary_transaction(
         &app,
         &key,
@@ -251,7 +257,7 @@ fn ordinary_sealed_reveal_authenticates_exact_lifecycle_certificate() {
             .into(),
         ],
     ));
-    super::ordinary_transaction_ingress::authenticate(&app, &exact, &route)
+    super::ordinary_transaction_ingress::authenticate_lifecycle_certificate(&app, &exact, &route)
         .expect("exact certified lifecycle reveal authenticates its frozen roster");
     let mixed = reveal(lifecycle_ordinary_transaction(
         &app,
@@ -262,9 +268,11 @@ fn ordinary_sealed_reveal_authenticates_exact_lifecycle_certificate() {
         ],
     ));
     assert!(
-        super::ordinary_transaction_ingress::authenticate(&app, &mixed, &route)
-            .expect_err("mixed lifecycle reveal must be rejected")
-            .contains("one exact certificate")
+        super::ordinary_transaction_ingress::authenticate_lifecycle_certificate(
+            &app, &mixed, &route
+        )
+        .expect_err("mixed lifecycle reveal must be rejected")
+        .contains("one exact certificate")
     );
 }
 
@@ -283,7 +291,7 @@ async fn ordinary_multi_route_application_is_explicitly_unsupported() {
         iroha_core::queue::RouteLegRole::Participant,
     );
     let routing_plan = RoutingPlan::native_amx(coordinator, vec![participant]);
-    let error = super::ordinary_transaction_ingress::authenticate(
+    let error = super::ordinary_transaction_ingress::authenticate_lifecycle_certificate(
         &app,
         &TransactionEntrypoint::External(transaction),
         &routing_plan,
@@ -414,7 +422,7 @@ async fn lifecycle_ordinary_ingress_requires_authenticated_parent_and_global_rou
             .into(),
         ],
     );
-    let error = super::ordinary_transaction_ingress::authenticate(
+    let error = super::ordinary_transaction_ingress::authenticate_lifecycle_certificate(
         &app,
         &TransactionEntrypoint::External(transaction),
         &RoutingPlan::single(RoutingDecision::new(LaneId::new(9), DataSpaceId::new(9))),

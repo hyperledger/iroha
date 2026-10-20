@@ -55,6 +55,58 @@ pub(super) struct OtherDomains {
 /// Every discovered domain literal that no commitment and no application accumulator owns.
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
+        usage: Use::Record,
+        reason: "Anonymous Parliament ballot model digests bind one canonical account authority, proposal, envelope, sealed registration mapping, roster preimage or closure record. Current Core has no anonymous-ballot State integration; these supplied-record identities authenticate no State table or general State read",
+        literals: &[
+            r"PARL/AUTHORITY/v1",
+            r"PARL/ENVELOPE/v1",
+            r"PARL/PROPOSAL/v1",
+            r"PARL/REGMAP/v1",
+            r"PARL/RESULT/v1",
+            r"PARL/ROSTER/v1",
+        ],
+    },
+    // TODO: when Core persists the anonymous ballot corpus, inventory its exact State
+    // owners and application-accumulator role; the current model/proof helper has none.
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Anonymous Parliament corpus leaf, empty transcript and ordered append digests bind the supplied entries of one bounded scope. The proof helper maintains this transcript in memory; no canonical Core State field currently holds its root or entries. This is not yet a State-backed application accumulator or State-read authority",
+        literals: &[
+            r"PARL/CORPUS-APPEND/v1",
+            r"PARL/CORPUS-EMPTY/v1",
+            r"PARL/CORPUS-ENTRY/v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Anonymous ballot admission-work digests bind one authorization and supplied authenticated context, then its nonce. They provide a record-bound work statement, not a State commitment or independent context authority",
+        literals: &[r"PARL/STAMP-PAYLOAD/v1", r"PARL/STAMP-WORK/v1"],
+    },
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Digest and detached-signature preimage of one ballot qualification record containing its profile, schema, implementation/evidence manifests, security contract and parameter/service bounds. The current release gate remains unqualified; hashing the record grants no production or State authority",
+        literals: &[r"PARL/QUALIFICATION/v1"],
+    },
+    OtherDomains {
+        usage: Use::Test,
+        reason: "Exact anonymous-ballot framing test inputs compare SHA3-512 framing and domain separation; neither tag is a production proof profile or State commitment. Inline test occurrences remain visible to the source scan",
+        literals: &[r"PARL/TEST/v1", r"PARL/TEST/v2"],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "JSON schema names emitted by the test-only SCCP forgery-evidence, governance and liability reference generators. These label fixture records rather than hashing their bytes; retaining exact classification does not exempt fixture sources from scanning",
+        literals: &[
+            r"iroha.sccp.forgery_evidence.v1",
+            r"iroha.sccp.governance.v1",
+            r"iroha.sccp.liability.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::LocalArtifact,
+        reason: "Ordered local comparison seal of the pending slash-observability queue: lane, bonded/pending amounts and optional telemetry status transitions, consumed as status/telemetry effects only after block publication. It binds no canonical ledger rows, is never persisted or certified, and grants no finality or slashing authority",
+        literals: &[r"iroha:local-slash-publication:v1"],
+    },
+    OtherDomains {
         usage: Use::Name,
         reason: "Schema identity of the retained native KAGEMUSHA A/B/C exchange result read by the signed test-chain fixture; selects the exact result layout, not a hash domain or State-content root",
         literals: &[r"iroha.kagemusha.native-abc-result.v1"],
@@ -906,30 +958,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "SHA3-512 Frame tags of the data-model anonymous Parliament ballot (governance::anonymous_ballot::digests), each over one supplied record or message: the canonical envelope, the registration authority binding of one AccountId, the full typed proposal, the owner-signed qualification record, the registration mapping of one sealed list, the roster preimage and the closure record (the roster and result 'roots' are flat record digests without a tree), and the stamp payload and work digests of one ballot authorization. No node source computes them from State and the node has no anonymous-ballot State table: Core integration is a separate phase, and a premise test of the inventory fails as soon as an iroha_core source names the module",
-        literals: &[
-            r"PARL/AUTHORITY/v1",
-            r"PARL/ENVELOPE/v1",
-            r"PARL/PROPOSAL/v1",
-            r"PARL/QUALIFICATION/v1",
-            r"PARL/REGMAP/v1",
-            r"PARL/RESULT/v1",
-            r"PARL/ROSTER/v1",
-            r"PARL/STAMP-PAYLOAD/v1",
-            r"PARL/STAMP-WORK/v1",
-        ],
-    },
-    OtherDomains {
-        usage: Use::Record,
-        reason: "Ordered hash chain of one ballot scope's accepted anonymous-ballot corpus in the data model: the leaf of one supplied corpus entry, the empty root over the proof profile, scope, sealed-list digest and policy hash, and the append step with the zero-based index. corpus_root_v1 recomputes it from the supplied entries; only the data model and the iroha_parliament_ballot crate, on which no node crate depends, compute it, and no node source stores, carries or certifies it. A corpus root that Core persists or carries is a commitment over State content and must then be listed under the commitments or the application accumulators (sumeragi.md section 16.5 P1); the premise test of the anonymous-ballot tags fails first",
-        literals: &[
-            r"PARL/CORPUS-APPEND/v1",
-            r"PARL/CORPUS-EMPTY/v1",
-            r"PARL/CORPUS-ENTRY/v1",
-        ],
-    },
-    OtherDomains {
-        usage: Use::Record,
         reason: "KAGEMUSHA wallet-wire domain prefix and wallet advance provider-contract identity: these name or hash one application record or message",
         literals: &[
             r"iroha:kagemusha:wallet:v1:",
@@ -1292,20 +1320,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"confidential-transfer-v1",
             r"halo2/pasta/ipa/confidential-transfer-v2",
             r"pipa-r/pasta/vote-bool-commit-merkle8-v1",
-        ],
-    },
-    OtherDomains {
-        usage: Use::Test,
-        reason: "Frame tags of the inline cfg(test) framing tests of the data-model anonymous-ballot codec (framing.rs): they exercise Frame and the separation of two tag versions and are no production digest",
-        literals: &[r"PARL/TEST/v1", r"PARL/TEST/v2"],
-    },
-    OtherDomains {
-        usage: Use::Test,
-        reason: "JSON schema identities written by the cfg(test) SCCP reference-fixture generators and byte-drift gates of the forgery-evidence, governance and liability fixtures (reference_fixtures.rs): they label committed fixture files, are never compiled into the node and are not hash domains",
-        literals: &[
-            r"iroha.sccp.forgery_evidence.v1",
-            r"iroha.sccp.governance.v1",
-            r"iroha.sccp.liability.v1",
         ],
     },
     OtherDomains {

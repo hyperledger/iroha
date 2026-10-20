@@ -191,14 +191,22 @@ fn genuine_pulse_at_next_height(fixture: &Fixture, chain: &CertifiedTestChain) -
     pulse
 }
 
-fn executor(chain: &CertifiedTestChain) -> StateExecutor {
-    executor_in(chain, ConsensusMode::Npos)
+fn executor(chain: &CertifiedTestChain, block_time: std::time::Duration) -> StateExecutor {
+    executor_in(chain, ConsensusMode::Npos, block_time)
 }
 
 /// A separate cold worker over `chain`'s published State in the chain's own consensus mode.
-fn executor_in(chain: &CertifiedTestChain, consensus_mode: ConsensusMode) -> StateExecutor {
+fn executor_in(
+    chain: &CertifiedTestChain,
+    consensus_mode: ConsensusMode,
+    block_time: std::time::Duration,
+) -> StateExecutor {
+    // This worker observes the original candidate's signed fixture time, just like the
+    // committing harness. A system clock would reject due work as stale before reaching the
+    // pulse checks these tests exercise; clock refusal is covered by executor::clock_tests.
+    let (_, time_source) = iroha_primitives::time::TimeSource::new_mock(block_time);
     StateExecutor::spawn(ExecutorContext {
-        time_source: iroha_primitives::time::TimeSource::new_system(),
+        time_source,
         state: Arc::clone(chain.state()),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -231,10 +239,11 @@ fn invalid(executor: &mut StateExecutor, chain: &CertifiedTestChain, candidate: 
     let hash = candidate
         .header()
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
-    assert!(matches!(
-        executor.execute(candidate, &hash, false),
-        Ok(Some(ExecOutcome::Invalid))
-    ));
+    let outcome = executor.execute(candidate, &hash, false);
+    assert!(
+        matches!(outcome, Ok(Some(ExecOutcome::Invalid))),
+        "pulse rejection must be semantic invalidity: {outcome:?}"
+    );
     // The fixture chain's own tip never moves through this separate worker: a refusal leaves
     // the published State on exactly that predecessor.
     let view = chain.state().view();
@@ -297,7 +306,7 @@ fn transported_pulse_executes_once_and_cold_replay_reproduces_the_certified_resu
         .block()
         .canonical_resultless_proposal()
         .expect("valid fixture proposal projection");
-    let mut worker = executor(&replay);
+    let mut worker = executor(&replay, stored.block().header().creation_time());
     // A correctly decoded control witness is still obligatory at this exact source.
     let mut missing_header = stored.header().unwrap().clone();
     missing_header.control_witness = ControlWitness::empty();
@@ -348,7 +357,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
         .expect("valid fixture proposal projection");
     let header = stored.header().unwrap().clone();
     let proposal_bytes = payload::encode(&proposal).unwrap();
-    let mut worker = executor(&predecessor);
+    let mut worker = executor(&predecessor, stored.block().header().creation_time());
     for field in 0..15 {
         let mut wrong = pulse;
         match field {
@@ -414,14 +423,22 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
         control::encode(Some(genuine_pulse_at_next_height(&fixture, &unrequested)).as_ref())
             .unwrap();
     let unrequested_body = unrequested.author_payload(unrequested_header, ordinary_bytes.clone());
-    invalid(&mut executor(&unrequested), &unrequested, &unrequested_body);
+    invalid(
+        &mut executor(&unrequested, ordinary.block().header().creation_time()),
+        &unrequested,
+        &unrequested_body,
+    );
     let requested_nothing = unrequested.author_payload(ordinary_header, ordinary_bytes);
     let hash = requested_nothing
         .header()
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(
         matches!(
-            executor(&unrequested).execute(&requested_nothing, &hash, false),
+            executor(&unrequested, ordinary.block().header().creation_time()).execute(
+                &requested_nothing,
+                &hash,
+                false
+            ),
             Ok(Some(ExecOutcome::Valid { .. }))
         ),
         "without the unrequested witness the same ordinary body is valid"
@@ -695,7 +712,11 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
             .unwrap();
     let unrequested = custody.chain.author_payload(with_pulse, bytes.clone());
     invalid(
-        &mut executor_in(&custody.chain, ConsensusMode::Permissioned),
+        &mut executor_in(
+            &custody.chain,
+            ConsensusMode::Permissioned,
+            ninth.block().header().creation_time(),
+        ),
         &custody.chain,
         &unrequested,
     );
@@ -705,11 +726,12 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(
         matches!(
-            executor_in(&custody.chain, ConsensusMode::Permissioned).execute(
-                &requested_nothing,
-                &hash,
-                false
-            ),
+            executor_in(
+                &custody.chain,
+                ConsensusMode::Permissioned,
+                ninth.block().header().creation_time(),
+            )
+            .execute(&requested_nothing, &hash, false),
             Ok(Some(ExecOutcome::Valid { .. }))
         ),
         "without the unrequested witness the same body is valid at the governance slot"

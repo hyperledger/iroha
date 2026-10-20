@@ -34,12 +34,14 @@ fn block_payload_detects_npos_consensus_effect_blocks() {
     block.set_npos_consensus_effects(Some(NposConsensusEffects {
         parent_service_commit_qc: None,
         evidence_admissions: Vec::new(),
-        penalty_actions: vec![NposPenaltyAction::MarkConsensusEvidenceApplied(
-            NposMarkConsensusEvidenceAppliedAction {
-                evidence_key: iroha_crypto::Hash::new(b"telemetry-fixture"),
-                height: 2,
-            },
-        )],
+        penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(vec![
+            NposPenaltyAction::MarkConsensusEvidenceApplied(
+                NposMarkConsensusEvidenceAppliedAction {
+                    evidence_key: iroha_crypto::Hash::new(b"telemetry-fixture"),
+                    height: 2,
+                },
+            ),
+        ]),
     }));
     assert!(
         block_counts_as_non_empty(&block),

@@ -1520,8 +1520,42 @@ mod tests {
         }
     }
 
-    /// Real P2P admission permits only one retained frame per target/class. A later caller
-    /// cannot overtake the original refused row after capacity becomes available.
+    fn actor_capacity_row_frame(index: u32) -> Frame {
+        frame_of(&WireMessage::PayloadChunk(
+            iroha_sumeragi::message::PayloadChunk {
+                instance: Hash32([9; 32]),
+                height: 3,
+                block_hash: Hash32([8; 32]),
+                index,
+                bytes: iroha_sumeragi::availability::RowBytes::from_untrusted(vec![
+                    7;
+                    iroha_sumeragi::availability::MAX_DA_CHUNK_SIZE_BYTES
+                        as usize
+                ])
+                .unwrap(),
+            },
+        ))
+    }
+
+    fn occupy_actor_source_rows(net: &P2pNet<IrohaNetwork>, to: &PublicKey) -> Vec<Frame> {
+        // actor_admission_for_tests retains 1 MiB per target/class. Three maximum
+        // legal rows fit; four plus their actual wire envelopes exceed that cap.
+        // This exhausts bytes while leaving a slot in the four-item actor queue
+        // for another recipient and preserves the production eight-item window.
+        const SOURCE_BYTES: usize = 1024 * 1024;
+        let count =
+            (SOURCE_BYTES - 1) / iroha_sumeragi::availability::MAX_DA_CHUNK_SIZE_BYTES as usize;
+        let frames = (0..u32::try_from(count).expect("bounded actor row count"))
+            .map(actor_capacity_row_frame)
+            .collect::<Vec<_>>();
+        for frame in &frames {
+            assert!(matches!(net.send(to, frame), SendOutcome::Admitted));
+        }
+        frames
+    }
+
+    /// Real P2P admission bounds every target/class by bytes as well as its item window.
+    /// A later caller cannot overtake the original refused row after capacity returns.
     #[test]
     fn egress_real_actor_retains_row_ticket_and_fifo_until_admitted() {
         let target = bls(4);
@@ -1533,11 +1567,16 @@ mod tests {
         );
         let net = P2pNet::new(network);
         let to = core_key(target.public_key()).unwrap();
-        let frames = [row_frame(0), row_frame(1), row_frame(2)];
-        assert!(matches!(net.send(&to, &frames[0]), SendOutcome::Admitted));
-        let original = net.envelope(&frames[1]);
-        let first = pending(net.send(&to, &frames[1]));
-        let second = pending(net.send(&to, &frames[2]));
+        let mut frames = occupy_actor_source_rows(&net, &to);
+        let occupied = frames.len();
+        let next_row = u32::try_from(occupied).expect("bounded actor row count");
+        frames.extend([
+            actor_capacity_row_frame(next_row),
+            actor_capacity_row_frame(next_row + 1),
+        ]);
+        let original = net.envelope(&frames[occupied]);
+        let first = pending(net.send(&to, &frames[occupied]));
+        let second = pending(net.send(&to, &frames[occupied + 1]));
         let mut delivered = Vec::new();
         let mut capture = |post: &Post<NetworkMessage>| {
             assert_eq!(post.peer_id, target_peer);
@@ -1546,7 +1585,7 @@ mod tests {
             };
             // Reliable BlockSync posts are promoted by the actual P2P actor boundary.
             assert_eq!(post.priority, Priority::High);
-            if frame.bytes() == &*frames[1].bytes {
+            if frame.bytes() == &*frames[occupied].bytes {
                 assert!(
                     Arc::ptr_eq(&original, frame),
                     "retry recreated its encoded envelope"
@@ -1554,7 +1593,7 @@ mod tests {
             }
             delivered.push(frame.bytes().to_vec());
         };
-        assert_eq!(actor.drain_posts(&mut capture), 1);
+        assert_eq!(actor.drain_posts(&mut capture), occupied);
         // Retrying the later ticket first must not silently acquire a fresh queue position.
         let second = pending(second.retry());
         assert!(matches!(first.retry(), SendOutcome::Admitted));
@@ -1591,17 +1630,15 @@ mod tests {
             core_key(a.public_key()).unwrap(),
             core_key(b.public_key()).unwrap(),
         );
+        let occupied = occupy_actor_source_rows(&net, &ka).len();
+        let next_row = u32::try_from(occupied).expect("bounded actor row count");
+        let cancelled = pending(net.send(&ka, &actor_capacity_row_frame(next_row)));
+        let retried_send = pending(net.send(&ka, &actor_capacity_row_frame(next_row + 1)));
         assert!(matches!(
-            net.send(&ka, &row_frame(0)),
+            net.send(&kb, &actor_capacity_row_frame(0)),
             SendOutcome::Admitted
         ));
-        let cancelled = pending(net.send(&ka, &row_frame(1)));
-        let retried_send = pending(net.send(&ka, &row_frame(2)));
-        assert!(matches!(
-            net.send(&kb, &row_frame(0)),
-            SendOutcome::Admitted
-        ));
-        assert_eq!(actor.drain_posts(|_| {}), 2);
+        assert_eq!(actor.drain_posts(|_| {}), occupied + 1);
         drop(cancelled);
         assert!(matches!(retried_send.retry(), SendOutcome::Admitted));
         assert_eq!(
@@ -1624,22 +1661,11 @@ mod tests {
         );
         let net = P2pNet::new(network);
         let to = core_key(target.public_key()).unwrap();
-        let row = |index| {
-            frame_of(&WireMessage::PayloadChunk(
-                iroha_sumeragi::message::PayloadChunk {
-                    instance: Hash32([9; 32]),
-                    height: 3,
-                    block_hash: Hash32([8; 32]),
-                    index,
-                    bytes: iroha_sumeragi::availability::RowBytes::from_untrusted(vec![7; 2])
-                        .unwrap(),
-                },
-            ))
-        };
-        let _initial = net.send(&to, &row(0));
-        let retained = net.send(&to, &row(1));
+        let occupied = occupy_actor_source_rows(&net, &to).len();
+        let next_row = u32::try_from(occupied).expect("bounded actor row count");
+        let retained = net.send(&to, &actor_capacity_row_frame(next_row));
         let later = Post {
-            data: NetworkMessage::Sumeragi(net.envelope(&row(2))),
+            data: NetworkMessage::Sumeragi(net.envelope(&actor_capacity_row_frame(next_row + 1))),
             peer_id: target_peer,
             priority: Priority::Low,
         };
@@ -1664,7 +1690,7 @@ mod tests {
             Some(1),
             "only explicit cancellation releases the older owner"
         );
-        assert_eq!(actor.drain_posts(|_| {}), 1);
+        assert_eq!(actor.drain_posts(|_| {}), occupied);
         assert!(net.transport.post_recoverable(later, Some(ticket)).is_ok());
         assert_eq!(actor.drain_posts(|_| {}), 1);
     }
@@ -1679,11 +1705,9 @@ mod tests {
         );
         let net = P2pNet::new(network);
         let to = core_key(target.public_key()).unwrap();
-        assert!(matches!(
-            net.send(&to, &row_frame(0)),
-            SendOutcome::Admitted
-        ));
-        let owner = pending(net.send(&to, &row_frame(1)));
+        let occupied = occupy_actor_source_rows(&net, &to).len();
+        let next_row = u32::try_from(occupied).expect("bounded actor row count");
+        let owner = pending(net.send(&to, &actor_capacity_row_frame(next_row)));
         drop(actor);
         assert!(matches!(owner.retry(), SendOutcome::Closed));
         assert_eq!(net.stats().closed, 1);

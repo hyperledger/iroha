@@ -85,6 +85,17 @@ pub(super) struct ProposalReadRequest {
     pub(super) applied: (u64, Hash32),
 }
 
+/// Fixed cancellation coordinates for the original decoder's authenticated candidate.
+/// The decoder retains and compares the complete source; these coordinates grant no authority.
+/// This stays outside decoded/overlay owners so cancellation cleanup never runs in their Drop.
+pub(super) struct IncomingLaneReads {
+    pub(super) instance: Hash32,
+    pub(super) height: u64,
+    pub(super) view: u64,
+    pub(super) block_hash: Hash32,
+    pub(super) scope: lanes::ProposalReadScope,
+}
+
 /// One original charged payload and selected-input table; shared lends reuse their same backing.
 pub(super) struct CompletedPayload {
     pub(super) scope: OriginalPayloadScope,
@@ -126,6 +137,56 @@ impl Worker<'_> {
     pub(super) fn cancel_proposal_reads(&mut self) {
         drop(self.proposal_reads.take());
         self.context.lane_blocks.release_cancelled_proposal_reads();
+    }
+
+    pub(super) fn cancel_incoming_lane_reads(&mut self) {
+        drop(self.incoming_lane_reads.take());
+        self.context.lane_blocks.release_cancelled_proposal_reads();
+    }
+
+    /// The original decoder's complete source equality and ordinary authentication checks
+    /// precede this interest-only handoff. The fixed key only selects cancellation interest;
+    /// source, lane height, original pool, schedule and QC validation remain independent.
+    pub(super) fn retain_incoming_lane_reads(
+        &mut self,
+        source: &AvailableBody,
+        block_hash: Hash32,
+        references_lanes: bool,
+    ) {
+        let header = source.header();
+        if self.incoming_lane_reads.as_ref().is_some_and(|original| {
+            original.instance != header.instance
+                || original.height != header.height
+                || original.view != header.origin_view
+                || original.block_hash != block_hash
+        }) {
+            self.cancel_incoming_lane_reads();
+        }
+        if self.incoming_lane_reads.is_none() {
+            let handoff = references_lanes
+                && !cfg!(all(test, sumeragi_core_mutation = "HC436"))
+                && self.parent_applied(source)
+                && self.proposal_reads.as_ref().is_some_and(|(request, _)| {
+                    request.height == source.header().height && request.applied == self.applied
+                });
+            let scope = if handoff {
+                // The serial executor accepts this candidate in place of its local selection.
+                // Move the sole original control, keeping any partial native source intact.
+                self.proposal_reads
+                    .take()
+                    .expect("matching local request")
+                    .1
+            } else {
+                lanes::ProposalReadScope::new()
+            };
+            self.incoming_lane_reads = Some(IncomingLaneReads {
+                instance: header.instance,
+                height: header.height,
+                view: header.origin_view,
+                block_hash,
+                scope,
+            });
+        }
     }
 
     pub(super) fn retain_proposal_read_request(&mut self, request: ProposalReadRequest) {

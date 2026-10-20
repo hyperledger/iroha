@@ -210,7 +210,10 @@ Framework failures use the same contract: `404` uses `route_not_found`, `405`
 uses `method_not_allowed` and includes `Allow`, oversized typed bodies use
 `413 request_payload_too_large`, timeouts use `408 request_timeout`, and an
 unexpected panic is contained as `500 internal_server_error` without exposing
-panic text. Authentication failures use `401 api_token_required` with
+panic text. The shared Norito and versioned JSON decode helpers also use `413`
+for admitted caller resource caps. A typed allocator failure, including its
+retained scoped cause, instead returns `503 request_decode_unavailable` without
+`X-Iroha-Reject-Code`; malformed encoding remains `400`. Authentication failures use `401 api_token_required` with
 `WWW-Authenticate`. When token authentication is enabled, the request must
 carry exactly one `X-API-Token`; repeated fields fail closed even when every
 value is individually valid. A node configured to require API tokens but

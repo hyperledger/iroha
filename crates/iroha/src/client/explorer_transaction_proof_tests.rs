@@ -150,6 +150,37 @@ fn explorer_transaction_proof_preserves_a_visible_sealed_reveal() {
 }
 
 #[test]
+fn explorer_signed_transaction_proof_refuses_a_signerless_ballot() {
+    use iroha_data_model::governance::anonymous_ballot::*;
+
+    let client = client_with_base_url(base_url());
+    let mut proof = evidence(&client);
+    // Canonical structural fixture only: no claim that the proof or stamp is valid.
+    let envelope = AnonymousBallotEnvelopeV1 {
+        network_id: client.network_id,
+        ballot: AnonymousBallotV1 {
+            scope: BallotScopeV1::new([1; 64]),
+            vote: BallotChoiceV1::Aye,
+            nullifier: NullifierV1::new([2; 128]),
+            auth_v: VoteAuthorizationV1::new([3; 64]),
+            profile_id: ProofProfileIdV1::V1,
+            stamp: AdmissionStampV1 {
+                nonce: AdmissionNonceV1::new([4; 32]),
+            },
+            proof: BallotProofBytesV1::new(vec![0; BallotProofBytesV1::LENGTH]).unwrap(),
+        },
+    };
+    proof.transaction.entrypoint = TransactionEntrypoint::AnonymousBallot(
+        CanonicalAnonymousBallotEnvelopeV1::from_envelope(&envelope).unwrap(),
+    );
+    proof.transaction.entrypoint_hash = proof.transaction.entrypoint.hash();
+    let error = proof
+        .validate_bindings(&client.network_id, proof.transaction.entrypoint_hash)
+        .expect_err("signed transaction proof endpoint cannot supply a ballot authority");
+    assert!(error.to_string().contains("visible signed transaction"));
+}
+
+#[test]
 fn explorer_transaction_proof_rejects_binding_substitution_and_malformed_carriers() {
     let client = client_with_base_url(base_url());
     let original = evidence(&client);

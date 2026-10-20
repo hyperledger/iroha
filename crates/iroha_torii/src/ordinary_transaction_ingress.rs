@@ -109,7 +109,12 @@ fn certificate(transaction: &SignedTransaction) -> Option<&ThresholdKeyLifecycle
         .map(|instruction| &instruction.certificate)
 }
 
-pub fn authenticate(
+/// Enforce single-route ingress and authenticate any signed lifecycle certificate.
+///
+/// Inputs without signed instructions have no lifecycle certificate to check here.
+/// This is not ballot authentication: Core admission must already have resolved
+/// the authoritative ballot context before producing an accepted transaction.
+pub fn authenticate_lifecycle_certificate(
     app: &AppState,
     transaction: &TransactionEntrypoint,
     routing_plan: &RoutingPlan,
@@ -123,7 +128,9 @@ pub fn authenticate(
     let signed = match transaction {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return Ok(()),
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            return Ok(());
+        }
     };
     if !signed
         .instructions()
@@ -195,7 +202,8 @@ pub async fn submit(
         "ordinary_transaction_admission_worker_failed",
         move || {
             require_current_transaction_route(&routing_plan)?;
-            authenticate(&worker_app, accepted.entrypoint(), &routing_plan).map_err(|message| {
+            authenticate_lifecycle_certificate(&worker_app, accepted.entrypoint(), &routing_plan)
+                .map_err(|message| {
                 Error::Query(iroha_data_model::ValidationFail::NotPermitted(message))
             })?;
             if !worker_app.queue.is_expired(&accepted)

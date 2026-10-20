@@ -539,12 +539,21 @@ def test_declared_items_are_not_yet_implemented_and_state_their_requirements() -
         "proof.product_proof_ceilings": "V.3",
         "proof.anonymous_ballot_verifier_budget": "P.8",
     }
-    # The anonymous ballot's designed bounds stay declared, not listed, while no node path
-    # compares them: no transaction entrypoint carries an anonymous ballot yet.
+    # The canonical carrier exists, but the node cannot execute the ballot's verifier
+    # budget without its authenticated State/context adapter and typed protocol owner.
     ballot = next(item for item in CONTRACT["declared"] if item["id"] == "proof.anonymous_ballot_verifier_budget")
-    assert "no node path consumes them" in ballot["today"]
+    assert "no node executes its verifier budget" in ballot["today"]
     entrypoints = (ROOT / "crates/iroha_data_model/src/transaction/signed.rs").read_text(encoding="utf-8")
-    assert "AnonymousBallot" not in entrypoints[entrypoints.index("pub enum TransactionEntrypoint {"):][:600]
+    entrypoint_variants = entrypoints.split("pub enum TransactionEntrypoint {", 1)[1].split("\n    }", 1)[0]
+    assert "AnonymousBallot(CanonicalAnonymousBallotEnvelopeV1)" in entrypoint_variants
+    core_manifest = (ROOT / "crates/iroha_core/Cargo.toml").read_text(encoding="utf-8")
+    assert "iroha_parliament_ballot" not in core_manifest
+    core_transactions = (ROOT / "crates/iroha_core/src/tx.rs").read_text(encoding="utf-8")
+    assert re.search(
+        r"fn anonymous_ballot_unavailable\(\) -> ExecutionDeferred \{\s*"
+        r"ivm::error::ExecutionDeferral::VerifierInitializationUnavailable\.into\(\)\s*}",
+        core_transactions,
+    )
     relation_ids = {item["id"] for item in CONTRACT["relations"]}
     for item in CONTRACT["declared"]:
         assert item["status"] == "not_implemented"
@@ -4582,10 +4591,10 @@ def test_every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of()
             "VPN_HEADER_LEN",
         ),
         (
-            "crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs",
-            "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES: u64 = 1024;",
-            "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES: u64 = 1;",
-            "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES",
+            "crates/iroha_crypto/src/lib.rs",
+            "MAX_PUBLIC_KEY_PAYLOAD_BYTES: usize = 2 + (u16::MAX as usize / 8) + 65;",
+            "MAX_PUBLIC_KEY_PAYLOAD_BYTES: usize = 1;",
+            "MAX_PUBLIC_KEY_PAYLOAD_BYTES",
         ),
         (
             "crates/iroha_core/src/privacy_release_evidence.rs",

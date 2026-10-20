@@ -5,14 +5,38 @@
 
 use super::*;
 
-fn accepted_log(chain: &Chain, message: &str) -> AcceptedTransaction<'static> {
+fn accepted_log(chain: &Chain, state: &State, message: &str) -> AcceptedTransaction<'static> {
     let network = NetworkId::from_genesis_hash(chain.genesis.hash());
+    let instruction = InstructionBox::from(Log::new(Level::INFO, message.to_owned()));
+    let fees = state
+        .view()
+        .world()
+        .parameters()
+        .root_fees()
+        .expect("original signed queue fixture fee policy")
+        .clone();
+    assert!(fees.per_byte_fee.is_zero(), "fixed fixture has no byte fee");
+    let gas = crate::gas::meter_instruction(&instruction, &crate::gas::DEFAULT_ZK_GAS)
+        .expect("complete Log gas quote");
+    let fee = crate::executor::compute_nexus_fee_amount(&fees, 0, 1, gas)
+        .expect("exact signed Log charge");
+    assert!(
+        !fee.is_zero(),
+        "ordinary queue progress pays its committed fee"
+    );
     let signed = TransactionBuilder::new(
         network,
         ALICE_ID.clone(),
-        FeePaymentIntent::authority(Vec::new(), None),
+        FeePaymentIntent::authority(
+            vec![FeeChargeLimit::new(
+                FeeChargeKind::Nexus,
+                fees.fee_asset_id,
+                fee,
+            )],
+            None,
+        ),
     )
-    .with_instructions([Log::new(Level::INFO, message.to_owned())])
+    .with_instructions([instruction])
     .sign(ALICE_KEYPAIR.private_key());
     AcceptedTransaction::accept(
         signed,
@@ -29,7 +53,7 @@ fn enqueue_only(
     validators: &[Validator],
     message: &str,
 ) -> HashOf<TransactionEntrypoint> {
-    let accepted = accepted_log(chain, message);
+    let accepted = accepted_log(chain, &validators[0].state, message);
     let hash = accepted.hash_as_entrypoint();
     for validator in validators {
         validator
@@ -224,7 +248,11 @@ fn native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_
     let retired_bytes = retired_pool.reserved_bytes();
     let retained_bytes = original[0].retained_bytes();
     let queued = original[0].queued_len();
-    let retired_input = accepted_log(&chain, "retired native Queue cannot accept new work");
+    let retired_input = accepted_log(
+        &chain,
+        &retired_state,
+        "retired native Queue cannot accept new work",
+    );
     let retired_hash = retired_input.hash_as_entrypoint();
     let refusal = original[0]
         .push(retired_input, retired_state.view())
@@ -304,7 +332,7 @@ fn native_queue_reservation_refuses_foreign_funded_pool_without_changing_origina
         iroha_config::parameters::actual::Queue::default(),
         &time,
     ));
-    let accepted = accepted_log(&chain, "original pending funding before startup");
+    let accepted = accepted_log(&chain, &state, "original pending funding before startup");
     let hash = accepted.hash_as_entrypoint();
     queue
         .push(accepted, state.view())
@@ -354,8 +382,9 @@ fn native_queue_admission_before_start_retains_original_prepared_state_and_commi
     let chain = chain(4, 600_000);
     let disks = disks(&chain);
     let registry = Arc::new(Registry::default());
-    let accepted = accepted_log(&chain, "original admission before node binding");
-    let hash = accepted.hash_as_entrypoint();
+    // Quote once from the first genuinely prepared State, before binding any node.
+    // Every validator then admits the exact same signed input owner.
+    let mut original_input = None;
     let mut validators = Vec::new();
     for (index, disk) in disks.iter().enumerate() {
         let state = empty_state(&chain.chain_id, &chain.genesis, &disk.kura);
@@ -367,6 +396,10 @@ fn native_queue_admission_before_start_retains_original_prepared_state_and_commi
             consensus_mode: ConsensusMode::Permissioned,
         })
         .expect("original prepared State");
+        let accepted = original_input.get_or_insert_with(|| {
+            accepted_log(&chain, &state, "original admission before node binding")
+        });
+        let hash = accepted.hash_as_entrypoint();
         let (_, time) = TimeSource::new_mock(Duration::ZERO);
         let queue = Arc::new(Queue::test(
             iroha_config::parameters::actual::Queue::default(),
@@ -406,6 +439,9 @@ fn native_queue_admission_before_start_retains_original_prepared_state_and_commi
         );
         validators.push(Validator { node, state, queue });
     }
+    let hash = original_input
+        .expect("four prepared validators")
+        .hash_as_entrypoint();
     for (key, validator) in chain.keys.iter().zip(&validators) {
         registry.0.lock().insert(
             core_key(key.public_key()).unwrap(),
@@ -445,7 +481,11 @@ fn native_queue_admission_never_waits_for_original_live_lane_map() {
                 .all(|v| v.node.lanes.instances().len() == 1)
         },
     );
-    let accepted = accepted_log(&chain, "native enqueue under held original lane map");
+    let accepted = accepted_log(
+        &chain,
+        &validators[0].state,
+        "native enqueue under held original lane map",
+    );
     let hash = accepted.hash_as_entrypoint();
     for validator in &validators {
         let (entered, enqueue) = std::sync::mpsc::sync_channel(0);

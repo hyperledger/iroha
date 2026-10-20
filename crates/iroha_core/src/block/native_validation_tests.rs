@@ -138,16 +138,48 @@ impl NativeValidationFixture {
         header: &NativeHeader,
         bytes: &[u8],
     ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'_>>), Error>> {
-        let expansion = expand(self.chain.state(), &proposal, &NoLanes, Duration::ZERO).unwrap();
+        let expansion = expand(
+            self.chain.state(),
+            &proposal,
+            &NoLanes,
+            Duration::ZERO,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .unwrap();
         self.validate_expanded(proposal, header, bytes, expansion)
     }
     fn validate_expanded<'state>(
         &'state self,
-        proposal: SignedBlock,
+        mut proposal: SignedBlock,
         header: &NativeHeader,
         bytes: &[u8],
         expansion: crate::sumeragi::lanes::merge::Expansion<'state>,
     ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
+        // Only initial component inputs are admitted here. Production validation borrows
+        // the retained Worker attempt; its semantic decoder is never recreated by an overlay.
+        let state = self.chain.state();
+        let mut parent_service =
+            crate::sumeragi::certified_chain::ParentServicePreparation::default();
+        let prepare_parent = proposal.header().height().get() > 2
+            && proposal.has_consensus_work()
+            && ValidBlock::native_header_source(&proposal, state, header, bytes).is_ok()
+            // Malformed sidecars must reach the validator's typed rejection,
+            // before the semantic parent-QC preparer would refuse them.
+            && ValidBlock::validate_da_sidecar_hashes(&proposal).is_ok();
+        if prepare_parent {
+            crate::sumeragi::certified_chain::admit_parent_service_fixture(
+                &mut proposal,
+                &state.ivm_execution_budget(),
+            )
+            .expect("initial admitted component proposal");
+            let view = state.view();
+            parent_service
+                .prepare(&view, proposal.header().height().get() - 1)
+                .expect("original component parent source");
+            parent_service
+                .prepare_proposal_qc(&view, &proposal)
+                .expect("original component semantic parent QC");
+        }
         let topology = Topology::new(self.chain.validators().iter().map(|(peer, _)| peer.clone()));
         ValidBlock::validate_sumeragi_block(
             proposal,
@@ -161,7 +193,7 @@ impl NativeValidationFixture {
             bytes,
             self.chain.state(),
             None,
-            None,
+            prepare_parent.then_some(&parent_service),
         )
     }
 }

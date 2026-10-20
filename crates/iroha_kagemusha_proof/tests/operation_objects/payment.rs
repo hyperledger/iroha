@@ -1,7 +1,7 @@
 //! Mandatory Payment content addresses and total bound incoming predicates.
 
 use super::{
-    semantics::{credential, parse},
+    semantics::{credential, parse, request_credit, request_set},
     *,
 };
 use iroha_kagemusha_proof::a_relation::{
@@ -230,11 +230,7 @@ impl Payment {
     }
 }
 fn base() -> Payment {
-    let request = cases()
-        .into_iter()
-        .find(|(c, ..)| c.kind == ObjectKind::Request)
-        .expect("Request")
-        .0;
+    let request = completed_request();
     let receipt = cases()
         .into_iter()
         .find(|(_, _, name, _)| name == "Send receipt")
@@ -275,6 +271,12 @@ fn base() -> Payment {
         valid: true,
         consumer: None,
     };
+    assert_eq!(&c.request.bytes[66..130], &c.payer.bytes[66..130]);
+    assert_eq!(
+        &c.request.bytes[194..210],
+        &c.statement[20].to_repr()[..16],
+        "completed Send ordinal"
+    );
     assert_eq!(
         c.public()[0],
         field(transcript["digest_hex"].as_str().expect("digest"))
@@ -579,12 +581,21 @@ fn native_payment_transcript_binds_every_byte_and_each_nested_component() {
             wrong.reject(&format!("Payment byte{i}"));
         }
     }
+    // The Request content address covers the receiver's signed terms only. Its payer wallet
+    // (66), account (98) and send ordinal (194) are bound hard by the incoming consumer below.
     for i in [
-        2, 34, 66, 98, 130, 162, 194, 210, 242, 258, 290, 306, 314, 346, 354, 386, 418,
+        2, 34, 130, 162, 210, 242, 258, 290, 306, 314, 346, 354, 386, 418,
     ] {
         let mut wrong = c.clone();
         wrong.request.bytes[i] ^= 1;
         wrong.reject_substitution(&c, "nested Request");
+    }
+    let incoming = incoming();
+    assert!(incoming.accepts());
+    for i in [66, 98, 194] {
+        let mut wrong = incoming.clone();
+        wrong.request.bytes[i] ^= 1;
+        wrong.reject_substitution(&incoming, "nested Request payer field");
     }
     for i in [2, 34, 66, 98, 130, 195, 227, 260, 300, 350, 436, 468] {
         let mut wrong = c.clone();
@@ -613,6 +624,64 @@ fn native_payment_transcript_binds_every_byte_and_each_nested_component() {
     let unknown = synthesize(&c.without_witnesses(), 13, None).expect("unknown");
     assert_eq!(known.tables.fixed(), unknown.tables.fixed());
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());
+}
+
+#[test]
+fn incoming_request_noncanonical_zero_alias_cannot_manufacture_a_false_verdict() {
+    let mut original = incoming();
+    // Build a coherent zero-fee Request. This component circuit checks byte
+    // binding and semantics; signature/proof authentication belongs to its
+    // owning relation, and the attack preserves their exact message/bytes.
+    request_set(&mut original.request, 10, 0); // fee schedule
+    request_set(&mut original.request, 11, 0); // fee
+    original.statement[17] = request_credit(&original.request);
+    original.statement[22] = Fp::ZERO;
+    original.statement[23] = original.request.public(Fp::ZERO)[1];
+    let wallet = halves(&original.payer.bytes[66..98]);
+    let operation = hash_with_domain(
+        u64::from_le_bytes(*b"kgwopid1"),
+        &[
+            wallet[0],
+            wallet[1],
+            original.statement[16],
+            original.statement[17],
+        ],
+    );
+    original.receipt.bytes[114..146].copy_from_slice(&operation.to_repr());
+    original.rebind_statement();
+    original.rebind_components();
+    assert!(original.native_send());
+    assert!(original.accepts(), "canonical zero-fee Request");
+
+    let mut modulus = (-Fp::ONE).to_repr();
+    for byte in &mut modulus {
+        let (next, carry) = byte.overflowing_add(1);
+        *byte = next;
+        if !carry {
+            break;
+        }
+    }
+    let mut substituted = original.clone();
+    substituted.request.bytes[258..290].copy_from_slice(&modulus);
+    assert_ne!(substituted.request.bytes, original.request.bytes);
+    assert_eq!(
+        substituted.request.public(Fp::ZERO),
+        original.request.public(Fp::ZERO),
+        "the soft field decoder exports zero and preserves message/signature/digest"
+    );
+    assert_eq!(
+        request_credit(&substituted.request),
+        request_credit(&original.request),
+        "the completed credit identity is also unchanged"
+    );
+    substituted.reject_substitution(&original, "noncanonical Request fee schedule aliases zero");
+
+    // Invalidity committed in the actual Payment transcript remains a valid
+    // false result; preventing an auxiliary alias must not disable this branch.
+    let mut invalid_payment = original.clone();
+    invalid_payment.transcript[0] = 2;
+    assert_ne!(invalid_payment.public()[0], original.public()[0]);
+    invalid_payment.reject("genuine invalid Payment version");
 }
 
 #[test]

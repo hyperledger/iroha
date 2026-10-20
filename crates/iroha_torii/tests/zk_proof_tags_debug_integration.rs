@@ -32,10 +32,10 @@ async fn proof_tags_returns_ascii_tags() {
             .insert(id.clone(), vec![*b"PROF", *b"I10P"]);
         stx.world
             .proofs_by_tag_mut_for_testing()
-            .insert(*b"PROF", vec![id.clone()]);
+            .insert((*b"PROF", id.clone()), ());
         stx.world
             .proofs_by_tag_mut_for_testing()
-            .insert(*b"I10P", vec![id.clone()]);
+            .insert((*b"I10P", id.clone()), ());
         stx.apply();
         block
             .commit_world_overlay_for_testing()

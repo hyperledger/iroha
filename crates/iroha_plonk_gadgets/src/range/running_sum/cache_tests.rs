@@ -1,11 +1,12 @@
-//! Same-cell range certificate reuse, narrowing and fresh-synthesis isolation.
+//! Same-cell range certificate reuse, narrowing and fresh-synthesis isolation,
+//! and the bank's stored indicators against the ternary compact code.
 use super::*;
 use crate::{GlueChip, GlueConfig, tamper::undetected_tampers};
 use iroha_pasta::{Fp, Fq};
 use iroha_plonk::{
     check::{CheckMode, check_circuit},
     cs::Instance,
-    frontend::{Circuit, SimpleFloorPlanner, synthesize},
+    frontend::{AssignedTables, Circuit, SimpleFloorPlanner, synthesize},
 };
 
 #[derive(Clone)]
@@ -226,6 +227,16 @@ fn exercise_banks<F: PastaField>(tagged: bool) {
             .iter()
             .all(|lookup| lookup.input_expressions().len() == if tagged { 2 } else { 1 })
     );
+    if !tagged {
+        // Stored step/top indicators: input degree two, argument degree eight.
+        assert!(
+            known
+                .cs
+                .lookups()
+                .iter()
+                .all(|lookup| lookup.required_degree() == 8)
+        );
+    }
     let unknown = synthesize(&circuit.without_witnesses(), k, None).unwrap();
     assert_eq!(known.tables.fixed(), unknown.tables.fixed());
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());
@@ -254,4 +265,140 @@ fn banked_ranges_share_only_the_table_and_reservations_both_fields() {
 fn tagged_banks_share_exact_tuple_table_and_cell_certificates_both_fields() {
     exercise_banks::<Fp>(true);
     exercise_banks::<Fq>(true);
+}
+
+/// Widths with and without a shifted top row at four-bit limbs.
+const COMPACT_WIDTHS: [usize; 6] = [3, 4, 5, 87, 105, 128];
+
+#[derive(Clone)]
+struct Compact<F: PastaField> {
+    value: Value<F>,
+    bank: bool,
+}
+impl<F: PastaField> Circuit<F> for Compact<F> {
+    type Config = (RunningSumConfig, Column<Instance>);
+    type FloorPlanner = SimpleFloorPlanner;
+    type Params = bool;
+    fn params(&self) -> Self::Params {
+        self.bank
+    }
+    fn without_witnesses(&self) -> Self {
+        Self {
+            value: Value::unknown(),
+            bank: self.bank,
+        }
+    }
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        Self::configure_with_params(meta, false)
+    }
+    fn configure_with_params(meta: &mut ConstraintSystem<F>, bank: bool) -> Self::Config {
+        let column = meta.advice_column();
+        let limb_bits = LimbBits::new(4).unwrap();
+        let range = if bank {
+            RunningSumConfig::configure_bank(meta, &[column], limb_bits)[0]
+        } else {
+            RunningSumConfig::configure_compact(meta, column, limb_bits)
+        };
+        let public = meta.instance_column(COMPACT_WIDTHS.len());
+        meta.enable_equality(public);
+        (range, public)
+    }
+    fn synthesize(
+        &self,
+        (range, public): Self::Config,
+        mut layouter: impl Layouter<F>,
+    ) -> Result<(), Error> {
+        let mut range = RunningSumChip::new(range);
+        range.load_table(&mut layouter)?;
+        let words = layouter.assign_region(
+            || "compact codes or bank indicators",
+            |mut region| {
+                COMPACT_WIDTHS
+                    .iter()
+                    .map(|bits| range.witness_range_checked(&mut region, self.value, *bits))
+                    .collect::<Result<Vec<_>, _>>()
+            },
+        )?;
+        for (row, word) in words.iter().enumerate() {
+            layouter.constrain_instance(word.cell(), public, row)?;
+        }
+        Ok(())
+    }
+}
+fn fixed<F: PastaField>(tables: &AssignedTables<F>, column: Column<Fixed>) -> &[F] {
+    &tables.fixed()[column.index()]
+}
+/// The same checks on the single-bus ternary code and on a one-bus bank: every
+/// row's code is the step plus twice the top indicator, and the factors and
+/// running sums agree, so both lookups read the same input on every row.
+fn exercise_indicators<F: PastaField>() {
+    let value = F::from(7);
+    let public = [vec![value; COMPACT_WIDTHS.len()]];
+    let [(ternary, ternary_tables), (bank, bank_tables)] = [false, true].map(|bank| {
+        let circuit = Compact {
+            value: Value::known(value),
+            bank,
+        };
+        assert!(
+            check_circuit(&circuit, 9, &public, CheckMode::Strict)
+                .unwrap()
+                .is_satisfied()
+        );
+        let bad = Compact {
+            value: Value::known(F::from(8)),
+            bank,
+        };
+        let forged = [vec![F::from(8); COMPACT_WIDTHS.len()]];
+        assert!(
+            !check_circuit(&bad, 9, &forged, CheckMode::Strict)
+                .unwrap()
+                .is_satisfied()
+        );
+        let assigned = synthesize(&circuit, 9, Some(&public)).unwrap();
+        assert_eq!(
+            assigned.cs.lookups()[0].required_degree(),
+            if bank { 8 } else { 10 }
+        );
+        let (config, _) =
+            Compact::<F>::configure_with_params(&mut ConstraintSystem::default(), bank);
+        (config, assigned.tables)
+    });
+    let Pattern::Fixed { step: ternary_code } = ternary.pattern else {
+        panic!("ternary compact pattern");
+    };
+    let Pattern::Indicators {
+        step: bank_step,
+        top: bank_top,
+    } = bank.pattern
+    else {
+        panic!("bank indicators");
+    };
+    assert_eq!(ternary.compact_pattern_codes(), 2);
+    assert_eq!(bank.compact_pattern_codes(), 0);
+    assert!(bank.compact_patterns().is_none());
+    let codes = fixed(&ternary_tables, ternary_code);
+    let (steps, tops) = (
+        fixed(&bank_tables, bank_step),
+        fixed(&bank_tables, bank_top),
+    );
+    assert!(codes.contains(&F::from(2)));
+    for (row, code) in codes.iter().enumerate() {
+        assert!([F::ZERO, F::ONE].contains(&steps[row]), "row {row}");
+        assert!([F::ZERO, F::ONE].contains(&tops[row]), "row {row}");
+        assert_eq!(*code, steps[row] + tops[row] + tops[row], "row {row}");
+    }
+    assert_eq!(
+        fixed(&ternary_tables, ternary.shift),
+        fixed(&bank_tables, bank.shift)
+    );
+    assert_eq!(ternary_tables.advice(), bank_tables.advice());
+    assert_eq!(
+        ternary_tables.advice_assigned(),
+        bank_tables.advice_assigned()
+    );
+}
+#[test]
+fn bank_indicators_follow_the_ternary_code_row_by_row_both_fields() {
+    exercise_indicators::<Fp>();
+    exercise_indicators::<Fq>();
 }

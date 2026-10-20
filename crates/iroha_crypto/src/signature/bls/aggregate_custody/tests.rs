@@ -7,7 +7,8 @@ use crate::{
     Algorithm, Error, KeyPair, Signature, bls_normal_aggregate_signatures, bls_normal_pop_prove,
     signature::bls,
     test_allocations::{
-        observed_deallocations, with_deallocation_observation, without_allocations,
+        allocations_during, observed_deallocations, with_allocation_failure,
+        with_deallocation_observation, without_allocations,
     },
 };
 
@@ -208,6 +209,10 @@ fn aggregate_scratch_exact_admission_refuses_before_backing_and_drops_backing_be
     }
     let bytes = BlsNormalAggregateScratch::<()>::backing_bytes();
     assert!(bytes > 0);
+    let layout = BlsNormalAggregateScratch::<()>::backing_layout();
+    assert_eq!(layout, FalliblePairing::layout());
+    assert_eq!(layout.size(), bytes);
+    assert_eq!(layout.align(), core::mem::align_of::<u64>());
     let used = Cell::new(0);
     let limit = Cell::new(bytes - 1);
     let admit = |requested| {
@@ -223,7 +228,7 @@ fn aggregate_scratch_exact_admission_refuses_before_backing_and_drops_backing_be
     };
     let refusal = without_allocations(|| BlsNormalAggregateScratch::new(admit));
     assert!(
-        matches!(refusal, Err((requested, ceiling)) if requested == bytes && ceiling == bytes - 1)
+        matches!(refusal, Err(AggregateScratchError::Admission((requested, ceiling))) if requested == bytes && ceiling == bytes - 1)
     );
     assert_eq!(used.get(), 0);
     limit.set(bytes);
@@ -233,4 +238,95 @@ fn aggregate_scratch_exact_admission_refuses_before_backing_and_drops_backing_be
     let ((), frees) = with_deallocation_observation(bytes, || drop(scratch));
     assert_eq!(frees, 1);
     assert_eq!(used.get(), 0);
+}
+
+#[test]
+fn aggregate_scratch_physical_failure_and_move_preserve_original_custody() {
+    struct Owner<'a>(&'a Cell<usize>);
+    impl Drop for Owner<'_> {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    let drops = Cell::new(0);
+    let bytes = BlsNormalAggregateScratch::<()>::backing_bytes();
+    let (result, attempts) = allocations_during(|| {
+        with_allocation_failure(bytes, || {
+            BlsNormalAggregateScratch::new(|requested| {
+                assert_eq!(requested, bytes);
+                Ok::<_, ()>(Owner(&drops))
+            })
+        })
+    });
+    assert!(
+        matches!(result, Err(AggregateScratchError::Allocator { layout, .. })
+        if layout.size() == bytes && layout.align() == core::mem::align_of::<u64>())
+    );
+    assert_eq!(attempts, 1);
+    assert_eq!(drops.get(), 1);
+    let scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, ()>(Owner(&drops))).unwrap();
+    let pointer = scratch.pairing.backing_pointer();
+    let moved = without_allocations(|| scratch);
+    assert_eq!(moved.pairing.backing_pointer(), pointer);
+    drop(moved);
+    assert_eq!(drops.get(), 2);
+}
+
+#[test]
+fn aggregate_public_adapter_uses_stack_and_same_relation() {
+    let fixture = fixture();
+    let references: Vec<_> = fixture.keys.iter().collect();
+    let message = b"stack aggregate".as_slice();
+    let signature = aggregate(&fixture, &[(&[0, 1, 2, 3], message)]);
+    let groups = [(&references[..], message)];
+    let wrong_message = [(&references[..], b"other message".as_slice())];
+    without_allocations(|| {
+        assert!(crate::bls_normal_verify_preaggregated_multi_message(&groups, &signature).is_ok());
+        assert!(
+            crate::bls_normal_verify_preaggregated_multi_message(&wrong_message, &signature)
+                .is_err()
+        );
+    });
+}
+
+#[test]
+fn aggregate_scratch_and_stack_adapter_cross_the_eight_term_pairing_flush() {
+    // blst folds each full buffer of eight Miller-loop terms into its accumulator; a
+    // ninth term starts a second batch that commit folds in.
+    let fixture = fixture();
+    let refs: Vec<_> = fixture.keys.iter().collect();
+    let messages: Vec<[u8; 2]> = (0..10_u8).map(|group| [b'g', group]).collect();
+    let signers: Vec<[usize; 1]> = (0..10).map(|group| [group % refs.len()]).collect();
+    let members: Vec<[&BlsNormalPopVerifiedKey; 1]> =
+        signers.iter().map(|[index]| [refs[*index]]).collect();
+    let mut scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
+    for count in [8, 9, 10] {
+        let signing: Vec<(&[usize], &[u8])> = (0..count)
+            .map(|group| (&signers[group][..], &messages[group][..]))
+            .collect();
+        let signed = aggregate(&fixture, &signing);
+        let groups: Vec<(&[&BlsNormalPopVerifiedKey], &[u8])> = (0..count)
+            .map(|group| (&members[group][..], &messages[group][..]))
+            .collect();
+        // The admitted heap context matches the independent w3f relation, as does the
+        // stack adapter, before and after the flushed terms change.
+        assert!(compare(&mut scratch, &groups, &signed), "{count} groups");
+        assert!(
+            without_allocations(|| crate::bls_normal_verify_preaggregated_multi_message(
+                &groups, &signed
+            ))
+            .is_ok()
+        );
+        for changed in [0, count - 1] {
+            let mut altered = groups.clone();
+            altered[changed].1 = b"altered".as_slice();
+            assert!(
+                !compare(&mut scratch, &altered, &signed),
+                "{count} groups, term {changed}"
+            );
+            assert!(
+                crate::bls_normal_verify_preaggregated_multi_message(&altered, &signed).is_err()
+            );
+        }
+    }
 }

@@ -6076,6 +6076,7 @@ impl Executor {
         fee_sponsor: Option<FeeSponsorProgramId>,
         skip_nexus_fee: bool,
     ) -> Result<(), ValidationFail> {
+        state_transaction.current_direct_privacy_instruction_index = None;
         state_transaction.current_direct_sccp_forgery = false;
         state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6456,12 +6457,20 @@ impl Executor {
                                 .downcast_ref::<iroha_data_model::isi::sumeragi_amx::PrepareAmxV1>()
                                 .is_some())
                         .then_some(index);
+                    state_transaction.arm_direct_privacy_instruction_v1(
+                        transaction,
+                        authority,
+                        &isi,
+                        index,
+                        contract_runtime_context.is_none() && entrypoint_authorization.is_none(),
+                    );
                     let result = self.execute_instruction_with_contract_runtime_context(
                         state_transaction,
                         authority,
                         isi,
                         contract_runtime_context,
                     );
+                    state_transaction.current_direct_privacy_instruction_index = None;
                     state_transaction.current_direct_sccp_forgery = false;
                     state_transaction.clear_direct_sccp_pause();
                     state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6609,6 +6618,7 @@ impl Executor {
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
+        state_transaction.current_direct_privacy_instruction_index = None;
         state_transaction.current_direct_sccp_forgery = false;
         state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6642,6 +6652,7 @@ impl Executor {
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
         use crate::smartcontracts::ivm::host::CoreHostImpl as CoreCoreHost;
+        state_transaction.current_direct_privacy_instruction_index = None;
         state_transaction.current_direct_sccp_forgery = false;
         state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6785,7 +6796,7 @@ impl Executor {
         host.set_chain_id(&state_transaction.chain_id);
         #[cfg(feature = "telemetry")]
         host.set_telemetry(state_transaction.telemetry.clone());
-        host.set_zk_snapshots_from_world(&state_transaction.world, &state_transaction.zk)
+        host.set_zk_snapshots_from_state(state_transaction)
             .map_err(|err| {
                 ValidationFail::InternalError(format!("invalid ZK snapshot state: {err}"))
             })?;
@@ -7130,6 +7141,7 @@ impl Executor {
         ivm_cache: &mut IvmCache,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
         state_transaction.bind_kagemusha_load_entrypoint_v1(None);
+        state_transaction.bind_privacy_transaction_intent_v1(None);
         state_transaction
             .ensure_execution_ready()
             .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?;
@@ -7139,6 +7151,7 @@ impl Executor {
         // The self-claim marker belongs to the signed body only, never to later callbacks.
         state_transaction.sccp_exempt_self_claim = None;
         state_transaction.bind_kagemusha_load_entrypoint_v1(None);
+        state_transaction.bind_privacy_transaction_intent_v1(None);
         // A local refusal has no completed execution, fee, gas, or effect result.
         // The transaction overlay remains poisoned until its owner drops it.
         state_transaction
@@ -7174,6 +7187,7 @@ impl Executor {
         let privacy_intent_binding =
             crate::privacy::signed_privacy_transaction_intent_binding_v1(&transaction)?;
         state_transaction.bind_privacy_transaction_intent_v1(privacy_intent_binding);
+        state_transaction.bind_privacy_transaction_source_v1(&transaction)?;
         let private_settlement_carrier_binding =
             crate::private_settlement::carrier::signed_private_settlement_carrier_binding_v1(
                 &transaction,
@@ -7610,8 +7624,16 @@ impl Executor {
                             state_transaction.current_direct_final_promotion_operation_origin =
                                 None;
                             state_transaction.current_direct_musubi_pin_outbox_origin = None;
+                            state_transaction.arm_direct_privacy_instruction_v1(
+                                &transaction_for_fee,
+                                authority,
+                                &instruction,
+                                index,
+                                true,
+                            );
                             let result =
                                 self.execute_instruction(state_transaction, authority, instruction);
+                            state_transaction.current_direct_privacy_instruction_index = None;
                             state_transaction.current_direct_kagemusha_load_instruction_index =
                                 None;
                             state_transaction.current_direct_stream_token_instruction_index = None;
@@ -7625,6 +7647,7 @@ impl Executor {
                             result?;
                         }
                         ExecutableBatchItem::ContractCall(call) => {
+                            state_transaction.current_direct_privacy_instruction_index = None;
                             state_transaction.current_direct_kagemusha_load_instruction_index =
                                 None;
                             state_transaction.current_direct_stream_token_instruction_index = None;
@@ -7752,10 +7775,8 @@ impl Executor {
                     state_transaction,
                     authority,
                 );
-                let bound_contract_records = code::snapshot_bound_contract_records_by_subject(
-                    state_transaction,
-                )
-                .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
+                code::validate_bound_contract_records_by_subject(state_transaction)
+                    .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
                 let heap_limit = state_transaction
                     .world
                     .parameters
@@ -7802,12 +7823,11 @@ impl Executor {
                         )
                     })?;
                 host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
-                host.set_bound_contract_records_by_subject_snapshot(bound_contract_records);
                 crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
                 host.set_chain_id(&state_transaction.chain_id);
                 #[cfg(feature = "telemetry")]
                 host.set_telemetry(state_transaction.telemetry.clone());
-                host.set_zk_snapshots_from_world(&state_transaction.world, &state_transaction.zk)
+                host.set_zk_snapshots_from_state(state_transaction)
                     .map_err(|err| {
                         ValidationFail::InternalError(format!("invalid ZK snapshot state: {err}"))
                     })?;
@@ -8028,7 +8048,7 @@ impl Executor {
         #[cfg(feature = "telemetry")]
         host.set_telemetry(state_transaction.telemetry.clone());
         // Thread ZK snapshots (roots, elections, verifying keys) for read/verify syscalls.
-        host.set_zk_snapshots_from_world(&state_transaction.world, &state_transaction.zk)
+        host.set_zk_snapshots_from_state(state_transaction)
             .map_err(|err| {
                 ValidationFail::InternalError(format!("invalid ZK snapshot state: {err}"))
             })?;
@@ -8128,6 +8148,9 @@ impl Executor {
         instruction: InstructionBox,
         contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
     ) -> Result<(), ValidationFail> {
+        if contract_runtime_context.is_some() {
+            state_transaction.current_direct_privacy_instruction_index = None;
+        }
         self.execute_instruction_with_profile_and_contract_runtime_context(
             state_transaction,
             authority,
@@ -16237,6 +16260,7 @@ mod tests {
         let (world, keypair, authority, _, _, fee_asset, _) = pipeline_fee_world_fixture();
         let mut config = crate::sumeragi::test_chain::TestChainConfig::new(world, 0);
         config.genesis_key = keypair;
+        config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
         nexus.fees.fee_asset_id = fee_asset.clone();
         nexus.fees.base_fee = Quantity::from(2_u32);
@@ -16244,6 +16268,15 @@ mod tests {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         config.nexus = Some(nexus);
+        config
+            .genesis_parameters
+            .push(iroha_data_model::parameter::Parameter::Custom(
+                iroha_data_model::parameter::system::SumeragiNposParameters {
+                    xor_asset_definition_id: fee_asset.clone(),
+                    ..Default::default()
+                }
+                .into_custom_parameter(),
+            ));
         (config, authority, fee_asset)
     }
 
@@ -16293,9 +16326,16 @@ mod tests {
             .push(Log::new(Level::INFO, "genesis fee exemption".to_owned()).into());
         let prepared = crate::sumeragi::test_chain::CertifiedTestChain::prepare(config)
             .expect("prepare original signed fee-exempt genesis without fee limits");
-        let mut block = execute_authenticated_genesis_fee_fixture(&prepared, &authority);
-        let state_transaction = block.transaction();
-        assert!(is_initial_genesis_context(&state_transaction));
+        assert!(
+            prepared
+                .genesis
+                .block()
+                .external_transactions()
+                .all(|transaction| transaction.fee_payment_intent().charge_limits().is_empty())
+        );
+        let block = execute_authenticated_genesis_fee_fixture(&prepared, &authority);
+        assert!(block._curr_block.is_genesis());
+        assert_eq!(prepared.state.committed_height(), 0);
     }
     #[test]
     fn initial_genesis_context_rejects_height_one_replay_over_committed_history() {
@@ -16344,15 +16384,20 @@ mod tests {
                 .external_transactions()
                 .all(|transaction| transaction.fee_payment_intent().charge_limits().is_empty())
         );
-        let mut block = execute_authenticated_genesis_fee_fixture(&prepared, &authority);
-        let state_transaction = block.transaction();
+        let block = execute_authenticated_genesis_fee_fixture(&prepared, &authority);
         assert_eq!(
-            test_asset_balance(&state_transaction, &payer_asset_id),
+            block
+                .world
+                .assets
+                .get(&payer_asset_id)
+                .unwrap()
+                .as_ref()
+                .clone(),
             payer_before,
             "native genesis execution must not debit its payer"
         );
         assert_eq!(
-            state_transaction
+            block
                 .world
                 .asset_definition(&fee_asset)
                 .expect("direct-fee asset definition")
@@ -16468,24 +16513,29 @@ mod tests {
             .clone();
         let prepared = crate::sumeragi::test_chain::CertifiedTestChain::prepare(config)
             .expect("prepare exact signed generic trigger genesis");
-        let mut block = execute_authenticated_genesis_fee_fixture(&prepared, &authority);
+        let block = execute_authenticated_genesis_fee_fixture(&prepared, &authority);
         assert!(
             block.gas_used_in_block > 0,
             "authentic genesis callback retains measured work"
         );
-        let events = block.world.take_external_events();
+        let events = block.world.pending_external_events();
         assert!(events.iter().any(|event| matches!(event,
             EventBox::TriggerCompleted(event) if event.trigger_id() == &trigger_id &&
                 event.outcome() == &iroha_data_model::events::trigger_completed::TriggerCompletedOutcome::Success
         )), "the actual generic IVM callback completed successfully");
-        let state_transaction = block.transaction();
         assert_eq!(
-            test_asset_balance(&state_transaction, &payer_asset_id),
+            block
+                .world
+                .assets
+                .get(&payer_asset_id)
+                .unwrap()
+                .as_ref()
+                .clone(),
             payer_before,
             "generic IVM genesis execution must not debit its payer"
         );
         assert_eq!(
-            state_transaction
+            block
                 .world
                 .asset_definition(&fee_asset)
                 .expect("direct-fee asset definition")
@@ -23891,6 +23941,7 @@ seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
         ));
     }
     include!("executor_contract_dispatch_tests.rs");
+    include!("executor_privacy_occurrence_tests.rs");
     include!("executor/argument_refusal_tests.rs");
 }
 

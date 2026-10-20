@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test
 class ConfidentialFullTreeNativeTests {
     @BeforeEach
     fun requireNativeBridge() {
-        assertTrue(PrivacyNativeBridge.isNativeAvailable(), "The same-source ABI-30 native bridge is required")
+        assertTrue(PrivacyNativeBridge.isNativeAvailable(), "The same-source ABI-31 native bridge is required")
     }
 
     @Test

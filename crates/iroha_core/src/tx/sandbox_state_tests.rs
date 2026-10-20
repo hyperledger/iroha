@@ -688,11 +688,12 @@ impl Sandbox {
     }
 }
 impl SandboxBlock<'_> {
-    /// Validate and commit the prepared block to the sandbox state.
+    /// Execute the prepared block and inspect its completed component result.
     ///
-    /// Returns the list of emitted events together with the committed
-    /// block for further inspection in tests.
+    /// Returns the execution events and fixture carrier while retaining the sealed,
+    /// unpublished State overlay. This fixture has no finality certificate.
     pub fn apply(&mut self) -> (Vec<EventBox>, CommittedBlock) {
+        let committed_history_len = self.state.block_hashes.len();
         let valid = ValidBlock::validate_unchecked(
             core::mem::take(&mut self.block).unwrap(),
             &mut self.state,
@@ -702,10 +703,13 @@ impl SandboxBlock<'_> {
         let committed = valid
             .commit_unchecked(crate::block::reserve_block_for_tests())
             .unpack(|_| {});
-        let events = self.state.apply_without_execution(
-            &committed,
-            // topology in state is only used by sumeragi
-            vec![],
+        // Execution already produced the data, trigger, and transaction events.
+        // Publication metadata requires finality and must not mutate this sealed cut.
+        let events = self.state.world.pending_external_events().to_vec();
+        assert_eq!(
+            self.state.block_hashes.len(),
+            committed_history_len,
+            "component execution must not publish a block-history entry"
         );
         (events, committed)
     }

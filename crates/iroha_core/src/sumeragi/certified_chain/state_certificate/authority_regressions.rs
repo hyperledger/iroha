@@ -120,13 +120,15 @@ fn original_parent_service_context_retains_signed_dataspace_scope() {
     assert_eq!(context.instance, chain.instance());
     assert_eq!(context.root_scope, scope);
     assert_eq!((predecessor.height(), parent.height()), (2, 3));
+    let input_parent = parent.block().clone();
+    preparation
+        .prepare_producer_copy(&view, &input_parent)
+        .unwrap();
     let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
     assert_eq!(
-        preparation
-            .proposal_original(&view, parent.block())
-            .unwrap(),
+        preparation.proposal_original(&view, &input_parent).unwrap(),
         reader
-            .parent_service_proposal_original(parent.block())
+            .parent_service_proposal_original(&input_parent)
             .unwrap()
     );
 }

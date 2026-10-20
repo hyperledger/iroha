@@ -34,6 +34,7 @@ def _draft(owner: str) -> TransactionDraft:
             authority=owner,
             fee_payment=authority_fee_payment(charge_limits=[]),
             creation_time_ms=42,
+            chain_discriminant=753,
         )
     )
 
@@ -42,7 +43,7 @@ def test_update_plain_conviction_uses_exact_native_instruction_in_transaction() 
     owner = _owner(0x47)
     expected = Instruction.update_plain_conviction("ref-1", owner, "2.5", 42)
     assert expected.wire_id() == "iroha.instruction.v1::governance::UpdatePlainConviction"
-    assert Instruction.from_json(expected.to_json()).to_norito_bytes() == expected.to_norito_bytes()
+    assert Instruction.from_json(expected.to_json(), chain_discriminant=753).to_norito_bytes() == expected.to_norito_bytes()
 
     draft = _draft(owner)
     assert draft.update_plain_conviction("ref-1", owner, Decimal("2.500"), 42) is draft
@@ -69,7 +70,7 @@ def test_update_plain_conviction_matches_rust_native_golden() -> None:
     assert fixture["wire_id"] == "iroha.instruction.v1::governance::UpdatePlainConviction"
     boxed_frame = bytes(instruction.to_norito_bytes())
     assert boxed_frame.hex() == fixture["standalone_instruction_box_frame_hex"]
-    assert bytes(Instruction.from_json(instruction.to_json()).to_norito_bytes()) == boxed_frame
+    assert bytes(Instruction.from_json(instruction.to_json(), chain_discriminant=753).to_norito_bytes()) == boxed_frame
 
     def payload(frame: bytes) -> bytes:
         assert frame[:6] == b"NRT0\x00\x00"

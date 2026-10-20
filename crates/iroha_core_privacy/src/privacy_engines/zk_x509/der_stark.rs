@@ -1535,7 +1535,7 @@ pub fn zk_x509_der_stark_input_byte_factor_v1<A: PolynomialAirFieldV1>(
     address: A,
     value: A,
     lane: usize,
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
 ) -> Result<A, ZkX509DerStarkErrorV1> {
     challenges.validate()?;
     let tuple_challenge = challenges
@@ -1552,7 +1552,7 @@ pub fn zk_x509_der_stark_input_byte_factor_v1<A: PolynomialAirFieldV1>(
 pub fn zk_x509_der_stark_node_factor_v1<A: PolynomialAirFieldV1>(
     event: ZkX509DerStarkNodeEventV1<A>,
     lane: usize,
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
 ) -> Result<A, ZkX509DerStarkErrorV1> {
     challenges.validate()?;
     let tuple_challenge = challenges
@@ -1581,7 +1581,7 @@ pub fn zk_x509_der_stark_node_factor_v1<A: PolynomialAirFieldV1>(
 fn byte_denominator_v1<A: PolynomialAirFieldV1>(
     tuple: [A; 12],
     lane: usize,
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
 ) -> A {
     A::from_base(challenges.byte_lookup[lane])
         .add(compress_tuple_v1(&tuple, challenges.tuple[lane]))
@@ -1589,7 +1589,7 @@ fn byte_denominator_v1<A: PolynomialAirFieldV1>(
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 fn derive_zk_x509_der_stark_private_document_product_v1(
     shape: &ZkX509DerStarkPrivateShapeV1,
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
 ) -> Result<[F; ZK_X509_DER_STARK_BUS_LANES_V1], ZkX509DerStarkErrorV1> {
     shape.validate()?;
     challenges.validate()?;
@@ -1608,7 +1608,7 @@ fn derive_zk_x509_der_stark_private_document_product_v1(
 }
 pub fn derive_zk_x509_der_stark_public_terminals_v1(
     shape: &ZkX509DerStarkShapeV1,
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
 ) -> Result<ZkX509DerStarkPublicTerminalsV1, ZkX509DerStarkErrorV1> {
     shape.validate()?;
     challenges.validate()?;
@@ -2044,7 +2044,7 @@ pub fn build_zk_x509_der_stark_trace_v1(
                         current[BASE_BYTE_VALUE],
                     ),
                     lane,
-                    challenges,
+                    &challenges,
                 );
                 let zero = F(u64::from(denominator == F::ZERO));
                 let inverse = denominator.inverse_or_zero_canonical_v1();
@@ -2059,12 +2059,12 @@ pub fn build_zk_x509_der_stark_trace_v1(
                 let left_denominator = byte_denominator_v1(
                     byte_tuple_v1(current[0], current[4].add(current[9]), current[10]),
                     lane,
-                    challenges,
+                    &challenges,
                 );
                 let right_denominator = byte_denominator_v1(
                     byte_tuple_v1(current[0], current[6].add(current[9]), current[11]),
                     lane,
-                    challenges,
+                    &challenges,
                 );
                 for (denominator, inverse_column, zero_column) in [
                     (
@@ -2115,7 +2115,7 @@ pub fn build_zk_x509_der_stark_trace_v1(
     let terminals = zk_x509_der_stark_terminals_v1(&trace)?;
     let private_document_product = derive_zk_x509_der_stark_private_document_product_v1(
         &trace.base.private_shape,
-        challenges,
+        &challenges,
     )?;
     if terminals.stack_push != terminals.stack_pop
         || terminals.document != private_document_product
@@ -3956,7 +3956,7 @@ pub fn evaluate_zk_x509_der_stark_local_residues_into_v1<A: PolynomialAirFieldV1
     next_aux: &[A; ZK_X509_DER_STARK_AUX_WIDTH_V1],
     fixed: &[A; ZK_X509_DER_STARK_FIXED_WIDTH_V1],
     next_fixed: &[A; ZK_X509_DER_STARK_FIXED_WIDTH_V1],
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
     _public: ZkX509DerStarkPublicTerminalsV1,
     residues: &mut Vec<A>,
 ) -> Result<(), ZkX509DerStarkErrorV1> {
@@ -4232,7 +4232,7 @@ pub fn evaluate_zk_x509_der_stark_residues_into_v1<A: PolynomialAirFieldV1>(
         next_aux,
         fixed,
         next_fixed,
-        challenges,
+        &challenges,
         _public,
         residues,
     )?;
@@ -4255,7 +4255,7 @@ pub fn evaluate_zk_x509_der_stark_local_residues_v1<A: PolynomialAirFieldV1>(
     next_aux: &[A; ZK_X509_DER_STARK_AUX_WIDTH_V1],
     fixed: &[A; ZK_X509_DER_STARK_FIXED_WIDTH_V1],
     next_fixed: &[A; ZK_X509_DER_STARK_FIXED_WIDTH_V1],
-    challenges: ZkX509DerStarkChallengesV1,
+    challenges: &ZkX509DerStarkChallengesV1,
     public: ZkX509DerStarkPublicTerminalsV1,
 ) -> Result<Vec<A>, ZkX509DerStarkErrorV1> {
     let mut residues = Vec::with_capacity(ZK_X509_DER_STARK_LOCAL_CONSTRAINT_COUNT_V1);

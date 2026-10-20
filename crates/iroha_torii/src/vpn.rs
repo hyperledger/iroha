@@ -1608,43 +1608,44 @@ fn committed_transaction_by_hash(
     };
     let height_u64 = u64::try_from(height.get())
         .map_err(|_| conversion_error("payment transaction height exceeds u64"))?;
-    let work = crate::routing::app_query_limits().max_fetch_size;
-    let carrier = app
-        .state
-        .read_finalized_execution_carrier(
-            height,
-            work,
-            iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
-        )
-        .map_err(crate::canonical_history::query_attempt_error)?;
-    let mut found = None;
-    for (entrypoint_hash, tx, result) in crate::canonical_history::signed_calls(carrier.block())
-        .map_err(|error| conversion_error(error.to_string()))?
-    {
-        if !crate::signed_transaction_carrier_matches_indexed_identity(
-            &entrypoint_hash,
-            tx,
-            &target,
-        ) {
-            continue;
-        }
-        if found.is_some() {
-            return Err(not_permitted_error(
-                "VPN payment has duplicate Network sources",
-            ));
-        }
-        if result.is_err() {
-            return Err(not_permitted_error(
-                "vpn payment transaction did not commit successfully",
-            ));
-        }
-        found = Some(tx.clone());
-    }
+    // HTTP observation: authenticate the payment carrier through State/checkpoint ancestry
+    // under this request's owner, retained through the membership recheck below.
+    let original = crate::read_pipeline_execution_carrier(app, height)?;
+    let found = original
+        .owner
+        .scope(|| -> Result<Option<SignedTransaction>, Error> {
+            let mut found = None;
+            for (entrypoint_hash, tx, result) in
+                crate::canonical_history::signed_calls(original.carrier.block())
+                    .map_err(|error| conversion_error(error.to_string()))?
+            {
+                if !crate::signed_transaction_carrier_matches_indexed_identity(
+                    &entrypoint_hash,
+                    tx,
+                    &target,
+                ) {
+                    continue;
+                }
+                if found.is_some() {
+                    return Err(not_permitted_error(
+                        "VPN payment has duplicate Network sources",
+                    ));
+                }
+                if result.is_err() {
+                    return Err(not_permitted_error(
+                        "vpn payment transaction did not commit successfully",
+                    ));
+                }
+                found = Some(tx.clone());
+            }
+            Ok(found)
+        })?;
     if app.state.committed_entrypoint_height(&target) != Some(height) {
         return Err(not_permitted_error(
             "VPN payment membership changed during authentication",
         ));
     }
+    drop(original);
     found.map(|tx| (tx, height_u64)).ok_or_else(|| {
         not_permitted_error("vpn payment transaction was indexed but not found in its block")
     })

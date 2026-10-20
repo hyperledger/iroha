@@ -92,13 +92,13 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
         .with_pagination(Pagination::new(Some(nonzero!(5_u64)), 1))
         .execute_all()?
         .into_iter()
-        .filter(|tx| tx.entrypoint().authority() == &account_id)
+        .filter(|tx| tx.entrypoint().authority_opt() == Some(&account_id))
         .collect::<Vec<_>>();
     assert_eq!(transactions.len(), 5);
     transactions
         .iter()
         .fold(Duration::MAX, |prev_timestamp, tx| {
-            assert_eq!(tx.entrypoint().authority(), &account_id);
+            assert_eq!(tx.entrypoint().authority_opt(), Some(&account_id));
             match tx.entrypoint() {
                 TransactionEntrypoint::External(entrypoint) => {
                     let curr_timestamp = entrypoint.creation_time();
@@ -111,6 +111,9 @@ fn client_has_rejected_and_accepted_txs_should_return_tx_history() -> Result<()>
                 }
                 TransactionEntrypoint::SealedReveal(_) => {
                     panic!("unexpected sealed reveal entrypoint");
+                }
+                TransactionEntrypoint::AnonymousBallot(_) => {
+                    panic!("signerless ballot matched an account-authority filter");
                 }
             }
         });

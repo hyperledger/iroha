@@ -119,7 +119,8 @@ impl ObjectKind {
     pub fn body_len(self) -> usize {
         self.schema().iter().map(|atom| atom.len()).sum()
     }
-    /// `P_bytes` signing domain of the body.
+    /// `P_bytes` signing domain of the body. The Request's `kgwrqst2` is
+    /// instead the `P` domain of its signed terms words.
     pub const fn signing_domain(self) -> u64 {
         u64::from_le_bytes(match self {
             Self::Certificate => *b"kgwcert1",
@@ -130,7 +131,7 @@ impl ObjectKind {
             Self::QuotaShare => *b"kgwqshr1",
             Self::TimeAnchor => *b"kgwtanc1",
             Self::ChargeQuote => *b"kgwchgq1",
-            Self::Request => *b"kgwrqst1",
+            Self::Request => *b"kgwrqst2",
         })
     }
     /// `P` domain of the message/signature object digest.

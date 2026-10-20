@@ -50,9 +50,6 @@ enum class IrohaPeerNearbyRecordKindV1(val code: Int) {
     HELLO(1),
     AUTHENTICATION(2),
     ENCRYPTED_MESSAGE(3),
-
-    /** The receiver's sealed `IAK1` ask ([IrohaPeerNearbySessionV1.sealAsk]), sent before the payer's Offer. */
-    ENCRYPTED_ASK(4),
 }
 
 /** Point-to-point discovery record that does not expose an account identifier. */
@@ -126,8 +123,9 @@ class IrohaPeerNearbyDiscoveryContextV1 private constructor(
          * A RECEIVER context advertised before the receiver holds a Request
          * (`specs/kagemusha_wallet_wire_v1.md` §6, Nearby): a fresh random nonzero session
          * identifier and a fresh random nonzero 32-byte binding in place of the Request hash
-         * ([requestCanonicalHash]). The authenticated session binds to both, and the Offer,
-         * Request, Payment and Credited then all travel inside it.
+         * ([requestCanonicalHash]). The authenticated session binds to both, and the receiver's
+         * open Request (its first sealed record), the payer's Payment and the receiver's Credited
+         * then all travel inside it.
          */
         @JvmStatic fun freshReceiver(profile: IrohaPeerPayloadProfile): IrohaPeerNearbyDiscoveryContextV1 =
             IrohaPeerNearbyDiscoveryContextV1(
@@ -213,8 +211,8 @@ object IrohaPeerNearbyVerificationCodeV1 {
  * never displayed: the payer's phone shows that picture, the receiver's phone shows a [grid] of
  * [GRID_SIZE] pictures that contains it, and the receiver accepts the connection only when its user
  * picks the payer's picture. Every index matches the Swift `IrohaPeerNearbyPictureCodeV1`
- * (`fixtures/kagemusha/peer_ask_v1.json`). A matching picture only pairs the radio link; the IPN1
- * authentication above it still authenticates the peer.
+ * (`fixtures/kagemusha/nearby_picture_v1.json`). A matching picture only pairs the radio link; the
+ * IPN1 authentication above it still authenticates the peer.
  */
 object IrohaPeerNearbyPictureCodeV1 {
     const val PICTURE_COUNT = 16
@@ -418,14 +416,12 @@ class IrohaPeerNearbyAuthenticationV1(
     }
 }
 
-class IrohaPeerNearbyEncryptedRecordV1 @JvmOverloads constructor(
+class IrohaPeerNearbyEncryptedRecordV1(
     val profile: IrohaPeerPayloadProfile,
     val senderRole: IrohaPeerNearbyRoleV1,
     sessionId: ByteArray,
     val sequence: Long,
     ciphertextAndTag: ByteArray,
-    /** An IPM1 message, or the receiver's `IAK1` ask (sealed in exactly 72 bytes). */
-    val kind: IrohaPeerNearbyRecordKindV1 = IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE,
 ) {
     private val session = sessionId.boundedNearbyCopy(16, 16, "Nearby session")
     private val sealed = ciphertextAndTag.boundedNearbyCopy(
@@ -441,20 +437,12 @@ class IrohaPeerNearbyEncryptedRecordV1 @JvmOverloads constructor(
         require(sealed.size in 16..(IrohaPeerNearbyV1.MAXIMUM_MESSAGE_BYTES + 16)) {
             "Invalid Nearby encrypted message length"
         }
-        require(kind == IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE ||
-            kind == IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK) {
-            "Invalid Nearby encrypted record kind"
-        }
-        require(kind != IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK ||
-            sealed.size == IrohaPeerAskV1.RECORD_BYTES + 16) {
-            "Invalid Nearby encrypted ask length"
-        }
     }
 
     internal fun header(): ByteArray = ByteArrayOutputStream(38).also { output ->
         output.write(IrohaPeerNearbyV1.MAGIC)
         output.write(IrohaPeerNearbyV1.WIRE_VERSION)
-        output.write(kind.code)
+        output.write(IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE.code)
         output.writeU16(profile.code)
         output.write(senderRole.code)
         output.write(0)
@@ -467,9 +455,7 @@ class IrohaPeerNearbyEncryptedRecordV1 @JvmOverloads constructor(
 
     companion object {
         @JvmStatic fun decode(data: ByteArray): IrohaPeerNearbyEncryptedRecordV1 {
-            val ask = data.size > 5 && (data[5].toInt() and 0xff) == IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK.code
-            val kind = if (ask) IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK else IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE
-            requireRecordPrefix(data, kind, 54)
+            requireRecordPrefix(data, IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE, 54)
             val profile = IrohaPeerPayloadProfile.fromCode(data.readU16Nearby(6))
                 ?: throw IllegalArgumentException("Invalid Nearby profile")
             val role = IrohaPeerNearbyRoleV1.fromCode(data[8].toInt() and 0xff)
@@ -487,7 +473,6 @@ class IrohaPeerNearbyEncryptedRecordV1 @JvmOverloads constructor(
                 data.copyOfRange(10, 26),
                 data.readU64Nearby(26),
                 data.copyOfRange(38, data.size),
-                kind,
             )
         }
     }
@@ -696,43 +681,21 @@ class IrohaPeerNearbySessionV1 @JvmOverloads constructor(
         require(message.byteCount <= IrohaPeerNearbyV1.MAXIMUM_MESSAGE_BYTES) {
             "Nearby message is too large"
         }
-        return sealRecord(key, IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE, message.encode())
-    }
-
-    /**
-     * Seals the receiver's [ask] ([IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK]), the first record it
-     * sends after authentication, so the payer builds its Offer for the asked amount. Only the
-     * RECEIVER role asks; the record shares the outbound sequence of [seal].
-     */
-    @Synchronized
-    fun sealAsk(ask: IrohaPeerAskV1): IrohaPeerNearbyEncryptedRecordV1 {
-        checkNotDestroyed()
-        check(localRole == IrohaPeerNearbyRoleV1.RECEIVER) { "Only a Nearby receiver seals an ask" }
-        val key = outboundKey ?: throw IllegalStateException("Nearby session is not authenticated")
-        return sealRecord(key, IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK, ask.encode())
-    }
-
-    /** Seals [plaintext], wiped afterwards, as the next outbound record of [kind]. */
-    private fun sealRecord(
-        key: ByteArray,
-        kind: IrohaPeerNearbyRecordKindV1,
-        plaintext: ByteArray,
-    ): IrohaPeerNearbyEncryptedRecordV1 {
+        require(outboundSequence != -1L) { "Nearby sequence exhausted" }
+        val sequence = outboundSequence
+        val plaintext = message.encode()
         try {
-            require(outboundSequence != -1L) { "Nearby sequence exhausted" }
-            val sequence = outboundSequence
             val placeholder = IrohaPeerNearbyEncryptedRecordV1(
                 profile,
                 localRole,
                 session,
                 sequence,
                 ByteArray(plaintext.size + 16),
-                kind,
             )
             val sealed = aesGcmNearby(Cipher.ENCRYPT_MODE, key, nearbyNonce(localRole, sequence),
                 placeholder.header(), plaintext)
             try {
-                val record = IrohaPeerNearbyEncryptedRecordV1(profile, localRole, session, sequence, sealed, kind)
+                val record = IrohaPeerNearbyEncryptedRecordV1(profile, localRole, session, sequence, sealed)
                 outboundSequence += 1
                 return record
             } finally {
@@ -748,37 +711,9 @@ class IrohaPeerNearbySessionV1 @JvmOverloads constructor(
      * Invalid ciphertext or plaintext leaves the expected sequence unchanged.
      */
     @Synchronized
-    fun open(record: IrohaPeerNearbyEncryptedRecordV1): IrohaPeerWireMessageV1 =
-        openRecord(record, IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE) { plaintext ->
-            IrohaPeerWireMessageV1.decode(plaintext, expectedProfile = profile)
-        }
-
-    /**
-     * Authenticates and decodes the receiver's ask ([sealAsk]) before advancing the receive sequence,
-     * exactly as [open] does for a message. Only the SENDER role opens an ask, and only from an
-     * [IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK] record of the RECEIVER; [open] refuses such a record.
-     */
-    @Synchronized
-    fun openAsk(record: IrohaPeerNearbyEncryptedRecordV1): IrohaPeerAskV1 {
-        checkNotDestroyed()
-        check(localRole == IrohaPeerNearbyRoleV1.SENDER) { "Only a Nearby sender opens an ask" }
-        return openRecord(record, IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK) { plaintext ->
-            IrohaPeerAskV1.decode(plaintext)
-        }
-    }
-
-    /**
-     * Authenticates one record of [kind] and validates its plaintext with [decode] before advancing
-     * the receive sequence. Invalid ciphertext or plaintext leaves the expected sequence unchanged.
-     */
-    private fun <T> openRecord(
-        record: IrohaPeerNearbyEncryptedRecordV1,
-        kind: IrohaPeerNearbyRecordKindV1,
-        decode: (ByteArray) -> T,
-    ): T {
+    fun open(record: IrohaPeerNearbyEncryptedRecordV1): IrohaPeerWireMessageV1 {
         checkNotDestroyed()
         val key = inboundKey ?: throw IllegalStateException("Nearby session is not authenticated")
-        require(record.kind == kind) { "Nearby encrypted record kind mismatch" }
         require(record.profile == profile && record.senderRole == localRole.peer) {
             "Nearby encrypted routing mismatch"
         }
@@ -795,9 +730,9 @@ class IrohaPeerNearbySessionV1 @JvmOverloads constructor(
             ciphertext.fill(0)
         }
         try {
-            val value = decode(plaintext)
+            val message = IrohaPeerWireMessageV1.decode(plaintext, expectedProfile = profile)
             inboundSequence += 1
-            return value
+            return message
         } finally {
             plaintext.fill(0)
         }

@@ -36,6 +36,9 @@ pub(in crate::state) enum TransactionMembershipAuthorityError {
     /// A row lies outside the exact committed or rollback frontier.
     #[error("transaction membership row lies outside its committed cut")]
     InvalidHeight,
+    /// The requested base belongs to another original writer, stage or mode.
+    #[error("transaction membership delta base is not the original publication surface")]
+    ChangedPublicationBase,
     /// Complete physical-entry visitation does not fit the local work counter.
     #[error("transaction membership traversal demand overflows")]
     TraversalOverflow,
@@ -80,6 +83,110 @@ pub(in crate::state) struct TransactionMembershipPublicationCut<'block> {
     row_visits: usize,
 }
 
+/// Non-authorizing base of a delta between two membership publication pairs.
+///
+/// `committed_frontier` is the actual current/rollback pair before publication;
+/// `logical_predecessor_frontier` differs under replacement and must never be
+/// substituted for it. The physical surface binds the original immutable stage
+/// and writer, not a certified State root. A consuming commitment owner must
+/// independently bind its authenticated baseline to this original publication.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::state) struct TransactionMembershipDeltaBase {
+    surface: TransactionsPublicationSurface,
+    committed_frontier: u64,
+    logical_predecessor_frontier: u64,
+    successor_frontier: u64,
+}
+
+impl TransactionMembershipDeltaBase {
+    /// Original predecessor identity, immutable staged row and replacement mode.
+    pub(in crate::state) fn surface(&self) -> &TransactionsPublicationSurface {
+        &self.surface
+    }
+
+    /// Current/rollback pair that every delta preimage describes.
+    pub(in crate::state) fn committed_frontier(&self) -> u64 {
+        self.committed_frontier
+    }
+
+    /// Execution predecessor; one lower than the committed tip on replacement.
+    pub(in crate::state) fn logical_predecessor_frontier(&self) -> u64 {
+        self.logical_predecessor_frontier
+    }
+
+    /// Exact original staged publication frontier.
+    pub(in crate::state) fn successor_frontier(&self) -> u64 {
+        self.successor_frontier
+    }
+}
+
+/// Paired current/rollback delta borrowing the one prepared membership owner.
+/// The private source and base cannot be assembled from caller-provided rows.
+pub(in crate::state) struct TransactionMembershipPublicationDelta<'block> {
+    transition: TransactionsMembershipTransition<'block>,
+    base: TransactionMembershipDeltaBase,
+    row_visits: usize,
+}
+
+impl TransactionMembershipPublicationDelta<'_> {
+    /// Borrow the exact committed base before any change is emitted.
+    pub(in crate::state) fn base(&self) -> &TransactionMembershipDeltaBase {
+        &self.base
+    }
+
+    /// Set entries inspected across both streams, excluding no source prefixes.
+    pub(in crate::state) fn row_visits(&self) -> usize {
+        self.row_visits
+    }
+
+    /// Emit both net maps with their exact committed preimages. Consumer failure
+    /// stops immediately and leaves every original source untouched for retry.
+    pub(in crate::state) fn visit<E>(
+        &self,
+        mut visit: impl FnMut(
+            TransactionMembershipSide,
+            &Key,
+            Option<u64>,
+            Option<u64>,
+        ) -> Result<(), E>,
+    ) -> Result<(), TransactionMembershipVisitError<E>> {
+        for side in [
+            TransactionMembershipSide::Current,
+            TransactionMembershipSide::Rollback,
+        ] {
+            let rollback = u64::from(side == TransactionMembershipSide::Rollback);
+            let mut row = |key: &Key, before: Option<Value>, after: Option<Value>| {
+                let before = before
+                    .map(|height| {
+                        canonical_height(
+                            height,
+                            self.base.committed_frontier.saturating_sub(rollback),
+                        )
+                    })
+                    .transpose()?;
+                let after = after
+                    .map(|height| {
+                        canonical_height(
+                            height,
+                            self.base.successor_frontier.saturating_sub(rollback),
+                        )
+                    })
+                    .transpose()?;
+                visit(side, key, before, after).map_err(TransactionMembershipVisitError::Consumer)
+            };
+            match side {
+                TransactionMembershipSide::Current => {
+                    self.transition.visit_committed_changes(&mut row)?
+                }
+                TransactionMembershipSide::Rollback => {
+                    self.transition.visit_committed_rollback_changes(&mut row)?
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl PreparedTransactionsBlock<'_> {
     /// Bind the actual original storage family, including physically prepared detached slots.
     pub(in crate::state) fn belongs_to(&self, storage: &TransactionsStorage) -> bool {
@@ -94,6 +201,45 @@ impl PreparedTransactionsBlock<'_> {
     /// Retain predecessor and staged-row allocation identity without cloning row contents.
     pub(in crate::state) fn publication_surface(&self) -> TransactionsPublicationSurface {
         self.unpublished_membership_block().publication_surface()
+    }
+
+    /// Bind and admit a delta from the exact committed pair, never the logical
+    /// replacement predecessor. All set visits are admitted before callbacks;
+    /// point lookups reuse the original retained history without a full scan.
+    pub(in crate::state) fn membership_publication_delta(
+        &self,
+        expected: &TransactionsPublicationSurface,
+        max_row_visits: usize,
+    ) -> Result<TransactionMembershipPublicationDelta<'_>, TransactionMembershipAuthorityError>
+    {
+        let surface = self.publication_surface();
+        if &surface != expected && !cfg!(all(test, sumeragi_core_mutation = "HC451")) {
+            return Err(TransactionMembershipAuthorityError::ChangedPublicationBase);
+        }
+        let transition = self.membership_transition();
+        let height = |value: usize| {
+            u64::try_from(value).map_err(|_| TransactionMembershipAuthorityError::HeightOverflow)
+        };
+        let base = TransactionMembershipDeltaBase {
+            surface,
+            committed_frontier: height(transition.committed_height())?,
+            logical_predecessor_frontier: height(transition.predecessor_height())?,
+            successor_frontier: height(transition.staged_height().get())?,
+        };
+        let row_visits = transition
+            .publication_delta_row_visits()
+            .ok_or(TransactionMembershipAuthorityError::TraversalOverflow)?;
+        if row_visits > max_row_visits {
+            return Err(TransactionMembershipAuthorityError::TraversalRefused {
+                required: row_visits,
+                limit: max_row_visits,
+            });
+        }
+        Ok(TransactionMembershipPublicationDelta {
+            transition,
+            base,
+            row_visits,
+        })
     }
 
     /// Admit both successor streams once before encoding or constructing any nodes.

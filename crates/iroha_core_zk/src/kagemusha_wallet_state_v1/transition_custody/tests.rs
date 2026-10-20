@@ -156,79 +156,44 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
     assert!(TransitionCustodyV1::new(Some(plan(source)), None).is_err());
 }
 
-fn setup_quote(source: &FrozenTransition) -> (KagemushaWalletOfferV1, KagemushaWalletRequestV1) {
-    let template: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
-    let original = template
-        .body()
-        .retained_inputs
-        .iter()
-        .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
-        .unwrap();
-    let mut request: KagemushaWalletRequestV1 = archive::decode(&original.bytes).unwrap();
-    let remote = request.receiver_credential;
-    let issuer = *request
-        .certificates
-        .certificate(
-            &remote.body.issuer_certificate,
-            KagemushaWalletSignerRoleV1::Enrollment,
-        )
-        .unwrap();
-    let body = KagemushaWalletOfferBodyV1 {
-        version: 1,
-        scheme_id: remote.body.scheme_id,
-        asset_digest: remote.body.asset_digest,
-        payer_wallet_id: remote.body.wallet_id,
-        payer_credential_digest: remote.credential_digest(),
-        next_send: 0,
-        amount: 7,
-        session_nonce: [72; 32],
-    };
-    fn sign(
-        credential: &KagemushaWalletCredentialV1,
-        message: &[u8],
-    ) -> KagemushaDeviceSignatureV1 {
-        let signature: Signature = signer(credential).sign(message);
-        KagemushaDeviceSignatureV1::from_raw_bytes(
-            &signature.normalize_s().unwrap_or(signature).to_bytes(),
-        )
-        .unwrap()
-    }
-    let offer = KagemushaWalletOfferV1 {
-        body,
-        payer_credential: remote,
-        certificates: KagemushaWalletCertificateSetV1::new(vec![issuer]).unwrap(),
-        signature: sign(&remote, &body.signing_message()),
-    };
-    let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
-    offer.verify(&scheme).unwrap();
+fn setup_quote(source: &FrozenTransition) -> KagemushaWalletRequestV1 {
     let local = source.credential;
     let state = &source.capsule.body().successor_state;
     let issuer = enrollment_issuer(&local);
-    request.receiver_credential = local;
-    request.certificates = KagemushaWalletCertificateSetV1::new(vec![issuer]).unwrap();
-    request.fee_schedule = KagemushaWalletFeeScheduleSlotV1::None;
-    request.body = KagemushaWalletRequestBodyV1 {
+    let certificates = KagemushaWalletCertificateSetV1::new(vec![issuer]).unwrap();
+    let body = KagemushaWalletRequestBodyV1 {
         version: 1,
         scheme_id: local.body.scheme_id,
         asset_digest: local.body.asset_digest,
-        payer_wallet_id: remote.body.wallet_id,
-        payer_account_digest: remote.body.account_digest,
+        payer_wallet_id: [0; 32],
+        payer_account_digest: [0; 32],
         receiver_wallet_id: local.body.wallet_id,
         receiver_account_digest: local.body.account_digest,
-        send_ordinal: offer.body.next_send,
+        send_ordinal: 0,
         receiver_credential_digest: local.credential_digest(),
-        amount: offer.body.amount,
+        amount: 7,
         fee_schedule: [0; 32],
         fee: 0,
         policy_epoch: state.core.policy_epoch,
         scheme_policy: state.rest.scheme_policy,
         receiver_accepted_time_ms: state.core.accepted_time_floor_ms,
-        certificates: request.certificates.digest().unwrap(),
+        certificates: certificates.digest().unwrap(),
         nonce: [73; 32],
     };
-    request.signature = sign(&local, &request.body.signing_message());
-    request.verify(&scheme).unwrap();
-    (offer, request)
+    let signature: Signature = signer(&local).sign(&body.signing_message());
+    let request = KagemushaWalletRequestV1 {
+        body,
+        receiver_credential: local,
+        certificates,
+        fee_schedule: KagemushaWalletFeeScheduleSlotV1::None,
+        signature: KagemushaDeviceSignatureV1::from_raw_bytes(
+            &signature.normalize_s().unwrap_or(signature).to_bytes(),
+        )
+        .unwrap(),
+    };
+    let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
+    request.verify_open(&scheme).unwrap();
+    request
 }
 
 fn begin_setup_request(
@@ -239,9 +204,9 @@ fn begin_setup_request(
     native_owner::sessions::Plan,
     KagemushaWalletRequestV1,
 ) {
-    let (offer, mut request) = setup_quote(source);
+    let mut request = setup_quote(source);
     let action = native_owner::sessions::Action::Request {
-        offer: archive::encode(&offer).unwrap(),
+        amount: request.body.amount,
         fee: None,
     };
     let plan = wallet.setup([74; 32], &action).unwrap();
@@ -251,7 +216,7 @@ fn begin_setup_request(
         &signature.normalize_s().unwrap_or(signature).to_bytes(),
     )
     .unwrap();
-    request.validate().unwrap();
+    request.validate_open().unwrap();
     (action, plan, request)
 }
 
@@ -373,7 +338,7 @@ fn a_new_setup_request_cannot_be_published_from_a_different_selected_head() {
 }
 
 #[test]
-fn retiring_preserves_outgoing_offers_and_exact_requests_but_refuses_new_quotes() {
+fn retiring_preserves_exact_requests_but_refuses_new_quotes() {
     let mut wallet = wallet();
     let boot = bootstrap();
     wallet.commit(boot.clone()).unwrap();
@@ -415,16 +380,6 @@ fn retiring_preserves_outgoing_offers_and_exact_requests_but_refuses_new_quotes(
         .retain_source_custody(retiring.capsule.custody_digest(), &source)
         .unwrap();
     wallet.commit(retiring).unwrap();
-    let (_, manifest) = wallet.manifest().unwrap();
-    let retiring_head = manifest.capsule;
-    let offer = wallet
-        .setup(
-            [75; 32],
-            &native_owner::sessions::Action::Offer { amount: 7 },
-        )
-        .unwrap();
-    assert_eq!(offer.source, retiring_head);
-    assert!(offer.output.is_none());
     assert_eq!(
         wallet.setup([74; 32], &request_action).unwrap().output,
         request_plan.output

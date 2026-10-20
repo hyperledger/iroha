@@ -499,14 +499,10 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
     );
     assert_eq!(claim.package.statement.next_load, 1);
     assert_eq!(claim.package.statement.enabled_controls, 0);
-    let lineage_measurement = message_census::record(
+    let lineage_measurement = message_census::record_lineage(
         &output,
-        "unload-predecessor-lineage",
-        KagemushaWalletMessageV1::Lineage {
-            lineage: KagemushaWalletLineageMessageV1::new(
-                claim.package.lineage.lineage().unwrap().clone(),
-            ),
-        },
+        "unload-predecessor",
+        claim.package.lineage.lineage().unwrap(),
     );
     sources
         .installed

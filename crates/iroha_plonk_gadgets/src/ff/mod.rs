@@ -65,20 +65,25 @@
 //! `z_j - 2^15 z_{j+1}` on step rows and the top entry `z_top` on the top
 //! row. A top of `w < 15` bits is looked up twice, as `z_top` and as
 //! `2^(15-w) z_top` (read from the operand row through rotation 6): both in
-//! `[0, 2^15)` force `z_top < 2^w`. The `C` and `Q` groups each have one
-//! ternary pattern column `h` (1 on steps, 2 on the top row, 0 elsewhere;
-//! `s = h (2 - h)`, `t = h (h - 1) / 2`, and the scaled top enabled by `t`
-//! of `h` six rows down), the `U` group binary step and top columns
-//! ([`FF_PATTERN_COLUMNS`] = 4). The `C`/`Q` lookup inputs have degree 3
-//! (norm lookup degree 10), the `U` inputs degree 2 (norm lookup degree 8
-//! with the fixed `V` table); the arithmetic gates have degree 3 and
-//! anchor on row 0, reading operands there, the `C`/`Q` running-sum roots
-//! on row 1 and the `U` roots on row 0, so every operand column is queried
-//! at rotations 0, 1 and 6 (five blinding rows). A multiplication or
-//! division is one block: [`MUL_CELLS`] = 70 advice cells in 7 rows of 10
-//! columns, no idle cell. Comparisons and witnesses use the `C` and `Q`
-//! groups of a block ([`COMPARE_CELLS`], [`WITNESS_CELLS`],
-//! [`CANONICAL_WITNESS_CELLS`]).
+//! `[0, 2^15)` force `z_top < 2^w`. The `U` group has binary step and top
+//! columns. In a standalone configuration ([`FfConfig::configure`]) the `C`
+//! and `Q` groups each have binary step and top columns `s`, `t` too, the
+//! scaled top enabled by `t` six rows down ([`FF_PATTERN_COLUMNS`] +
+//! [`FF_TOP_COLUMNS`] = 6): every lookup input has degree 2 (norm lookup
+//! degree 8 with the fixed `V` table). A shared configuration
+//! ([`FfConfig::configure_shared`]) gives each of the `C` and `Q` groups one
+//! ternary pattern column `h` instead (1 on steps, 2 on the top row, 0
+//! elsewhere; `s = h (2 - h)`, `t = h (h - 1) / 2`;
+//! [`FF_PATTERN_COLUMNS`] = 4): two fixed columns fewer, but `C`/`Q` inputs
+//! of degree 3 (norm lookup degree 10, which the Q leaf's window guest
+//! needs anyway). Row by row both forms look up the same values. The
+//! arithmetic gates have degree 3 and anchor on row 0, reading operands
+//! there, the `C`/`Q` running-sum roots on row 1 and the `U` roots on row 0,
+//! so every operand column is queried at rotations 0, 1 and 6 (five
+//! blinding rows). A multiplication or division is one block: [`MUL_CELLS`]
+//! = 70 advice cells in 7 rows of 10 columns, no idle cell. Comparisons and
+//! witnesses use the `C` and `Q` groups of a block ([`COMPARE_CELLS`],
+//! [`WITNESS_CELLS`], [`CANONICAL_WITNESS_CELLS`]).
 //!
 //! Additions, subtractions and selections are limb-wise rows of the glue
 //! chip ([`GlueChip`]): three rows per operation, three new cells plus six
@@ -157,9 +162,13 @@ pub const OPERAND_LIMB_BITS: usize = 94;
 pub const BLOCK_ROWS: usize = 7;
 /// Advice columns of the chip.
 pub const FF_ADVICE_COLUMNS: usize = 10;
-/// Fixed pattern columns of the chip: the ternary patterns of the `C` and
-/// `Q` groups and the step and top patterns of the `U` group.
+/// Fixed pattern columns of every configuration: the `C` and `Q` patterns
+/// (step indicators when standalone, ternary when shared) and the step and
+/// top patterns of the `U` group.
 pub const FF_PATTERN_COLUMNS: usize = 4;
+/// Further fixed columns of a standalone configuration: the top indicators
+/// of the `C` and `Q` groups.
+pub const FF_TOP_COLUMNS: usize = 2;
 /// Range-table rows: `V = v` for every `v < 2^15`.
 pub const RANGE_TABLE_ROWS: usize = 1 << SUBLIMB_BITS;
 /// Advice cells of one multiplication or division block.
@@ -181,9 +190,9 @@ const OPERAND_ROW: usize = 0;
 const ROOT_ROW: usize = 1;
 /// The rotation from the operand row to the top row of a block.
 const TOP_ROTATION: Rotation = Rotation(6);
-/// The ternary pattern value of a `C`/`Q` step row.
+/// The pattern value of a `C`/`Q` step row (ternary or step indicator).
 const PATTERN_STEP: u64 = 1;
-/// The ternary pattern value of a `C`/`Q` top row.
+/// The ternary pattern value of a `C`/`Q` top row (the top indicator is 1).
 const PATTERN_TOP: u64 = 2;
 
 /// `2^bits - 1` for `bits <= 127`.
@@ -669,8 +678,11 @@ pub struct FfConfig {
     u: [Column<Advice>; CARRIES],
     /// The range table column `V` (its own, or `V` of the shared table).
     value: Column<Fixed>,
-    /// `h_C, h_Q, s_U, t_U`.
+    /// `s_C, s_Q, s_U, t_U` (standalone) or `h_C, h_Q, s_U, t_U` (shared).
     pattern: [Column<Fixed>; FF_PATTERN_COLUMNS],
+    /// `t_C, t_Q` of a standalone configuration; `None` for the ternary
+    /// `C`/`Q` patterns of a shared one.
+    tops: Option<[Column<Fixed>; FF_TOP_COLUMNS]>,
     moduli: Vec<ModulusGates>,
 }
 
@@ -693,28 +705,42 @@ impl<F: PastaField> FfGuests<'_, F> {
 }
 
 /// The residual of a `C` or `Q` column on the block row of the query: with
-/// the ternary pattern `h` (1 on steps, 2 on the top row, 0 elsewhere),
-/// `s = h (2 - h)` and `t = h (h - 1) / 2` are 0/1 and never both 1, and
-/// `e = t(h six rows down)` is 1 exactly on a block's operand row (whose
-/// pattern is 0). The residual `s (z - 2^15 z_next) + t z + e 2^(15 - w)
-/// z_top` is a step on step rows, the top entry on the top row, the scaled
-/// top on the operand row and 0 elsewhere (degree 3).
+/// the step and top indicators `s` and `t` (0/1, never both 1), `e = t` six
+/// rows down is 1 exactly on a block's operand row (where `s = t = 0`). The
+/// residual `s (z - 2^15 z_next) + t z + e 2^(15 - w) z_top` is a step on
+/// step rows, the top entry on the top row, the scaled top on the operand
+/// row and 0 elsewhere. With `top_indicator`, `pattern` is `s` and
+/// `top_indicator` is `t` (degree 2); without, `pattern` is the ternary `h`
+/// (1 on steps, 2 on the top row, 0 elsewhere) and `s = h (2 - h)`,
+/// `t = h (h - 1) / 2` (degree 3).
 fn cq_residual<F: PastaField>(
     cells: &mut VirtualCells<'_, F>,
     z: Column<Advice>,
     pattern: Column<Fixed>,
+    top_indicator: Option<Column<Fixed>>,
     top_bits: usize,
 ) -> Expression<F> {
-    let h = cells.query_fixed(pattern, Rotation::cur());
-    let h_top = cells.query_fixed(pattern, TOP_ROTATION);
+    // Query order is descriptor order; the ternary form keeps its own.
+    let (step, top_row, operand_row) = if let Some(indicator) = top_indicator {
+        (
+            cells.query_fixed(pattern, Rotation::cur()),
+            cells.query_fixed(indicator, Rotation::cur()),
+            cells.query_fixed(indicator, TOP_ROTATION),
+        )
+    } else {
+        let h = cells.query_fixed(pattern, Rotation::cur());
+        let h_top = cells.query_fixed(pattern, TOP_ROTATION);
+        let two = Expression::Constant(F::from(2_u64));
+        let one = Expression::Constant(F::ONE);
+        (
+            h.clone() * (two - h.clone()),
+            h.clone() * (h - one.clone()) * F::TWO_INV,
+            h_top.clone() * (h_top - one) * F::TWO_INV,
+        )
+    };
     let cur = cells.query_advice(z, Rotation::cur());
     let next = cells.query_advice(z, Rotation::next());
     let top = cells.query_advice(z, TOP_ROTATION);
-    let two = Expression::Constant(F::from(2_u64));
-    let one = Expression::Constant(F::ONE);
-    let step = h.clone() * (two - h.clone());
-    let top_row = h.clone() * (h - one.clone()) * F::TWO_INV;
-    let operand_row = h_top.clone() * (h_top - one) * F::TWO_INV;
     let scale = F::from_u128(1 << (SUBLIMB_BITS - top_bits));
     step * (cur.clone() - next * F::from_u128(1 << SUBLIMB_BITS))
         + top_row * cur
@@ -881,9 +907,10 @@ fn compare_constraints<F: PastaField>(
 impl FfConfig {
     /// Configures the chip on ten advice columns (`c_0..c_2`, `q_0..q_2`,
     /// `u_0..u_3`; the six `c` and `q` columns are made equality-enabled)
-    /// with its own range-table column `V`, four fixed pattern columns and,
-    /// per distinct modulus of `moduli`, a multiplication, division,
-    /// comparison and canonical-witness gate.
+    /// with its own range-table column `V`, six fixed pattern columns (the
+    /// step and top indicators of each group, so every range argument has
+    /// degree 8) and, per distinct modulus of `moduli`, a multiplication,
+    /// division, comparison and canonical-witness gate.
     ///
     /// Operations that place constants (reductions, inversions, constant
     /// multiplications) need a constants column in the circuit.
@@ -893,16 +920,18 @@ impl FfConfig {
         moduli: &[ForeignModulus],
     ) -> Self {
         let value = meta.fixed_column();
-        Self::configure_on(meta, columns, moduli, value, &FfGuests::none())
+        Self::configure_on(meta, columns, moduli, value, &FfGuests::none(), true)
     }
 
-    /// [`Self::configure`] with `V` of the shared table as the range column
-    /// and the guests' lookups merged into two of the ten arguments: the
-    /// `c_0` argument (whose input has degree 3, so the guest's table
-    /// expressions must have degree 1) and the `u_0` argument. The caller
-    /// must keep every guest inactive on the foreign-field rows (the
-    /// conditions of [`crate::table`]); the Q-leaf layout ([`crate::q_leaf`])
-    /// does, and its tests check it.
+    /// [`Self::configure`] with `V` of the shared table as the range column,
+    /// one ternary pattern column for each of the `C` and `Q` groups (four
+    /// pattern columns in all; the `C`/`Q` arguments have degree 10) and the
+    /// guests' lookups merged into two of the ten arguments: the `c_0`
+    /// argument (whose input has degree 3, so the guest's table expressions
+    /// must have degree 1) and the `u_0` argument. The caller must keep every
+    /// guest inactive on the foreign-field rows (the conditions of
+    /// [`crate::table`]); the Q-leaf layout ([`crate::q_leaf`]) does, and its
+    /// tests check it.
     pub fn configure_shared<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         columns: [Column<Advice>; FF_ADVICE_COLUMNS],
@@ -910,7 +939,7 @@ impl FfConfig {
         table: &SharedTable,
         guests: &FfGuests<'_, F>,
     ) -> Self {
-        Self::configure_on(meta, columns, moduli, table.value(), guests)
+        Self::configure_on(meta, columns, moduli, table.value(), guests, false)
     }
 
     fn configure_on<F: PastaField>(
@@ -919,6 +948,7 @@ impl FfConfig {
         moduli: &[ForeignModulus],
         value: Column<Fixed>,
         guests: &FfGuests<'_, F>,
+        indicators: bool,
     ) -> Self {
         let [c0, c1, c2, q0, q1, q2, u0, u1, u2, u3] = columns;
         let values = [c0, c1, c2];
@@ -929,7 +959,10 @@ impl FfConfig {
         }
         let pattern: [Column<Fixed>; FF_PATTERN_COLUMNS] =
             core::array::from_fn(|_| meta.fixed_column());
-        let [h_c, h_q, s_u, t_u] = pattern;
+        let tops: Option<[Column<Fixed>; FF_TOP_COLUMNS]> =
+            indicators.then(|| core::array::from_fn(|_| meta.fixed_column()));
+        let [p_c, p_q, s_u, t_u] = pattern;
+        let [t_c, t_q] = tops.map_or([None; FF_TOP_COLUMNS], |tops| tops.map(Some));
         // The guests ride on the first `C` and the first `U` argument.
         let cq_guest = |index: usize| guests.cq.filter(|_| index == 0);
         let u_guest = |index: usize| guests.u.filter(|_| index == 0);
@@ -939,7 +972,7 @@ impl FfConfig {
                 &format!("ff c_{index} range"),
                 value,
                 cq_guest(index),
-                |cells| cq_residual(cells, *column, h_c, VALUE_TOPS[index]),
+                |cells| cq_residual(cells, *column, p_c, t_c, VALUE_TOPS[index]),
             );
         }
         for (index, column) in quotients.iter().enumerate() {
@@ -948,7 +981,7 @@ impl FfConfig {
                 &format!("ff q_{index} range"),
                 value,
                 cq_guest(LIMBS + index),
-                |cells| cq_residual(cells, *column, h_q, QUOTIENT_TOPS[index]),
+                |cells| cq_residual(cells, *column, p_q, t_q, QUOTIENT_TOPS[index]),
             );
         }
         for (index, column) in carries.iter().enumerate() {
@@ -1023,6 +1056,7 @@ impl FfConfig {
             u: carries,
             value,
             pattern,
+            tops,
             moduli: configured,
         }
     }
@@ -1043,10 +1077,18 @@ impl FfConfig {
         self.value
     }
 
-    /// The pattern columns `h_C, h_Q, s_U, t_U`.
+    /// The pattern columns: `s_C, s_Q, s_U, t_U` in a standalone
+    /// configuration, `h_C, h_Q, s_U, t_U` in a shared one.
     #[must_use]
     pub const fn pattern_columns(&self) -> [Column<Fixed>; FF_PATTERN_COLUMNS] {
         self.pattern
+    }
+
+    /// The top indicator columns `t_C, t_Q` of a standalone configuration
+    /// (`None` in a shared one, whose `C`/`Q` patterns are ternary).
+    #[must_use]
+    pub const fn top_columns(&self) -> Option<[Column<Fixed>; FF_TOP_COLUMNS]> {
+        self.tops
     }
 
     /// The configured moduli, in configuration order.
@@ -1381,15 +1423,21 @@ impl<F: PastaField> FfChip<F> {
         start: usize,
         group: Group,
     ) -> Result<(), Error> {
-        let [h_c, h_q, s_u, t_u] = self.fused_config()?.pattern;
+        let config = self.fused_config()?;
+        let [p_c, p_q, s_u, t_u] = config.pattern;
         let top_row = start + BLOCK_ROWS - 1;
         match group {
             Group::C | Group::Q => {
-                let h = if group == Group::C { h_c } else { h_q };
+                let index = usize::from(group == Group::Q);
+                let pattern = [p_c, p_q][index];
+                // A ternary pattern marks its top with 2, a top indicator with 1.
+                let (top, top_value) = config
+                    .tops
+                    .map_or((pattern, PATTERN_TOP), |tops| (tops[index], 1));
                 for row in start + ROOT_ROW..top_row {
-                    region.assign_fixed(h, row, F::from(PATTERN_STEP))?;
+                    region.assign_fixed(pattern, row, F::from(PATTERN_STEP))?;
                 }
-                region.assign_fixed(h, top_row, F::from(PATTERN_TOP))?;
+                region.assign_fixed(top, top_row, F::from(top_value))?;
             }
             Group::U => {
                 for row in start..top_row {

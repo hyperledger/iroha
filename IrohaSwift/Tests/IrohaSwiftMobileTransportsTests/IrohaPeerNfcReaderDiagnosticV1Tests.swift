@@ -31,40 +31,39 @@ final class IrohaPeerNfcReaderDiagnosticV1Tests: XCTestCase {
         XCTAssertNil(record.platformCode)
     }
 
-    func testReceiverAskFailuresKeepClosedCodeAndTypedOperation() {
+    func testReceiverRequestFailuresKeepClosedCodeAndTypedOperation() {
         let malformed = IrohaPeerNfcReaderTerminalDiagnosticV1(
-            error: IrohaPeerNfcErrorV1.invalidAsk,
-            operation: .getAsk,
+            error: IrohaPeerNfcErrorV1.invalidIPM1,
+            operation: .readRequest,
             lastStage: .tagDetected,
             elapsedMilliseconds: 25
         )
-        XCTAssertEqual(malformed.failure, .peerInvalidAsk)
+        XCTAssertEqual(malformed.failure, .peerInvalidIPM1)
         XCTAssertEqual(malformed.logLine,
-            "iroha_kagemusha_nfc_ios_reader_terminal error=peer.invalidAsk"
-                + " operation=getAsk elapsed_ms=25 last_stage=tag_detected")
+            "iroha_kagemusha_nfc_ios_reader_terminal error=peer.invalidIPM1"
+                + " operation=readRequest elapsed_ms=25 last_stage=tag_detected")
         XCTAssertNil(malformed.platformCode)
 
         let refused = IrohaPeerNfcReaderTerminalDiagnosticV1(
-            error: IrohaPeerNfcErrorV1.peerRejected(operation: .getAsk),
+            error: IrohaPeerNfcErrorV1.peerRejected(operation: .readRequest),
             operation: .getIntake,
             lastStage: nil,
             elapsedMilliseconds: 30
         )
         XCTAssertEqual(refused.logLine,
             "iroha_kagemusha_nfc_ios_reader_terminal error=peer.peerRejected"
-                + " operation=getAsk elapsed_ms=30 last_stage=none")
+                + " operation=readRequest elapsed_ms=30 last_stage=none")
         XCTAssertNil(refused.platformCode)
     }
 
     func testAssociatedValuesAndArbitraryErrorDetailsNeverEnterLog() {
         let errors: [Error] = [
-            IrohaPeerNfcErrorV1.offerDeclined(reason: 65535),
             IrohaPeerNfcErrorV1.messageTooLarge(actual: 987654, maximum: 123456),
             NSError(domain: "PRIVATE_ACCOUNT_REQUEST_PAYMENT_ACK", code: 987654,
                 userInfo: [NSLocalizedDescriptionKey: "PRIVATE_ORIGINALS"]),
         ]
         let expected: [IrohaPeerNfcReaderFailureCodeV1] = [
-            .peerOfferDeclined, .peerMessageTooLarge, .unknown,
+            .peerMessageTooLarge, .unknown,
         ]
         for (error, code) in zip(errors, expected) {
             let record = IrohaPeerNfcReaderTerminalDiagnosticV1(

@@ -602,6 +602,13 @@ impl<const I: usize> DecodeField<I, Quantity> for KindFields<'_> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TapePhase {
+    Pending,
+    Complete,
+    Taken,
+}
+
 /// Retained partial tape destination for a single immutable original field occurrence.
 ///
 /// The caller supplies its original prepared canonical field context and controls.
@@ -616,7 +623,7 @@ pub struct PendingFastpqEffectsDecodeV1 {
     ledger: Option<ChargedBuffer<EffectCustody>>,
     current: EffectDestination,
     context: Option<FastpqExecutionEffectContextV1>,
-    complete: bool,
+    phase: TapePhase,
     max_effects: usize,
 }
 impl PendingFastpqEffectsDecodeV1 {
@@ -632,7 +639,7 @@ impl PendingFastpqEffectsDecodeV1 {
             ledger: None,
             current: EffectDestination::new(pool),
             context: None,
-            complete: false,
+            phase: TapePhase::Pending,
             max_effects,
         }
     }
@@ -651,34 +658,48 @@ impl PendingFastpqEffectsDecodeV1 {
     /// # Errors
     /// Returns the unchanged canonical/physical cause while preserving allocated prefixes.
     pub fn decode_payload(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        if self.phase == TapePhase::Taken {
+            return Err(Error::Invariant("completed tape was already taken"));
+        }
         let identity = (bytes.as_ptr() as usize, bytes.len(), Hash::new(bytes));
         if self.source.is_some_and(|source| source != identity) {
             return Err(Error::Invariant("original tape bytes changed"));
         }
         self.source = Some(identity);
-        self.complete = false;
+        self.phase = TapePhase::Pending;
         let result = (|| {
             let ((context, ()), used) = FastpqExecutionEffectsV1::decode_fields(bytes, self)?;
             finish(bytes, used)?;
             self.context = Some(context);
             Ok(())
         })();
-        self.complete = result.is_ok();
+        self.phase = if result.is_ok() {
+            TapePhase::Complete
+        } else {
+            TapePhase::Pending
+        };
         result
     }
     /// Whether the last complete canonical traversal filled every destination.
     /// This does not authenticate execution or the enclosing source record.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.complete && self.context.is_some() && self.effects.is_some() && self.ledger.is_some()
+        self.phase == TapePhase::Complete
+            && self.context.is_some()
+            && self.effects.is_some()
+            && self.ledger.is_some()
     }
-    /// Consume only a complete tape; incomplete attempts keep their original custody.
+    /// Move a complete tape out in place, leaving a terminal destination.
+    /// Incomplete attempts keep their exact original address, backing and retry state.
     /// # Errors
-    /// Returns the unchanged pending owner when its original canonical tape is incomplete.
+    /// Returns a fixed diagnostic without changing an incomplete or already taken owner.
     #[allow(unsafe_code)]
-    pub fn finish(mut self) -> Result<AllocatedFastpqEffectsV1, Self> {
+    pub fn finish(&mut self) -> Result<AllocatedFastpqEffectsV1, Error> {
+        if self.phase == TapePhase::Taken {
+            return Err(Error::Invariant("completed tape was already taken"));
+        }
         if !self.is_complete() {
-            return Err(self);
+            return Err(Error::Invariant("unfinished tape destination"));
         }
         // Completed fields retain their own original recheck spans during retry;
         // the full tape is now complete, so retire only those transient parsers.
@@ -698,14 +719,19 @@ impl PendingFastpqEffectsDecodeV1 {
                 .expect("complete effects")
                 .into_allocation_parts()
         };
-        Ok(AllocatedFastpqEffectsV1 {
+        let complete = AllocatedFastpqEffectsV1 {
             value: FastpqExecutionEffectsV1 {
                 context: self.context.take().expect("complete context"),
                 effects,
             },
             effects: charge,
             ledger: self.ledger.take().expect("complete ledger"),
-        })
+        };
+        self.phase = TapePhase::Taken;
+        // Completion retires outer recheck spans while the terminal owner stays in place.
+        // The empty sequence retains only the original pool handle and allocates nothing.
+        self.spans = ncore::RetainedElementSequence::new(&self.pool);
+        Ok(complete)
     }
 }
 impl FieldDestination for PendingFastpqEffectsDecodeV1 {
@@ -717,6 +743,11 @@ impl DecodeField<0, FastpqExecutionEffectContextV1> for PendingFastpqEffectsDeco
         &mut self,
         f: CanonicalField<'_, FastpqExecutionEffectContextV1>,
     ) -> Result<Self::Value, DecodeIntoError<Error>> {
+        if self.phase == TapePhase::Taken {
+            return Err(destination(Error::Invariant(
+                "completed tape was already taken",
+            )));
+        }
         let identity = (
             f.bytes().as_ptr() as usize,
             f.bytes().len(),
@@ -739,6 +770,11 @@ impl DecodeField<1, Vec<FastpqExecutionEffectV1>> for PendingFastpqEffectsDecode
         &mut self,
         f: CanonicalField<'_, Vec<FastpqExecutionEffectV1>>,
     ) -> Result<(), DecodeIntoError<Error>> {
+        if self.phase == TapePhase::Taken {
+            return Err(destination(Error::Invariant(
+                "completed tape was already taken",
+            )));
+        }
         f.with_payload(|bytes| {
             let (count, _) = ncore::inspect_seq_len_slice(bytes)?;
             if count > self.max_effects {
@@ -812,7 +848,7 @@ impl DecodeField<1, Vec<FastpqExecutionEffectV1>> for PendingFastpqEffectsDecode
                 }
                 Ok(())
             })?;
-            self.complete = true;
+            self.phase = TapePhase::Complete;
             Ok(())
         })
     }
@@ -831,7 +867,7 @@ struct TapeView<'a> {
 }
 impl norito::SerializePayload for PendingFastpqEffectsDecodeV1 {
     fn serialize(&self, writer: &mut ncore::Encoder<'_>) -> Result<(), norito::Error> {
-        if !self.complete {
+        if !self.is_complete() {
             return Err(norito::Error::LengthMismatch);
         }
         let value = TapeView {
@@ -848,7 +884,11 @@ impl norito::SerializePayload for PendingFastpqEffectsDecodeV1 {
 }
 impl ncore::PreparedRecordDestination<FastpqExecutionEffectsV1> for PendingFastpqEffectsDecodeV1 {
     fn reset(&mut self) {
-        self.complete = false;
+        #[cfg(not(all(test, sumeragi_model_mutation = "DM44")))]
+        if self.phase == TapePhase::Taken {
+            return;
+        }
+        self.phase = TapePhase::Pending;
     }
 }
 

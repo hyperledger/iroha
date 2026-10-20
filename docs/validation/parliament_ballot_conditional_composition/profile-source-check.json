@@ -1,0 +1,175 @@
+{
+  "crt_digests_recomputed": false,
+  "dimensions": [
+    35840,
+    72576,
+    53504,
+    108931
+  ],
+  "historical_source_comparisons": [
+    {
+      "differences": [
+        {
+          "current_sha256": "1e1d5e5b40208c06934199b79a2b1b0551c362bab864f0d17ea0c4f9ab385678",
+          "historical_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+        },
+        {
+          "current_sha256": "0cc13a82a22e0a58e35a07e82587ddf0290e2d236d9c3084949b4528ed926314",
+          "historical_sha256": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+          "path": "specs/parliament_ballot_b6_generator_interface.md"
+        }
+      ],
+      "historical_member_count": 14,
+      "receipt": "docs/validation/parliament_ballot_h5_fixed_opening/receipt.json",
+      "receipt_sha256": "00c201c31489d533b0473895598e0d3be7e584899e0c618cf3bfb811789aaf45",
+      "unchanged_member_count": 12
+    },
+    {
+      "differences": [
+        {
+          "current_sha256": "1e1d5e5b40208c06934199b79a2b1b0551c362bab864f0d17ea0c4f9ab385678",
+          "historical_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+        }
+      ],
+      "historical_member_count": 27,
+      "receipt": "docs/validation/parliament_ballot_mask_coordinate/receipt.json",
+      "receipt_sha256": "2a62e32663f9e0bd58454ee1f5e31a95ca014330a19ff0ff9617a1f5b0712ca6",
+      "unchanged_member_count": 26
+    },
+    {
+      "differences": [
+        {
+          "current_sha256": "1e1d5e5b40208c06934199b79a2b1b0551c362bab864f0d17ea0c4f9ab385678",
+          "historical_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+        }
+      ],
+      "historical_member_count": 16,
+      "receipt": "docs/validation/parliament_ballot_hidden_assignment_deletion/receipt.json",
+      "receipt_sha256": "b49bbf9f40314a233fa9a3b6c12a9bad7194695d7e84773c777c4b104e89c901",
+      "unchanged_member_count": 15
+    },
+    {
+      "differences": [
+        {
+          "current_sha256": "1e1d5e5b40208c06934199b79a2b1b0551c362bab864f0d17ea0c4f9ab385678",
+          "historical_sha256": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+          "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+        },
+        {
+          "current_sha256": "0cc13a82a22e0a58e35a07e82587ddf0290e2d236d9c3084949b4528ed926314",
+          "historical_sha256": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+          "path": "specs/parliament_ballot_b6_generator_interface.md"
+        }
+      ],
+      "historical_member_count": 22,
+      "receipt": "docs/validation/parliament_ballot_ideal_public_sampler/receipt.json",
+      "receipt_sha256": "b00078bf7c1ece87889c203e2070c578ce5408b970c996a70230bd8a6594c88f",
+      "unchanged_member_count": 20
+    }
+  ],
+  "input_sha256": {
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "1e1d5e5b40208c06934199b79a2b1b0551c362bab864f0d17ea0c4f9ab385678",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba"
+  },
+  "interpreter": {
+    "executable": "/opt/homebrew/opt/python@3.15/bin/python3.15",
+    "version": "3.15.0 (main, Oct  9 2026, 11:16:41) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "method": "Python stdlib: extract byte literals and test digest pins from profile.rs, direct row constants from params.rs, scalar literals from layout.rs; transcribe reviewed layout and frame expressions; SHA3-512 descriptor and namespace bytes; compare historical H5 identifiers. Current generated table files only hashed against historical source maps.",
+  "observed_at_utc": "2026-10-19T17:09:16.841676+00:00",
+  "prior_receipts_reauthenticated": false,
+  "qualified": false,
+  "results": [
+    {
+      "descriptor_bytes": 286,
+      "descriptor_sha3_512": "01ed9f564981a07ab383d513c4e816f5a76542c7220eaaa36742f8eb0c51341da089e154a815f92fcd18353077cde18f435dfaa0834b65fdf3a658b0accdda28",
+      "matches_current_descriptor_pin": true,
+      "matches_historical_h5_identifier": true,
+      "namespace_hex": "fee2262f962d05a6795159d84989830f9bbb2149855f7ac8d4a9dbbbeabb87c9a82ad5750d9322207851ff36cdcc02c260a7f372e309fdb7658108ed0188b6b6",
+      "parameters_u16": [
+        256,
+        33,
+        8,
+        229,
+        7,
+        704
+      ],
+      "prefix_bytes": 77,
+      "prefix_hex": "5041524c2f46414553542f7631fee2262f962d05a6795159d84989830f9bbb2149855f7ac8d4a9dbbbeabb87c9a82ad5750d9322207851ff36cdcc02c260a7f372e309fdb7658108ed0188b6b6",
+      "role": "REG",
+      "row": "candidate",
+      "table_digest_input": "a9c572a7c8f2cc735218123c6456e1e016e78b06aa2d03192ef801bf7fdb93ae014a9e16555e6bad81382c630467e45e76c9b1c3948f9dfea41a7a1435bcffea"
+    },
+    {
+      "descriptor_bytes": 286,
+      "descriptor_sha3_512": "01ed9f564981a07ab383d513c4e816f5a76542c7220eaaa36742f8eb0c51341da089e154a815f92fcd18353077cde18f435dfaa0834b65fdf3a658b0accdda28",
+      "matches_current_descriptor_pin": true,
+      "matches_historical_h5_identifier": true,
+      "namespace_hex": "c35e0a664654be33e1a86aa304b02fd39ab25d8bec8a0a222b43ed87af0bdb9dea73f1309f96e8b4d08f0a19d75288f2dd5f53a030d7184f01250a213e3598f8",
+      "parameters_u16": [
+        256,
+        33,
+        8,
+        229,
+        7,
+        704
+      ],
+      "prefix_bytes": 77,
+      "prefix_hex": "5041524c2f46414553542f7631c35e0a664654be33e1a86aa304b02fd39ab25d8bec8a0a222b43ed87af0bdb9dea73f1309f96e8b4d08f0a19d75288f2dd5f53a030d7184f01250a213e3598f8",
+      "role": "VOTE",
+      "row": "candidate",
+      "table_digest_input": "a9c572a7c8f2cc735218123c6456e1e016e78b06aa2d03192ef801bf7fdb93ae014a9e16555e6bad81382c630467e45e76c9b1c3948f9dfea41a7a1435bcffea"
+    },
+    {
+      "descriptor_bytes": 286,
+      "descriptor_sha3_512": "4c38e45d70b5aa1295c107fe9035e82b179d8ec10ab7acf59b6955e0b22f9fdb09976788745a0fbb4ee1cabd840a12d9e746bf76b3998ab72c06e019bb889412",
+      "matches_current_descriptor_pin": true,
+      "matches_historical_h5_identifier": true,
+      "namespace_hex": "119502053f76d04013b0d812c23eea36f9f12fd42831966a6d34968b9dad2ab38be9487bf837e2fd285eacc1bf9360d3254fc90a10f3f4e4dda43b090751c115",
+      "parameters_u16": [
+        256,
+        22,
+        6,
+        225,
+        7,
+        696
+      ],
+      "prefix_bytes": 77,
+      "prefix_hex": "5041524c2f46414553542f7631119502053f76d04013b0d812c23eea36f9f12fd42831966a6d34968b9dad2ab38be9487bf837e2fd285eacc1bf9360d3254fc90a10f3f4e4dda43b090751c115",
+      "role": "REG",
+      "row": "comparator",
+      "table_digest_input": "792f81bf102cac84b7c559595342b6b23ad27dab9065651feb928dd0a649a3f4bd1da3d350fbd4c62f1707d441d46ef084430b5f00b53a1af7088281d6a7386e"
+    },
+    {
+      "descriptor_bytes": 286,
+      "descriptor_sha3_512": "4c38e45d70b5aa1295c107fe9035e82b179d8ec10ab7acf59b6955e0b22f9fdb09976788745a0fbb4ee1cabd840a12d9e746bf76b3998ab72c06e019bb889412",
+      "matches_current_descriptor_pin": true,
+      "matches_historical_h5_identifier": true,
+      "namespace_hex": "d142d6ecdf7a62223a25423b9f1d21f216e5d94e08dcd9a99bfaa2303068e9e786353a28706dd99a0cdcf3dea4c7bdac19d744d4c11cb4ad602fc902a47802e8",
+      "parameters_u16": [
+        256,
+        22,
+        6,
+        225,
+        7,
+        696
+      ],
+      "prefix_bytes": 77,
+      "prefix_hex": "5041524c2f46414553542f7631d142d6ecdf7a62223a25423b9f1d21f216e5d94e08dcd9a99bfaa2303068e9e786353a28706dd99a0cdcf3dea4c7bdac19d744d4c11cb4ad602fc902a47802e8",
+      "role": "VOTE",
+      "row": "comparator",
+      "table_digest_input": "792f81bf102cac84b7c559595342b6b23ad27dab9065651feb928dd0a649a3f4bd1da3d350fbd4c62f1707d441d46ef084430b5f00b53a1af7088281d6a7386e"
+    }
+  ],
+  "rust_tests_run": false,
+  "schema": "parliament-conditional-composition-profile-source-check-v1",
+  "scope": "Read-only source-literal/layout arithmetic and historical identifier comparison. No Rust compilation, CRT table digest regeneration, semantic model execution, prior receipt reauthentication, or qualification."
+}

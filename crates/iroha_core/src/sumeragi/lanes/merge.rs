@@ -83,6 +83,31 @@ pub trait LaneBlockSource: Send + Sync {
         height: u64,
         request: &ProposalReadScope,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>>;
+    /// Read an incoming proposal's exact committed frame under its original request.
+    /// This grants no tip or local selection authority to read-only replay sources.
+    ///
+    /// # Errors
+    /// Original storage, authentication, pool refusal or another live request owns the slot.
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>>;
+    /// Wait for one incoming proposal's referenced height under that same request.
+    /// Refused recovery remains owned by this request, not implicit historical demand.
+    ///
+    /// # Errors
+    /// Original storage, authentication, pool refusal or another live request owns the slot.
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        request: &ProposalReadScope,
+    ) -> Result<bool, Attempt<std::io::Error>>;
     /// Finish bounded cancellation cleanup after the original proposal owner is dropped.
     /// Implementations may release only cancelled proposal interest, never historical work.
     /// This lifecycle hook performs no native I/O and does not wait for a read lock.
@@ -129,6 +154,25 @@ impl LaneBlockSource for NoLanes {
         _: &ProposalReadScope,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>> {
         Ok(None)
+    }
+    fn execution_block(
+        &self,
+        _: LaneId,
+        _: &[u8; 32],
+        _: u64,
+        _: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>> {
+        Ok(None)
+    }
+    fn execution_wait_for(
+        &self,
+        _: LaneId,
+        _: &[u8; 32],
+        _: u64,
+        _: Duration,
+        _: &ProposalReadScope,
+    ) -> Result<bool, Attempt<std::io::Error>> {
+        Ok(false)
     }
     fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
@@ -285,7 +329,6 @@ fn block_capacity(world: &impl WorldReadOnly) -> usize {
         .unwrap_or(usize::MAX)
         .min(inputs)
 }
-
 /// Check the merge references of `proposal` (global height `h`) against the committed
 /// pre-state and the node's lane stores, waiting up to `wait` for lane blocks, and expand them.
 /// The exact State owner and stable publication are retained before releasing the read view.
@@ -299,13 +342,14 @@ pub fn expand<'state>(
     proposal: &SignedBlock,
     source: &dyn LaneBlockSource,
     wait: Duration,
+    request: &mut ProposalReadScope,
 ) -> Result<Expansion<'state>, MergeError> {
     let budget = state.ivm_execution_budget();
     budget.with_deferred_refund_notifications(|_| {
         let publication = state.view_publication_release();
         let generation = state.state_view_generation();
         let view = state.try_view_once()?;
-        let expanded = expand_from_view(state, generation, &view, proposal, source, wait);
+        let expanded = expand_from_view(state, generation, &view, proposal, source, wait, request);
         drop(view);
         if !is_stable_state_view_generation(generation, state.state_view_generation()) {
             return Err(MergeError::StateView(crate::state::StateViewError::Busy(
@@ -323,6 +367,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
     proposal: &SignedBlock,
     source: &dyn LaneBlockSource,
     wait: Duration,
+    request: &mut ProposalReadScope,
 ) -> Result<Expansion<'state>, MergeError> {
     let height = proposal.header().height().get();
     let time_ms = u64::try_from(proposal.header().creation_time().as_millis()).unwrap_or(u64::MAX);
@@ -331,6 +376,14 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
     let policy = routing.policy();
     let inputs = routing.inputs(view.world());
     let own = proposal.external_entrypoints_slice();
+    if own
+        .iter()
+        .any(|input| matches!(input, TransactionEntrypoint::AnonymousBallot(_)))
+    {
+        return Err(MergeError::ResourceDeferred(
+            crate::tx::anonymous_ballot_unavailable(),
+        ));
+    }
     let mut step = LaneStepInput {
         time_ms,
         ..LaneStepInput::default()
@@ -369,7 +422,18 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
     let Some(policy) = policy else {
         return Err(MergeError::Invalid("the chain has no lane policy".into()));
     };
-    let blocks = load(&section.merges, lanes, policy, height, source, wait)?;
+    request
+        .admit(&state.ivm_execution_budget())
+        .map_err(MergeError::Storage)?;
+    let blocks = load(
+        &section.merges,
+        lanes,
+        policy,
+        height,
+        source,
+        wait,
+        request,
+    )?;
     step.merges.clone_from(&section.merges);
     // Candidates: the transactions of fresh merged blocks, in execution order.
     let candidates = blocks
@@ -405,6 +469,11 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
         step,
     };
     for (index, (lane, tx)) in candidates.into_iter().enumerate() {
+        if matches!(tx, TransactionEntrypoint::AnonymousBallot(_)) {
+            return Err(MergeError::ResourceDeferred(
+                crate::tx::anonymous_ballot_unavailable(),
+            ));
+        }
         let accepted = AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(&tx));
         let cached = identities.candidates.as_slice()[index];
         let hash = cached.carrier;
@@ -413,7 +482,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
             || cached
                 .replay_alias
                 .is_some_and(|alias| view.has_entrypoint(alias))
-            || !admission.admits(&tx, proposal)
+            || !admission.admits(&tx, proposal)?
         {
             continue;
         }
@@ -457,10 +526,12 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
 enum MergeWorkIdentity {
     Signed(HashOf<SignedTransaction>),
     Commitment(Hash),
+    AnonymousBallot(HashOf<TransactionEntrypoint>),
 }
 impl MergeWorkIdentity {
     fn of(entrypoint: &TransactionEntrypoint) -> Self {
         match entrypoint {
+            TransactionEntrypoint::AnonymousBallot(_) => Self::AnonymousBallot(entrypoint.hash()),
             TransactionEntrypoint::External(signed) => Self::Signed(signed.hash()),
             TransactionEntrypoint::SealedReveal(reveal) => {
                 Self::Signed(reveal.signed_transaction().hash())
@@ -508,9 +579,9 @@ impl MergeIdentityIndex {
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     Some(reveal.signed_transaction().hash_as_entrypoint())
                 }
-                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedCommitment(_) => {
-                    None
-                }
+                TransactionEntrypoint::External(_)
+                | TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => None,
             };
             cached.push_reserved(MergeCandidateIdentity {
                 carrier: entrypoint.hash(),
@@ -670,6 +741,7 @@ fn load(
     height: u64,
     source: &dyn LaneBlockSource,
     wait: Duration,
+    request: &ProposalReadScope,
 ) -> Result<Vec<(LaneId, bool, CommittedLaneBlock)>, MergeError> {
     let invalid =
         |lane: LaneId, reason: &str| MergeError::Invalid(format!("lane {lane}: {reason}"));
@@ -700,7 +772,7 @@ fn load(
             return Err(invalid(lane, "the range exceeds max_merge_blocks"));
         }
         if !source
-            .wait_for(lane, &merge.incarnation, merge.to, wait)
+            .execution_wait_for(lane, &merge.incarnation, merge.to, wait, request)
             .map_err(MergeError::Storage)?
         {
             return Err(MergeError::Pending(format!(
@@ -710,7 +782,7 @@ fn load(
         }
         for lane_height in merge.from..=merge.to {
             let Some(block) = source
-                .block(lane, &merge.incarnation, lane_height)
+                .execution_block(lane, &merge.incarnation, lane_height, request)
                 .map_err(MergeError::Storage)?
             else {
                 return Err(MergeError::Pending(format!(
@@ -752,26 +824,40 @@ impl Admissibility {
         }
     }
 
-    fn admits(&self, tx: &TransactionEntrypoint, block: &SignedBlock) -> bool {
+    fn admits(&self, tx: &TransactionEntrypoint, block: &SignedBlock) -> Result<bool, MergeError> {
         let now = block.header().creation_time();
-        tx.creation_time_ms()
-            .is_none_or(|created| Duration::from_millis(created) < now)
-            && AcceptedTransaction::accept_borrowed_entrypoint_at_time(
-                tx,
-                &self.network,
-                self.max_clock_drift,
-                self.limits,
-                &self.crypto,
-                now,
-                false,
-            )
-            .is_ok()
-            && match tx {
-                TransactionEntrypoint::SealedCommitment(commitment) => {
-                    commitment.payload().reveal_after_height > block.header().height().get()
-                }
-                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedReveal(_) => true,
+        if tx
+            .creation_time_ms()
+            .is_some_and(|created| Duration::from_millis(created) >= now)
+        {
+            return Ok(false);
+        }
+        match AcceptedTransaction::accept_borrowed_entrypoint_at_time(
+            tx,
+            &self.network,
+            self.max_clock_drift,
+            self.limits,
+            &self.crypto,
+            now,
+            false,
+        ) {
+            Ok(_) => {}
+            Err(crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable) => {
+                return Err(MergeError::ResourceDeferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ));
             }
+            Err(_) => return Ok(false),
+        }
+        match tx {
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                Ok(commitment.payload().reveal_after_height > block.header().height().get())
+            }
+            TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedReveal(_) => Ok(true),
+            TransactionEntrypoint::AnonymousBallot(_) => Err(MergeError::ResourceDeferred(
+                crate::tx::anonymous_ballot_unavailable(),
+            )),
+        }
     }
 }
 

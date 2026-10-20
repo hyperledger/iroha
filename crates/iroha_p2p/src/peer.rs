@@ -6,6 +6,8 @@ pub(crate) mod post_admission;
 #[cfg(feature = "quic")]
 mod quic_datagram;
 pub(crate) mod receive_credit;
+#[cfg(feature = "bench")]
+pub use receive_credit::stream::benchmark;
 pub(crate) mod tenure;
 
 #[cfg(feature = "quic")]
@@ -3559,12 +3561,12 @@ pub mod handles {
         where
             T: crate::network::message::ClassifyTopic,
         {
+            use tokio::sync::mpsc::error::TrySendError;
             let disarm = |notice: Option<crate::network::WriterFlushNotice>| {
                 if let Some(notice) = notice {
                     notice.disarm();
                 }
             };
-            use tokio::sync::mpsc::error::TrySendError;
             let topic = msg.topic();
             let priority = msg.priority();
             let progress =

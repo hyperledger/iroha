@@ -45,6 +45,7 @@ fn plain_ballot_emits_ballot_accepted_with_weight() {
         1_000_000_u64.into(),
         0,
     );
+    let plain_context = iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0);
     stx.world.governance_referenda_mut().insert(
         "ref-1".to_string(),
         iroha_core::state::GovernanceReferendumRecord {
@@ -54,7 +55,7 @@ fn plain_ballot_emits_ballot_accepted_with_weight() {
             h_end: 11,
             status: iroha_core::state::GovernanceReferendumStatus::Open,
             mode: iroha_core::state::GovernanceReferendumMode::Plain,
-            plain_context: iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0),
+            plain_context,
             plain_result: iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
         },
     );

@@ -13,7 +13,7 @@ pub const SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1: usize = 1;
 /// Header alignment padding for the supported canonical signed-transaction layout.
 ///
 /// The type invariant below refuses a model/target layout that would change this
-/// geometry. This is not the unrelated untyped ArchiveView padding allowance.
+/// geometry. This is not the unrelated untyped `ArchiveView` padding allowance.
 pub const SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1: usize = 0;
 /// Bytes added when replacing the V1 prefix with a canonical signed-transaction frame.
 pub const SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1: usize = norito::core::Header::SIZE

@@ -3,16 +3,19 @@
 //! Every conforming decoder must read the lanes named in `must_decode`, must
 //! never report wrong data for any lane, must report the recorded inferred
 //! corner, must follow each tracking pair from its first frame into its second,
-//! and must reject the negatives.
+//! must recover the `must_merge` lanes of every merge set from the merge of its
+//! captures, must never let a session offer a lane of a mixed set, and must
+//! reject the negatives.
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use std::io::Read as _;
 use std::path::PathBuf;
 
 use flate2::read::ZlibDecoder;
-use iroha_petal::decode::{DecodeOptions, decode, track};
+use iroha_petal::decode::{DecodeOptions, LaneResult, decode, merge_tiles, tile_evidence, track};
 use iroha_petal::image::Luma;
 use iroha_petal::lanes::{Lane, decode_lane};
+use iroha_petal::session::{ScanLimits, ScanSession, ScanStats};
 use iroha_petal::stream::{AssemblerLimits, StreamAssembler};
 use norito::json::{self, Value};
 
@@ -139,6 +142,125 @@ fn golden_tracks_follow_the_pose_into_the_next_frame() {
             inferred,
             "{name}: inferred corner"
         );
+    }
+}
+
+/// Decodes every capture of a merge set as recorded and pushes it through a fresh session
+/// (30 fps); returns the merge of their tile evidence, the lanes the session merged and its
+/// counters.
+fn merge_set(set: &Value) -> ((Option<LaneResult>, Option<LaneResult>), String, ScanStats) {
+    let name = set.get("name").and_then(Value::as_str).unwrap();
+    let options = DecodeOptions::default();
+    let mut evidence = Vec::new();
+    let mut session = ScanSession::new(ScanLimits::default());
+    let mut merged = String::new();
+    let captures = set
+        .get("captures")
+        .and_then(Value::as_array)
+        .expect("captures");
+    for (i, capture) in captures.iter().enumerate() {
+        let mut entry = capture.clone();
+        for key in ["width", "height"] {
+            if let (Some(map), Some(value)) = (entry.as_object_mut(), set.get(key)) {
+                map.insert(key.to_string(), value.clone());
+            }
+        }
+        let image = luma_of(&entry);
+        let decoded =
+            decode(&image, &options).unwrap_or_else(|e| panic!("{name} capture {i}: {e}"));
+        let mut read = String::new();
+        for (letter, lane, expected) in [
+            ('P', &decoded.p, hex_field(set, "p_data")),
+            ('K', &decoded.k, hex_field(set, "k_data")),
+            ('D', &decoded.d, hex_field(set, "d_data")),
+        ] {
+            if let Some(result) = lane {
+                assert_eq!(
+                    result.data, expected,
+                    "{name} capture {i}: lane {letter} data"
+                );
+                read.push(letter);
+            }
+        }
+        let must = capture.get("must_decode").and_then(Value::as_str).unwrap();
+        assert!(
+            must.chars().all(|letter| read.contains(letter)),
+            "{name} capture {i}: read {read:?}, must read {must:?}"
+        );
+        let reference = capture
+            .get("reference_decoded")
+            .and_then(Value::as_str)
+            .unwrap();
+        assert_eq!(read, reference, "{name} capture {i}: lanes read alone");
+        evidence.push(tile_evidence(&image, &decoded, &options).expect("tile evidence"));
+        merged.push_str(&session.push(&image, 33 * i as u64).merged);
+    }
+    (merge_tiles(&evidence, &options), merged, session.stats())
+}
+
+#[test]
+fn golden_merge_sets_recover_lanes_no_capture_reads_alone() {
+    let doc = load();
+    for set in doc.get("merges").and_then(Value::as_array).expect("merges") {
+        let name = set.get("name").and_then(Value::as_str).unwrap();
+        let ((p, k), session_merged, stats) = merge_set(set);
+        let mut merged = String::new();
+        for (letter, lane, expected) in [
+            ('P', &p, hex_field(set, "p_data")),
+            ('K', &k, hex_field(set, "k_data")),
+        ] {
+            if let Some(result) = lane {
+                assert_eq!(result.data, expected, "{name}: merged lane {letter} data");
+                merged.push(letter);
+            }
+        }
+        let reference = set.get("reference_merged").and_then(Value::as_str).unwrap();
+        assert_eq!(merged, reference, "{name}: merged lanes");
+        let must = set.get("must_merge").and_then(Value::as_str).unwrap();
+        for letter in must.chars() {
+            assert!(
+                session_merged.contains(letter),
+                "{name}: the session did not recover lane {letter} (merged {session_merged:?})"
+            );
+        }
+        assert!(stats.merges > 0, "{name}: no merge");
+    }
+}
+
+#[test]
+fn golden_mixed_sets_never_offer_the_other_frames_lanes() {
+    let doc = load();
+    for set in doc
+        .get("mixed_merges")
+        .and_then(Value::as_array)
+        .expect("mixed merges")
+    {
+        let name = set.get("name").and_then(Value::as_str).unwrap();
+        let ((p, k), session_merged, stats) = merge_set(set);
+        // the merge itself reads the tile field, which shows another frame than the rings
+        let mut merged = String::new();
+        for (letter, lane, expected) in [
+            ('P', &p, hex_field(set, "p_data")),
+            ('K', &k, hex_field(set, "k_data")),
+        ] {
+            if let Some(result) = lane {
+                assert_eq!(result.data, expected, "{name}: merged lane {letter} data");
+                assert_ne!(
+                    result.data[1..3],
+                    hex_field(set, "d_data")[1..3],
+                    "{name}: lane {letter} names the rings' frame"
+                );
+                merged.push(letter);
+            }
+        }
+        let reference = set.get("reference_merged").and_then(Value::as_str).unwrap();
+        assert_eq!(merged, reference, "{name}: merged lanes");
+        assert!(stats.merges > 0, "{name}: no merge was tried");
+        assert_eq!(
+            session_merged, "",
+            "{name}: the session offered another frame's lanes"
+        );
+        assert_eq!((stats.merged_p, stats.merged_k), (0, 0), "{name}");
     }
 }
 

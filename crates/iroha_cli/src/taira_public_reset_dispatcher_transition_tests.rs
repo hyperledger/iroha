@@ -1041,20 +1041,76 @@ fn dispatcher_transition_requires_complete_qualified_transfer_producer_join() {
     assert!(admission::qualification::validate_records(&wrong, &records).is_err());
 }
 #[test]
-fn dispatcher_transition_requires_native_aarch64_elf_header() {
-    let mut header = [0u8; 20];
-    header[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
-    header[16] = 2;
-    header[18] = 183;
-    assert!(admission::qualification::valid_elf(&header));
-    header[16] = 3;
-    assert!(admission::qualification::valid_elf(&header));
-    for (index, value) in [(4, 1), (5, 2), (6, 0), (16, 1), (18, 62)] {
-        let mut wrong = header;
-        wrong[index] = value;
-        assert!(!admission::qualification::valid_elf(&wrong));
+fn dispatcher_transition_artifact_target_matches_each_preparation_record() {
+    let (mut c, records) = qualification_records();
+    let target = "x86_64-unknown-linux-gnu";
+    c.revision.target = target.into();
+    assert!(admission::qualification::validate_records(&c, &records).is_err());
+    let mut r = records.clone();
+    set(&mut r[0], "target", Value::String(target.into()));
+    assert!(admission::qualification::validate_records(&c, &r).is_err());
+    set(&mut r[1], "target", Value::String(target.into()));
+    assert!(admission::qualification::validate_records(&c, &r).is_err());
+    let request = r[1].clone();
+    set(&mut r[2], "request", request);
+    admission::qualification::validate_records(&c, &r).unwrap();
+    // Artifact target agreement does not authorize this revision for the
+    // separately signed AArch64 host-pair corridor.
+    assert!(crate::taira_public_reset::validate_revision_build_fields(&c.revision).is_err());
+    for unsupported in ["", "x86_64-unknown-linux-musl", "aarch64-apple-darwin"] {
+        c.revision.target = unsupported.into();
+        for row in &mut r[..2] {
+            set(row, "target", Value::String(unsupported.into()));
+        }
+        let request = r[1].clone();
+        set(&mut r[2], "request", request);
+        assert!(admission::qualification::validate_records(&c, &r).is_err());
     }
-    assert!(!admission::qualification::valid_elf(&header[..19]));
+}
+
+#[test]
+fn dispatcher_transition_requires_exact_candidate_target_elf_header() {
+    for (target, machine, other) in [
+        (
+            "aarch64-unknown-linux-gnu",
+            183u16,
+            "x86_64-unknown-linux-gnu",
+        ),
+        (
+            "x86_64-unknown-linux-gnu",
+            62u16,
+            "aarch64-unknown-linux-gnu",
+        ),
+    ] {
+        let mut header = [0u8; 20];
+        header[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+        header[16] = 2;
+        header[18..20].copy_from_slice(&machine.to_le_bytes());
+        assert!(admission::qualification::valid_elf(&header, target));
+        header[16] = 3;
+        assert!(admission::qualification::valid_elf(&header, target));
+        assert!(!admission::qualification::valid_elf(&header, other));
+        for (index, value) in [
+            (0, 0),
+            (4, 1),
+            (5, 2),
+            (6, 0),
+            (16, 1),
+            (17, 1),
+            (18, 0),
+            (19, 1),
+        ] {
+            let mut wrong = header;
+            wrong[index] = value;
+            assert!(!admission::qualification::valid_elf(&wrong, target));
+        }
+        for len in 0..header.len() {
+            assert!(!admission::qualification::valid_elf(&header[..len], target));
+        }
+        for unsupported in ["", "x86_64-unknown-linux-musl", "aarch64-apple-darwin"] {
+            assert!(!admission::qualification::valid_elf(&header, unsupported));
+        }
+    }
 }
 
 #[test]

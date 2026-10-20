@@ -90,12 +90,23 @@ fn prepare() -> PreparedTestChainConfig {
     ];
     let chain_id = ChainId::from(CHAIN);
     let validators = fixture_validators();
+    // Author the engineering fixture's zero rates in the original signed genesis,
+    // matching CertifiedTestChain::prepare without bypassing runtime fee admission.
+    let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    fees.base_fee = Quantity::zero();
+    fees.per_byte_fee = Quantity::zero();
+    fees.per_instruction_fee = Quantity::zero();
+    fees.per_gas_unit_fee = Quantity::zero();
+    let parameters = vec![Parameter::Custom(
+        fees.into_custom_parameter()
+            .expect("fixture authors the complete root fee policy"),
+    )];
     let (genesis, manifest) = build_genesis(
         &chain_id,
         &genesis_key,
         &validators,
         instructions,
-        Vec::new(),
+        parameters,
         SumeragiConsensusMode::Permissioned,
         iroha_data_model::block::consensus::SumeragiRootScope::Global,
         1_000,
@@ -232,13 +243,12 @@ pub(crate) fn start() -> ExecutedKagemushaSetup {
     drop(view);
     // commit_at builds a real signed Log transaction: no empty-block production.
     chain.commit_at(2_000, Vec::new());
-    assert!(
-        chain
-            .committed(2)
-            .block()
-            .output_results()
-            .all(|result| result.is_ok())
-    );
+    for (index, result) in chain.committed(2).block().output_results().enumerate() {
+        assert!(
+            result.is_ok(),
+            "executed setup H2 transaction {index} was rejected: {result:?}"
+        );
+    }
     ExecutedKagemushaSetup {
         chain,
         manifest,

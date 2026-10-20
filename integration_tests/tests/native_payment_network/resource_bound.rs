@@ -195,6 +195,7 @@ fn native_payment_exact_fixed_frame_and_first_excess_byte_use_real_signed_terms(
             &iroha_config::parameters::actual::Crypto::default(),
         );
         if allowed {
+            // `ensure!` may evaluate its condition twice; consume the result first.
             let accepted = accepted?;
             ensure!(accepted.encoded_len() == SIGNED_FRAME_CAP);
         } else {
@@ -564,12 +565,11 @@ fn fixed_maximum_payment_and_rejection_survive_http_rs16_kura_and_receipt_recove
         bounded(&rt, deadline, network.start_all())??;
         bounded(&rt, deadline, network.ensure_blocks(3))??;
         bounded(&rt, deadline, wait_for_applied_height(&network, 3))??;
-        ensure!(
-            transport::processes(&network, &rt, deadline)?
-                .iter()
-                .zip(original_pids.iter().copied())
-                .all(|(now, old)| *now != old)
-        );
+        let every_process_replaced = transport::processes(&network, &rt, deadline)?
+            .iter()
+            .zip(original_pids)
+            .all(|(now, old)| *now != old);
+        ensure!(every_process_replaced);
         for peer in network.validators() {
             let resumed = peer
                 .client_for(&payer, key(0x76).private_key().clone())
@@ -605,14 +605,12 @@ fn fixed_maximum_payment_and_rejection_survive_http_rs16_kura_and_receipt_recove
             )?;
             let recovery = bounded(&rt, deadline, failure.recover(&options))??;
             ensure!(recovery.receipt.is_none());
-            ensure!(
-                rejected_payment::rejected_identity(
-                    recovery
-                        .carrier
-                        .as_ref()
-                        .ok_or_else(|| eyre!("rejected carrier missing"))?
-                )? == identity
-            );
+            let recovered_identity = rejected_payment::rejected_identity(
+                &recovery
+                    .carrier
+                    .ok_or_else(|| eyre!("rejected carrier missing"))?,
+            )?;
+            ensure!(recovered_identity == identity);
             ensure!(bounded(&rt, deadline, resumed.client().status().get())??.blocks == 3);
         }
         check_balances(&network, &payer, &recipient, 2, 250_000, deadline)?;

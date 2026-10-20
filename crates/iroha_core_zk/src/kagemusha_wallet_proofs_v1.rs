@@ -633,7 +633,7 @@ impl ArtifactSet {
 
     /// Fully verify Omega and all transported accumulator obligations.
     ///
-    /// D_A is recomputed from every canonical public field, the original acc_P and the
+    /// `D_A` is recomputed from every canonical public field, the original `acc_P` and the
     /// installed Omega key digest. Neither coordinates, challenges nor public extensions
     /// are accepted as independent caller instances. Both accumulator encodings are exact.
     ///
@@ -727,7 +727,7 @@ fn limbs(bytes: &[u8; 32]) -> [[u8; 32]; 2] {
 }
 
 /// The exact eighteen-field native Omega public prefix, including its independently
-/// installed verifying-key digest. Preparation and D_A verification share this encoding.
+/// installed verifying-key digest. Preparation and `D_A` verification share this encoding.
 /// This conversion supplies a witness only; it does not authenticate or accept a lineage.
 pub(crate) fn lineage_public_fields(
     public: &KagemushaWalletLineagePublicV1,

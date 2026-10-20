@@ -7,7 +7,8 @@ mod disposable_runtime_provider_broker;
 mod private_settlement_route_control;
 #[cfg(unix)]
 pub use disposable_runtime_provider_broker::{
-    DisposableBeaconProviderBinding, new_disposable_owner_private_root,
+    DisposableBeaconProviderBinding, DisposableBrokerShutdownEvidence,
+    new_disposable_owner_private_root,
 };
 #[cfg(unix)]
 mod disposable_rotation_ceremony;
@@ -8533,6 +8534,8 @@ struct PeerRun {
     pid: Option<u32>,
     #[cfg(unix)]
     broker_child: Option<Child>,
+    #[cfg(unix)]
+    broker_shutdown: Option<DisposableBrokerShutdownEvidence>,
 }
 /// Lifecycle events of a peer
 #[derive(Copy, Clone, Debug)]
@@ -9353,6 +9356,14 @@ impl NetworkPeer {
                 .instrument(span),
             );
         }
+        #[cfg(unix)]
+        let broker_shutdown = Some(DisposableBrokerShutdownEvidence::new(
+            self,
+            run_num,
+            pid,
+            broker_child.is_some(),
+            broker_child.as_ref().and_then(Child::id),
+        ));
         *run_guard = Some(PeerRun {
             tasks,
             shutdown: shutdown_tx,
@@ -9360,6 +9371,8 @@ impl NetworkPeer {
             pid,
             #[cfg(unix)]
             broker_child,
+            #[cfg(unix)]
+            broker_shutdown,
         });
         Ok(())
     }
@@ -9422,8 +9435,20 @@ impl NetworkPeer {
             }
         }
         #[cfg(unix)]
-        if let Some(mut broker_child) = run.broker_child.take() {
-            disposable_runtime_provider_broker::stop_disposable_broker(&mut broker_child).await;
+        {
+            // Complete all daemon cleanup before collecting the original optional helper.
+            // Keep failure evidence even when fallback cleanup successfully reaps it.
+            let (broker_pid, outcome) = if let Some(mut child) = run.broker_child.take() {
+                let pid = child.id();
+                let outcome =
+                    disposable_runtime_provider_broker::stop_disposable_broker(&mut child).await;
+                (pid, Some(outcome))
+            } else {
+                (None, None)
+            };
+            if let Some(original) = run.broker_shutdown.take() {
+                original.complete(broker_pid, outcome);
+            }
         }
         true
     }
@@ -11891,6 +11916,8 @@ mod tests {
                 pid: None,
                 #[cfg(unix)]
                 broker_child: None,
+                #[cfg(unix)]
+                broker_shutdown: None,
             });
         }
         peer.is_running.store(true, Ordering::Relaxed);
@@ -11924,6 +11951,8 @@ mod tests {
                 pid: Some(42_424),
                 #[cfg(unix)]
                 broker_child: None,
+                #[cfg(unix)]
+                broker_shutdown: None,
             });
         }
         assert_eq!(peer.process_id().await, Some(42_424));
@@ -11962,6 +11991,8 @@ mod tests {
                 pid: None,
                 #[cfg(unix)]
                 broker_child: None,
+                #[cfg(unix)]
+                broker_shutdown: None,
             });
         }
         running_peer.is_running.store(true, Ordering::Relaxed);
@@ -11996,6 +12027,8 @@ mod tests {
                 pid: None,
                 #[cfg(unix)]
                 broker_child: None,
+                #[cfg(unix)]
+                broker_shutdown: None,
             });
         }
         peer.is_running.store(false, Ordering::Relaxed);

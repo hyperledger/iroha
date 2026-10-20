@@ -552,7 +552,8 @@ fn genesis_status_prefix_retains_original_admitted_pool_and_cumulative_refusal_w
         .unwrap_err();
     // Exercise the actual original slot and occupied byte allocation once as a precise
     // source-work preflight. Its successful metadata/nominal prefix remains on this same
-    // context; the full-prefix attempt must add both its metadata captures and read prefix.
+    // context; the full-prefix attempt also adds target admission, source capture,
+    // and the acquisition kernel's original-slot recheck before its raw read prefix.
     let metadata_before = context.consumed_allocated_bytes();
     let source = budget.with(|| {
         chain
@@ -608,11 +609,11 @@ fn genesis_status_prefix_retains_original_admitted_pool_and_cumulative_refusal_w
     assert_eq!(
         context.consumed_allocated_bytes(),
         before_prefix
-            .checked_add(marker_work.checked_mul(2).unwrap())
+            .checked_add(marker_work.checked_mul(3).unwrap())
             .unwrap()
             .checked_add(frame_work)
             .unwrap(),
-        "target admission and original G1 acquisition retain all original metadata/byte work"
+        "target admission, original G1 capture/recheck, and raw read retain all metadata/byte work"
     );
     let admitted_prefix = context.consumed_allocated_bytes();
     drop(blocker);

@@ -213,6 +213,51 @@ enum Compiled {
 }
 
 impl Compiled {
+    /// Evaluate only fields present in a source prefix. Unknown fields are
+    /// deferred, including through negation and disjunction; they are never
+    /// treated as absent metadata.
+    fn matches_partial(&self, row: &Map) -> Option<bool> {
+        match self {
+            Self::And(list) => {
+                let mut unknown = false;
+                for item in list {
+                    match item.matches_partial(row) {
+                        Some(false) => return Some(false),
+                        None => unknown = true,
+                        Some(true) => {}
+                    }
+                }
+                (!unknown).then_some(true)
+            }
+            Self::Or(list) => {
+                let mut unknown = false;
+                for item in list {
+                    match item.matches_partial(row) {
+                        Some(true) => return Some(true),
+                        None => unknown = true,
+                        Some(false) => {}
+                    }
+                }
+                (!unknown).then_some(false)
+            }
+            Self::Not(inner) => inner.matches_partial(row).map(|matched| !matched),
+            Self::Eq(path, ..)
+            | Self::Ne(path, ..)
+            | Self::Range(path, ..)
+            | Self::In(path, ..)
+            | Self::Nin(path, ..)
+            | Self::Exists(path)
+            | Self::IsNull(path) => {
+                let known = row.contains_key(&path.full)
+                    || path
+                        .segments
+                        .first()
+                        .is_some_and(|field| row.contains_key(field));
+                known.then(|| self.matches(row))
+            }
+        }
+    }
+
     fn matches(&self, row: &Map) -> bool {
         match self {
             Self::And(list) => list.iter().all(|nested| nested.matches(row)),
@@ -1519,6 +1564,21 @@ impl Prepared<'_> {
                 .transpose()?,
             total: None,
         })
+    }
+
+    /// Return a cheap source prefix only when it proves the full filter false.
+    /// Unknown top-level fields stay undecided. Returning the rejected prefix
+    /// preserves its visible identity for sparse-page continuation; a complete
+    /// row is required for every source that might match.
+    pub(crate) fn rejected_source_prefix(
+        &self,
+        source: impl FnOnce() -> Result<Map, CollectionError>,
+    ) -> Result<Option<Map>, CollectionError> {
+        let Some(filter) = &self.filter else {
+            return Ok(None);
+        };
+        let row = source()?;
+        Ok((filter.matches_partial(&row) == Some(false)).then_some(row))
     }
 
     /// Whether `row` passes the filter.
@@ -3339,5 +3399,111 @@ mod tests {
             assets.ordered_scan().is_none(),
             "only id-keyed collections stream"
         );
+    }
+    #[test]
+    fn partial_source_filter_defers_unknown_fields_through_boolean_operators() {
+        use iroha_torii_shared::list_query::{FieldPath, FilterExpr};
+        let known = FilterExpr::Eq(FieldPath::new("owned_by"), Value::from("alice"));
+        let unknown = FilterExpr::Eq(FieldPath::new("metadata.tier"), Value::from("gold"));
+        let row = Map::from_iter([("owned_by".to_owned(), Value::from("bob"))]);
+        for (filter, could_match) in [
+            (known.clone(), false),
+            (FilterExpr::And(vec![known.clone(), unknown.clone()]), false),
+            (FilterExpr::Or(vec![known.clone(), unknown.clone()]), true),
+            (FilterExpr::Not(Box::new(unknown)), true),
+            (FilterExpr::Not(Box::new(known)), true),
+        ] {
+            let query = ListQuery {
+                filter: Some(filter),
+                ..ListQuery::default()
+            };
+            let limits = Limits::from_page_limits(10, 100);
+            let prepared = prepare(&DOMAINS, "", &query, &limits).unwrap();
+            assert_eq!(
+                prepared
+                    .rejected_source_prefix(|| Ok(row.clone()))
+                    .unwrap()
+                    .is_none(),
+                could_match
+            );
+        }
+        let query = ListQuery::default();
+        let limits = Limits::from_page_limits(10, 100);
+        let prepared = prepare(&DOMAINS, "", &query, &limits).unwrap();
+        assert!(
+            prepared
+                .rejected_source_prefix(|| panic!("unfiltered read must not project a prefix"))
+                .unwrap()
+                .is_none()
+        );
+    }
+    #[test]
+    fn rejected_source_prefix_is_false_for_every_metadata_completion() {
+        let path = FieldPath::new("metadata.tier");
+        let leaves = [
+            FilterExpr::Eq(path.clone(), Value::from("gold")),
+            FilterExpr::Ne(path.clone(), Value::from("gold")),
+            FilterExpr::Lt(path.clone(), Value::from(3)),
+            FilterExpr::Lte(path.clone(), Value::from(3)),
+            FilterExpr::Gt(path.clone(), Value::from(3)),
+            FilterExpr::Gte(path.clone(), Value::from(3)),
+            FilterExpr::In(path.clone(), vec![Value::from("gold"), Value::Null]),
+            FilterExpr::Nin(path.clone(), vec![Value::from("gold"), Value::Null]),
+            FilterExpr::Exists(path.clone()),
+            FilterExpr::IsNull(path),
+        ];
+        let known_false = FilterExpr::Eq(FieldPath::new("owned_by"), Value::from("alice"));
+        let known_true = FilterExpr::Eq(FieldPath::new("owned_by"), Value::from("bob"));
+        let prefix = Map::from_iter([
+            ("id".to_owned(), Value::from("test")),
+            ("owned_by".to_owned(), Value::from("bob")),
+        ]);
+        let completions = [
+            None,
+            Some(Value::Null),
+            Some(norito::json!({})),
+            Some(norito::json!({"tier": null})),
+            Some(norito::json!({"tier": "gold"})),
+            Some(norito::json!({"tier": "silver"})),
+            Some(norito::json!({"tier": 2})),
+            Some(norito::json!({"tier": ["gold", "silver", 3]})),
+        ];
+        for leaf in leaves {
+            let filters = [
+                leaf.clone(),
+                FilterExpr::Not(Box::new(leaf.clone())),
+                FilterExpr::And(vec![known_false.clone(), leaf.clone()]),
+                FilterExpr::And(vec![known_true.clone(), leaf.clone()]),
+                FilterExpr::Or(vec![known_false.clone(), leaf.clone()]),
+                FilterExpr::Or(vec![known_true.clone(), leaf.clone()]),
+                FilterExpr::Not(Box::new(FilterExpr::Or(vec![known_true.clone(), leaf]))),
+            ];
+            for filter in filters {
+                let query = ListQuery {
+                    filter: Some(filter),
+                    ..ListQuery::default()
+                };
+                let prepared = prepare(&DOMAINS, "", &query, &LIMITS).unwrap();
+                if let Some(rejected) = prepared
+                    .rejected_source_prefix(|| Ok(prefix.clone()))
+                    .unwrap()
+                {
+                    assert!(
+                        !prepared.matches(&rejected),
+                        "rejected prefixes cannot enter the result or aggregate"
+                    );
+                    for metadata in &completions {
+                        let mut complete = prefix.clone();
+                        if let Some(metadata) = metadata {
+                            complete.insert("metadata".to_owned(), metadata.clone());
+                        }
+                        assert!(
+                            !prepared.matches(&complete),
+                            "prefilter cannot discard a matching metadata completion"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

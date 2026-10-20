@@ -71,6 +71,7 @@ use iroha_test_samples::ALICE_ID;
 #[path = "sora_parliament_lifecycle_support.rs"]
 mod support;
 
+use support::submission as parliament_submission;
 use support::submission::minimal_contract_artifact;
 use support::*;
 #[path = "support/parliament_contract.rs"]

@@ -6419,7 +6419,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
     aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     let challenges = derive_der_challenges_v1(&mut transcript)?;
-    let public = derive_zk_x509_der_stark_public_terminals_v1(shape, challenges)
+    let public = derive_zk_x509_der_stark_public_terminals_v1(shape, &challenges)
         .map_err(|_| ZkX509StarkErrorV1::TranscriptMismatch)?;
     let trace = build_zk_x509_der_stark_trace_v1(base, challenges)
         .map_err(|_| ZkX509StarkErrorV1::DerWitness)?;
@@ -8740,7 +8740,7 @@ impl<'a, 'source> MainLog19ProverConstraintSourceV1<'a, 'source> {
             source,
             der_public: derive_zk_x509_der_stark_public_terminals_v1(
                 &ZkX509DerStarkShapeV1,
-                source.post_base.der(),
+                &source.post_base.der(),
             )
             .map_err(ZkX509StarkErrorV1::from)?,
             p256_challenges: p256_aggregate_challenges_from_post_base_v1(source.post_base)?,
@@ -8818,7 +8818,7 @@ impl<'a, 'source> MainLog19ProverConstraintSourceV1<'a, 'source> {
                 fixed_next
                     .try_into()
                     .map_err(|_| ZkX509StarkErrorV1::ProfileMismatch)?,
-                self.source.post_base.der(),
+                &self.source.post_base.der(),
                 self.der_public,
             )
             .map_err(ZkX509StarkErrorV1::from)?,
@@ -9603,7 +9603,7 @@ impl MainLog19VerifierConstraintSourceV1 {
         canonical_main_log19_registrations_v1(layout)?;
 
         let der_public =
-            derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, post_base.der())?;
+            derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, &post_base.der())?;
         let rfc_shape = ZkX509Rfc5280StarkShapeV1::from_statement(rfc_statement)
             .map_err(|_| ZkX509StarkErrorV1::InvalidStatement)?;
         let rfc_fixed = compile_zk_x509_rfc5280_stark_fixed_schedule_v1(rfc_shape)
@@ -11547,7 +11547,7 @@ pub fn verify_zk_x509_der_segmented_stark_v1(
     aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     let challenges = derive_der_challenges_v1(&mut transcript)?;
-    let public = derive_zk_x509_der_stark_public_terminals_v1(shape, challenges)
+    let public = derive_zk_x509_der_stark_public_terminals_v1(shape, &challenges)
         .map_err(|_| ZkX509StarkErrorV1::TranscriptMismatch)?;
     aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;

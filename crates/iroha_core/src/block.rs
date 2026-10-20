@@ -1719,7 +1719,7 @@ pub enum BlockValidationError {
         actual: u64,
     },
     /// Cannot accept a transaction
-    TransactionAccept(#[from] AcceptTransactionFail),
+    TransactionAccept(#[source] AcceptTransactionFail),
     /// Mismatch between the actual and expected topology. Expected: {expected:?}, actual: {actual:?}
     TopologyMismatch {
         /// Expected value
@@ -1963,6 +1963,18 @@ impl From<crate::execution_attempt::ExecutionAttemptError<crate::sumeragi::sched
     }
 }
 
+/// A missing ballot adapter is a local deferral, never a committed invalid verdict.
+impl From<AcceptTransactionFail> for BlockValidationError {
+    fn from(error: AcceptTransactionFail) -> Self {
+        match error {
+            AcceptTransactionFail::AnonymousBallotUnavailable => {
+                Self::ExecutionDeferred(crate::tx::anonymous_ballot_unavailable())
+            }
+            other => Self::TransactionAccept(other),
+        }
+    }
+}
+
 /// Preserve the original epoch-allocation refusal before any diagnostic formatting.
 impl From<crate::sumeragi::schedule::ScheduleError> for BlockValidationError {
     fn from(error: crate::sumeragi::schedule::ScheduleError) -> Self {
@@ -1978,6 +1990,24 @@ impl From<crate::sumeragi::schedule::ScheduleError> for BlockValidationError {
             deterministic => Self::ExecutionContextInvalid(deterministic.to_string()),
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn anonymous_ballot_unavailable_has_no_block_rejection_reason() {
+    let error = BlockValidationError::from(AcceptTransactionFail::AnonymousBallotUnavailable);
+    assert!(
+        matches!(&error, BlockValidationError::ExecutionDeferred(reason)
+        if reason.reason() == ivm::error::ExecutionDeferral::VerifierInitializationUnavailable)
+    );
+    assert_eq!(event::map_block_err_to_reason(&error), None);
+    // Defensive classification also covers explicitly constructed public variants.
+    assert_eq!(
+        event::map_block_err_to_reason(&BlockValidationError::TransactionAccept(
+            AcceptTransactionFail::AnonymousBallotUnavailable,
+        )),
+        None
+    );
 }
 
 #[cfg(test)]
@@ -5627,7 +5657,8 @@ pub(crate) mod valid {
                 let signed = match entrypoint {
                     TransactionEntrypoint::External(signed) => signed,
                     TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-                    TransactionEntrypoint::SealedCommitment(_) => continue,
+                    TransactionEntrypoint::SealedCommitment(_)
+                    | TransactionEntrypoint::AnonymousBallot(_) => continue,
                 };
                 let count = keepalive::count(signed.instructions());
                 keepalives = keepalives.saturating_add(count);
@@ -5696,7 +5727,8 @@ pub(crate) mod valid {
             match entrypoint {
                 TransactionEntrypoint::External(tx) => Some(tx),
                 TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-                TransactionEntrypoint::SealedCommitment(_) => None,
+                TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => None,
             }
         }
         fn collect_external_signed_transactions(block: &SignedBlock) -> Vec<&SignedTransaction> {
@@ -6046,6 +6078,11 @@ pub(crate) mod valid {
             let mut prepared_signed_idx = 0usize;
             for entrypoint in block.external_entrypoints_slice() {
                 match entrypoint {
+                    TransactionEntrypoint::AnonymousBallot(_) => {
+                        return Err(BlockValidationError::ExecutionDeferred(
+                            crate::tx::anonymous_ballot_unavailable(),
+                        ));
+                    }
                     TransactionEntrypoint::External(_) => {
                         let prepared = prepared_txs
                             .get(prepared_signed_idx)
@@ -6317,6 +6354,35 @@ pub(crate) mod valid {
             timings: Option<&mut ValidationTimings>,
             genesis: Option<&AuthenticatedGenesisOutputSource>,
         ) -> Result<(), BlockValidationError> {
+            let mut parent_service =
+                crate::sumeragi::certified_chain::ParentServicePreparation::default();
+            let has_parent = block.header().height().get() > 2;
+            if has_parent {
+                let result = (|| {
+                    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+                        block,
+                        &state_block.execution_budget(),
+                    )?;
+                    parent_service.prepare(&*state_block, block.header().height().get() - 1)?;
+                    parent_service.prepare_proposal_qc(&*state_block, block)
+                })();
+                result.map_err(|error| match error {
+                    crate::sumeragi::certified_chain::ParentServiceError::Deferred(original) => {
+                        BlockValidationError::ExecutionDeferred(original)
+                    }
+                    crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
+                        original,
+                    ) => BlockValidationError::NativeHistory(original),
+                    crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
+                        Self::execution_context_error(reason)
+                    }
+                    crate::sumeragi::certified_chain::ParentServiceError::Source(original) => {
+                        BlockValidationError::LocalStorageRecoveryRequired {
+                            reason: original.to_string(),
+                        }
+                    }
+                })?;
+            }
             Self::execute_and_record_canonical_outputs_in_context(
                 block,
                 state_block,
@@ -6324,7 +6390,7 @@ pub(crate) mod valid {
                 genesis,
                 crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1::Unauthenticated,
                 None,
-                None,
+                has_parent.then_some(&parent_service),
             )
         }
         /// Execute and seal ordinary outputs. `sccp_height` names the authenticated consensus
@@ -6381,36 +6447,9 @@ pub(crate) mod valid {
                         }
                     })?
             } else {
-                let reader =
-                    crate::sumeragi::certified_chain::CertifiedChain::new_for_parent_service(
-                        &*state_block,
-                    )
-                    .map_err(|error| match error {
-                        crate::sumeragi::certified_chain::ParentServiceError::Deferred(reason) => {
-                            BlockValidationError::ExecutionDeferred(reason)
-                        }
-                        error => BlockValidationError::LocalStorageRecoveryRequired {
-                            reason: error.to_string(),
-                        },
-                    })?;
-                reader
-                    .authenticate_parent_service(block, |_, _| Ok(()))
-                    .map_err(|error| match error {
-                        crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
-                            Self::execution_context_error(reason)
-                        }
-                        crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
-                            error,
-                        ) => BlockValidationError::NativeHistory(error),
-                        crate::sumeragi::certified_chain::ParentServiceError::Source(error) => {
-                            BlockValidationError::LocalStorageRecoveryRequired {
-                                reason: error.to_string(),
-                            }
-                        }
-                        crate::sumeragi::certified_chain::ParentServiceError::Deferred(reason) => {
-                            BlockValidationError::ExecutionDeferred(reason)
-                        }
-                    })?
+                return Err(BlockValidationError::LocalStorageRecoveryRequired {
+                    reason: "native parent-service preparation is absent".into(),
+                });
             };
             Self::validate_sccp_exempt_cap(block, state_block)?;
             let advertised_fragments = block.committed_fragment_count();
@@ -8988,7 +9027,7 @@ mod event {
                     let tx = match entrypoint {
                         TransactionEntrypoint::External(tx) => tx,
                         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-                        TransactionEntrypoint::SealedCommitment(_) => return None,
+                        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
                     };
                     let input_index = u32::try_from(idx).ok()?;
                     let (_, output) = block.network_output_at(input_index)?;
@@ -9093,6 +9132,7 @@ mod event {
             BlockValidationError::PrevBlockHeightMismatch { .. } => Reason::PrevBlockHeightMismatch,
             BlockValidationError::MerkleRootMismatch => Reason::MerkleRootMismatch,
             BlockValidationError::TransactionAccept(fail) => match fail {
+                AcceptTransactionFail::AnonymousBallotUnavailable => return None,
                 AcceptTransactionFail::TransactionLimit(_)
                 | AcceptTransactionFail::SignedAttachments(_)
                 | AcceptTransactionFail::SignatureVerification(_)
@@ -9711,42 +9751,100 @@ pub(crate) mod tests {
         let mut zk = state.installed_zk().clone();
         zk.max_confidential_ops_per_block = 1;
         zk.max_verify_calls_per_block = 1;
-        zk.max_verify_calls_per_tx = 2;
+        zk.max_verify_calls_per_tx = 1;
         zk.max_proof_bytes_block = 1_000_000;
         zk.max_proof_size_bytes = 1_000_000;
         state
             .set_zk(zk)
             .expect("empty state accepts focused confidential limits");
 
-        let native_chain = crate::block::tests::component_chain(state);
-        let state = native_chain.state();
-        let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
-            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
-            [0_u8; 32],
+        let fixture = crate::zk::test_utils::native_confidential_fixture_envelope();
+        let backend = crate::zk::ZK_BACKEND_NATIVE_PIPA_R;
+        let circuit = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
+        let key = fixture.vk_box(backend).expect("genuine compiled proof key");
+        let key_id = iroha_data_model::proof::VerifyingKeyId::new(backend, "overlay-vk");
+        let mut record = iroha_data_model::proof::VerifyingKeyRecord::new(
+            1,
+            circuit,
+            iroha_data_model::zk::BackendTag::NativePipaRPasta,
+            "vesta",
+            fixture.schema_hash,
+            crate::zk::hash_vk(&key),
         );
-        let proof = fixture.proof_box("pipa-r/pasta");
+        record.vk_len = u32::try_from(key.bytes.len()).expect("key length fits u32");
+        record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
+        record.key = Some(key);
+        record.gas_schedule_id = Some("native_pipa_r_default".to_owned());
+        crate::zk::validate_and_prepare_verifying_key_record_v1(&key_id, &record)
+            .expect("the original registry key binds its compiled relation");
+        // Install the real key through signed genesis, so the original header
+        // authenticates the empty predecessor keyset before registration executes.
+        let pipeline = state.installed_pipeline().clone();
+        let zk = state.installed_zk().clone();
+        let nexus = state.nexus_snapshot();
+        let mut config = crate::sumeragi::test_chain::TestChainConfig::new(state.world, 0);
+        config.chain_id = chain_id;
+        config.genesis_key = keypair.clone();
+        config.pipeline = pipeline;
+        config
+            .genesis_parameters
+            .push(iroha_data_model::parameter::Parameter::Custom(
+                crate::zk_validity_policy::policy_of(&zk).into_custom_parameter(),
+            ));
+        config.zk = Some(zk);
+        config.nexus = Some(nexus);
+        config.genesis_instructions = vec![
+            Grant::account_permission(
+                iroha_executor_data_model::permission::governance::CanManageVerifyingKeys,
+                authority.clone(),
+            )
+            .into(),
+            iroha_data_model::isi::verifying_keys::RegisterVerifyingKey {
+                id: key_id.clone(),
+                record,
+            }
+            .into(),
+        ];
+        let native_chain = crate::sumeragi::test_chain::CertifiedTestChain::start(config)
+            .expect("original signed genesis registers the genuine proof key");
+        let state = native_chain.state();
+        assert_eq!(state.zk_snapshot().max_verify_calls_per_block, 1);
+        assert_eq!(state.zk_snapshot().max_confidential_ops_per_block, 1);
+        let proof = fixture.proof_box(backend);
+        let proof_id = iroha_data_model::proof::ProofId {
+            backend: backend.to_owned(),
+            proof_hash: crate::zk::hash_proof(&proof),
+        };
         let proof_bytes = u64::try_from(proof.bytes.len()).expect("proof length fits u64");
         let instruction: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(
-            iroha_data_model::proof::ProofAttachment::new_ref(
-                "pipa-r/pasta".into(),
-                proof,
-                iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "missing-overlay-vk"),
-            ),
+            iroha_data_model::proof::ProofAttachment::new_ref(backend.into(), proof, key_id),
         )
         .into();
         let expected_confidential_gas =
             crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS)
                 .expect("completed fixture gas quote");
+        let (missing_account, _) = gen_account_in("wonderland");
         let transaction = TransactionBuilder::new(
+            state.network_id,
+            authority.clone(),
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([
+            instruction.clone(),
+            Unregister::account(missing_account.clone()).into(),
+        ])
+        .sign(keypair.private_key());
+        let next_transaction = TransactionBuilder::new(
             state.network_id,
             authority,
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_instructions([instruction])
         .sign(keypair.private_key());
-        let block = BlockBuilder::new(vec![AcceptedTransaction::new_unchecked(Cow::Owned(
-            transaction,
-        ))])
+        let block = BlockBuilder::new(vec![
+            AcceptedTransaction::new_unchecked(Cow::Owned(transaction)),
+            AcceptedTransaction::new_unchecked(Cow::Owned(next_transaction)),
+        ])
         .chain(
             0,
             state
@@ -9783,11 +9881,25 @@ pub(crate) mod tests {
         assert!(
             matches!(
                 results.as_slice(),
-                [Err(TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
-                    iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(message)
-                )))] if message.as_ref() == "proof must reference a registered verifying key reference; inline verifying keys are not supported"
+                [
+                    Err(TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+                        iroha_data_model::isi::error::InstructionExecutionError::Find(
+                            iroha_data_model::query::error::FindError::Account(account)
+                        )
+                    ))),
+                    Err(TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+                        iroha_data_model::isi::error::InstructionExecutionError::InvalidParameter(
+                            iroha_data_model::isi::error::InvalidParameterError::SmartContract(message)
+                        )
+                    )))
+                ] if account == &missing_account
+                    && message == "confidential verify calls per block exceeded"
             ),
-            "missing verifying key must reject after attempting its proof: {results:?}"
+            "the first overlay must reject after verification, and the next must retain its exhausted quota: {results:?}"
+        );
+        assert!(
+            state_block.world.proofs.get(&proof_id).is_none(),
+            "the rejected overlay rolls back the verified proof record"
         );
         assert_eq!(state_block.zk_confidential_ops_in_block, 1);
         assert_eq!(state_block.zk_verify_calls_in_block, 1);
@@ -9795,20 +9907,6 @@ pub(crate) mod tests {
         assert_eq!(
             state_block.confidential_gas_used_in_block,
             expected_confidential_gas
-        );
-
-        let mut next = state_block.transaction();
-        let error = next
-            .register_confidential_proof(1)
-            .expect_err("the rejected overlay must exhaust the one-operation block budget");
-        assert!(
-            matches!(
-                error,
-                iroha_data_model::isi::error::InstructionExecutionError::InvalidParameter(
-                    iroha_data_model::isi::error::InvalidParameterError::SmartContract(message)
-                ) if message == "confidential verify calls per block exceeded"
-            ),
-            "the next proof must fail the exact exhausted block verification quota"
         );
     }
     #[test]
@@ -11438,6 +11536,19 @@ seiyaku DynamicTarget { permission CanWriteCounters;
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         // Lane zero remains global/universal; the signed native policy authorizes DS7 separately.
+        {
+            let mut parameters = world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    nexus
+                        .fees
+                        .clone()
+                        .into_custom_parameter()
+                        .expect("signed zero-fee fixture policy"),
+                ))
+                .expect("valid committed fixture fee policy");
+            parameters.commit();
+        }
         let state = State::new_with_pre_genesis_nexus_for_testing(
             world,
             nexus,

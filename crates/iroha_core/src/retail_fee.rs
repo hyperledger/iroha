@@ -457,8 +457,8 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
             .get(&ValidationFeePolicyRegistryV1::parameter_id())
             .unwrap()
             .clone();
-        // A zero archive field bound does not refuse this typed JSON decode. Exercise
-        // the completed empty registry separately; it is not local-refusal evidence.
+        // Empty registry contents remain valid, but JSON field names still
+        // consume the caller's field-length budget.
         let empty = ValidationFeePolicyRegistryV1 {
             history: None,
             registered_policies: Vec::new(),
@@ -477,22 +477,32 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
                     .expect("empty registry fits the canonical JSON parameter"),
             ))
             .unwrap();
-        assert_eq!(
-            norito::with_decode_limits_scope(
-                norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
-                || registry(&transaction.world),
-            )
-            .unwrap(),
-            Some(empty)
-        );
+        assert_eq!(registry(&transaction.world).unwrap(), Some(empty.clone()));
+        let refused_field = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
+            || registry(&transaction.world),
+        )
+        .unwrap_err();
+        let ExecutionAttemptError::Deferred(original_field) = refused_field else {
+            panic!("actual JSON field-bound refusal must remain local: {refused_field:?}");
+        };
+        assert!(matches!(
+            original_field
+                .decode_refusal()
+                .expect("JSON field-bound refusal retains its original retired scope")
+                .resource_error(),
+            norito::core::DecodeResourceError::FieldLengthExceeded { length, limit: 0 }
+                if length > 0
+        ));
+        assert_eq!(registry(&transaction.world).unwrap(), Some(empty));
         transaction
             .world
             .parameters
             .get_mut()
             .set_parameter(Parameter::Custom(parameter.clone()))
             .unwrap();
-        // Typed JSON charges its owned strings and vectors to total allocation. The
-        // archive field-length limit above is not the resource this path consumes.
+        // Typed JSON also charges its owned strings and vectors to total
+        // allocation. Exercise that independent caller limit on the real registry.
         let refused = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
             || registry(&transaction.world),

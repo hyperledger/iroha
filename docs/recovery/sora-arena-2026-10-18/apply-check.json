@@ -1,0 +1,14 @@
+{
+  "command": [
+    "git",
+    "apply",
+    "--check",
+    "--whitespace=nowarn",
+    "/Users/takemiyamakoto/soramitsudev/sora-arena/docs/recovery/claude-2026-10-18/native-checkpoint/native-working-tree.patch"
+  ],
+  "cwd": "/Users/takemiyamakoto/soramitsudev/sora-arena/Saved/Qualification/2026-10-18/native-mixed-checkpoint-base",
+  "exit_code": 0,
+  "scope": "read-only patch applicability against copied base files; no native apply, build or qualification",
+  "stderr": "",
+  "stdout": ""
+}

@@ -1,8 +1,8 @@
 //! Original-funded bulk certificate fields and resultless proposal bytes for prefix reads.
 //!
-//! TODO(S8): metadata, decoded result/schedule graphs and cryptographic/RS16 scratch still
-//! require original-pool custody on SCCP restore. This job funds only the exact table,
-//! witness and proposal owners.
+//! TODO(S8): decoded result/genesis/schedule graphs and shared validation error diagnostics
+//! still require original-pool custody on SCCP restore. This job owns the canonical metadata,
+//! table and proposal graphs; the admitted verifier separately owns exact RS16 scratch.
 
 #[cfg(test)]
 use std::io;
@@ -17,13 +17,17 @@ use iroha_sumeragi::{
 
 use super::{ChainReadError, MAX_PROPOSAL_BYTES};
 use crate::sumeragi::{
-    block_store::certificate_read::{CertificateRead, CertificateReadError, DecodedCertificate},
+    block_store::certificate_read::{
+        CertificateRead, CertificateReadError, FundedDecodedCertificate,
+    },
     driver::payload_build::{PayloadBuild, PayloadBuildError},
 };
 
+pub(in crate::sumeragi) mod metadata;
+
 enum Stage {
     Certificate(CertificateRead),
-    Projecting(PayloadBuild<DecodedCertificate>),
+    Projecting(PayloadBuild<FundedDecodedCertificate>),
     Consumed,
 }
 
@@ -59,7 +63,7 @@ impl PrefixArtifactsRead {
         }
         loop {
             match std::mem::replace(&mut self.stage, Stage::Consumed) {
-                Stage::Certificate(read) => match read.complete(budget) {
+                Stage::Certificate(read) => match read.complete_for_prefix(budget) {
                     Ok(decoded) => {
                         self.stage = Stage::Projecting(PayloadBuild::new(
                             decoded,
@@ -110,9 +114,7 @@ impl PrefixArtifactsError {
             {
                 io::ErrorKind::WouldBlock
             }
-            // The remaining bounded metadata decoder has no original-pool graph owner yet.
-            // Physical refusal still does not prove malformed bytes: the original read keeps
-            // its source and installs no partial metadata. Format bounds remain terminal.
+            // A decoder-level allocator refusal also cannot prove malformed bytes.
             Self::Certificate(CertificateReadError::Decode(norito::Error::AllocationFailed {
                 ..
             })) => io::ErrorKind::WouldBlock,
@@ -148,8 +150,9 @@ impl std::error::Error for PrefixArtifactsError {
 }
 
 /// Sealed source-bound decoded artifacts; this grants no certificate or execution authority.
+#[derive(Clone)]
 pub(crate) struct PrefixArtifacts {
-    decoded: DecodedCertificate,
+    decoded: FundedDecodedCertificate,
     payload: PayloadBytes,
 }
 impl PrefixArtifacts {
@@ -157,17 +160,55 @@ impl PrefixArtifacts {
         &self.decoded.source
     }
 
+    /// Borrow the original immutable header owner without redecoding or copying its keys.
+    pub(super) fn header(&self) -> &metadata::FundedMetadata<BlockHeader> {
+        &self.decoded.header
+    }
+
+    /// Require the same original pool for every completed metadata and bulk owner.
+    pub(super) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.decoded.header.belongs_to(budget)
+            && self.decoded.commit_qc.belongs_to(budget)
+            && self.decoded.availability.admitted_to(budget)
+            && self.payload.admitted_to(budget)
+    }
+
+    /// Release the quorum and bulk owners for the receipt verified from this exact carrier.
+    ///
+    /// A prepared receipt must hold this same funded header owner: the sole metadata decoder
+    /// produced both, so a value comparison would only compare the header with itself.
+    /// A different carrier or header owner is local custody misuse, never a verdict on the
+    /// stored bytes. A separately decoded header must still equal the decoded value.
     pub(super) fn into_parts(
         self,
         source: &iroha_data_model::block::SharedSignedBlock,
-        header: &BlockHeader,
-    ) -> Result<(Qc, AvailabilityFrame, PayloadBytes), ChainReadError> {
+        header: &super::PrefixHeader,
+    ) -> Result<
+        (
+            metadata::FundedMetadata<Qc>,
+            AvailabilityFrame,
+            PayloadBytes,
+        ),
+        super::VerificationReadError,
+    > {
+        let same_owner = match header {
+            super::PrefixHeader::Funded(header) => header.same_owner(&self.decoded.header),
+            super::PrefixHeader::Decoded(_) => true,
+        };
         if !iroha_data_model::block::SharedSignedBlock::ptr_eq(source, &self.decoded.source)
-            || header != &self.decoded.header
+            || !same_owner
+        {
+            return Err(super::VerificationReadError::Deferred(
+                super::retained_query_authority::invariant(),
+            ));
+        }
+        if let super::PrefixHeader::Decoded(header) = header
+            && header != &*self.decoded.header
         {
             return Err(ChainReadError::HeaderMismatch {
                 height: source.header().height().get(),
-            });
+            }
+            .into());
         }
         Ok((
             self.decoded.commit_qc,

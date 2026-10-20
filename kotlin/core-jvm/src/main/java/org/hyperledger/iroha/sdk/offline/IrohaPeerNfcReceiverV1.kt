@@ -6,7 +6,8 @@ package org.hyperledger.iroha.sdk.offline
 /**
  * Metadata accepted by BEGIN_PAYMENT. The complete IPM1 header travels in that command, so
  * profile, kind, lengths and both IPM1 hashes are checked before the first Payment byte is
- * buffered.
+ * buffered. The message is at most [IrohaPeerNfcV1.MAXIMUM_PAYMENT_BYTES]: the header and the
+ * Payment carrier with its payer companion.
  */
 class IrohaPeerNfcPaymentDescriptorV1 @JvmOverloads constructor(
     paymentHeader: ByteArray,
@@ -22,10 +23,9 @@ class IrohaPeerNfcPaymentDescriptorV1 @JvmOverloads constructor(
     @JvmField val messageLength: Int = IrohaPeerWireMessageV1.HEADER_LENGTH + inspected.encodedLength
 
     init {
-        if (inspected.canonicalLength <= 0 || inspected.encodedLength <= 0 ||
-            messageLength > limits.maximumMessageBytes
-        ) {
-            nfcMessageTooLarge(messageLength, limits.maximumMessageBytes)
+        val maximum = minOf(limits.maximumMessageBytes, IrohaPeerNfcV1.MAXIMUM_PAYMENT_BYTES)
+        if (inspected.canonicalLength <= 0 || inspected.encodedLength <= 0 || messageLength > maximum) {
+            nfcMessageTooLarge(messageLength, maximum)
         }
     }
 
@@ -405,7 +405,7 @@ class IrohaPeerNfcReceiverSessionV1 @JvmOverloads constructor(
 
     private val session: ByteArray = nfcRequireSession(sessionId)
 
-    /** The hosted Request (IPM1 kind `request`). */
+    /** The hosted open Request (IPM1 kind `request`). */
     @JvmField val receiveRequest: IrohaPeerWireMessageV1 =
         nfcDecodeMessage(receiveRequest, null, IrohaPeerPayloadKind.REQUEST, limits)
     private val requestBytes: ByteArray = this.receiveRequest.encode()
@@ -507,45 +507,19 @@ class IrohaPeerNfcReceiverSessionV1 @JvmOverloads constructor(
         )
     }
 
-    /**
-     * The direct-mode `IOI1` record: REQUEST_READY with zero Offer fields, because this session
-     * hosts a Request built from an Offer that arrived over another carrier.
-     */
-    fun intakeRecord(): IrohaPeerNfcIntakeRecordV1 = IrohaPeerNfcIntakeRecordV1(
-        IrohaPeerNfcIntakeStateV1.REQUEST_READY,
-        identity.profile,
-        session,
-        0,
-        0,
-        ByteArray(IrohaPeerNfcV1.HASH_BYTES),
-        limits.maximumWriteChunkBytes,
-        0,
-    )
+    /** The `IOI1` record: REQUEST_READY under this session's identifier and write chunk limit. */
+    fun intakeRecord(): IrohaPeerNfcIntakeRecordV1 =
+        IrohaPeerNfcIntakeRecordV1(identity.profile, session, limits.maximumWriteChunkBytes)
 
     /**
      * Handles every command except BEGIN_PAYMENT and COMMIT, whose durable boundaries use
      * [preparePaymentAdmission]/[installPaymentAdmission] and [prepareCommit]/
-     * [installDurableAcknowledgement], or the [process] convenience. In this direct mode GET_INTAKE
-     * answers [intakeRecord] and GET_ASK and the Offer commands answer
-     * [IrohaPeerNfcErrorV1.STATE_MISMATCH].
+     * [installDurableAcknowledgement], or the [process] convenience. GET_INTAKE answers [intakeRecord].
      */
     @Synchronized
     fun handle(command: IrohaPeerNfcCommandV1): ByteArray = when (command) {
         is IrohaPeerNfcCommandV1.SelectApplication -> ByteArray(0)
         is IrohaPeerNfcCommandV1.GetIntake -> intakeRecord().encode()
-        is IrohaPeerNfcCommandV1.GetAsk -> nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
-        is IrohaPeerNfcCommandV1.BeginOffer -> {
-            requireSession(command.sessionId)
-            nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
-        }
-        is IrohaPeerNfcCommandV1.WriteOffer -> {
-            requireSession(command.sessionId)
-            nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
-        }
-        is IrohaPeerNfcCommandV1.SubmitOffer -> {
-            requireSession(command.sessionId)
-            nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
-        }
         is IrohaPeerNfcCommandV1.GetInfo -> info().encode()
         is IrohaPeerNfcCommandV1.ReadRequest -> {
             requireRequestContinuity(command.sessionView(), command.hashView())

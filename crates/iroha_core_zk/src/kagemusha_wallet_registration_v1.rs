@@ -49,9 +49,9 @@ pub struct RegistrationInventoryV1 {
     pub asset_digest: [u8; 32],
     /// Direct Register position in the successful external transaction.
     pub instruction_index: u32,
-    /// Exact canonical CommittedTransaction, authenticated only against the final verified block.
+    /// Exact canonical `CommittedTransaction`, authenticated only against the final verified block.
     pub committed: BlobV1,
-    /// First exact canonical RegistrationEntryV1; its ordinal is one.
+    /// First exact canonical `RegistrationEntryV1`; its ordinal is one.
     pub first: BlobV1,
     /// Exact number of consecutive proofs, including selected genesis; at least two.
     pub proof_count: u64,
@@ -66,7 +66,7 @@ pub struct RegistrationEntryV1 {
     pub version: u16,
     /// Consecutive authenticated height, beginning at one.
     pub ordinal: u64,
-    /// Original canonical native SumeragiFinalityProof.
+    /// Original canonical native `SumeragiFinalityProof`.
     pub proof: BlobV1,
     /// Exact next entry, or None precisely at the declared final proof.
     pub next: Option<BlobV1>,

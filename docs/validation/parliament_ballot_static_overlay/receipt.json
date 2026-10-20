@@ -1,0 +1,233 @@
+{
+  "binding_production_activation": false,
+  "candidate_vote_supplied_field_writer": {
+    "auxiliary_writes": 0,
+    "clean_work_bits": 1723409,
+    "counter_bits": 0,
+    "disabled_write_gates_charged": true,
+    "first_slot": 0,
+    "fixed_write_circuits": 1048578,
+    "gates": {
+      "base_xor_oracle_calls": 0,
+      "ccx": 1807096256480,
+      "cx": 7185261446,
+      "elementary_one_two_qubit_gates": 9042794470332,
+      "x": 127926486
+    },
+    "key_capacity_bytes": 215150,
+    "last_slot": 1048577,
+    "persistent_log_bits": 31790755097454963270352896,
+    "supplied_input_bits": 271265409,
+    "synthetic_reduced_trials": false,
+    "total_logical_bits": 31790755097454963543341714,
+    "trial_constant_work_bits": 32,
+    "vacancy_and_schedule_are_premises": true
+  },
+  "captured_at_utc": "2026-10-19T17:44:33.319532+00:00",
+  "chronological_overwrite_semantics_preserved": true,
+  "classical_request_history_comparison": true,
+  "coherent_private_compaction_conversion_claimed": false,
+  "complete_resource_vector": null,
+  "development_testing_enabled": true,
+  "frozen_circuits_or_observations_revised": false,
+  "full_root_driver_integrated": false,
+  "inactive_holes_preserved": true,
+  "local_reviews": {
+    "independent_cryptographic_review": false,
+    "limited_independence_paragraph": "No blocker; use at most five calls and stable paper URL; no free oracle or complete resource claim.",
+    "remaining_blocking_findings": 0,
+    "source_census_and_layout_induction": "No blocking finding; checked cached H0, H1/H5 counts, exact ordering and T-versus-T+I controller scope.",
+    "writer_and_specification": "No blocker; explicit valid controls and retained original history/coin/control registers clarified."
+  },
+  "oracle_realization": {
+    "complete_base_query_budget": null,
+    "concrete_SHAKE_model_justified": false,
+    "finite_query_register_envelope": null,
+    "independent_base_functions_implemented": false,
+    "limited_independence_route": "Private2q-wise independent immutable base, complete bounded q-query wrapper and separate programming overlay; conditional research direction, not implemented or priced.",
+    "total_external_dispatcher_implemented": false
+  },
+  "previous_manifest_verified": {
+    "entries": 6,
+    "path": "docs/validation/parliament_ballot_application_reconciliation/SHA256SUMS",
+    "sha256": "23ee549058fcd57fbd385a6bef61bbb15d354946564c90e87da16ba7e4e52dba"
+  },
+  "primary_reference": {
+    "author": "Mark Zhandry",
+    "author_corroboration": "https://mzhandry.github.io/files/BeyondPQC.slides.pdf#page=55",
+    "new_local_pdf_hash_asserted": false,
+    "readback": "Indexed primary-paper statement and author corroboration inspected; current PDF page anchor not independently verified.",
+    "section": "Fact2",
+    "title": "How to Construct Quantum Random Functions",
+    "url": "https://eprint.iacr.org/2012/182"
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "quantitative_aes_bound": null,
+  "raw_fixed_slot_gates": {
+    "base_calls": 0,
+    "ccx": "k+v",
+    "clean_work_bits": 0,
+    "cx": 1,
+    "x": 0
+  },
+  "remaining_work": [
+    "Integrate static slots with the complete root controller and real/mixed proof driver.",
+    "Supply total domain interpretation, finite query/message widths and complete base-call budget.",
+    "Implement and price or explicitly assess independent base-function realization and coherent reads.",
+    "Quantify primitive and application assumptions at complete resources; retain independent review and named hardware requirements."
+  ],
+  "root_material_semantic_ordinary_reads": {
+    "H5_calls_per_gate": 2,
+    "candidate_per_valid_request": 1445,
+    "comparator_per_valid_request": 1418,
+    "extra_setup_or_passes_must_be_added": true,
+    "formula": "Q_all + max(2*g+tau+4)*T",
+    "ordinary_read_source_count_is_base_circuit_call_count": false
+  },
+  "schema": "parliament-ballot-static-overlay-evidence-v1",
+  "scope": "Implemented lazy fixed-slot conditional-write and supplied-field W0 gate emitter; finite circuit tests, full-capacity symbolic metadata and source-informed root ordinary-read census.",
+  "specification": "specs/parliament_ballot_b6_static_overlay.md",
+  "specification_sha256": "fa776f47defba9a69c295fafca484046982b58e24d80ba5d4196494330e9e566",
+  "vacant_slot_single_use_premise": true,
+  "validation": {
+    "actual_row_role_metadata_cases": 4,
+    "captured_command_phases": {
+      "candidate-registration": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "scripts/parliament_ballot_static_overlay.py",
+          "--request-cap",
+          "17592186044416",
+          "--row",
+          "candidate",
+          "--role",
+          "registration",
+          "--length-bits",
+          "64"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "c6c2d3f7f1bd2d25a4db34e449b5627c9fa78bd5f722bc198b98241512d9ac57"
+      },
+      "candidate-vote": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "scripts/parliament_ballot_static_overlay.py",
+          "--request-cap",
+          "17592186044416",
+          "--row",
+          "candidate",
+          "--role",
+          "vote",
+          "--length-bits",
+          "64"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "2698c88caf6bcf4206205e7646623e2f0315081c3c7de7a9d5c0ce572e12b8ca"
+      },
+      "comparator-registration": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "scripts/parliament_ballot_static_overlay.py",
+          "--request-cap",
+          "17592186044416",
+          "--row",
+          "comparator",
+          "--role",
+          "registration",
+          "--length-bits",
+          "64"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "ec5c8ebce374cba26e6d0c63d29eb671eae0149c1fcd6f37cf45fa22383b5792"
+      },
+      "comparator-vote": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "scripts/parliament_ballot_static_overlay.py",
+          "--request-cap",
+          "17592186044416",
+          "--row",
+          "comparator",
+          "--role",
+          "vote",
+          "--length-bits",
+          "64"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "318cdfeef501ebda4a2d4ddd61f737d2a75a6a78a9dff516ce15030a0096bb38"
+      },
+      "help": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "scripts/parliament_ballot_static_overlay.py",
+          "--help"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "7010574a2841cc1e1cba73ea42907ecd5100f48eb2c6a9010e28c5742ed9bdef"
+      },
+      "require-qualified": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "scripts/parliament_ballot_static_overlay.py",
+          "--request-cap",
+          "17592186044416",
+          "--row",
+          "candidate",
+          "--role",
+          "vote",
+          "--length-bits",
+          "64",
+          "--require-qualified"
+        ],
+        "exit_code": 2,
+        "expected_exit_code": 2,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "2698c88caf6bcf4206205e7646623e2f0315081c3c7de7a9d5c0ce572e12b8ca"
+      },
+      "tests": {
+        "command": [
+          "/opt/homebrew/opt/python@3.11/bin/python3.11",
+          "-B",
+          "-m",
+          "unittest",
+          "scripts.tests.parliament_ballot_static_overlay_test",
+          "-v"
+        ],
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "stderr_sha256": "9d3e77cfa853a7c68c79572cf306576b2414f437741b9a4ff97ec1e33513add0",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "full_production_gate_streams_executed": false,
+    "full_workspace_tests_run": false,
+    "input_scope": "20 selected antecedent/source/helper/test identities, not a transitive dependency closure.",
+    "normal_and_require_qualified_json_identical": true,
+    "owned_tests_passed": 9,
+    "physical_device_tests_run": false,
+    "root_capture_tests_passed": 9,
+    "rust_tests_run": false,
+    "scoped_input_count": 20,
+    "scoped_inputs_unchanged": true,
+    "tests_failed": 0
+  },
+  "validity_controls": "e=valid for challenge1/2; e=valid AND primary_flag[c] for challenge3; no validity authentication or ordinal selection is implemented",
+  "write_schedule": "j*(M+2)+offset; offsets 0,1,2+c; classical valid invocation ordinal; M=2^20 in actual report CLI"
+}

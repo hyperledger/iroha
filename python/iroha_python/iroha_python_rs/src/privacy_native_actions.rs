@@ -95,7 +95,10 @@ use iroha_data_model::{
         PrivacyZkAmsProvisionAccountV1, PrivacyZkAmsSeedPublicKeyV1,
         VeRangeTransparentRangeStatementV1,
     },
-    transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionPayload},
+    transaction::{
+        Executable, ExecutableBatchItem, FeePaymentIntent, SignedTransaction, TransactionBuilder,
+        TransactionPayload, executable::ContractInvocation,
+    },
 };
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::topology::DataSpaceId;
@@ -493,6 +496,99 @@ pub struct OrchardNoteActionRequestV1 {
     pub changes: Vec<OrchardChangeProverInputV1>,
     /// One-or-two action padding floor.
     pub minimum_action_count: u8,
+}
+/// Immutable ordered deployed-contract calls surrounding one direct Orchard submission.
+///
+/// Only by-reference contract calls are accepted; this is not an arbitrary instruction carrier.
+/// Call arguments are already canonical schema-bound records. Their schema, live code binding,
+/// permissions and business semantics remain validator checks. The caller must obtain this plan
+/// from its independently approved scenario, never from the transaction being inspected.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OrchardOrderedContractCallsV1 {
+    before: Vec<ContractInvocation>,
+    after: Vec<ContractInvocation>,
+}
+impl OrchardOrderedContractCallsV1 {
+    /// Freeze nonempty ordered call sequences on both sides of the native submission.
+    ///
+    /// # Errors
+    /// Rejects empty sides, a complete Batch exceeding the existing default transaction item
+    /// limit, or a call-plan frame exceeding the existing public native request byte limit.
+    pub fn try_new(
+        before: Vec<ContractInvocation>,
+        after: Vec<ContractInvocation>,
+    ) -> Result<Self, PrivacyNativeActionErrorV1> {
+        let calls = Self { before, after };
+        calls.validate()?;
+        Ok(calls)
+    }
+    fn validate(&self) -> Result<(), PrivacyNativeActionErrorV1> {
+        if self.before.is_empty() || self.after.is_empty() {
+            return Err(PrivacyNativeActionErrorV1::at("orchard-ordered-empty-side"));
+        }
+        let limit = iroha_data_model::parameter::TransactionParameters::default()
+            .max_instructions()
+            .get();
+        let before = u64::try_from(self.before.len())
+            .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-call-count"))?;
+        let after = u64::try_from(self.after.len())
+            .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-call-count"))?;
+        if before >= limit
+            || after >= limit
+            || before
+                .checked_add(after)
+                .and_then(|count| count.checked_add(1))
+                .is_none_or(|count| count > limit)
+        {
+            return Err(PrivacyNativeActionErrorV1::at("orchard-ordered-call-count"));
+        }
+        // Count both existing typed vector frames without cloning or allocating a payload.
+        let before_bytes = norito::canonical_frame_len(&self.before)
+            .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-call-encoding"))?;
+        let after_bytes = norito::canonical_frame_len(&self.after)
+            .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-call-encoding"))?;
+        let bytes = before_bytes
+            .checked_add(after_bytes)
+            .ok_or_else(|| PrivacyNativeActionErrorV1::at("orchard-ordered-call-bytes"))?;
+        if bytes > PRIVACY_NATIVE_ACTION_MAX_DISPATCH_REQUEST_BYTES_V1 {
+            return Err(PrivacyNativeActionErrorV1::at("orchard-ordered-call-bytes"));
+        }
+        Ok(())
+    }
+    /// Borrow the exact calls before the native submission.
+    #[must_use]
+    pub fn before(&self) -> &[ContractInvocation] {
+        &self.before
+    }
+    /// Borrow the exact calls after the native submission.
+    #[must_use]
+    pub fn after(&self) -> &[ContractInvocation] {
+        &self.after
+    }
+    /// Original signed Batch ordinal of the sole direct native submission.
+    /// This is distinct from its protocol action index, which remains zero.
+    #[must_use]
+    pub fn direct_instruction_index(&self) -> usize {
+        self.before.len()
+    }
+}
+/// Exact authenticated public result of checking an independently supplied Orchard call plan.
+#[derive(Debug)]
+pub struct InspectedOrchardOrderedActionV1 {
+    action: InspectedPrivacyActionV1,
+    direct_instruction_index: usize,
+}
+impl InspectedOrchardOrderedActionV1 {
+    /// Borrow the authenticated action and complete original transaction hash.
+    #[must_use]
+    pub const fn action(&self) -> &InspectedPrivacyActionV1 {
+        &self.action
+    }
+    /// Original signed Batch ordinal, never a nested or protocol-action ordinal.
+    #[must_use]
+    pub const fn direct_instruction_index(&self) -> usize {
+        self.direct_instruction_index
+    }
 }
 /// One private-IVM created note and its recipient encryption key.
 pub struct IvmPrivateNoteOutputRequestV1 {
@@ -1834,7 +1930,99 @@ pub fn build_signed_orchard_note_action_v1(
     canonical_genesis_hash: [u8; 32],
     private_key: &PrivateKey,
 ) -> Result<SignedPrivacyActionV1, PrivacyNativeActionErrorV1> {
+    build_signed_orchard_action_v1(context, request, None, canonical_genesis_hash, private_key)
+}
+/// Build one native Orchard action inside a fixed signed ordered contract-call Batch.
+///
+/// The entire context and both call sequences enter the transaction-intent projection before
+/// native authorization. The returned wire is the original complete signed Batch, never a
+/// standalone proof wrapped by an adapter afterward. Witnesses remain native Rust values.
+///
+/// # Errors
+/// Rejects invalid context, oversized calls, native proving/authorization failures, or any
+/// final context, call-order, source-ordinal or intent mismatch.
+pub fn build_signed_orchard_note_action_with_contract_calls_v1(
+    context: PrivacyActionTransactionContextV1,
+    request: OrchardNoteActionRequestV1,
+    calls: OrchardOrderedContractCallsV1,
+    canonical_genesis_hash: [u8; 32],
+    private_key: &PrivateKey,
+) -> Result<SignedPrivacyActionV1, PrivacyNativeActionErrorV1> {
+    build_signed_orchard_action_v1(
+        context,
+        request,
+        Some(calls),
+        canonical_genesis_hash,
+        private_key,
+    )
+}
+fn orchard_ordered_payload(
+    context: &PrivacyActionTransactionContextV1,
+    calls: &OrchardOrderedContractCallsV1,
+    envelope: Option<PrivacyProofEnvelopeV1>,
+) -> Result<TransactionPayload, PrivacyNativeActionErrorV1> {
+    let mut items = calls
+        .before
+        .iter()
+        .cloned()
+        .map(ExecutableBatchItem::ContractCall)
+        .collect::<Vec<_>>();
+    if let Some(envelope) = envelope {
+        items.push(ExecutableBatchItem::Instruction(
+            SubmitPrivacyProofV1::new(envelope).into(),
+        ));
+    }
+    items.extend(
+        calls
+            .after
+            .iter()
+            .cloned()
+            .map(ExecutableBatchItem::ContractCall),
+    );
+    // Use the canonical builder so ordered attachment descriptors are rebound as well.
+    TransactionBuilder::from_payload(transaction_payload(context, None)?)
+        .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-context"))?
+        .with_executable(Executable::Batch(items.into()))
+        .into_payload()
+        .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-payload"))
+}
+/// Validate the complete public ordered plan before the wallet consumes private custody.
+pub(crate) fn validate_orchard_ordered_context(
+    context: &PrivacyActionTransactionContextV1,
+    calls: &OrchardOrderedContractCallsV1,
+) -> Result<(), PrivacyNativeActionErrorV1> {
+    validate_context(context)?;
+    // The signed model stores milliseconds; never silently round an independently fixed plan.
+    if context.creation_time.subsec_nanos() % 1_000_000 != 0
+        || context
+            .time_to_live
+            .is_some_and(|ttl| ttl.subsec_nanos() % 1_000_000 != 0)
+    {
+        return Err(PrivacyNativeActionErrorV1::at(
+            "orchard-ordered-context-precision",
+        ));
+    }
+    calls.validate()?;
+    let bytes = norito::canonical_frame_len(&orchard_ordered_payload(context, calls, None)?)
+        .map_err(|_| PrivacyNativeActionErrorV1::at("orchard-ordered-context-encoding"))?;
+    if bytes > PRIVACY_NATIVE_ACTION_MAX_DISPATCH_REQUEST_BYTES_V1 {
+        return Err(PrivacyNativeActionErrorV1::at(
+            "orchard-ordered-request-bytes",
+        ));
+    }
+    Ok(())
+}
+fn build_signed_orchard_action_v1(
+    context: PrivacyActionTransactionContextV1,
+    request: OrchardNoteActionRequestV1,
+    calls: Option<OrchardOrderedContractCallsV1>,
+    canonical_genesis_hash: [u8; 32],
+    private_key: &PrivateKey,
+) -> Result<SignedPrivacyActionV1, PrivacyNativeActionErrorV1> {
     validate_action_preflight(&context, canonical_genesis_hash, private_key)?;
+    if let Some(calls) = &calls {
+        validate_orchard_ordered_context(&context, calls)?;
+    }
     if request.anchor_epoch == 0 || request.expiry_height == 0 {
         return Err(PrivacyNativeActionErrorV1::at("orchard-epoch-or-expiry"));
     }
@@ -1866,12 +2054,18 @@ pub fn build_signed_orchard_note_action_v1(
         value_balance: orchard_value_balance(draft.value_balance),
         expiry_height: request.expiry_height,
     };
-    let intent = derive_intent(
-        &context,
+    let draft_envelope = intent_projection_envelope(
         profile,
         PrivacyStatementV1::OrchardHalo2ActionsV1(statement.clone()),
         PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(Vec::new())),
     )?;
+    let draft_payload = match &calls {
+        Some(calls) => orchard_ordered_payload(&context, calls, Some(draft_envelope))?,
+        None => transaction_payload(&context, Some(draft_envelope))?,
+    };
+    let intent = draft_payload
+        .privacy_transaction_intent_digest_v1()
+        .map_err(|_| PrivacyNativeActionErrorV1::at("transaction-intent"))?;
     statement.context.transaction_intent_digest = intent;
     let consensus_limits = PrivacyConsensusLimitsV1::taira_default();
     let binding = PrivacyNativeConsensusBindingV1::new(
@@ -1889,6 +2083,33 @@ pub fn build_signed_orchard_note_action_v1(
         return Err(PrivacyNativeActionErrorV1::at("orchard-public-drift"));
     }
     let typed_statement = PrivacyStatementV1::OrchardHalo2ActionsV1(statement);
+    if let Some(calls) = &calls {
+        let envelope = bind_envelope(
+            profile,
+            typed_statement,
+            PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(proved.authorization)),
+            "proof-envelope-validation",
+        )?;
+        envelope
+            .validate_with_limits(&consensus_limits)
+            .map_err(|_| PrivacyNativeActionErrorV1::at("proof-envelope-validation"))?;
+        let payload = orchard_ordered_payload(&context, calls, Some(envelope))?;
+        if payload
+            .validate_privacy_transaction_intent_binding_v1()
+            .map_err(|_| PrivacyNativeActionErrorV1::at("final-intent-binding"))?
+            != intent
+        {
+            return Err(PrivacyNativeActionErrorV1::at("signed-intent-drift"));
+        }
+        let signed = TransactionBuilder::from_payload(payload)
+            .map_err(|_| PrivacyNativeActionErrorV1::at("final-payload"))?
+            .try_sign(private_key)
+            .map_err(|_| PrivacyNativeActionErrorV1::at("transaction-signing"))?;
+        inspect_signed_privacy_orchard_note_action_with_contract_calls_v1(
+            &signed, &context, calls,
+        )?;
+        return wrap_canonical_signed_transaction_v1(signed, profile.protocol_id);
+    }
     finalize(
         &context,
         profile,
@@ -2569,6 +2790,52 @@ pub fn inspect_signed_privacy_orchard_note_action_v1(
     }
     Ok(inspected)
 }
+/// Authenticate a complete Orchard Batch against independently fixed context and calls.
+///
+/// Comparison covers network, authority, creation time, TTL, nonce, fees, metadata, attachment
+/// descriptors, every call address/code hash/entrypoint/argument record, and the sole original
+/// direct submission ordinal. Do not derive `expected_context` or `expected_calls` from `signed`.
+/// This authenticates source and envelope structure; validator proof/state admission is separate.
+///
+/// # Errors
+/// Rejects invalid signatures/intents, non-Orchard envelopes, oversized plans/wire, any context
+/// or call mismatch, and any additional, moved, nested or standalone submission.
+pub fn inspect_signed_privacy_orchard_note_action_with_contract_calls_v1(
+    signed: &SignedTransaction,
+    expected_context: &PrivacyActionTransactionContextV1,
+    expected_calls: &OrchardOrderedContractCallsV1,
+) -> Result<InspectedOrchardOrderedActionV1, PrivacyNativeActionErrorV1> {
+    validate_orchard_ordered_context(expected_context, expected_calls)?;
+    if signed.encode_versioned().len() > PRIVACY_NATIVE_ACTION_MAX_SIGNED_TRANSACTION_BYTES_V1 {
+        return Err(PrivacyNativeActionErrorV1::at(
+            "signed-transaction-response-cap",
+        ));
+    }
+    let action = inspect_signed_privacy_orchard_note_action_v1(signed)?;
+    let (_, submission) = signed
+        .privacy_transaction_intent_binding_if_present_v1()
+        .map_err(|_| PrivacyNativeActionErrorV1::at("inspect-intent"))?
+        .ok_or_else(|| PrivacyNativeActionErrorV1::at("inspect-missing-action"))?;
+    if !compiled_profile(PrivacyProtocolIdV1::OrchardHalo2ActionsV1)?
+        .matches_envelope_v1(&submission.envelope)
+    {
+        return Err(PrivacyNativeActionErrorV1::at("inspect-orchard-profile"));
+    }
+    let expected_payload = orchard_ordered_payload(
+        expected_context,
+        expected_calls,
+        Some(submission.envelope.clone()),
+    )?;
+    if signed.payload() != &expected_payload || action.statement().context().action_index != 0 {
+        return Err(PrivacyNativeActionErrorV1::at(
+            "inspect-orchard-ordered-payload",
+        ));
+    }
+    Ok(InspectedOrchardOrderedActionV1 {
+        action,
+        direct_instruction_index: expected_calls.direct_instruction_index(),
+    })
+}
 /// Authenticate and inspect one exact FCMP++ membership payment action.
 pub fn inspect_signed_privacy_fcmp_membership_payment_action_v1(
     signed: &SignedTransaction,
@@ -2608,6 +2875,7 @@ pub fn inspect_signed_privacy_pq_masp_note_action_v1(
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("privacy_native_actions_orchard_ordered_tests.rs");
     use iroha_data_model::privacy::{
         PrivacyAttributeDigestV1, PrivacyCertificateKeyDigestV1, PrivacyChallengeV1,
         PrivacyEngineManifestDigestV1, PrivacyIssuerIdV1, PrivacyNullifierV1,

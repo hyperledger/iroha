@@ -12,10 +12,12 @@ use crate::kagemusha_wallet_preparation_v1::{
     ReceiveFoldFieldsV1, RefreshFoldFieldsV1, RefreshOwnersV1, SendFoldFieldsV1,
 };
 use iroha_kagemusha_proof::{
-    a_relation::schedule::compiled::compiled_routes, operation_relation::objects::ObjectKind,
-    q_sigma::SigmaSlotWitness, q_signature::SignatureWitness,
+    a_relation::schedule::compiled::compiled_routes,
+    operation_relation::objects::{ObjectKind, signed_message_native},
+    q_sigma::SigmaSlotWitness,
+    q_signature::SignatureWitness,
 };
-use iroha_plonk_gadgets::{bytes::p_bytes_native, p256::native::words_from_be};
+use iroha_plonk_gadgets::p256::native::words_from_be;
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
 const CREDENTIAL_KEY: usize = 130;
@@ -50,7 +52,7 @@ pub(super) fn signature(
         return Err(Error::Proof("signed object exact schema"));
     }
     Ok(SignatureWitness {
-        digest: p_bytes_native(kind.signing_domain(), &tape[..body]),
+        digest: signed_message_native(kind, &tape[..body]),
         key,
         signature: [
             words_from_be(
@@ -1068,7 +1070,7 @@ mod tests {
             assert_eq!(projected.key, [root.x, root.y]);
             assert_eq!(
                 projected.digest,
-                p_bytes_native(kind.signing_domain(), &tape[..kind.body_len()])
+                signed_message_native(kind, &tape[..kind.body_len()])
             );
             assert_eq!(
                 projected.signature[0][0],

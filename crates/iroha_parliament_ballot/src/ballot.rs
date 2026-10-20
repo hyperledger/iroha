@@ -8,9 +8,10 @@
 //! - [`precheck_admission_v1`] performs the seven queue-admission checks in their stated
 //!   order; [`AdmittedBallotV1::verify_proof`] is the separate expensive step, and
 //!   [`VerifiedBallotV1::recheck`] repeats the state checks before insertion.
-//! - [`decide_block_ballot_v1`] is the block-execution decision shared by Core and the full
-//!   verifier: an invalid encoding, network, unknown scope, profile, stamp or proof
-//!   invalidates the block; a valid ballot of a known scope is fully verified first, then
+//! - [`decide_block_ballot_v1`] is the block-execution decision used by the full verifier
+//!   and intended for Core integration: an invalid encoding, network, unknown scope,
+//!   profile, stamp or proof invalidates the block; a valid ballot of a known scope is fully
+//!   verified first, then
 //!   a ballot outside the casting window is rejected before a duplicate is, and otherwise it
 //!   is accepted.
 //!
@@ -47,8 +48,8 @@ pub enum VerificationUnavailableV1 {
     /// failed); carries the proof crate's error.
     #[error("the proof verifier cannot run: {0}")]
     Verifier(VerifyError),
-    /// A stamp or envelope digest could not be computed.
-    #[error("a ballot digest could not be computed: {0}")]
+    /// A local decode resource refusal or a failure to compute a stamp/envelope digest.
+    #[error("a ballot codec operation is unavailable: {0}")]
     Codec(AnonymousBallotCodecErrorV1),
     /// The caller's state answered a scope lookup with another scope's context.
     #[error("the state returned the context of another scope")]

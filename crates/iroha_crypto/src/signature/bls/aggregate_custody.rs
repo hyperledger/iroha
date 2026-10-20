@@ -4,6 +4,8 @@ use blst::{Pairing, blst_fp12, blst_p2_affine};
 use blstrs::{G1Projective, G2Projective};
 use group::{Curve as _, Group as _};
 
+pub use super::pairing::AggregateScratchError;
+use super::pairing::{FalliblePairing, PairingContext, StackPairing};
 use super::uncached::{self, HASH_TO_FIELD_DST, NORMAL_PREFIX, Orientation};
 use crate::{BlsNormalPopVerifiedKey, SignatureVerificationError};
 
@@ -13,36 +15,46 @@ use crate::{BlsNormalPopVerifiedKey, SignatureVerificationError};
 /// This token remains owned through every verdict and is released only after that
 /// backing is dropped. Verification borrows the PoP-verified keys and allocates
 /// no heap collections, prepared-point buffers, signature copies or cache entries.
-/// The constructor uses the allocator normally after logical admission; physical
-/// allocator exhaustion is not represented by its admission error.
+/// Physical allocation is fallible and remains distinct from pool admission.
 #[derive(Debug)]
 #[must_use = "dropping the verifier releases its original pairing backing and custody token"]
 pub struct BlsNormalAggregateScratch<O = ()> {
     // Declaration order is intentional: release the backing before its funding.
-    pairing: Pairing,
+    pairing: FalliblePairing,
     _owner: O,
 }
 
 impl<O> BlsNormalAggregateScratch<O> {
-    /// Exact heap backing bytes allocated by the existing `blst::Pairing` owner.
+    /// Exact checked heap layout of the upstream `blst` pairing context.
+    ///
+    /// Callers can partition an original reservation into a move-only charge
+    /// for this layout and return that charge from the admission callback.
     #[must_use]
-    #[allow(unsafe_code)]
+    pub fn backing_layout() -> core::alloc::Layout {
+        FalliblePairing::layout()
+    }
+
+    /// Exact heap backing bytes allocated for the upstream `blst` context.
+    #[must_use]
     pub fn backing_bytes() -> usize {
-        // SAFETY: this pointer-free upstream function reports its context size.
-        // Pairing::new allocates precisely this many complete u64 words.
-        let bytes = unsafe { blst::blst_pairing_sizeof() };
-        (bytes / core::mem::size_of::<u64>()) * core::mem::size_of::<u64>()
+        Self::backing_layout().size()
     }
 
     /// Admit the exact backing before allocating and retain the returned owner.
     ///
     /// # Errors
-    /// Returns the caller's unchanged typed refusal. Refusal allocates no pairing
-    /// context and cannot become a cryptographic rejection.
-    pub fn new<E>(admit: impl FnOnce(usize) -> Result<O, E>) -> Result<Self, E> {
-        let owner = admit(Self::backing_bytes())?;
+    /// Returns the caller's unchanged typed admission refusal, or a separate
+    /// physical allocator failure. Neither becomes a cryptographic rejection.
+    /// An empty linked context is refused as unsupported geometry before any backing
+    /// reservation or C call; the admitted owner is then retired.
+    pub fn new<E>(
+        admit: impl FnOnce(usize) -> Result<O, E>,
+    ) -> Result<Self, AggregateScratchError<E>> {
+        let bytes = Self::backing_bytes();
+        let owner = admit(bytes).map_err(AggregateScratchError::Admission)?;
+        let pairing = FalliblePairing::new(HASH_TO_FIELD_DST)?;
         Ok(Self {
-            pairing: Pairing::new(true, HASH_TO_FIELD_DST),
+            pairing,
             _owner: owner,
         })
     }
@@ -61,6 +73,48 @@ impl<O> BlsNormalAggregateScratch<O> {
     /// ordinary aggregate API, in fixed unformatted form. There is no resource
     /// refusal after construction; the original scratch owner remains reusable.
     pub fn verify<'a, G, K>(
+        &mut self,
+        groups: G,
+        aggregate: &[u8],
+    ) -> Result<(), SignatureVerificationError>
+    where
+        G: Iterator<Item = (K, &'a [u8])> + Clone,
+        K: Iterator<Item = &'a BlsNormalPopVerifiedKey> + Clone,
+    {
+        NormalRelation {
+            pairing: self.pairing.context(),
+        }
+        .verify(groups, aggregate)
+    }
+}
+
+/// The ordinary public adapter uses stack storage and the same canonical relation.
+pub(crate) fn verify_on_stack(
+    groups: &[(&[&BlsNormalPopVerifiedKey], &[u8])],
+    aggregate: &[u8],
+) -> Result<(), SignatureVerificationError> {
+    // Fails closed only on a linked build that `consensus::check_pairing_geometry`
+    // refuses at node startup; this verdict-only API has no resource-refusal variant.
+    let Some(mut pairing) = StackPairing::new(HASH_TO_FIELD_DST) else {
+        return Err(SignatureVerificationError::bad_signature());
+    };
+    NormalRelation {
+        pairing: pairing.context(),
+    }
+    .verify(
+        groups
+            .iter()
+            .map(|(keys, message)| (keys.iter().copied(), *message)),
+        aggregate,
+    )
+}
+
+struct NormalRelation<'a> {
+    pairing: PairingContext<'a>,
+}
+
+impl NormalRelation<'_> {
+    fn verify<'a, G, K>(
         &mut self,
         groups: G,
         aggregate: &[u8],

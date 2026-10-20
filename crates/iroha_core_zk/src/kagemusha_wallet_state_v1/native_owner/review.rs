@@ -1,6 +1,6 @@
 //! Whole native financial checks for hardware UI approval, without a monetary operation.
 //!
-//! A Send review may also have its σ_send proved speculatively while the user looks at it
+//! A Send review may also have its `σ_send` proved speculatively while the user looks at it
 //! (design §5.1, Payment row), the way the fold worker proves: a scheduler slot with payment
 //! priority over folds, a locked prepare under the wallet owner that derives the Send on a
 //! throwaway draft, and a proof without the owner. Nothing is written, signed or debited
@@ -142,7 +142,7 @@ impl ReviewedOperationV1 {
     pub const fn projection(&self) -> &NativeOperationReviewV1 {
         &self.projection
     }
-    /// The job that may prove this Send review's σ_send speculatively without the wallet
+    /// The job that may prove this Send review's `σ_send` speculatively without the wallet
     /// owner; `None` for Unload and for a Send whose controls need a clock reading. Each call
     /// returns a handle to the same single speculation.
     #[must_use]
@@ -213,7 +213,7 @@ const SPECULATIVE_REQUEST_DOMAIN: &str = "wallet-speculative-send-request";
 // The derivation reads only the Send action; this identity is never bound or published.
 const SPECULATIVE_REQUEST_ID: [u8; 32] = [0x5a; 32];
 
-/// One finished speculative σ_send of a review (design §5.1, Payment row). It is never
+/// One finished speculative `σ_send` of a review (design §5.1, Payment row). It is never
 /// signed or written: execution plans with its nonce and freezes its σ only for exactly the
 /// request, source, installation and derived statement it was proved for.
 pub struct SpeculativeSendV1 {
@@ -253,7 +253,7 @@ impl SpeculativeSendV1 {
     }
 }
 
-/// The job side of one Send review's speculative σ_send, for its locked prepare under the
+/// The job side of one Send review's speculative `σ_send`, for its locked prepare under the
 /// wallet owner (`prepare_speculation`). It copies the review's exact Request original and
 /// source binding and grants no review, proof, signing or Advance authority.
 pub struct SpeculativeSendJobV1 {
@@ -262,7 +262,7 @@ pub struct SpeculativeSendJobV1 {
     source: ReviewSourceV1,
 }
 
-/// The unlocked half of one speculative σ_send: it waits for the scheduler's speculation slot
+/// The unlocked half of one speculative `σ_send`: it waits for the scheduler's speculation slot
 /// and proves without the wallet owner. It holds no custody, original store, plan or signing
 /// capability.
 pub struct SpeculativeProofV1 {
@@ -289,7 +289,7 @@ fn speculative_source_error(error: WalletSourcesErrorV1) -> Error {
 }
 
 impl SpeculativeProofV1 {
-    /// Wait for `scheduler`'s speculation slot ([`Scheduler::speculate`]), rebuild the σ_send
+    /// Wait for `scheduler`'s speculation slot ([`Scheduler::speculate`]), rebuild the `σ_send`
     /// key from its sealed source (the locked prepare revalidated its originals), prove under
     /// the review's cancellation signal and publish the σ for the review. Call this without
     /// the wallet owner. The prover's memory is released before the slot.
@@ -609,11 +609,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         })
     }
 
-    /// Locked prepare of a Send review's speculative σ_send, before its proof is admitted.
+    /// Locked prepare of a Send review's speculative `σ_send`, before its proof is admitted.
     /// It requires the review's exact source to be current and the phone to have the proving
     /// capacity, draws the speculative nonce with the ordinary sampler, derives the Send with
     /// today's preparation on a throwaway draft (nothing is written) and revalidates the
-    /// σ_send originals. `Ok(None)` when the review ended, a payment already holds priority
+    /// `σ_send` originals. `Ok(None)` when the review ended, a payment already holds priority
     /// or the review's source changed; execution then proves itself.
     ///
     /// # Errors
@@ -743,7 +743,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 
     /// Authenticate an exact signed Request against the current folded payer and all controls.
     /// No nonce, map insertion, proof, hardware signature or Advance is produced. The review
-    /// may then have its σ_send proved speculatively ([`ReviewedOperationV1::speculation`]).
+    /// may then have its `σ_send` proved speculatively ([`ReviewedOperationV1::speculation`]).
     /// A running local fold continues; an uncovered current head returns `FoldRequired`.
     /// # Errors
     /// Invalid/foreign Request, missing or changed source/fold/originals, failed controls or unavailable storage/observations.

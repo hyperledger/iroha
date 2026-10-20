@@ -92,144 +92,89 @@ fn original_plan() -> Plan {
 }
 
 #[test]
-#[ignore = "imports all actual Load and wrapper source tables at k16; run optimized explicitly"]
-fn two_a_one_w_original_sources_qualify_at_k16() {
-    struct Original {
-        d: Vec<u8>,
-        v: Vec<u8>,
-        p: Vec<u8>,
-    }
-    impl Original {
-        fn metadata<C: iroha_pasta::PastaCurve>(&self) -> KeyArtifact<C> {
-            let binding = DescriptorBinding::decode_v2(&self.d).unwrap();
-            let key = VerifyingKey::read(&self.v, &binding).unwrap();
-            KeyArtifact::new(binding, key).unwrap()
-        }
-    }
+#[ignore = "imports the actual single Load A source tables at k16; run optimized explicitly"]
+fn single_terminal_original_source_qualifies_at_k16() {
     let plan = original_plan();
-    assert_eq!(plan.context.stage_count(), 2);
-    assert!(plan.source_circuit(A_STAGE_COUNT, None).is_err());
-    assert!(plan.source_circuit(usize::MAX, None).is_err());
-    assert!(plan.source_circuit(1, None).is_err());
-    let mut wrappers: Vec<WKey> = Vec::new();
-    let mut a_keys = Vec::new();
-    let mut w_keys = Vec::new();
-    let mut a_config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
-    a_config.compress_selectors = false;
-    for stage in 0..A_STAGE_COUNT {
-        let source = plan
-            .source_circuit(
-                stage,
-                stage
-                    .checked_sub(1)
-                    .map(|previous| wrappers[previous].clone()),
-            )
-            .unwrap();
-        let assigned = synthesize(&source, 16, None).unwrap();
-        let rows = assigned
-            .tables
-            .advice_assigned()
-            .iter()
-            .filter_map(|c| c.iter().rposition(|assigned| *assigned).map(|i| i + 1))
-            .max()
-            .unwrap();
-        eprintln!("ordinary Load A{} rows={rows}", stage + 1);
-        assert!(rows < (1 << 16));
-        drop(assigned);
-        let key = keygen_pk_v2(&plan.vesta, &source, &a_config).unwrap();
-        assert!(
-            plan.wrapper_source(A_STAGE_COUNT - 1, key.binding(), key.vk())
-                .is_err()
-        );
-        assert!(
-            plan.wrapper_source(usize::MAX, key.binding(), key.vk())
-                .is_err()
-        );
-        if let Some(previous) = wrappers.last() {
-            assert!(plan.source_circuit(0, Some(previous.clone())).is_err());
-        }
-        if stage + 1 < A_STAGE_COUNT {
-            let source = plan.wrapper_source(stage, key.binding(), key.vk()).unwrap();
-            let (fixed, wrapper) = WKey::keygen(&source, &plan.pallas).unwrap();
-            wrappers.push(fixed);
-            w_keys.push(wrapper);
-        }
-        a_keys.push(key);
-    }
-    let a = a_keys
+    assert_eq!(plan.context().stage_count(), A_STAGE_COUNT);
+    let source = plan.source_circuit().unwrap();
+    let assigned = synthesize(&source, 16, None).unwrap();
+    let rows = assigned
+        .tables
+        .advice_assigned()
         .iter()
-        .map(|key| Original {
-            d: key.binding().encoded().to_vec(),
-            v: key.vk().to_bytes().to_vec(),
-            p: key.artifact_bytes_v2().unwrap(),
-        })
-        .collect::<Vec<_>>();
-    let w = w_keys
-        .iter()
-        .map(|key| Original {
-            d: key.binding().encoded().to_vec(),
-            v: key.vk().to_bytes().to_vec(),
-            p: key.artifact_bytes_v2().unwrap(),
-        })
-        .collect::<Vec<_>>();
-    drop((a_keys, w_keys));
-    let config = ReadConfig {
-        maximum_bytes: a.iter().chain(&w).map(|o| o.p.len()).max().unwrap(),
+        .filter_map(|c| c.iter().rposition(|assigned| *assigned).map(|i| i + 1))
+        .max()
+        .unwrap();
+    eprintln!("single terminal Load A rows={rows}");
+    // The stand-in predecessor has no fixed, advice or permutation commitments,
+    // so this is a lower bound; the real-Omega bound is the producer compiler's
+    // `every_predecessor_stage_fits_k16_against_the_real_omega`.
+    assert!(rows < 65_529);
+    drop(assigned);
+    let mut config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
+    config.compress_selectors = false;
+    let key = keygen_pk_v2(&plan.vesta, &source, &config).unwrap();
+    let descriptor = key.binding().encoded().to_vec();
+    let verifying_key = key.vk().to_bytes().to_vec();
+    let original = key.artifact_bytes_v2().unwrap();
+    drop(key);
+    let metadata = || {
+        let binding = DescriptorBinding::decode_v2(&descriptor).unwrap();
+        let key = VerifyingKey::read(&verifying_key, &binding).unwrap();
+        KeyArtifact::new(binding, key).unwrap()
+    };
+    let read = ReadConfig {
+        maximum_bytes: original.len(),
         maximum_rows: 1 << 16,
         coset_cache: iroha_plonk::keys::CosetCachePolicy::OnDemand,
         msm_budget: MemoryBudget::DEFAULT,
     };
-    let imported = Prover::from_artifacts(
-        plan.clone(),
-        core::array::from_fn(|i| a[i].metadata()),
-        core::array::from_fn(|i| w[i].metadata()),
-    )
-    .unwrap();
-    let descriptors = imported.descriptors();
-    assert_eq!(descriptors.len(), 3);
-    // The exported order must retain each exact installed owner, including stages whose
-    // descriptors have equal bytes, and finish at A2 without a trailing wrapper.
-    for (stage, original) in a.iter().enumerate() {
-        assert!(core::ptr::eq(
-            descriptors[2 * stage],
-            imported.a[stage].binding(),
-        ));
-        assert_eq!(descriptors[2 * stage].encoded(), original.d.as_slice());
-        if let Some(wrapper) = w.get(stage) {
-            assert!(core::ptr::eq(
-                descriptors[2 * stage + 1],
-                imported.w[stage].binding(),
-            ));
-            assert_eq!(descriptors[2 * stage + 1].encoded(), wrapper.d.as_slice());
-        }
-    }
+    let imported = Prover::from_artifacts(plan.clone(), metadata()).unwrap();
+    // The one exported descriptor is the exact installed terminal owner.
+    let [installed] = imported.descriptors();
+    assert!(core::ptr::eq(installed, imported.terminal.binding()));
+    assert_eq!(installed.encoded(), descriptor.as_slice());
+    let [layout] = imported.checkpoint_layouts().unwrap();
+    assert_eq!(layout.descriptor_digest(), installed.digest());
     assert_eq!(imported.plan().context().schema(), plan.context().schema());
-    for stage in 0..A_STAGE_COUNT {
-        let key_seal = imported.import_a(stage, &a[stage].p, config).unwrap();
-        let key = imported.bind_a(stage, &key_seal, None).unwrap();
-        assert_eq!(key.verifying_key().to_bytes(), a[stage].v);
-        if stage < A_STAGE_COUNT - 1 {
-            let key_seal = imported.import_w(stage, &w[stage].p, config).unwrap();
-            let key = imported.bind_w(stage, &key_seal, None).unwrap();
-            assert_eq!(key.verifying_key().to_bytes(), w[stage].v);
-        }
-    }
-    assert!(imported.import_a(A_STAGE_COUNT, &a[0].p, config).is_err());
-    assert!(
-        imported
-            .import_w(A_STAGE_COUNT - 1, &w[0].p, config)
-            .is_err()
-    );
-    assert!(imported.import_a(1, &a[0].p, config).is_err());
-    assert!(imported.import_w(1, &w[0].p, config).is_err());
+    let seal = imported.import_terminal(&original, read).unwrap();
+    let key = imported.bind_terminal(&seal, None).unwrap();
+    assert_eq!(key.verifying_key().to_bytes(), verifying_key);
+    // The retired split layout is refused even with every task once.
+    let retired = crate::a_relation::context::ContextPlan::with_schedule(
+        plan.context().operation().clone(),
+        vec![vec![], vec![0]],
+        Some(0),
+        plan.context().object_specs().to_vec(),
+    )
+    .and_then(|context| {
+        context.with_operation_tasks(vec![
+            vec![crate::a_relation::schedule::OperationTask::LoadRecovery],
+            vec![crate::a_relation::schedule::OperationTask::LoadReceipt],
+        ])
+    });
+    assert!(retired.map_or(true, |context| {
+        crate::a_relation::load::LoadStagePlan::new(context).is_err()
+    }));
     let mut changed = plan;
     changed.policy.provider[0] ^= 1;
-    let changed = Prover::from_artifacts(
-        changed,
-        core::array::from_fn(|i| a[i].metadata()),
-        core::array::from_fn(|i| w[i].metadata()),
-    )
-    .unwrap();
-    // Metadata can describe originals, but only source reconstruction can qualify them.
-    assert!(changed.import_a(1, &a[1].p, config).is_err());
+    // A valid original of another policy's source never imports into this prover.
+    let foreign = keygen_pk_v2(&changed.vesta, &changed.source_circuit().unwrap(), &config)
+        .unwrap()
+        .artifact_bytes_v2()
+        .unwrap();
+    assert!(
+        imported
+            .import_terminal(
+                &foreign,
+                ReadConfig {
+                    maximum_bytes: foreign.len(),
+                    ..read
+                }
+            )
+            .is_err()
+    );
+    let changed = Prover::from_artifacts(changed, metadata()).unwrap();
+    // Metadata can describe the original, but only source reconstruction can qualify it.
+    assert!(changed.import_terminal(&original, read).is_err());
 }

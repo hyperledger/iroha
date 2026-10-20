@@ -67,7 +67,8 @@ pub(super) fn retain_request<A: ObjectWorkspace>(
     index: IndexRoot,
     request: &KagemushaWalletRequestV1,
 ) -> Result<IndexRoot, Error> {
-    valid(request.validate())?;
+    // The receiver retains exactly the open Request it issued; every payer completes it.
+    valid(request.validate_open())?;
     let bytes = archive::encode(request)?;
     if bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Invalid("issued Request size"));
@@ -147,7 +148,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, N: NativeProofs>
         Err(unavailable())
     }
 
-    /// Authenticate and durably retain a direct response before ordinary TimeAnchor Refresh.
+    /// Authenticate and durably retain a direct response before ordinary `TimeAnchor` Refresh.
     /// Refresh alone cannot create this native observation. A lost token requires reanchoring.
     ///
     /// # Errors

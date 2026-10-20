@@ -1,9 +1,12 @@
-//! Canonical source-bound custody for every fixed Load A/W stage.
+//! Canonical terminal A payload bound to the current Load session and key.
 //!
-//! Metadata and exact sizes derive from installed native keys. Decoding supplies
-//! original bytes only: restoration invokes the genuine session verifier, rederives
-//! public frames/history from the prior opaque checkpoint and checks complete claims.
-//! This module does not authenticate a proving catalog or produce final Omega.
+//! The payload preserves the original proof bytes and the exact544 Pallas claim of
+//! the terminal fold. Its source context is checked against the session, and the
+//! proof is then completely reverified by the genuine restore path against the
+//! frame rederived from the session's originals and that decided claim; transported
+//! metadata never authorizes a proof. The custody archive separately binds the
+//! released capsule, predecessor and checkpoint ordinal. This component supplies
+//! neither Omega nor wallet-open authority.
 
 use ff::PrimeField;
 use iroha_pasta::msm::MemoryBudget;
@@ -11,55 +14,30 @@ use iroha_plonk::Protocol;
 use iroha_plonk_recursion::ACCUMULATOR_BYTES;
 use norito::{NoritoDeserialize, NoritoSchema, NoritoSerialize};
 
-use super::{
-    A_STAGE_COUNT, ACheckpoint, Error, Prover, Session, W_STAGE_COUNT, WCheckpoint, context_digest,
-};
+use super::{Error, Prover, Session, Terminal};
 
-/// Fixed native stage kind; no transported kind selects a circuit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CheckpointKind {
-    /// One of the four original A proof stages.
-    A,
-    /// One of the three original W continuations.
-    W,
-}
-impl CheckpointKind {
-    const fn tag(self) -> u8 {
-        match self {
-            Self::A => 0,
-            Self::W => 1,
-        }
-    }
-}
-
-/// Exact immutable layout derived from this installed native stage's key.
+/// Exact installed terminal A identity and canonical payload length.
+///
+/// Construction is private and derives from this Prover's installed key. The
+/// native installation owner must still authenticate the whole PK/source catalog;
+/// this metadata is not a signed artifact admission or a complete fold schedule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CheckpointLayout {
-    kind: CheckpointKind,
-    stage: u32,
     descriptor_digest: [u8; 32],
     verifying_key_digest: [u8; 32],
     proof_bytes: usize,
     payload_bytes: usize,
 }
 impl CheckpointLayout {
-    /// Fixed native A or W role.
-    pub const fn kind(&self) -> CheckpointKind {
-        self.kind
-    }
-    /// Native zero-based ordinal within the fixed role.
-    pub const fn stage(&self) -> u32 {
-        self.stage
-    }
     /// Exact installed native descriptor identity.
     pub const fn descriptor_digest(&self) -> &[u8; 32] {
         &self.descriptor_digest
     }
-    /// Complete descriptor-bound installed native key identity.
+    /// Complete descriptor-bound installed key identity in its native base field.
     pub const fn verifying_key_digest(&self) -> &[u8; 32] {
         &self.verifying_key_digest
     }
-    /// Exact original proof length from the installed protocol.
+    /// Exact original proof length derived from the installed Protocol.
     pub const fn proof_bytes(&self) -> usize {
         self.proof_bytes
     }
@@ -69,22 +47,16 @@ impl CheckpointLayout {
     }
 
     fn new(
-        kind: CheckpointKind,
-        stage: usize,
         descriptor_digest: [u8; 32],
         verifying_key_digest: [u8; 32],
         proof_bytes: usize,
     ) -> Result<Self, Error> {
-        let limit = match kind {
-            CheckpointKind::A => A_STAGE_COUNT,
-            CheckpointKind::W => W_STAGE_COUNT,
-        };
-        if stage >= limit || proof_bytes == 0 || u32::try_from(proof_bytes).is_err() {
+        if proof_bytes == 0 || u32::try_from(proof_bytes).is_err() {
             return Err(Error::Artifact);
         }
-        let stage = u32::try_from(stage).map_err(|_| Error::Artifact)?;
-        // Counting specimen only. These zero bytes are never treated as a proof,
-        // imported, decided or returned as an admitted source checkpoint.
+        // Only a counting specimen: these zero bytes are never parsed as a proof,
+        // imported, decided or returned as an admitted checkpoint. Canonical frame
+        // length depends on the fixed field/sequence lengths, not their contents.
         let mut proof = Vec::new();
         proof
             .try_reserve_exact(proof_bytes)
@@ -92,8 +64,6 @@ impl CheckpointLayout {
         proof.resize(proof_bytes, 0);
         let specimen = Payload {
             version: 1,
-            kind: kind.tag(),
-            stage,
             descriptor_digest,
             verifying_key_digest,
             source_context: [0; 32],
@@ -105,8 +75,6 @@ impl CheckpointLayout {
             return Err(Error::Artifact);
         }
         Ok(Self {
-            kind,
-            stage,
             descriptor_digest,
             verifying_key_digest,
             proof_bytes,
@@ -115,12 +83,11 @@ impl CheckpointLayout {
     }
 }
 
+// No public constructor/decoder accepts this transported metadata as authority.
 #[derive(NoritoSerialize, NoritoDeserialize, NoritoSchema)]
-#[norito_schema(name = "iroha.kagemusha.native.load.checkpoint.v1")]
+#[norito_schema(name = "iroha.kagemusha.native.load.terminal_checkpoint.v1")]
 struct Payload {
     version: u16,
-    kind: u8,
-    stage: u32,
     descriptor_digest: [u8; 32],
     verifying_key_digest: [u8; 32],
     source_context: [u8; 32],
@@ -128,20 +95,23 @@ struct Payload {
     accumulator: [u8; ACCUMULATOR_BYTES],
 }
 impl Payload {
-    fn check(&self, layout: &CheckpointLayout) -> Result<(), Error> {
+    fn check(&self, layout: &CheckpointLayout, source_context: [u8; 32]) -> Result<(), Error> {
         if self.version != 1
-            || self.kind != layout.kind.tag()
-            || self.stage != layout.stage
             || self.descriptor_digest != layout.descriptor_digest
             || self.verifying_key_digest != layout.verifying_key_digest
+            || self.source_context != source_context
             || self.proof.len() != layout.proof_bytes
         {
             return Err(Error::Input);
         }
         Ok(())
     }
-    fn decode(bytes: &[u8], layout: &CheckpointLayout) -> Result<Self, Error> {
-        // Bound the entire original before allocating any owned Norito sequence.
+    fn decode(
+        bytes: &[u8],
+        layout: &CheckpointLayout,
+        source_context: [u8; 32],
+    ) -> Result<Self, Error> {
+        // Bound the complete frame before any owned Norito sequence allocation.
         if bytes.len() != layout.payload_bytes {
             return Err(Error::Input);
         }
@@ -149,11 +119,11 @@ impl Payload {
             bytes,
             norito::canonical_decode_limits(layout.payload_bytes),
         )?;
-        payload.check(layout)?;
+        payload.check(layout, source_context)?;
         Ok(payload)
     }
-    fn encode(self, layout: &CheckpointLayout) -> Result<Vec<u8>, Error> {
-        self.check(layout)?;
+    fn encode(self, layout: &CheckpointLayout, source_context: [u8; 32]) -> Result<Vec<u8>, Error> {
+        self.check(layout, source_context)?;
         let bytes = norito::encode_canonical(&self).map_err(|_| Error::Input)?;
         if bytes.len() != layout.payload_bytes {
             return Err(Error::Input);
@@ -163,387 +133,322 @@ impl Payload {
 }
 
 impl Prover {
-    fn checkpoint_layout(
-        &self,
-        kind: CheckpointKind,
-        stage: usize,
-    ) -> Result<CheckpointLayout, Error> {
-        match kind {
-            CheckpointKind::A => {
-                let key = self.a.get(stage).ok_or(Error::Artifact)?;
-                CheckpointLayout::new(
-                    kind,
-                    stage,
-                    *key.binding().digest(),
-                    key.key()
-                        .kagemusha_digest(key.binding())
-                        .map_err(|_| Error::Artifact)?
-                        .to_repr(),
-                    Protocol::new(key.binding().descriptor())
-                        .map_err(|_| Error::Artifact)?
-                        .proof_length(),
-                )
-            }
-            CheckpointKind::W => {
-                let key = self.w.get(stage).ok_or(Error::Artifact)?;
-                CheckpointLayout::new(
-                    kind,
-                    stage,
-                    *key.binding().digest(),
-                    key.key()
-                        .kagemusha_digest(key.binding())
-                        .map_err(|_| Error::Artifact)?
-                        .to_repr(),
-                    Protocol::new(key.binding().descriptor())
-                        .map_err(|_| Error::Artifact)?
-                        .proof_length(),
-                )
-            }
-        }
+    fn checkpoint_layout(&self) -> Result<CheckpointLayout, Error> {
+        CheckpointLayout::new(
+            *self.terminal.binding().digest(),
+            self.terminal
+                .key()
+                .kagemusha_digest(self.terminal.binding())
+                .map_err(|_| Error::Artifact)?
+                .to_repr(),
+            Protocol::new(self.terminal.binding().descriptor())
+                .map_err(|_| Error::Artifact)?
+                .proof_length(),
+        )
     }
 
-    /// Derive every exact A/W custody payload layout in actual execution order.
-    /// Final A remains a source for separately installed Omega, never a wallet verdict.
+    /// Derive the single terminal A payload identity/length from the installed key.
+    /// Final Omega and whole producer-catalog authentication remain separate.
     ///
     /// # Errors
-    /// An installed descriptor/key cannot define the fixed canonical payload.
-    pub fn checkpoint_layouts(&self) -> Result<Vec<CheckpointLayout>, Error> {
-        let mut layouts = Vec::with_capacity(A_STAGE_COUNT + W_STAGE_COUNT);
-        for stage in 0..A_STAGE_COUNT {
-            layouts.push(self.checkpoint_layout(CheckpointKind::A, stage)?);
-            if stage < W_STAGE_COUNT {
-                layouts.push(self.checkpoint_layout(CheckpointKind::W, stage)?);
-            }
-        }
-        Ok(layouts)
+    /// The installed descriptor/key cannot define a canonical bounded payload.
+    pub fn checkpoint_layouts(&self) -> Result<[CheckpointLayout; 1], Error> {
+        Ok([self.checkpoint_layout()?])
     }
 }
 
 impl Session<'_> {
-    /// Retain a genuine A checkpoint after its exact native proof/full claims verify.
+    /// Canonically retain a genuine terminal A after completely re-verifying its
+    /// proof, frame, carried Pallas claim and own opening under this session's key.
     ///
     /// # Errors
-    /// Another source/stage/key, changed public/context or failed proof/decide.
-    pub fn encode_a_checkpoint(
+    /// Wrong original length, changed source/key/proof/frame/claim, canonical
+    /// encoding or failed full native verification.
+    pub fn encode_terminal_checkpoint(
         &self,
-        source: &ACheckpoint,
+        terminal: &Terminal,
         budget: MemoryBudget,
     ) -> Result<Vec<u8>, Error> {
-        self.encode_a_checkpoint_cancellable(source, budget, None)
+        self.encode_terminal_checkpoint_cancellable(terminal, budget, None)
     }
     /// Execute the same native check with an explicit operation signal.
     /// # Errors
     /// As the ordinary entry point, or cancellation without a partial verdict.
-    pub fn encode_a_checkpoint_cancellable(
+    pub fn encode_terminal_checkpoint_cancellable(
         &self,
-        source: &ACheckpoint,
+        terminal: &Terminal,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Vec<u8>, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        self.verify_a_cancellable(source, budget, cancellation)?;
-        let layout = self
-            .prover
-            .checkpoint_layout(CheckpointKind::A, source.stage)?;
-        Payload {
-            version: 1,
-            kind: layout.kind.tag(),
-            stage: layout.stage,
-            descriptor_digest: layout.descriptor_digest,
-            verifying_key_digest: layout.verifying_key_digest,
-            source_context: context_digest(&source.first)?.to_repr(),
-            proof: source.proof.clone(),
-            accumulator: source.pallas.to_bytes(),
+        let layout = self.prover.checkpoint_layout()?;
+        if terminal.proof.len() != layout.proof_bytes {
+            return Err(Error::Input);
         }
-        .encode(&layout)
-    }
-
-    /// Restore A1 from one bounded original and this session's retained exact sources.
-    ///
-    /// # Errors
-    /// Wrong fixed layout/context, noncanonical claim or failed full native verification.
-    pub fn restore_first_checkpoint(
-        &self,
-        original: &[u8],
-        budget: MemoryBudget,
-    ) -> Result<ACheckpoint, Error> {
-        self.restore_first_checkpoint_cancellable(original, budget, None)
-    }
-    /// Execute the same native check with an explicit operation signal.
-    /// # Errors
-    /// As the ordinary entry point, or cancellation without a partial verdict.
-    pub fn restore_first_checkpoint_cancellable(
-        &self,
-        original: &[u8],
-        budget: MemoryBudget,
-        cancellation: Option<&iroha_pasta::CancellationToken>,
-    ) -> Result<ACheckpoint, Error> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        let layout = self.prover.checkpoint_layout(CheckpointKind::A, 0)?;
-        let payload = Payload::decode(original, &layout)?;
-        let checked = self.restore_first_cancellable(
-            payload.proof,
-            &payload.accumulator,
+        let checked = self.restore_terminal_cancellable(
+            terminal.proof.clone(),
+            &terminal.pallas.to_bytes(),
             budget,
             cancellation,
         )?;
-        if context_digest(&checked.first)?.to_repr() != payload.source_context {
+        if checked.instances != terminal.instances
+            || checked.predecessor_vesta.to_bytes() != terminal.predecessor_vesta.to_bytes()
+            || checked.opening.g() != terminal.opening.g()
+            || checked.opening.challenges() != terminal.opening.challenges()
+            || checked.opening.source_k() != terminal.opening.source_k()
+        {
             return Err(Error::Input);
         }
-        Ok(checked)
-    }
-
-    /// Restore the exact next A from its verified prior W and bounded original.
-    /// No caller provides public frames, result bits, history or artifact selection.
-    ///
-    /// # Errors
-    /// Wrong source/order/layout/context, noncanonical claim or failed complete verification.
-    pub fn restore_a_checkpoint(
-        &self,
-        prior: &WCheckpoint,
-        original: &[u8],
-        budget: MemoryBudget,
-    ) -> Result<ACheckpoint, Error> {
-        self.restore_a_checkpoint_cancellable(prior, original, budget, None)
-    }
-    /// Execute the same native check with an explicit operation signal.
-    /// # Errors
-    /// As the ordinary entry point, or cancellation without a partial verdict.
-    pub fn restore_a_checkpoint_cancellable(
-        &self,
-        prior: &WCheckpoint,
-        original: &[u8],
-        budget: MemoryBudget,
-        cancellation: Option<&iroha_pasta::CancellationToken>,
-    ) -> Result<ACheckpoint, Error> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        self.require_source(&prior.source)?;
-        let next = prior.source.stage.checked_add(1).ok_or(Error::Input)?;
-        let layout = self.prover.checkpoint_layout(CheckpointKind::A, next)?;
-        let payload = Payload::decode(original, &layout)?;
-        if context_digest(&prior.source.first)?.to_repr() != payload.source_context {
-            return Err(Error::Input);
-        }
-        self.restore_a_cancellable(
-            prior,
-            payload.proof,
-            &payload.accumulator,
-            budget,
-            cancellation,
-        )
-    }
-
-    /// Retain the original W proof/full deciding claim after its real native restore.
-    ///
-    /// # Errors
-    /// Wrong source/order/layout or failed complete native verification.
-    pub fn encode_wrapper_checkpoint(
-        &self,
-        source: &WCheckpoint,
-        budget: MemoryBudget,
-    ) -> Result<Vec<u8>, Error> {
-        self.encode_wrapper_checkpoint_cancellable(source, budget, None)
-    }
-    /// Execute the same native check with an explicit operation signal.
-    /// # Errors
-    /// As the ordinary entry point, or cancellation without a partial verdict.
-    pub fn encode_wrapper_checkpoint_cancellable(
-        &self,
-        source: &WCheckpoint,
-        budget: MemoryBudget,
-        cancellation: Option<&iroha_pasta::CancellationToken>,
-    ) -> Result<Vec<u8>, Error> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        let checked = self.restore_wrapper_cancellable(
-            &source.source,
-            source.proof.clone(),
-            &source.vesta.to_bytes(),
-            budget,
-            cancellation,
-        )?;
-        let layout = self
-            .prover
-            .checkpoint_layout(CheckpointKind::W, checked.source.stage)?;
+        let source_context = self.prepared.context_digest()?.to_repr();
         Payload {
             version: 1,
-            kind: layout.kind.tag(),
-            stage: layout.stage,
             descriptor_digest: layout.descriptor_digest,
             verifying_key_digest: layout.verifying_key_digest,
-            source_context: context_digest(&checked.source.first)?.to_repr(),
+            source_context,
             proof: checked.proof,
-            accumulator: checked.vesta.to_bytes(),
+            accumulator: checked.pallas.to_bytes(),
         }
-        .encode(&layout)
+        .encode(&layout, source_context)
     }
 
-    /// Restore a bounded original W only from its exact native source A capability.
+    /// Restore the terminal A from one exact canonical payload and completely
+    /// verify its proof against the frame rederived from the retained session
+    /// inputs and the decided carried Pallas claim.
     ///
     /// # Errors
-    /// Wrong source/order/layout/context, canonical claim or failed native proof/decide.
-    pub fn restore_wrapper_checkpoint(
+    /// Truncation/trailing bytes, wrong key/context/length, noncanonical claim or
+    /// failed proof/decide.
+    pub fn restore_terminal_checkpoint(
         &self,
-        prior: &ACheckpoint,
-        original: &[u8],
+        bytes: &[u8],
         budget: MemoryBudget,
-    ) -> Result<WCheckpoint, Error> {
-        self.restore_wrapper_checkpoint_cancellable(prior, original, budget, None)
+    ) -> Result<Terminal, Error> {
+        self.restore_terminal_checkpoint_cancellable(bytes, budget, None)
     }
     /// Execute the same native check with an explicit operation signal.
     /// # Errors
     /// As the ordinary entry point, or cancellation without a partial verdict.
-    pub fn restore_wrapper_checkpoint_cancellable(
+    pub fn restore_terminal_checkpoint_cancellable(
         &self,
-        prior: &ACheckpoint,
-        original: &[u8],
+        bytes: &[u8],
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
-    ) -> Result<WCheckpoint, Error> {
+    ) -> Result<Terminal, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        self.require_source(prior)?;
-        let layout = self
-            .prover
-            .checkpoint_layout(CheckpointKind::W, prior.stage)?;
-        let payload = Payload::decode(original, &layout)?;
-        if context_digest(&prior.first)?.to_repr() != payload.source_context {
-            return Err(Error::Input);
-        }
-        self.restore_wrapper_cancellable(
-            prior,
-            payload.proof,
-            &payload.accumulator,
-            budget,
-            cancellation,
-        )
+        let layout = self.prover.checkpoint_layout()?;
+        let payload = Payload::decode(bytes, &layout, self.prepared.context_digest()?.to_repr())?;
+        self.restore_terminal_cancellable(payload.proof, &payload.accumulator, budget, cancellation)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    //! Unadmitted DATA controls for the local terminal checkpoint carrier grammar.
+    //! No specimen is a proof, an installed key, a signed inventory or a session.
+
     use super::*;
+
+    // A bounded grammar specimen only; it never enters a native restore/prover.
+    fn layout() -> CheckpointLayout {
+        CheckpointLayout::new([1; 32], [2; 32], 64).unwrap()
+    }
+
+    fn data() -> Payload {
+        Payload {
+            version: 1,
+            descriptor_digest: [1; 32],
+            verifying_key_digest: [2; 32],
+            source_context: [3; 32],
+            proof: vec![4; 64],
+            accumulator: [5; ACCUMULATOR_BYTES],
+        }
+    }
+
+    #[test]
+    fn unadmitted_bounded_data_round_trips_exact_bytes_under_the_counted_layout() {
+        // This checks only the carrier grammar. These nonzero DATA bytes are never
+        // passed to Session restore, a proof verifier or an accumulator decide.
+        let layout = layout();
+        let context = [3; 32];
+        let payload = data();
+        assert_eq!(
+            norito::canonical_frame_len(&payload).unwrap(),
+            layout.payload_bytes()
+        );
+        let bytes = payload.encode(&layout, context).unwrap();
+        assert_eq!(bytes.len(), layout.payload_bytes());
+        let restored = Payload::decode(&bytes, &layout, context).unwrap();
+        assert_eq!(restored.version, 1);
+        assert_eq!(restored.descriptor_digest, *layout.descriptor_digest());
+        assert_eq!(
+            restored.verifying_key_digest,
+            *layout.verifying_key_digest()
+        );
+        assert_eq!(restored.source_context, context);
+        assert_eq!(restored.proof, vec![4; layout.proof_bytes()]);
+        assert_eq!(restored.accumulator, [5; ACCUMULATOR_BYTES]);
+        assert_eq!(restored.encode(&layout, context).unwrap(), bytes);
+    }
+
+    #[test]
+    fn unadmitted_data_cannot_substitute_source_installed_key_or_proof_length() {
+        let layout = layout();
+        let context = [3; 32];
+        for mutation in 0..6 {
+            let mut payload = data();
+            match mutation {
+                0 => payload.version = 2,
+                1 => payload.descriptor_digest[0] ^= 1,
+                2 => payload.verifying_key_digest[0] ^= 1,
+                3 => payload.source_context[0] ^= 1,
+                4 => {
+                    payload.proof.pop();
+                }
+                _ => payload.proof.push(0),
+            }
+            // Re-encoding gives the mutated DATA a genuine codec checksum; its
+            // altered identity must still be refused before proof verification.
+            let bytes = norito::encode_canonical(&payload).unwrap();
+            assert!(
+                matches!(Payload::decode(&bytes, &layout, context), Err(Error::Input)),
+                "mutation {mutation}"
+            );
+        }
+        // The session's own source context is part of the exact accepted identity.
+        assert!(matches!(data().encode(&layout, [9; 32]), Err(Error::Input)));
+    }
+
+    #[test]
+    fn bounded_data_frames_refuse_empty_truncated_trailing_and_noncanonical_input() {
+        let layout = layout();
+        let context = [3; 32];
+        let bytes = norito::encode_canonical(&data()).unwrap();
+        let mut extra = bytes.clone();
+        extra.push(0);
+        for bad in [&[][..], &bytes[..bytes.len() - 1], &extra[..]] {
+            assert!(matches!(
+                Payload::decode(bad, &layout, context),
+                Err(Error::Input)
+            ));
+        }
+        let mut bad_header = bytes;
+        bad_header[0] ^= 1;
+        assert!(matches!(
+            Payload::decode(&bad_header, &layout, context),
+            Err(Error::Input)
+        ));
+    }
+
+    #[test]
+    fn counting_layout_includes_the_carried_claim_and_refuses_impossible_lengths() {
+        // Metadata/counting only; no zero proof is restored or admitted here.
+        let layout = CheckpointLayout::new([1; 32], [2; 32], 8480).unwrap();
+        assert_eq!(layout.proof_bytes(), 8480);
+        assert!(layout.payload_bytes() > 8480 + ACCUMULATOR_BYTES);
+        for bytes in [0, usize::MAX] {
+            assert!(matches!(
+                CheckpointLayout::new([1; 32], [2; 32], bytes),
+                Err(Error::Artifact)
+            ));
+        }
+    }
 
     #[test]
     fn checkpoint_read_refusal_preserves_original_and_exact_retry() {
         // Grammar-only originals never enter a proof verifier or monetary owner.
-        for kind in [CheckpointKind::A, CheckpointKind::W] {
-            let layout = CheckpointLayout::new(kind, 0, [1; 32], [2; 32], 64).unwrap();
-            let make = || Payload {
+        let layout = layout();
+        let context = [3; 32];
+        let bytes = data().encode(&layout, context).unwrap();
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let error = norito::with_decode_limits_scope(limits, || {
+                Payload::decode(&bytes, &layout, context)
+            })
+            .err()
+            .expect("actual enclosing decoder refusal");
+            let Error::DecodeResource(ref original) = error else {
+                panic!("lost original checkpoint refusal: {error:?}")
+            };
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(error.clone(), error);
+            assert!(!error.is_cancelled());
+            assert!(std::error::Error::source(&error).is_some());
+            assert_eq!(
+                Payload::decode(&bytes, &layout, context)
+                    .unwrap()
+                    .encode(&layout, context)
+                    .unwrap(),
+                bytes
+            );
+            // Exact extent is checked before a decoder observer is entered.
+            assert!(matches!(
+                norito::with_decode_limits_scope(limits, || {
+                    Payload::decode(&bytes[..bytes.len() - 1], &layout, context)
+                }),
+                Err(Error::Input)
+            ));
+        }
+    }
+
+    #[test]
+    fn terminal_checkpoint_rejects_the_retired_split_load_layout() {
+        // Explicitly retained only as a denylist specimen. No old decoder exists:
+        // the split A1/W0/A2 carrier with its stage kind and ordinal.
+        #[derive(NoritoSerialize, NoritoSchema)]
+        #[norito_schema(name = "iroha.kagemusha.native.load.checkpoint.v1")]
+        struct RetiredStageData {
+            version: u16,
+            kind: u8,
+            stage: u32,
+            descriptor_digest: [u8; 32],
+            verifying_key_digest: [u8; 32],
+            source_context: [u8; 32],
+            proof: Vec<u8>,
+            accumulator: [u8; ACCUMULATOR_BYTES],
+        }
+        let layout = layout();
+        for (kind, stage) in [(0, 0), (1, 0), (0, 1)] {
+            let bytes = norito::encode_canonical(&RetiredStageData {
                 version: 1,
-                kind: kind.tag(),
-                stage: 0,
+                kind,
+                stage,
                 descriptor_digest: [1; 32],
                 verifying_key_digest: [2; 32],
                 source_context: [3; 32],
                 proof: vec![4; 64],
                 accumulator: [5; ACCUMULATOR_BYTES],
-            };
-            let bytes = make().encode(&layout).unwrap();
-            for limits in [
-                norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
-                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-            ] {
-                let error =
-                    norito::with_decode_limits_scope(limits, || Payload::decode(&bytes, &layout))
-                        .err()
-                        .expect("actual enclosing decoder refusal");
-                let Error::DecodeResource(ref original) = error else {
-                    panic!("lost original checkpoint refusal: {error:?}")
-                };
-                assert_eq!(
-                    original.kind(),
-                    norito::core::DecodeLocalRefusalKind::EnclosingLimit
-                );
-                assert_eq!(error.clone(), error);
-                assert!(!error.is_cancelled());
-                assert!(std::error::Error::source(&error).is_some());
-                let restored = Payload::decode(&bytes, &layout).unwrap();
-                assert_eq!(restored.encode(&layout).unwrap(), bytes);
-                // Exact extent is checked before a decoder observer is entered.
-                assert!(matches!(
-                    norito::with_decode_limits_scope(limits, || {
-                        Payload::decode(&bytes[..bytes.len() - 1], &layout)
-                    }),
-                    Err(Error::Input)
-                ));
-            }
-            let mut invalid = make();
-            invalid.version = 2;
-            let invalid = norito::encode_canonical(&invalid).unwrap();
-            assert!(matches!(
-                Payload::decode(&invalid, &layout),
-                Err(Error::Input)
-            ));
-            let mut bad_header = bytes;
-            bad_header[0] ^= 1;
-            assert!(matches!(
-                Payload::decode(&bad_header, &layout),
-                Err(Error::Input)
-            ));
-        }
-    }
-
-    #[test]
-    fn counting_layout_preserves_every_fixed_stage_and_rejects_overflow() {
-        // Metadata/counting only; no zero proof is restored or admitted here.
-        for stage in 0..A_STAGE_COUNT {
-            let layout =
-                CheckpointLayout::new(CheckpointKind::A, stage, [1; 32], [2; 32], 8480).unwrap();
-            assert_eq!(layout.stage(), u32::try_from(stage).unwrap());
-            assert_eq!(layout.proof_bytes(), 8480);
-            assert!(layout.payload_bytes() > 8480 + ACCUMULATOR_BYTES);
-        }
-        for stage in 0..W_STAGE_COUNT {
+            })
+            .unwrap();
+            assert_ne!(
+                bytes.len(),
+                layout.payload_bytes(),
+                "retired layout {kind}/{stage}"
+            );
             assert!(
-                CheckpointLayout::new(CheckpointKind::W, stage, [1; 32], [2; 32], 4096).is_ok()
+                matches!(Payload::decode(&bytes, &layout, [3; 32]), Err(Error::Input)),
+                "retired layout {kind}/{stage}"
             );
         }
-        assert!(
-            CheckpointLayout::new(CheckpointKind::A, A_STAGE_COUNT, [1; 32], [2; 32], 8480)
-                .is_err()
-        );
-        assert!(
-            CheckpointLayout::new(CheckpointKind::W, W_STAGE_COUNT, [1; 32], [2; 32], 4096)
-                .is_err()
-        );
-        assert!(CheckpointLayout::new(CheckpointKind::A, 0, [1; 32], [2; 32], 0).is_err());
-        assert!(CheckpointLayout::new(CheckpointKind::A, 0, [1; 32], [2; 32], usize::MAX).is_err());
     }
 
     #[test]
-    fn canonical_payload_metadata_cannot_select_another_stage_key_or_length() {
-        // Original codec checks only. These labelled stand-in proof/claim bytes
-        // are never passed to Session restore or treated as acceptance evidence.
-        // The lean schedule's terminal A2 (stage 1); stage 0 is the other valid A stage.
-        let layout = CheckpointLayout::new(CheckpointKind::A, 1, [1; 32], [2; 32], 32).unwrap();
-        let payload = || Payload {
-            version: 1,
-            kind: 0,
-            stage: 1,
-            descriptor_digest: [1; 32],
-            verifying_key_digest: [2; 32],
-            source_context: [3; 32],
-            proof: vec![0; 32],
-            accumulator: [0; ACCUMULATOR_BYTES],
-        };
-        let original = payload().encode(&layout).unwrap();
-        assert!(Payload::decode(&original, &layout).is_ok());
-        for mutation in 0..6 {
-            let mut changed = payload();
-            match mutation {
-                0 => changed.version = 2,
-                1 => changed.kind = 1,
-                2 => changed.stage = 0,
-                3 => changed.descriptor_digest[0] ^= 1,
-                4 => changed.verifying_key_digest[0] ^= 1,
-                _ => {
-                    changed.proof.pop();
-                }
-            }
-            assert!(changed.encode(&layout).is_err());
+    fn guarded_output_refuses_wrong_extent_and_does_not_consume_original() {
+        let layout = layout();
+        let original = data().encode(&layout, [3; 32]).unwrap();
+        for delta in [-1_isize, 1] {
+            let mut wrong = layout;
+            wrong.payload_bytes = wrong.payload_bytes.checked_add_signed(delta).unwrap();
+            assert!(matches!(data().encode(&wrong, [3; 32]), Err(Error::Input)));
         }
-        let mut trailing = original.clone();
-        trailing.push(0);
-        assert!(Payload::decode(&trailing, &layout).is_err());
-        assert!(Payload::decode(&original[..original.len() - 1], &layout).is_err());
+        let retried = Payload::decode(&original, &layout, [3; 32])
+            .unwrap()
+            .encode(&layout, [3; 32])
+            .unwrap();
+        assert_eq!(retried, original);
     }
 }

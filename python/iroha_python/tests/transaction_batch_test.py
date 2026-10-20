@@ -25,6 +25,7 @@ def config(*, gas_limit: int | None = 1000) -> TransactionConfig:
             "value": {"charge_limits": [], "gas_limit": gas_limit},
         },
         creation_time_ms=42,
+        chain_discriminant=753,
     )
 
 
@@ -107,6 +108,7 @@ def test_transaction_config_is_strict_and_defensively_immutable() -> None:
         ttl_ms=1,
         nonce=1,
         metadata=metadata,
+        chain_discriminant=753,
     )
     fee_payment["value"]["charge_limits"].append("changed")
     metadata["labels"].append("changed")
@@ -132,6 +134,7 @@ def test_transaction_config_is_strict_and_defensively_immutable() -> None:
                 authority="ed0120" + "11" * 32,
                 fee_payment={"payer": "authority"},
                 **kwargs,
+                chain_discriminant=753,
             )
 
     for invalid_metadata in (
@@ -145,6 +148,7 @@ def test_transaction_config_is_strict_and_defensively_immutable() -> None:
                 authority="ed0120" + "11" * 32,
                 fee_payment={"payer": "authority"},
                 metadata=invalid_metadata,
+                chain_discriminant=753,
             )
 
 
@@ -163,6 +167,7 @@ def test_sign_uses_exact_staged_state_without_override_channels(
             network_id=NETWORK_ID,
             authority="ed0120" + "11" * 32,
             fee_payment={"payer": "authority"},
+            chain_discriminant=753,
         )
     )
     draft.add_instruction(object())  # type: ignore[arg-type]
@@ -186,13 +191,14 @@ def test_generated_creation_time_is_shared_by_manifest_and_builder(
             network_id=NETWORK_ID,
             authority="ed0120" + "11" * 32,
             fee_payment={"payer": "authority"},
+            chain_discriminant=753,
         )
     )
     monkeypatch.setattr(tx_module.time, "time", lambda: 999.0)
     monkeypatch.setattr(
         tx_module,
         "TransactionBuilder",
-        lambda *_args: builders.append(RecordingBuilder()) or builders[-1],
+        lambda *_args, **kwargs: builders.append(RecordingBuilder(**kwargs)) or builders[-1],
     )
 
     first_manifest = draft.to_manifest_dict(include_creation_time=True)
@@ -602,7 +608,8 @@ def test_asset_transfer_caps_reject_duplicate_windows_before_native_call(
 class RecordingBuilder:
     """Minimal native-builder stand-in used to inspect authoring calls."""
 
-    def __init__(self, *_args: Any) -> None:
+    def __init__(self, *_args: Any, chain_discriminant: int) -> None:
+        assert chain_discriminant == 753
         self.operations: list[tuple[Any, ...]] = []
 
     def use_executable_batch(self) -> None:
@@ -646,7 +653,7 @@ def test_to_builder_is_a_pure_repeatable_snapshot(
     monkeypatch.setattr(
         tx_module,
         "TransactionBuilder",
-        lambda *_args: builders.append(RecordingBuilder()) or builders[-1],
+        lambda *_args, **kwargs: builders.append(RecordingBuilder(**kwargs)) or builders[-1],
     )
     draft = TransactionDraft(config()).bind_privacy_exact12_capability_manifest_v1(
         manifest  # type: ignore[arg-type]
@@ -667,8 +674,8 @@ def test_build_signed_transaction_entries_select_batch_and_reject_dual_inputs(
 ) -> None:
     builders: list[RecordingBuilder] = []
 
-    def make_builder(*args: Any) -> RecordingBuilder:
-        builder = RecordingBuilder(*args)
+    def make_builder(*args: Any, **kwargs: Any) -> RecordingBuilder:
+        builder = RecordingBuilder(*args, **kwargs)
         builders.append(builder)
         return builder
 
@@ -683,6 +690,7 @@ def test_build_signed_transaction_entries_select_batch_and_reject_dual_inputs(
         fee_payment={"payer": "authority", "value": {}},
         entries=[instruction, call],  # type: ignore[list-item]
         creation_time_ms=42,
+        chain_discriminant=753,
     )
 
     assert result == "signed"
@@ -701,6 +709,7 @@ def test_build_signed_transaction_entries_select_batch_and_reject_dual_inputs(
             fee_payment={"payer": "authority", "value": {}},
             instructions=[],
             entries=[],
+            chain_discriminant=753,
         )
     with pytest.raises(TypeError, match="exact immutable bytes"):
         crypto_module.build_signed_transaction(
@@ -708,6 +717,7 @@ def test_build_signed_transaction_entries_select_batch_and_reject_dual_inputs(
             "authority",
             bytearray(32),  # type: ignore[arg-type]
             fee_payment={"payer": "authority", "value": {}},
+            chain_discriminant=753,
         )
     with pytest.raises(ValueError, match="exactly 32 bytes"):
         crypto_module.build_signed_transaction(
@@ -715,6 +725,7 @@ def test_build_signed_transaction_entries_select_batch_and_reject_dual_inputs(
             "authority",
             bytes(31),
             fee_payment={"payer": "authority", "value": {}},
+            chain_discriminant=753,
         )
 
 
@@ -740,6 +751,7 @@ def test_build_signed_transaction_rejects_lossy_integer_inputs(
             bytes([0x11]) * 32,
             fee_payment={"payer": "authority", "value": {}},
             **{field: value},
+            chain_discriminant=753,
         )
 
 
@@ -750,13 +762,15 @@ def test_build_signed_transaction_rejects_non_json_payload_values() -> None:
             "authority",
             bytes([0x11]) * 32,
             fee_payment={"payer": "authority", "value": {"gas": float("nan")}},
+            chain_discriminant=753,
         )
     with pytest.raises(TypeError, match="keys must be strings"):
         crypto_module.build_signed_transaction(
             NETWORK_ID,
             "authority",
             bytes([0x11]) * 32,
-            fee_payment={"payer": "authority", 1: "not-json"},  # type: ignore[dict-item]
+            fee_payment={"payer": "authority", 1: "not-json"},  # type: ignore[dict-item],
+            chain_discriminant=753,
         )
     with pytest.raises(TypeError, match="exact JSON values"):
         crypto_module.build_signed_transaction(
@@ -765,6 +779,7 @@ def test_build_signed_transaction_rejects_non_json_payload_values() -> None:
             bytes([0x11]) * 32,
             fee_payment={"payer": "authority", "value": {}},
             metadata={"unsupported": object()},
+            chain_discriminant=753,
         )
 
 
@@ -778,4 +793,5 @@ def test_build_signed_transaction_rejects_label_and_bare_hash_domains(
             "authority",
             b"private",
             fee_payment={"payer": "authority", "value": {}},
+            chain_discriminant=753,
         )

@@ -223,7 +223,10 @@ fn encoded_snapshot_work_is_pinned_for_capture_reads_and_closing() {
             ..OpeningWorkV1::default()
         }
     );
-    assert!(capture.ancestry_walks >= count && capture.ancestry_opens > capture.ancestry_walks);
+    // One closed read transaction walks the complete ancestry at its entry and exit,
+    // however many originals it captures; each file keeps its own leaf checks.
+    assert_eq!(capture.ancestry_walks, 2);
+    assert!(capture.ancestry_opens > capture.ancestry_walks);
     // Each bounded read decodes its frame again from memory, re-hashes the stored
     // bytes, and hashes raw bytes in both the decoder and the bounded reader.
     // Reads from the private snapshot touch no file or ancestry.
@@ -237,7 +240,8 @@ fn encoded_snapshot_work_is_pinned_for_capture_reads_and_closing() {
             ..OpeningWorkV1::default()
         }
     );
-    // Closing reopens every observed file to compare its retained snapshot; it hashes nothing.
+    // Closing reopens every observed file to compare its retained snapshot; it hashes nothing
+    // and walks the complete ancestry only at its transaction's entry and exit.
     assert_eq!(
         OpeningWorkV1 {
             ancestry_walks: 0,
@@ -249,7 +253,7 @@ fn encoded_snapshot_work_is_pinned_for_capture_reads_and_closing() {
             ..OpeningWorkV1::default()
         }
     );
-    assert!(closing.ancestry_walks >= count + 2);
+    assert_eq!(closing.ancestry_walks, 2);
 }
 
 #[test]

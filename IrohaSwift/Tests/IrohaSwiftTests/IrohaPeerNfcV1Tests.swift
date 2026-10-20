@@ -99,44 +99,26 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         }
     }
 
-    func testGetAskMatchesTheSharedVectorAndItsCodecIsStrict() throws {
-        let nfc = try XCTUnwrap(irohaPeerAskFixtureV1()["nfc"] as? [String: Any])
-        XCTAssertEqual(nfc["instruction"] as? String, "0x34")
-        XCTAssertEqual(IrohaPeerNfcInstructionV1.getAsk.rawValue, 0x34)
-        XCTAssertEqual(IrohaPeerNfcCommandV1.getAsk.operation, .getAsk)
-        XCTAssertEqual(IrohaPeerNfcOperationV1.getAsk.rawValue, "getAsk")
-        XCTAssertEqual(IrohaPeerNfcV1.askBytes, 56)
-        let apdu = try irohaPeerAskBytesV1(nfc["get_ask_apdu_hex"])
-        XCTAssertEqual(try IrohaPeerNfcAPDUCodecV1.encode(.getAsk), apdu)
-        XCTAssertEqual(try IrohaPeerNfcAPDUCodecV1.decode(apdu), .getAsk)
-        XCTAssertEqual(IrohaPeerNfcCardEndpointV1.route(.getAsk), .intake)
-
-        let invalid = try irohaPeerAskVectorsV1("invalid_apdu_hex", in: nfc)
-        XCTAssertEqual(invalid.count, 6)
-        var card = IrohaPeerNfcCardEndpointV1(
-            applicationIdentifier: .protocolDefault,
-            intake: try IrohaPeerNfcOfferIntakeV1(
-                sessionID: sessionID,
-                profilePolicy: .sameProfile(.kagemushaWalletV1),
-                ask: IrohaPeerAskV1(amount: .init(low: 1_200, high: 0), receiverAccountDigest: Data(repeating: 7, count: 32))
-            )
-        )
-        for vector in invalid {
-            let name = try XCTUnwrap(vector["name"] as? String)
-            let bytes = try irohaPeerAskBytesV1(vector["apdu_hex"])
-            XCTAssertThrowsError(try IrohaPeerNfcAPDUCodecV1.decode(bytes), name) {
-                XCTAssertEqual($0 as? IrohaPeerNfcErrorV1, .invalidAPDU, name)
-            }
-            XCTAssertEqual(card.process(apdu: bytes).response.statusWord, .wrongData, name)
-        }
-        // The card answers the valid GET_ASK, so the invalid forms failed only on their bytes.
-        XCTAssertEqual(card.process(apdu: apdu).response.data.count, IrohaPeerNfcV1.askBytes)
+    func testOfferIntakeInstructionsAreRetired() throws {
+        XCTAssertEqual(IrohaPeerNfcInstructionV1.getIntake.rawValue, 0x30)
         XCTAssertEqual(
-            IrohaPeerNfcReceiverSessionV1.failureResponse(for: .invalidAsk).statusWord,
-            .wrongData
+            Set(IrohaPeerNfcInstructionV1.allCases.map(\.rawValue)),
+            [0x30, 0x10, 0x11, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25]
         )
-        XCTAssertEqual(IrohaPeerNfcReceiverSessionV1.failureResponse(for: .invalidAsk).encoded, Data([0x6A, 0x80]))
-        XCTAssertNotNil(IrohaPeerNfcErrorV1.invalidAsk.errorDescription)
+        // BEGIN_OFFER, WRITE_OFFER, SUBMIT_OFFER and GET_ASK left with the Offer intake.
+        for instruction: UInt8 in [0x31, 0x32, 0x33, 0x34] {
+            XCTAssertNil(IrohaPeerNfcInstructionV1(rawValue: instruction))
+            XCTAssertThrowsError(
+                try IrohaPeerNfcAPDUCodecV1.decode(Data([IrohaPeerNfcV1.commandClass, instruction, 0, 0]))
+            ) {
+                XCTAssertEqual($0 as? IrohaPeerNfcErrorV1, .unsupportedInstruction(instruction))
+            }
+        }
+        XCTAssertEqual(
+            IrohaPeerNfcOperationV1.allCases.map(\.rawValue),
+            ["selectApplication", "getIntake", "getInfo", "readRequest", "beginPayment", "write",
+             "commit", "readAcknowledgement", "confirmAcknowledgement", "getStatus"]
+        )
     }
 
     func testInfoAndStatusRoundTripRejectUnknownFlags() throws {
@@ -1049,7 +1031,7 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
     }
 
     func testDefaultNfcLimitCarriesExactMaximumWalletIPM() throws {
-        // Bounds DATA only: resized stand-in proofs and the maximum-size companion carry no authority.
+        // Bounds DATA only: resized stand-in proofs and the maximum-size companions carry no authority.
         let envelopes = try maximumWalletExchangeEnvelopes()
         XCTAssertEqual(envelopes.request.count, KagemushaWalletWireV1.messageMaximumBytes)
         XCTAssertEqual(envelopes.payment.count, KagemushaWalletWireV1.messageMaximumBytes)
@@ -1058,16 +1040,20 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         let request = try IrohaPeerKagemushaWalletAdapterV1.wrap(
             envelopes.request,
             destinationAccountOriginal: Data(repeating: 0xbc, count: 4_096))
-        let payment = try IrohaPeerKagemushaWalletAdapterV1.wrap(envelopes.payment)
+        let payment = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            envelopes.payment,
+            payerCompanion: Data(repeating: 0xcd, count: IrohaPeerWalletPaymentV1.maximumCompanionBytes))
         XCTAssertEqual(request.encoded.count, IrohaPeerNfcV1.maximumMessageBytes)
         XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 14_196)
-        XCTAssertEqual(payment.encoded.count, 10_084)
+        XCTAssertEqual(payment.encoded.count, IrohaPeerNfcV1.maximumPaymentMessageBytes)
+        XCTAssertEqual(IrohaPeerNfcV1.maximumPaymentMessageBytes, 84 + 12_064)
 
         // The exact-size fixture must not relax the independent proof-role limit.
         XCTAssertThrowsError(try IrohaPeerKagemushaWalletAdapterV1.wrap(
             irohaPeerWalletExchangeEnvelopeV1(kind: .payment,
                 payload: Data(repeating: 0xa5,
-                    count: KagemushaWalletWireV1.paymentSigmaProofCapBytes + 1)))) {
+                    count: KagemushaWalletWireV1.paymentSigmaProofCapBytes + 1)),
+            payerCompanion: irohaPeerWalletPayerCompanionV1())) {
             XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("payment.sigma_proof"))
         }
 
@@ -1086,18 +1072,27 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         }
         XCTAssertEqual(context.payment, payment)
 
+        // One byte above the KWPYPC1 cap, and a bare envelope without its companion, are refused.
         XCTAssertThrowsError(try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
             kind: .payment,
             schemaVersion: 1,
-            canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                kind: .payment,
-                frameBytes: KagemushaWalletWireV1.messageMaximumBytes + 1
-            )
+            canonicalPayload: payment.canonicalPayload + Data([0])
         )) {
             XCTAssertEqual(
                 $0 as? IrohaPeerWireMessageErrorV1,
-                .canonicalLengthOutOfRange(actual: 10_001, maximum: 10_000)
+                .canonicalLengthOutOfRange(actual: 12_065, maximum: 12_064)
+            )
+        }
+        XCTAssertThrowsError(try IrohaPeerWireMessageV1(
+            profile: .kagemushaWalletV1,
+            kind: .payment,
+            schemaVersion: 1,
+            canonicalPayload: envelopes.payment
+        )) {
+            XCTAssertEqual(
+                $0 as? IrohaPeerWireMessageErrorV1,
+                .invalidCanonicalPayload(profile: .kagemushaWalletV1, kind: .payment)
             )
         }
     }

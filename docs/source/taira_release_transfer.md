@@ -45,7 +45,13 @@ runtime private key, token, password or validator configuration.
 
 Before remote I/O, the command verifies the signed controller sources, the exact
 preparation request/result/capture and its actual typed check evidence, the
-frozen source snapshot, and all four captured AArch64 ELF hashes. The original
+frozen source snapshot, and all four captured ELF hashes and headers against the exact target in the
+preparation result. Both `aarch64-unknown-linux-gnu` and
+`x86_64-unknown-linux-gnu` are artifact targets; the pinned result digest binds
+that selection through transfer and native invocation records. The current
+MacStadium receiver and native execution authority remain AArch64-only. An x86
+artifact cannot execute there, and this artifact policy does not admit OVH or
+change a signed host pair. The original
 mode 0500 captures are retained unchanged. The signed-source owner exports only
 the selected commit and complete tree/object closure, excluding parent history,
 working-tree changes and gitlink contents.

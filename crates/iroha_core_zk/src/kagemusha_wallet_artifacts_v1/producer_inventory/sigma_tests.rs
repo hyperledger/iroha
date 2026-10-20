@@ -835,12 +835,9 @@ fn signed_bootstrap_program_qualifies_whole_context_and_its_original_stage() {
 }
 
 #[test]
-#[ignore = "actual Retiring Q/A/W source originals; run optimized explicitly"]
+#[ignore = "actual Retiring Q/A source originals; run optimized explicitly"]
 fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualified() {
-    use iroha_kagemusha_proof::{
-        a_relation::{native::artifact::KeyArtifact, split::WKey},
-        omega::OmegaPlan,
-    };
+    use iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact;
     use iroha_plonk::cs::InstanceType;
     let program = Variant::ALL
         .iter()
@@ -878,12 +875,9 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
         .map(PrimeField::to_repr)
         .collect();
     let eq = PinnedParams::<Eq>::derive(16).unwrap();
-    let ep = PinnedParams::<Ep>::derive(16).unwrap();
     let mut acfg = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     acfg.compress_selectors = false;
     acfg.coset_cache = CosetCachePolicy::OnDemand;
-    let mut wcfg = KeygenConfigV2::pipa_r(OmegaPlan::instance_types().to_vec());
-    wcfg.coset_cache = CosetCachePolicy::OnDemand;
     fn persist<C: PastaCurve>(disk: &Disk, key: ProvingKey<C>) -> (OriginalV1, KeyArtifact<C>) {
         let reference = OriginalV1 {
             descriptor: disk.put(key.binding().encoded()),
@@ -894,33 +888,12 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
         drop(key);
         (reference, metadata)
     }
-    let mut previous = None;
-    let mut a = Vec::new();
-    let mut w = Vec::new();
-    let mut terminal = None;
-    for stage in 0..plan.context().stage_count() {
-        let circuit = plan.source_circuit(stage, previous.take()).unwrap();
-        let (original, key) = persist(&disk, keygen_pk_v2(&eq, &circuit, &acfg).unwrap());
-        a.push(original);
-        if stage + 1 < plan.context().stage_count() {
-            let circuit = plan
-                .wrapper_source(stage, key.binding(), key.key())
-                .unwrap();
-            let (original, wrapper) = persist(&disk, keygen_pk_v2(&ep, &circuit, &wcfg).unwrap());
-            w.push(original);
-            previous = Some(
-                WKey::from_artifact(
-                    plan.context(),
-                    stage,
-                    wrapper.binding().clone(),
-                    ep.clone(),
-                    wrapper.key().clone(),
-                )
-                .unwrap(),
-            );
-        }
-        terminal = Some(key);
-    }
+    // Lean Retiring is one terminal A: no W source follows it.
+    let circuit = plan.source_circuit().unwrap();
+    let (original, key) = persist(&disk, keygen_pk_v2(&eq, &circuit, &acfg).unwrap());
+    let a = vec![original];
+    let w: Vec<OriginalV1> = Vec::new();
+    let terminal = Some(key);
     let (pack, installation, catalog) =
         engineering_fixture::signed_inventory_with_sources(installed.pack.steps.clone(), |_| {
             let mut inventory = authenticated.inventory.clone();
@@ -964,7 +937,8 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
         qualified.identity(),
         (authenticated2.installation(), route_index, program_index)
     );
-    // Lean Retiring: 2 A and 1 W. Each costs 2 metadata and 3 strict original reads.
+    // Lean Retiring: one terminal A and no W; it costs 2 metadata and 3 strict original
+    // reads.
     let stages = 2 * plan.context().stage_count() - 1;
     assert_eq!(
         disk.opens - before,
@@ -1007,6 +981,6 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
     ));
     assert_eq!(disk.opens, before);
     eprintln!(
-        "QUALIFIED_RETIRING_ROUTE q=1 a=2 w=1 all_originals=true candidate_omega_unqualified=true complete_catalog=false"
+        "QUALIFIED_RETIRING_ROUTE q=1 a=1 w=0 all_originals=true candidate_omega_unqualified=true complete_catalog=false"
     );
 }

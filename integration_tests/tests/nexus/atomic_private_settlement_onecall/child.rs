@@ -278,32 +278,8 @@ fn workflow_snapshot(
                         .and_then(|step| step.round.as_ref())
                         .and_then(|round| round.round_id);
                 }
-                let effects = journal
-                    .steps
-                    .iter()
-                    .map(|step| {
-                        (
-                            step.transaction.as_ref().map(|tx| {
-                                tx.attempts
-                                    .iter()
-                                    .map(|attempt| {
-                                        (
-                                            attempt.ordinal,
-                                            attempt.identity,
-                                            attempt.dispatch_ordinal,
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                            }),
-                            step.round
-                                .as_ref()
-                                .map(|round| (round.round_id, round.start_ordinal)),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                // Recovery may durably reconcile observed facts. It may not start a round,
-                // create a new signed identity, or increment any original dispatch ordinal.
-                Hash::new(norito::encode_canonical(&(journal.identity, effects))?)
+                // Recovery may reconcile observations but may not open or dispatch effects.
+                journal_effect_digest(&journal)?
             } else {
                 Hash::new(&*bytes)
             };
@@ -401,38 +377,72 @@ impl WorkflowStorage for CheckpointStorage {
         Ok(())
     }
 }
+/// Bind external-effect coordinates while permitting read-only observation reconciliation.
+/// The private evidence projection includes both native transaction identity hashes.
+fn journal_effect_digest(journal: &WorkflowJournalV1) -> Result<Hash> {
+    let effects = journal
+        .steps
+        .iter()
+        .map(|step| {
+            (
+                step.transaction.as_ref().map(|tx| {
+                    tx.attempts
+                        .iter()
+                        .map(|attempt| {
+                            (
+                                attempt.ordinal,
+                                attempt.identity.map(|identity| {
+                                    (identity.signed_transaction_hash, identity.entrypoint_hash)
+                                }),
+                                attempt.dispatch_ordinal,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                }),
+                step.round
+                    .as_ref()
+                    .map(|round| (round.round_id, round.start_ordinal)),
+            )
+        })
+        .collect::<Vec<_>>();
+    Ok(Hash::new(norito::encode_canonical(&(
+        journal.identity.clone(),
+        effects,
+    ))?))
+}
+
 fn client(input: &ChildInput) -> Result<iroha::client::AccountClient> {
     use iroha_config_base::{
         read::ConfigReader,
         toml::{TomlSource, Writer as TomlWriter},
     };
+    let mut table = toml::Table::new();
+    TomlWriter::new(&mut table)
+        .write("chain", input.pins.chain.clone())
+        .write("network_id", input.intent.network_id.to_string())
+        .write(
+            ["account", "chain_discriminant"],
+            i64::from(input.account_chain_discriminant),
+        )
+        .write(
+            ["account", "public_key"],
+            ALICE_KEYPAIR.public_key().to_string(),
+        )
+        .write(
+            ["account", "private_key"],
+            iroha_crypto::ExposedPrivateKey(ALICE_KEYPAIR.private_key().clone()).to_string(),
+        )
+        .write("torii_url", input.endpoint.clone())
+        .write("torii_request_timeout_ms", 300_000_i64)
+        .write(["transaction", "status_timeout_ms"], 300_000_i64)
+        .write(["transaction", "time_to_live_ms"], 600_000_i64);
     let config = ConfigReader::new()
         .without_env()
-        .with_toml_source(TomlSource::inline(
-            TomlWriter::new()
-                .write("chain", input.pins.chain.clone())
-                .write("network_id", input.intent.network_id.to_string())
-                .write(
-                    ["account", "chain_discriminant"],
-                    i64::from(input.account_chain_discriminant),
-                )
-                .write(
-                    ["account", "public_key"],
-                    ALICE_KEYPAIR.public_key().to_string(),
-                )
-                .write(
-                    ["account", "private_key"],
-                    iroha_crypto::ExposedPrivateKey(ALICE_KEYPAIR.private_key().clone())
-                        .to_string(),
-                )
-                .write("torii_url", input.endpoint.clone())
-                .write("torii_request_timeout_ms", 300_000_i64)
-                .write(["transaction", "status_timeout_ms"], 300_000_i64)
-                .write(["transaction", "time_to_live_ms"], 600_000_i64)
-                .finish(),
-        ))
-        .read_and_complete::<iroha::config::UserConfig>()?
-        .parse()?;
+        .with_toml_source(TomlSource::inline(table))
+        .read_and_complete::<iroha::config::UserConfig>()
+        .map_err(|error| eyre!("cold SDK client configuration: {error:?}"))?
+        .parse()
+        .map_err(|error| eyre!("cold SDK client configuration values: {error:?}"))?;
     Ok(SdkClient::builder(config).build()?.account_client()?)
 }
 pub(super) fn verifier(input: &ChildInput) -> Result<SumeragiFinalityVerifier> {
@@ -841,21 +851,38 @@ fn cold_child_rejects_substituted_signed_genesis_before_wallet_and_binds_reports
         .stack_size(TEST_STACK_BYTES)
         .spawn(|| {
             let root = tempfile::tempdir().unwrap();
-            let original = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
-                .with_base_seed("cold-original-pins")
-                .build();
-            let replacement = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
-                .with_base_seed("cold-replacement-pins")
-                .build();
-            let mut input = test_input(
-                &original,
-                root.path()
-                    .join("never-opened")
-                    .to_str()
-                    .unwrap()
-                    .to_owned(),
-            );
+            // These unstarted networks only supply owned signed inputs. Release
+            // each network permit before constructing the next fixture, and make
+            // the deadline-bearing input last so genesis preparation cannot age it.
+            let replacement_genesis = {
+                let replacement = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
+                    .with_base_seed("cold-replacement-pins")
+                    .build();
+                replacement.genesis().0.encode_wire().unwrap()
+            };
+            let mut input = {
+                let original = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
+                    .with_base_seed("cold-original-pins")
+                    .build();
+                test_input(
+                    &original,
+                    root.path()
+                        .join("never-opened")
+                        .to_str()
+                        .unwrap()
+                        .to_owned(),
+                )
+            };
             assert!(verifier(&input).is_ok());
+            let account = client(&input).expect("explicit cold client configuration");
+            assert_eq!(account.authority(), &*ALICE_ID);
+            assert_eq!(account.chain_id().to_string(), input.pins.chain);
+            assert_eq!(account.network_id(), &input.intent.network_id);
+            assert_eq!(account.endpoint().as_str(), input.endpoint);
+            let endpoint = input.endpoint.clone();
+            input.endpoint = "not a Torii URL".to_owned();
+            assert!(client(&input).is_err());
+            input.endpoint = endpoint;
             let pid = std::process::id().wrapping_add(1);
             let report = ChildReport {
                 pid,
@@ -883,7 +910,7 @@ fn cold_child_rejects_substituted_signed_genesis_before_wallet_and_binds_reports
                 unix_ms().unwrap() + COLD_CASE_LIMIT.as_millis() as u64 + 60_000;
             assert!(remaining(&input).is_err());
             input.deadline_unix_ms = original_deadline;
-            input.original_genesis = replacement.genesis().0.encode_wire().unwrap();
+            input.original_genesis = replacement_genesis;
             assert!(verifier(&input).is_err());
             assert!(execute(input).is_err());
             assert!(
@@ -946,4 +973,70 @@ fn cold_snapshot_accepts_only_the_original_round_worker_lease() {
     assert!(require_original_worker_lease(Some(original), &[]).is_err());
     assert!(require_original_worker_lease(Some([8; 32]), &[name.clone()]).is_err());
     assert!(require_original_worker_lease(Some(original), &[name.clone(), name]).is_err());
+}
+
+#[test]
+fn cold_effect_snapshot_binds_every_signed_identity_and_dispatch_coordinate() {
+    use iroha::workflow::{
+        DriverIdentityV1, StepDescriptorV1, TransactionAttemptV1, TransactionIdentityV1,
+        WorkflowBindingV1, WorkflowKindV1, WorkflowPlanV1,
+    };
+    let plan = WorkflowPlanV1 {
+        kind: WorkflowKindV1::PrivateSettlement,
+        instance: "cold-effect-binding".to_owned(),
+        driver: DriverIdentityV1 {
+            id: "private_settlement".to_owned(),
+            schema_version: 1,
+        },
+        request_context_digest: [1; 32],
+        steps: vec![StepDescriptorV1::transaction("settle", [2; 32])],
+    };
+    let binding = WorkflowBindingV1 {
+        network: "network".to_owned(),
+        authority: "authority".to_owned(),
+    };
+    let mut original = WorkflowJournalV1::new(&plan, &binding, 7).unwrap();
+    original.steps[0]
+        .transaction
+        .as_mut()
+        .unwrap()
+        .attempts
+        .push(TransactionAttemptV1 {
+            ordinal: 1,
+            identity: Some(TransactionIdentityV1 {
+                signed_transaction_hash: [3; 32],
+                entrypoint_hash: [4; 32],
+            }),
+            dispatch_ordinal: 1,
+            possible_admissions: 1,
+            evidence: None,
+        });
+    let expected = journal_effect_digest(&original).unwrap();
+    for coordinate in 0..6 {
+        let mut changed = original.clone();
+        let attempt = &mut changed.steps[0].transaction.as_mut().unwrap().attempts[0];
+        match coordinate {
+            0 => attempt.identity.as_mut().unwrap().signed_transaction_hash[0] ^= 1,
+            1 => attempt.identity.as_mut().unwrap().entrypoint_hash[0] ^= 1,
+            2 => attempt.identity = None,
+            3 => attempt.ordinal += 1,
+            4 => attempt.dispatch_ordinal += 1,
+            5 => changed.identity.request_context_digest[0] ^= 1,
+            _ => unreachable!(),
+        }
+        assert_ne!(
+            journal_effect_digest(&changed).unwrap(),
+            expected,
+            "coordinate {coordinate}"
+        );
+    }
+    let mut observed = original.clone();
+    observed.sequence += 1;
+    observed.updated_at_ms += 1;
+    observed.steps[0].transaction.as_mut().unwrap().attempts[0].possible_admissions = 0;
+    assert_eq!(
+        journal_effect_digest(&observed).unwrap(),
+        expected,
+        "read-only reconciliation may persist observations without starting another effect"
+    );
 }

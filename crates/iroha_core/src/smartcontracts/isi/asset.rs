@@ -4567,6 +4567,7 @@ pub mod isi {
     /// The zero-length owned marker preserves that tuple's archive alignment without
     /// constructing any of its fields or allocating their backing.
     struct StakingSlashBindingRef<'a> {
+        _alignment: [StakingSlashBindingFields; 0],
         lane_id: LaneId,
         validator: &'a AccountId,
         slash_id: Hash,
@@ -4574,18 +4575,17 @@ pub mod isi {
         destination: &'a AssetId,
         amount: &'a Quantity,
         exposure: &'a Quantity,
-        _alignment: [StakingSlashBindingFields; 0],
     }
     impl norito::NoritoSchema for StakingSlashBindingRef<'_> {
         fn nominal_name() -> String {
             <StakingSlashBindingFields as norito::NoritoSchema>::nominal_name()
         }
         fn frame_name() -> String {
-            #[cfg(all(test, sumeragi_core_mutation = "HC408"))]
+            #[cfg(all(test, sumeragi_core_mutation = "HC904"))]
             {
                 "iroha_core::StakingSlashBindingRef".into()
             }
-            #[cfg(not(all(test, sumeragi_core_mutation = "HC408")))]
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC904")))]
             {
                 <StakingSlashBindingFields as norito::NoritoSchema>::frame_name()
             }
@@ -4646,7 +4646,7 @@ pub mod isi {
         assert_eq!(
             canonical_numeric_movement_binding(&borrowed).unwrap(),
             canonical_numeric_movement_binding(&original).unwrap(),
-            "HC408 borrowed slash binding must preserve the exact original canonical frame"
+            "HC904 borrowed slash binding must preserve the exact original canonical frame"
         );
         assert!(std::ptr::eq(borrowed.validator, &validator));
         assert!(std::ptr::eq(borrowed.amount, &amount));
@@ -10220,9 +10220,9 @@ pub mod query {
             .iter()
             .map(|definition| {
                 world
-                    .asset_definition_assets()
+                    .asset_definition_asset_counts()
                     .get(definition)
-                    .map_or(0, BTreeSet::len)
+                    .map_or(0, |count| usize::try_from(*count).unwrap_or(usize::MAX))
             })
             .sum()
     }
@@ -10233,17 +10233,13 @@ pub mod query {
         domains
             .iter()
             .flat_map(|domain| {
-                world
-                    .domain_asset_definitions()
-                    .get(domain)
-                    .into_iter()
-                    .flat_map(BTreeSet::iter)
+                crate::state::range_bounds::index_members(world.domain_asset_definitions(), domain)
             })
             .map(|definition| {
                 world
-                    .asset_definition_assets()
+                    .asset_definition_asset_counts()
                     .get(definition)
-                    .map_or(0, BTreeSet::len)
+                    .map_or(0, |count| usize::try_from(*count).unwrap_or(usize::MAX))
             })
             .sum()
     }
@@ -10434,12 +10430,11 @@ pub mod query {
                             let mut definitions = BTreeSet::<AssetDefinitionId>::new();
                             for domain in &domains {
                                 definitions.extend(
-                                    world
-                                        .domain_asset_definitions()
-                                        .get(domain)
-                                        .into_iter()
-                                        .flat_map(BTreeSet::iter)
-                                        .cloned(),
+                                    crate::state::range_bounds::index_members(
+                                        world.domain_asset_definitions(),
+                                        domain,
+                                    )
+                                    .cloned(),
                                 );
                             }
                             Box::new(
@@ -10542,12 +10537,11 @@ pub mod query {
                             let mut definitions = BTreeSet::<AssetDefinitionId>::new();
                             for domain in &domains {
                                 definitions.extend(
-                                    world
-                                        .domain_asset_definitions()
-                                        .get(domain)
-                                        .into_iter()
-                                        .flat_map(BTreeSet::iter)
-                                        .cloned(),
+                                    crate::state::range_bounds::index_members(
+                                        world.domain_asset_definitions(),
+                                        domain,
+                                    )
+                                    .cloned(),
                                 );
                             }
                             definitions
@@ -10713,30 +10707,28 @@ pub mod query {
                         domains.map(|domains| domains.into_iter().collect::<BTreeSet<_>>());
                     Box::new(owners.into_iter().flat_map(move |owner| {
                         let domains = domains.clone();
-                        world
-                            .asset_definitions_by_owner()
-                            .get(&owner)
-                            .into_iter()
-                            .flat_map(BTreeSet::iter)
-                            .filter(move |definition_id| {
-                                domains.as_ref().is_none_or(|domains| {
-                                    asset_definition_domain(world, definition_id)
-                                        .is_some_and(|domain| domains.contains(&domain))
-                                })
+                        crate::state::range_bounds::index_members(
+                            world.asset_definitions_by_owner(),
+                            &owner,
+                        )
+                        .filter(move |definition_id| {
+                            domains.as_ref().is_none_or(|domains| {
+                                asset_definition_domain(world, definition_id)
+                                    .is_some_and(|domain| domains.contains(&domain))
                             })
-                            .filter_map(|definition_id| world.asset_definition(definition_id).ok())
-                            .collect::<Vec<_>>()
+                        })
+                        .filter_map(|definition_id| world.asset_definition(definition_id).ok())
+                        .collect::<Vec<_>>()
                     }))
                 }
                 AssetDefinitionQueryPlan::Domains(domains) => {
                     Box::new(domains.into_iter().flat_map(move |domain| {
-                        world
-                            .domain_asset_definitions()
-                            .get(&domain)
-                            .into_iter()
-                            .flat_map(BTreeSet::iter)
-                            .filter_map(|definition_id| world.asset_definition(definition_id).ok())
-                            .collect::<Vec<_>>()
+                        crate::state::range_bounds::index_members(
+                            world.domain_asset_definitions(),
+                            &domain,
+                        )
+                        .filter_map(|definition_id| world.asset_definition(definition_id).ok())
+                        .collect::<Vec<_>>()
                     }))
                 }
                 AssetDefinitionQueryPlan::Full => Box::new(

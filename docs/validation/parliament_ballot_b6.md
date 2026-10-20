@@ -1,6 +1,6 @@
 # Parliament ballot B6 qualification evidence
 
-Status, 2026-10-14: **experimental; no profile selected or qualified; production
+Status, 2026-10-20: **experimental; no profile selected or qualified; production
 remains gated.** This record extends the [B1–B5 evidence](parliament_ballot_standalone.md)
 and tracks the [B6 goals](../../specs/parliament_ballot_implementation_goals.md).
 It records completed local work and concrete remaining obligations, not an
@@ -8,8 +8,10 @@ independent reviewer or owner's approval.
 
 The [requirement audit](../../specs/parliament_ballot_b6_requirement_audit.md)
 maps every design security gate, selection condition and validation-table row
-to its evidence and remaining work, including obligations that must wait for
-production implementation after selection.
+to its evidence and remaining work. The owner has authorized development and
+testing before qualification (design section 12.2). Core/Torii integration is
+unfinished implementation, not an approval prerequisite; production activation
+still requires the qualification evidence.
 
 ## Security accounting
 
@@ -85,6 +87,58 @@ runs one source-shaped VOLE reconstruction, preserving actual revealed-generator
 aliases and persistent oracle history. This defines a distinct bounded simulator
 proposal; it does not identify the endpoint with real-root `Sim+`. Computational
 entry, proposal acceptance and complete reduction resources remain open.
+The [conditional root-entry lemma](../../specs/parliament_ballot_b6_root_entry.md)
+now isolates the two same-key root uses as five block requests, preserving the
+actual H4 IV, ordinary public AES under equal numeric keys and the complete
+future continuation. Its permutation-to-independent-block loss is at most
+`10/2^128`; the chosen-input AES advantage and full driver resources remain
+unquantified. The [material-entry extension](../../specs/parliament_ballot_b6_material_entry.md)
+now supplies the path, selected-leaf and selected-row reductions under that
+same game. It reaches independent slot material while retaining real H5
+processing, cached openings, prior replacements and the whole future
+interaction. A deterministic padded schedule has at most 327 component slots
+per invocation, with a separately derived switching bound
+`T * 2,892,601 / 2^128`. This does not revise the frozen ledger or establish
+the primitive premise, initial challenge programming or full driver resources.
+Its [validation record](parliament_ballot_material_entry/README.md) retains
+three passing affine/row interface tests per portable/accelerated-feature
+build, with all 76 scoped inputs unchanged across both runs.
+The [post-entry conditional composition](../../specs/parliament_ballot_b6_conditional_composition.md)
+now joins material entry through H5, mask coordinates and hidden-assignment
+deletion to `IdealFrontierSim`. Its separate
+[arithmetic record](parliament_ballot_conditional_composition/README.md) encloses
+the known formula with exact rational endpoints, charges each exceptional
+event once and leaves initial programming, AES advantages and full resources
+unknown. The interval is not a complete security bound or an attack lower
+bound; no frozen numerical ledger or qualification decision changes.
+A separate [initial challenge-programming derivation](../../specs/parliament_ballot_b6_initial_programming.md)
+now instantiates the entry component conditionally, with explicit joint
+samplers, deferred disjoint-domain writes, a global counterwise hybrid and
+`2*Q_all+T` target-query accounting. Its
+[entry arithmetic record](parliament_ballot_initial_programming/README.md) uses
+relative dyadic enclosures to retain the tiny challenge-2 term, and composes
+with the unchanged post-entry calculation. AES advantages and full resources
+remain unknown; the older report that left entry unknown retains its original
+checkpoint scope. Neither result qualifies the model or production candidate.
+The [application reconciliation](../../specs/parliament_ballot_b6_application_reconciliation.md)
+now derives the conditional privacy and authorization joins for
+`IdealFrontierSim`, with a newly specified credential premise `P_F`. The old
+`Sim+` premise does not transfer automatically, and valid-witness ZK is not
+invoked on false credential hybrids. The [review record](parliament_ballot_application_reconciliation/README.md)
+also distinguishes the aggregate `Q_all` ceiling from the required adversary
+budget plus overhead. The captured fixed-scan circuit's lifetime cost exceeds
+`2^151` elementary gates for the specified repeated body; this is a limitation
+of that reduction construction, not an attack or a protocol runtime claim.
+Quantifying the changed premises and constructing a useful complete oracle
+environment remain open.
+The [static-slot overlay](../../specs/parliament_ballot_b6_static_overlay.md)
+now implements a cheaper supplied-field programming writer with fixed slots
+per request/counter, preserving failed attempts and old higher-counter
+entries across later short prefixes. Its [nine circuit tests](parliament_ballot_static_overlay/README.md)
+pass, including a correlated-state write/lookup check. The root/material
+source audit separately bounds ordinary semantic reads by `Q_all+1445*T`.
+The older scan-cost record remains unchanged; coherent reads, persistent
+storage, base-oracle realization and whole-driver integration remain open.
 The separate [executable sampler accounting](../../specs/parliament_ballot_b6_ideal_sampler_accounting.md)
 now checks bounded schedules, ordinary reads, programming writes and persistent
 log payloads across sequential requests. Its 30 controls preserve a distinct
@@ -464,6 +518,41 @@ control work are not fully charged. These components are not the complete
 
 ## Implemented reservation and workspace proposal
 
+### Canonical-input diagnostic
+
+The [canonical resource probe](../../crates/iroha_parliament_ballot/examples/canonical_resource_probe/README.md)
+owns bounded canonical envelope/context copies, reconstructs the checked context,
+and calls the actual `check_block_ballot_v1` stamp/proof path inside its arena
+and supplied stack. The [campaign](../../scripts/check_parliament_ballot_canonical_resources.py)
+uses genuine 28-bit stamps for valid 3/500/1,000-seat fixtures and a separately
+stamped late-invalid 1,000-seat proof, plus malformed/budget/fatal controls.
+Both modes now pass all 55 cases, with identical inputs, exits, stages, charges
+and arena reports. The [source-bound results](parliament_ballot_canonical_resources/README.md)
+retain 110 observations and the 25 passing example tests. Every normal arena
+exit has zero live allocations; the four originals peak at 4,765,632–5,674,944
+arena block bytes within a 43,106,304-byte reserved mapping. The typed protocol
+library passes 79 tests. The source-derived valid-context maximum remains
+130,995 bytes with a fixed 233,455-byte envelope, 364,450 combined; the default
+1,000-seat fixture is 32 bytes smaller. The typed context decoder refuses
+oversized collections before their storage allocation and caps cumulative
+nominal codec charges at 327,680 bytes. The fixed-envelope decoder permits no
+sequence elements and exactly one 233,012-byte proof charge.
+
+The [current regression receipt](parliament_ballot_canonical_resources/envelope-refusal-receipt.json)
+records 107 model, 79 protocol and 25 example tests, plus 55 worker cases per
+mode with exact reports and unchanged peaks. Original local decode refusals
+remain unavailable through binary/JSON carriers, admission, block validation
+and sealed-list replay; a local shortage does not establish invalid ballot or
+seal evidence. Malformed bytes and schema ceilings still fail as protocol
+errors. All 114 scoped inputs stayed unchanged during each successful test/build.
+The initial four assertion failures and their source-derived corrections remain
+retained. These are ordinary live-checkout results, not a complete frozen
+compiler-input inventory. This finite validity/resource diagnostic has no ledger
+effect; all-input/native coverage, a complete 64 MiB certificate and production
+qualification remain unestablished.
+
+### Retained standalone evidence
+
 The owner requested research and implementation to resolve the undefined
 charging and workspace boundary. The [proposal](../../specs/parliament_ballot_resource_contract.md)
 and [new validation record](parliament_ballot_resource_contract/README.md)
@@ -491,7 +580,13 @@ in the retained report. All 14 controls and 120 proof cases pass with unchanged
 guarded inputs. The 66 completed charged intervals and 16 terminal incomplete
 intervals observe no calls to the named endpoints; 38 cases are unadmitted.
 Hidden paths and complete native-memory bounds remain open. This does not modify
-the frozen resource evidence.
+the frozen resource evidence. The separate
+[historical fixed-descriptor SHA3 remainder review](parliament_ballot_remaining_sha3/README.md)
+accepts eight finite model fixtures with 119,168 step comparisons and 576
+conditional round substitutions. Its distinct closing assessment authenticates
+the process/source/module records and discloses recovered dependencies. This
+internal finite result does not establish native execution, a universal hash
+theorem, current-candidate qualification or the complete 64 MiB certificate.
 
 The [conditional arena argument](../../specs/parliament_ballot_arena_sufficiency.md)
 now proves spatial admission inside an explicit source-allocation model:
@@ -609,8 +704,8 @@ Earlier resource and device measurements retain their original identities.
 | iOS baseline | **TODO:** iPhone SE third generation, battery and sustained thermal runs; the attached iPhone 17 Pro Max is supplementary evidence |
 | Platform coverage | Physical x86/ARM parity, cold-process/cache conditions, named-phone cancellation latency/memory and independent constant-time/erasure implementation review. Standalone finish-and-discard semantics and selected-buffer cleanup tests are implemented; process termination does not establish Drop cleanup. |
 | Deterministic accounting | Standalone charge/boundary proposal and conditional source-model arena sufficiency implemented. Complete compiled allocation correspondence, indirect/native/recursive stack bounds, runtime/System/TLS coverage, independent unsafe review and physical-cost calibration remain open. Complete authenticated envelope/shared-context mapping follows the resolved selection order; block budgets, stamps and casting capacity need qualified costs. |
-| Selection ordering | Owner and independent reviewer must resolve the documented dependency between preselection complete-envelope accounting and postselection schemas; no requirement is waived by the standalone size inventory. |
-| Production implementation | Selection must precede schemas, Core/State, signerless admission, Torii/SDK and timed-OVN/TLE retirement; lifecycle/network/release qualification follows that implementation |
+| Engineering sequencing | Resolved by the owner's authorization in design §12.2: implement and measure actual canonical schemas alongside B6. Complete-envelope accounting and all selection/activation evidence remain required. |
+| Production implementation | Schemas, Core/State, signerless admission, Torii/CLI/SDK and coordinated timed-OVN/TLE retirement are authorized alongside B6. E2 integration remains unfinished; lifecycle/network/release evidence and the owner's qualification record are required before binding production activation. |
 
 The binding-ballot availability function remains false and qualified attempt
 latency remains unavailable. No experimental crate has been connected to Core.

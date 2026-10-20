@@ -4,14 +4,23 @@
 package org.hyperledger.iroha.sdk.offline
 
 import java.util.Random
+import java.nio.file.Files
+import java.nio.file.Paths
+import org.hyperledger.iroha.sdk.client.JsonParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/** Nearby pairing by picture, byte for byte with the Swift tests (`fixtures/kagemusha/peer_ask_v1.json`). */
+/** Nearby pairing by picture, byte for byte with the Swift tests (`fixtures/kagemusha/nearby_picture_v1.json`). */
 class IrohaPeerNearbyPictureCodeV1Test {
-    private val vectors = IrohaPeerAskTestVectorsV1.section("nearby_picture")
+    private val vectors: Map<*, *> = run {
+        val root = generateSequence(Paths.get("").toAbsolutePath()) { it.parent }
+            .first { Files.isRegularFile(it.resolve("fixtures/kagemusha/nearby_picture_v1.json")) }
+        val parsed = JsonParser.parse(String(Files.readAllBytes(root.resolve("fixtures/kagemusha/nearby_picture_v1.json")), Charsets.UTF_8)) as Map<*, *>
+        assertEquals(1, (parsed["fixture_version"] as Number).toInt())
+        parsed["nearby_picture"] as Map<*, *>
+    }
     private val count = IrohaPeerNearbyPictureCodeV1.PICTURE_COUNT
     private val size = IrohaPeerNearbyPictureCodeV1.GRID_SIZE
 
@@ -21,7 +30,7 @@ class IrohaPeerNearbyPictureCodeV1Test {
         assertEquals(6, size)
         assertEquals((vectors["picture_count"] as Number).toInt(), count)
         assertEquals((vectors["grid_size"] as Number).toInt(), size)
-        val pictures = IrohaPeerAskTestVectorsV1.list("vectors", vectors)
+        val pictures = (vectors["vectors"] as List<*>).map { it as Map<*, *> }
         assertEquals(10, pictures.size)
         for (vector in pictures) {
             val digits = vector["digits"] as String

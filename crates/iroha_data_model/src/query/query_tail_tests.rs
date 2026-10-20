@@ -501,7 +501,7 @@ mod fault_injection_tests {
     #[test]
     fn result_swap_preserves_independent_batch_receipts_as_untrusted_fault_evidence() {
         let mut tx = fixture();
-        let authority = tx.entrypoint.authority().clone();
+        let authority = tx.entrypoint.authority_opt().expect("signed fixture").clone();
         let outcome = AssetBatchTransferOutcome {
             leg_index: 0,
             leg_id: "fault".into(),

@@ -2727,5 +2727,44 @@ async fn vpn_address_derivation_separates_active_session_fixtures() {
     );
     assert_eq!(app.vpn_sessions.len(), 3);
 }
+#[tokio::test]
+async fn vpn_payment_lookup_reads_past_fetch_budget_through_checkpoint_ancestry() {
+    let key = crate::tests_runtime_handlers::checked_torii_test_ed25519_keypair(
+        0x24,
+        "past-budget VPN payment authority",
+    );
+    let authority = AccountId::new(key.public_key().clone());
+    let (app, transactions, _chain) =
+        crate::tests_runtime_handlers::past_fetch_budget_history_fixture(
+            iroha_core::sumeragi::test_chain::TestChainConfig::new(
+                world_with_account(&authority),
+                1_000,
+            ),
+            |network| {
+                vec![
+                    crate::tests_runtime_handlers::past_fetch_budget_transaction(
+                        network,
+                        &key,
+                        vec![
+                            iroha_data_model::isi::Log::new(
+                                iroha_data_model::level::Level::INFO,
+                                "VPN payment past the fetch budget".into(),
+                            )
+                            .into(),
+                        ],
+                    ),
+                ]
+            },
+            &[true],
+        );
+    let payment = &transactions[0];
+    let available = app.query_fanout_inflight.available_bytes();
+    let (committed, height) =
+        committed_transaction_by_hash(&app, &payment.hash_as_entrypoint().to_string())
+            .expect("the HTTP payment lookup serves a receipt past the full-prefix budget");
+    assert_eq!(height, 501);
+    assert_eq!(committed.hash(), payment.hash());
+    assert_eq!(app.query_fanout_inflight.available_bytes(), available);
+}
 #[path = "vpn_tests/receipt_admission.rs"]
 mod receipt_admission;

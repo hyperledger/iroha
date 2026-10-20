@@ -64,6 +64,7 @@ def client(url, network, *, timeout=3):
         local_signing_context=LocalSigningContext(network),
         max_retries=3,
         retry_on_methods=["POST"],
+        chain_discriminant=753,
     )
 
 
@@ -238,7 +239,7 @@ def test_transport_refuses_missing_pin_before_dispatch_and_does_not_retry_transp
     request, prepared, _, body = fixture()
     with observation_server(body) as server:
         with pytest.raises((ValueError, TypeError)):
-            ToriiClient(server["url"]).prepare_public_lane_plan(
+            ToriiClient(server["url"], chain_discriminant=753).prepare_public_lane_plan(
                 request, prepared.xor_asset_definition_id
             )
         assert server["calls"] == []

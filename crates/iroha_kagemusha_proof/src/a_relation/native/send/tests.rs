@@ -2,6 +2,7 @@
 
 use super::*;
 use iroha_pasta::PastaAffine;
+use iroha_plonk_gadgets::bytes::p_bytes_native;
 
 fn original(mask: u8) -> Inputs {
     let state = StateWitness {
@@ -161,6 +162,14 @@ fn bound_originals(held_fee: bool) -> (Inputs, OwnPolicy) {
     input.state.statement[15] = Fp::from(12);
     input.state.statement[16] = Fp::from(3);
     input.state.statement[17] = Fp::from(13);
+    // The pattern already gives the Request the credential's payer wallet and account;
+    // its signed field terms must be canonical.
+    for offset in [210, 314, 354] {
+        input.objects[1][offset + 31] = 0;
+    }
+    input.state.statement[20] = Fp::from_u128(u128::from_le_bytes(
+        input.objects[1][194..210].try_into().unwrap(),
+    ));
     input.state.statement[22] = Fp::from_u128(fee);
     input.state.statement[23] = object_digest(ObjectKind::Request, &input.objects[1]).unwrap();
     bind_original_receipt(&mut input, policy);
@@ -219,7 +228,7 @@ fn bind_original_signature_exports(input: &mut Inputs, policy: OwnPolicy) {
         let key = [&input.objects[0][131..163], &input.objects[0][163..195]]
             .map(|bytes| words_from_be(bytes.try_into().unwrap()));
         SignatureWitness {
-            digest: p_bytes_native(kind.signing_domain(), &raw[..end]),
+            digest: signed_message_native(kind, &raw[..end]),
             key,
             signature: core::array::from_fn(|half| {
                 core::array::from_fn(|word| {
@@ -251,6 +260,31 @@ fn signed_send_original_admission_rejects_every_changed_original_byte() {
             );
         }
     }
+}
+
+#[test]
+fn signed_send_original_admission_binds_the_unsigned_request_payer_fields() {
+    // The receiver signs only the Request terms, so the payer wallet, account and
+    // send ordinal leave the Request digest unchanged and bind separately.
+    let (source, policy) = bound_originals(true);
+    for offset in [66, 97, 98, 129, 194, 209] {
+        let mut changed = source.clone();
+        changed.objects[1][offset] ^= 1;
+        assert_eq!(
+            object_digest(ObjectKind::Request, &changed.objects[1]),
+            object_digest(ObjectKind::Request, &source.objects[1])
+        );
+        assert_eq!(
+            check_object_tapes(&changed, policy),
+            Err(Error::Input),
+            "payer byte {offset}"
+        );
+    }
+    let mut changed = source.clone();
+    changed.state.statement[20] += Fp::ONE;
+    bind_original_receipt(&mut changed, policy);
+    bind_original_signature_exports(&mut changed, policy);
+    assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
 }
 
 #[test]

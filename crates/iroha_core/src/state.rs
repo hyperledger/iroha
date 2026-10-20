@@ -222,7 +222,8 @@ use range_bounds::*;
 pub use range_bounds::{
     AsAssetIdAccountCompare, AsAssetIdAccountDefinitionCompare, AsBondEntitlementBondCompare,
     AssetByAccountBounds, AssetByAccountDefinitionBounds, BondEntitlementsByBondBounds,
-    RoleIdByAccountBounds,
+    RoleIdByAccountBounds, index_contains, index_get_member, index_members, index_members_after,
+    index_members_before,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 
@@ -343,6 +344,7 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+mod privacy_transaction_intent;
 mod sccp_forgery_entrypoint;
 pub(crate) mod sccp_pause_entrypoint;
 /// Original local owners and completed errors from witness capture.
@@ -1169,6 +1171,7 @@ macro_rules! with_world_overlay_fields {
             account_aliases_by_account,
             account_scope_directory,
             account_scope_accounts,
+            account_scope_account_counts,
             opaque_uaids,
             ram_lfe_program_policies,
             identifier_policies,
@@ -1192,7 +1195,7 @@ macro_rules! with_world_overlay_fields {
             asset_definitions_by_owner,
             asset_definition_holders,
             asset_definition_assets,
-            assets_by_account,
+            asset_definition_asset_counts,
             assets_by_domain,
             asset_definition_nonzero_holders,
             assets,
@@ -1525,6 +1528,9 @@ use crate::smartcontracts::isi::sccp::{
     },
 };
 use block_field::{CellField, StorageField};
+#[cfg(test)]
+#[path = "state/initial_custody_test_support.rs"]
+mod initial_custody_test_support;
 #[cfg(test)]
 #[path = "state/lane_sample_owner_tests.rs"]
 mod lane_sample_owner_tests;
@@ -4021,8 +4027,10 @@ pub struct WorldData {
     pub(crate) account_scope_directory: Storage<AccountId, AccountScopeDirectoryEntry>,
     /// Reverse read-side account scope index keyed by `(dataspace, alias-domain)`.
     #[norito(skip)]
-    pub(crate) account_scope_accounts:
-        Storage<(DataSpaceId, AccountAliasDomain), BTreeSet<AccountId>>,
+    pub(crate) account_scope_accounts: Storage<((DataSpaceId, AccountAliasDomain), AccountId), ()>,
+    /// Account count per account scope, maintained with membership rows.
+    #[norito(skip)]
+    pub(crate) account_scope_account_counts: Storage<(DataSpaceId, AccountAliasDomain), u64>,
     /// Index from opaque identifiers to UAIDs.
     #[norito(skip)]
     pub(crate) opaque_uaids: Storage<OpaqueAccountId, UniversalAccountId>,
@@ -4071,25 +4079,25 @@ pub struct WorldData {
     pub(crate) asset_definition_domains: Storage<AssetDefinitionId, DomainId>,
     /// Asset-definition index keyed by definition domain.
     #[norito(skip)]
-    pub(crate) domain_asset_definitions: Storage<DomainId, BTreeSet<AssetDefinitionId>>,
+    pub(crate) domain_asset_definitions: Storage<(DomainId, AssetDefinitionId), ()>,
     /// Asset-definition index keyed by owner account.
     #[norito(skip)]
-    pub(crate) asset_definitions_by_owner: Storage<AccountId, BTreeSet<AssetDefinitionId>>,
+    pub(crate) asset_definitions_by_owner: Storage<(AccountId, AssetDefinitionId), ()>,
     /// Holder index keyed by asset definition id.
     #[norito(skip)]
-    pub(crate) asset_definition_holders: Storage<AssetDefinitionId, BTreeSet<AccountId>>,
+    pub(crate) asset_definition_holders: Storage<(AssetDefinitionId, AccountId), ()>,
     /// Asset-id index keyed by asset definition id.
     #[norito(skip)]
-    pub(crate) asset_definition_assets: Storage<AssetDefinitionId, BTreeSet<AssetId>>,
-    /// Exact asset-id index keyed by owner account.
+    pub(crate) asset_definition_assets: Storage<(AssetDefinitionId, AssetId), ()>,
+    /// Concrete balance partition count per asset definition.
     #[norito(skip)]
-    pub(crate) assets_by_account: Storage<AccountId, BTreeSet<AssetId>>,
+    pub(crate) asset_definition_asset_counts: Storage<AssetDefinitionId, u64>,
     /// Exact asset-id index keyed by asset-definition domain.
     #[norito(skip)]
-    pub(crate) assets_by_domain: Storage<DomainId, BTreeSet<AssetId>>,
+    pub(crate) assets_by_domain: Storage<(DomainId, AssetId), ()>,
     /// Non-zero holder index keyed by asset definition id.
     #[norito(skip)]
-    pub(crate) asset_definition_nonzero_holders: Storage<AssetDefinitionId, BTreeSet<AccountId>>,
+    pub(crate) asset_definition_nonzero_holders: Storage<(AssetDefinitionId, AccountId), ()>,
     /// Registered assets.
     pub(crate) assets: Storage<AssetId, AssetValue>,
     /// Metadata attached to concrete asset balances.
@@ -4098,21 +4106,21 @@ pub struct WorldData {
     pub(crate) nfts: Storage<NftId, NftValue>,
     /// Read-side index from NFT owner account to owned NFT ids.
     #[norito(skip)]
-    pub(crate) nfts_by_owner: Storage<AccountId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_owner: Storage<(AccountId, NftId), ()>,
     /// Exact NFT-id index keyed by NFT domain.
     #[norito(skip)]
-    pub(crate) nfts_by_domain: Storage<DomainId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_domain: Storage<(DomainId, NftId), ()>,
     /// Registered real-world asset lots.
     pub(crate) rwas: Storage<RwaId, RwaValue>,
     /// Read-side index from RWA owner account to owned RWA lot ids.
     #[norito(skip)]
-    pub(crate) rwas_by_owner: Storage<AccountId, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_owner: Storage<(AccountId, RwaId), ()>,
     /// Read-side index from RWA status to RWA lot ids.
     #[norito(skip)]
-    pub(crate) rwas_by_status: Storage<Option<Name>, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_status: Storage<(Option<Name>, RwaId), ()>,
     /// Read-side index from RWA frozen state to RWA lot ids.
     #[norito(skip)]
-    pub(crate) rwas_by_frozen: Storage<bool, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_frozen: Storage<(bool, RwaId), ()>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: Storage<RoleId, Role>,
     /// Permission tokens of an account.
@@ -4162,13 +4170,13 @@ pub struct WorldData {
     pub(crate) asset_escrows: Storage<EscrowId, AssetEscrowRecord>,
     /// Native asset escrows grouped by seller account.
     #[norito(skip)]
-    pub(crate) asset_escrows_by_seller: Storage<AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_seller: Storage<(AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by buyer account.
     #[norito(skip)]
-    pub(crate) asset_escrows_by_buyer: Storage<AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_buyer: Storage<(AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by lifecycle status.
     #[norito(skip)]
-    pub(crate) asset_escrows_by_status: Storage<AssetEscrowStatus, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_status: Storage<(AssetEscrowStatus, EscrowId), ()>,
     /// Registered immutable compiled execution-proof profiles.
     pub(crate) execution_proof_profiles: Storage<Hash, ExecutionProofProfileV1>,
     /// Successfully verified mathematical statements, distinct from settlement.
@@ -4371,15 +4379,22 @@ pub struct WorldData {
         Storage<iroha_data_model::proof::ProofId, iroha_data_model::proof::ProofRecord>,
     /// Inverted index from proof status to proof ids.
     #[norito(skip)]
-    pub(crate) proofs_by_status:
-        Storage<iroha_data_model::proof::ProofStatus, BTreeSet<iroha_data_model::proof::ProofId>>,
+    pub(crate) proofs_by_status: Storage<
+        (
+            iroha_data_model::proof::ProofStatus,
+            iroha_data_model::proof::ProofId,
+        ),
+        (),
+    >,
     /// ZK1 TLV tags observed for each proof id (used for audit and tag queries).
     pub(crate) proof_tags: Storage<iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from ZK1 TLV tag to proof ids (sorted, unique) for efficient queries.
-    pub(crate) proofs_by_tag: Storage<[u8; 4], Vec<iroha_data_model::proof::ProofId>>,
-    /// Latest lane merge-hint roots observed via the merge ledger.
+    #[norito(skip)]
+    pub(crate) proofs_by_tag: Storage<([u8; 4], iroha_data_model::proof::ProofId), ()>,
+    /// Retained canonical merge-hint values; their field identity and values are ledger data.
+    /// Preserve current and predecessor cuts even without an active metadata writer.
     pub(crate) merge_hint_roots: Cell<Vec<Hash>>,
-    /// Latest reduced global state root advertised by the merge ledger.
+    /// Retained canonical reduced merge-root value; not the World state root.
     pub(crate) merge_global_state_root: Cell<Option<Hash>>,
     /// Persisted consensus evidence records keyed by deterministic digest.
     pub(crate) consensus_evidence: Storage<Hash, RetainedEvidenceRecord>,
@@ -5005,7 +5020,11 @@ pub struct WorldBlockFields<'world> {
     /// Reverse read-side account scope index keyed by `(dataspace, alias-domain)`.
     #[norito(skip)]
     pub(crate) account_scope_accounts:
-        StorageField<'world, (DataSpaceId, AccountAliasDomain), BTreeSet<AccountId>>,
+        StorageField<'world, ((DataSpaceId, AccountAliasDomain), AccountId), ()>,
+    /// Account count per account scope, maintained with membership rows.
+    #[norito(skip)]
+    pub(crate) account_scope_account_counts:
+        StorageField<'world, (DataSpaceId, AccountAliasDomain), u64>,
     /// Index from opaque identifiers to UAIDs.
     #[norito(skip)]
     pub(crate) opaque_uaids: StorageField<'world, OpaqueAccountId, UniversalAccountId>,
@@ -5059,29 +5078,26 @@ pub struct WorldBlockFields<'world> {
     pub(crate) asset_definition_domains: StorageField<'world, AssetDefinitionId, DomainId>,
     /// Asset-definition index keyed by definition domain.
     #[norito(skip)]
-    pub(crate) domain_asset_definitions:
-        StorageField<'world, DomainId, BTreeSet<AssetDefinitionId>>,
+    pub(crate) domain_asset_definitions: StorageField<'world, (DomainId, AssetDefinitionId), ()>,
     /// Asset-definition index keyed by owner account.
     #[norito(skip)]
-    pub(crate) asset_definitions_by_owner:
-        StorageField<'world, AccountId, BTreeSet<AssetDefinitionId>>,
+    pub(crate) asset_definitions_by_owner: StorageField<'world, (AccountId, AssetDefinitionId), ()>,
     /// Holder index keyed by asset definition id.
     #[norito(skip)]
-    pub(crate) asset_definition_holders:
-        StorageField<'world, AssetDefinitionId, BTreeSet<AccountId>>,
+    pub(crate) asset_definition_holders: StorageField<'world, (AssetDefinitionId, AccountId), ()>,
     /// Asset-id index keyed by asset definition id.
     #[norito(skip)]
-    pub(crate) asset_definition_assets: StorageField<'world, AssetDefinitionId, BTreeSet<AssetId>>,
-    /// Exact asset-id index keyed by owner account.
+    pub(crate) asset_definition_assets: StorageField<'world, (AssetDefinitionId, AssetId), ()>,
+    /// Concrete balance partition count per asset definition.
     #[norito(skip)]
-    pub(crate) assets_by_account: StorageField<'world, AccountId, BTreeSet<AssetId>>,
+    pub(crate) asset_definition_asset_counts: StorageField<'world, AssetDefinitionId, u64>,
     /// Exact asset-id index keyed by asset-definition domain.
     #[norito(skip)]
-    pub(crate) assets_by_domain: StorageField<'world, DomainId, BTreeSet<AssetId>>,
+    pub(crate) assets_by_domain: StorageField<'world, (DomainId, AssetId), ()>,
     /// Non-zero holder index keyed by asset definition id.
     #[norito(skip)]
     pub(crate) asset_definition_nonzero_holders:
-        StorageField<'world, AssetDefinitionId, BTreeSet<AccountId>>,
+        StorageField<'world, (AssetDefinitionId, AccountId), ()>,
     /// Registered assets.
     pub(crate) assets: StorageField<'world, AssetId, AssetValue>,
     /// Metadata attached to concrete asset balances.
@@ -5090,21 +5106,21 @@ pub struct WorldBlockFields<'world> {
     pub(crate) nfts: StorageField<'world, NftId, NftValue>,
     /// Read-side index from NFT owner account to owned NFT ids.
     #[norito(skip)]
-    pub(crate) nfts_by_owner: StorageField<'world, AccountId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_owner: StorageField<'world, (AccountId, NftId), ()>,
     /// Exact NFT-id index keyed by NFT domain.
     #[norito(skip)]
-    pub(crate) nfts_by_domain: StorageField<'world, DomainId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_domain: StorageField<'world, (DomainId, NftId), ()>,
     /// Registered RWA lots.
     pub(crate) rwas: StorageField<'world, RwaId, RwaValue>,
     /// Read-side index from RWA owner account to owned RWA lot ids.
     #[norito(skip)]
-    pub(crate) rwas_by_owner: StorageField<'world, AccountId, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_owner: StorageField<'world, (AccountId, RwaId), ()>,
     /// Read-side index from RWA status to RWA lot ids.
     #[norito(skip)]
-    pub(crate) rwas_by_status: StorageField<'world, Option<Name>, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_status: StorageField<'world, (Option<Name>, RwaId), ()>,
     /// Read-side index from RWA frozen state to RWA lot ids.
     #[norito(skip)]
-    pub(crate) rwas_by_frozen: StorageField<'world, bool, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_frozen: StorageField<'world, (bool, RwaId), ()>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageField<'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -5160,13 +5176,13 @@ pub struct WorldBlockFields<'world> {
     pub(crate) asset_escrows: StorageField<'world, EscrowId, AssetEscrowRecord>,
     /// Native asset escrows grouped by seller account.
     #[norito(skip)]
-    pub(crate) asset_escrows_by_seller: StorageField<'world, AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_seller: StorageField<'world, (AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by buyer account.
     #[norito(skip)]
-    pub(crate) asset_escrows_by_buyer: StorageField<'world, AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_buyer: StorageField<'world, (AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by lifecycle status.
     #[norito(skip)]
-    pub(crate) asset_escrows_by_status: StorageField<'world, AssetEscrowStatus, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_status: StorageField<'world, (AssetEscrowStatus, EscrowId), ()>,
     /// Registered immutable compiled execution-proof profiles.
     pub(crate) execution_proof_profiles: StorageField<'world, Hash, ExecutionProofProfileV1>,
     /// Successfully verified mathematical statements, distinct from settlement.
@@ -5367,13 +5383,17 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) proofs_by_status: StorageField<
         'world,
-        iroha_data_model::proof::ProofStatus,
-        BTreeSet<iroha_data_model::proof::ProofId>,
+        (
+            iroha_data_model::proof::ProofStatus,
+            iroha_data_model::proof::ProofId,
+        ),
+        (),
     >,
     /// ZK1 TLV tags per proof id.
     pub(crate) proof_tags: StorageField<'world, iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from TLV tag to proof ids.
-    pub(crate) proofs_by_tag: StorageField<'world, [u8; 4], Vec<iroha_data_model::proof::ProofId>>,
+    #[norito(skip)]
+    pub(crate) proofs_by_tag: StorageField<'world, ([u8; 4], iroha_data_model::proof::ProofId), ()>,
     /// Consensus-owned evidence keyed by deterministic digest; staged serialization must retain it.
     pub(crate) consensus_evidence: StorageField<'world, Hash, RetainedEvidenceRecord>,
     /// Contract manifests
@@ -5773,9 +5793,9 @@ pub struct WorldBlockFields<'world> {
     /// Derived unique pulse id keyed by the authoritative logical-beacon height slot.
     #[norito(skip)]
     pub(crate) global_beacon_pulse_slots: StorageField<'world, (BeaconSessionId, u64), [u8; 32]>,
-    /// Latest lane merge-hint roots observed via the merge ledger during this block.
+    /// Retained canonical merge-hint values visible in this block.
     pub(crate) merge_hint_roots: CellField<'world, Vec<Hash>>,
-    /// Latest reduced global state root observed via the merge ledger during this block.
+    /// Retained canonical reduced merge-root value visible in this block.
     pub(crate) merge_global_state_root: CellField<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4); persisted by the SCCP snapshot envelope.
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
@@ -6311,6 +6331,7 @@ impl WorldBlock<'_> {
             account_aliases_by_account,
             account_scope_directory,
             account_scope_accounts,
+            account_scope_account_counts,
             opaque_uaids,
             ram_lfe_program_policies,
             identifier_policies,
@@ -6334,7 +6355,7 @@ impl WorldBlock<'_> {
             asset_definitions_by_owner,
             asset_definition_holders,
             asset_definition_assets,
-            assets_by_account,
+            asset_definition_asset_counts,
             assets_by_domain,
             asset_definition_nonzero_holders,
             assets,
@@ -6738,7 +6759,10 @@ pub struct WorldTransaction<'block, 'world> {
         StorageTransaction<'block, AccountId, AccountScopeDirectoryEntry>,
     /// Reverse read-side account scope index keyed by `(dataspace, alias-domain)`.
     pub(crate) account_scope_accounts:
-        StorageTransaction<'block, (DataSpaceId, AccountAliasDomain), BTreeSet<AccountId>>,
+        StorageTransaction<'block, ((DataSpaceId, AccountAliasDomain), AccountId), ()>,
+    /// Account count per account scope, maintained with membership rows.
+    pub(crate) account_scope_account_counts:
+        StorageTransaction<'block, (DataSpaceId, AccountAliasDomain), u64>,
     /// Index from opaque identifiers to UAIDs.
     pub(crate) opaque_uaids: StorageTransaction<'block, OpaqueAccountId, UniversalAccountId>,
     /// Global RAM-LFE program policy registry.
@@ -6796,23 +6820,23 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) asset_definition_domains: StorageTransaction<'block, AssetDefinitionId, DomainId>,
     /// Asset-definition index keyed by definition domain.
     pub(crate) domain_asset_definitions:
-        StorageTransaction<'block, DomainId, BTreeSet<AssetDefinitionId>>,
+        StorageTransaction<'block, (DomainId, AssetDefinitionId), ()>,
     /// Asset-definition index keyed by owner account.
     pub(crate) asset_definitions_by_owner:
-        StorageTransaction<'block, AccountId, BTreeSet<AssetDefinitionId>>,
+        StorageTransaction<'block, (AccountId, AssetDefinitionId), ()>,
     /// Holder index keyed by asset definition id.
     pub(crate) asset_definition_holders:
-        StorageTransaction<'block, AssetDefinitionId, BTreeSet<AccountId>>,
+        StorageTransaction<'block, (AssetDefinitionId, AccountId), ()>,
     /// Asset-id index keyed by asset definition id.
     pub(crate) asset_definition_assets:
-        StorageTransaction<'block, AssetDefinitionId, BTreeSet<AssetId>>,
-    /// Exact asset-id index keyed by owner account.
-    pub(crate) assets_by_account: StorageTransaction<'block, AccountId, BTreeSet<AssetId>>,
+        StorageTransaction<'block, (AssetDefinitionId, AssetId), ()>,
+    /// Concrete balance partition count per asset definition.
+    pub(crate) asset_definition_asset_counts: StorageTransaction<'block, AssetDefinitionId, u64>,
     /// Exact asset-id index keyed by asset-definition domain.
-    pub(crate) assets_by_domain: StorageTransaction<'block, DomainId, BTreeSet<AssetId>>,
+    pub(crate) assets_by_domain: StorageTransaction<'block, (DomainId, AssetId), ()>,
     /// Non-zero holder index keyed by asset definition id.
     pub(crate) asset_definition_nonzero_holders:
-        StorageTransaction<'block, AssetDefinitionId, BTreeSet<AccountId>>,
+        StorageTransaction<'block, (AssetDefinitionId, AccountId), ()>,
     /// Registered assets.
     pub(crate) assets:
         fastpq_quantity_storage::QuantityStorageTransaction<'block, AssetId, AssetValue>,
@@ -6821,17 +6845,17 @@ pub struct WorldTransaction<'block, 'world> {
     /// Registered NFTs.
     pub(crate) nfts: StorageTransaction<'block, NftId, NftValue>,
     /// Read-side index from NFT owner account to owned NFT ids.
-    pub(crate) nfts_by_owner: StorageTransaction<'block, AccountId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_owner: StorageTransaction<'block, (AccountId, NftId), ()>,
     /// Exact NFT-id index keyed by NFT domain.
-    pub(crate) nfts_by_domain: StorageTransaction<'block, DomainId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_domain: StorageTransaction<'block, (DomainId, NftId), ()>,
     /// Registered RWA lots.
     pub(crate) rwas: StorageTransaction<'block, RwaId, RwaValue>,
     /// Read-side index from RWA owner account to owned RWA lot ids.
-    pub(crate) rwas_by_owner: StorageTransaction<'block, AccountId, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_owner: StorageTransaction<'block, (AccountId, RwaId), ()>,
     /// Read-side index from RWA status to RWA lot ids.
-    pub(crate) rwas_by_status: StorageTransaction<'block, Option<Name>, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_status: StorageTransaction<'block, (Option<Name>, RwaId), ()>,
     /// Read-side index from RWA frozen state to RWA lot ids.
-    pub(crate) rwas_by_frozen: StorageTransaction<'block, bool, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_frozen: StorageTransaction<'block, (bool, RwaId), ()>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageTransaction<'block, RoleId, Role>,
     /// Permission tokens of an account.
@@ -6891,12 +6915,12 @@ pub struct WorldTransaction<'block, 'world> {
     /// Native asset escrows keyed by escrow identifier.
     pub(crate) asset_escrows: StorageTransaction<'block, EscrowId, AssetEscrowRecord>,
     /// Native asset escrows grouped by seller account.
-    pub(crate) asset_escrows_by_seller: StorageTransaction<'block, AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_seller: StorageTransaction<'block, (AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by buyer account.
-    pub(crate) asset_escrows_by_buyer: StorageTransaction<'block, AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_buyer: StorageTransaction<'block, (AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by lifecycle status.
     pub(crate) asset_escrows_by_status:
-        StorageTransaction<'block, AssetEscrowStatus, BTreeSet<EscrowId>>,
+        StorageTransaction<'block, (AssetEscrowStatus, EscrowId), ()>,
     /// Registered immutable compiled execution-proof profiles.
     pub(crate) execution_proof_profiles: StorageTransaction<'block, Hash, ExecutionProofProfileV1>,
     /// Successfully verified mathematical statements, distinct from settlement.
@@ -7095,15 +7119,18 @@ pub struct WorldTransaction<'block, 'world> {
     /// Inverted index from proof status to proof ids.
     pub(crate) proofs_by_status: StorageTransaction<
         'block,
-        iroha_data_model::proof::ProofStatus,
-        BTreeSet<iroha_data_model::proof::ProofId>,
+        (
+            iroha_data_model::proof::ProofStatus,
+            iroha_data_model::proof::ProofId,
+        ),
+        (),
     >,
     /// ZK1 TLV tags per proof id.
     pub(crate) proof_tags:
         StorageTransaction<'block, iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from TLV tag to proof ids.
     pub(crate) proofs_by_tag:
-        StorageTransaction<'block, [u8; 4], Vec<iroha_data_model::proof::ProofId>>,
+        StorageTransaction<'block, ([u8; 4], iroha_data_model::proof::ProofId), ()>,
     /// Persisted consensus evidence records keyed by deterministic digest.
     pub(crate) consensus_evidence: StorageTransaction<'block, Hash, RetainedEvidenceRecord>,
     /// Contract manifests
@@ -7475,9 +7502,9 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     pub(crate) global_beacon_pulse_slots:
         StorageTransaction<'block, (BeaconSessionId, u64), [u8; 32]>,
-    /// Buffer of events pending publication to external subscribers.
+    /// Retained canonical merge-hint values in this transaction scope.
     pub(crate) merge_hint_roots: CellTransaction<'block, 'world, Vec<Hash>>,
-    /// Latest reduced global state root observed in this transaction scope.
+    /// Retained canonical reduced merge-root value in this transaction scope.
     pub(crate) merge_global_state_root: CellTransaction<'block, 'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
@@ -7746,55 +7773,51 @@ impl Drop for GovernanceProposalsMutForTesting<'_, '_, '_> {
         }
     }
 }
-/// Add `member` to the set indexed at `key`, writing only when it is absent.
-///
-/// A transaction's first `get_mut` of a key copies the whole value into the
-/// block's undo preimage and the copy-on-write path, so a read-only membership
-/// check first keeps an already-present member (every transfer between existing
-/// holders) from costing O(set size).
-fn insert_set_index_member<K, M>(
-    index: &mut StorageTransaction<'_, K, BTreeSet<M>>,
+/// Insert one membership row only when absent, without cloning an index group.
+fn insert_index_member<K: MvKey, M: MvKey>(
+    index: &mut StorageTransaction<'_, (K, M), ()>,
     key: &K,
     member: &M,
-) where
-    K: mv::Key,
-    M: Ord + Clone + Send + Sync + 'static,
-{
-    if index
-        .get(key)
-        .is_some_and(|members| members.contains(member))
-    {
-        return;
+) -> bool {
+    if index_contains(index, key, member) {
+        return false;
     }
-    if let Some(members) = index.get_mut(key) {
-        members.insert(member.clone());
-    } else {
-        index.insert(key.clone(), BTreeSet::from([member.clone()]));
-    }
+    index.insert((key.clone(), member.clone()), ());
+    true
 }
-/// Remove `member` from the set indexed at `key`, dropping the emptied set.
-///
-/// Like [`insert_set_index_member`], this writes only when `member` is present.
-fn remove_set_index_member<K, M>(
-    index: &mut StorageTransaction<'_, K, BTreeSet<M>>,
+/// Remove one membership row only when present.
+fn remove_index_member<K: MvKey, M: MvKey>(
+    index: &mut StorageTransaction<'_, (K, M), ()>,
     key: &K,
     member: &M,
-) where
-    K: mv::Key,
-    M: Ord + Clone + Send + Sync + 'static,
-{
-    if !index
-        .get(key)
-        .is_some_and(|members| members.contains(member))
-    {
-        return;
+) -> bool {
+    if !index_contains(index, key, member) {
+        return false;
     }
-    let emptied = index.get_mut(key).is_some_and(|members| {
-        members.remove(member);
-        members.is_empty()
-    });
-    if emptied {
-        index.remove(key.clone());
+    index.remove((key.clone(), member.clone()));
+    true
+}
+/// Increment the count after inserting a previously absent membership row.
+fn increment_index_count<K: MvKey>(counts: &mut StorageTransaction<'_, K, u64>, key: &K) {
+    let count = counts.get(key).copied().unwrap_or(0);
+    counts.insert(
+        key.clone(),
+        count.checked_add(1).expect("index count overflow"),
+    );
+}
+/// Decrement the count after deleting an existing membership row.
+fn decrement_index_count<K: MvKey>(counts: &mut StorageTransaction<'_, K, u64>, key: &K) {
+    let count = counts
+        .get(key)
+        .copied()
+        .expect("membership row must have a count");
+    if count == 1 {
+        counts.remove(key.clone());
+    } else {
+        counts.insert(
+            key.clone(),
+            count.checked_sub(1).expect("index count underflow"),
+        );
     }
 }
 #[allow(single_use_lifetimes)]
@@ -7988,28 +8011,22 @@ impl<'block> WorldTransaction<'block, '_> {
         let Some(domain_id) = self.asset_definition_domains.get(definition_id).cloned() else {
             return;
         };
-        if let Some(definitions) = self.domain_asset_definitions.get_mut(&domain_id) {
-            definitions.insert(definition_id.clone());
-        } else {
-            self.domain_asset_definitions
-                .insert(domain_id, BTreeSet::from([definition_id.clone()]));
-        }
+        insert_index_member(
+            &mut self.domain_asset_definitions,
+            &domain_id,
+            definition_id,
+        );
     }
     /// Drop the domain linkage when the asset definition no longer exists.
     pub(crate) fn untrack_asset_definition_domain(&mut self, definition_id: &AssetDefinitionId) {
         let Some(domain_id) = self.asset_definition_domains.get(definition_id).cloned() else {
             return;
         };
-        let remove_domain_index_entry = self
-            .domain_asset_definitions
-            .get_mut(&domain_id)
-            .is_some_and(|definitions| {
-                definitions.remove(definition_id);
-                definitions.is_empty()
-            });
-        if remove_domain_index_entry {
-            self.domain_asset_definitions.remove(domain_id);
-        }
+        remove_index_member(
+            &mut self.domain_asset_definitions,
+            &domain_id,
+            definition_id,
+        );
     }
     /// Record asset-definition ownership in the read-side owner index.
     pub(crate) fn track_asset_definition_owner(
@@ -8017,12 +8034,7 @@ impl<'block> WorldTransaction<'block, '_> {
         definition_id: &AssetDefinitionId,
         owner: &AccountId,
     ) {
-        if let Some(definitions) = self.asset_definitions_by_owner.get_mut(owner) {
-            definitions.insert(definition_id.clone());
-        } else {
-            self.asset_definitions_by_owner
-                .insert(owner.clone(), BTreeSet::from([definition_id.clone()]));
-        }
+        insert_index_member(&mut self.asset_definitions_by_owner, owner, definition_id);
     }
     /// Drop asset-definition ownership from the read-side owner index.
     pub(crate) fn untrack_asset_definition_owner(
@@ -8030,19 +8042,11 @@ impl<'block> WorldTransaction<'block, '_> {
         definition_id: &AssetDefinitionId,
         owner: &AccountId,
     ) {
-        let remove_owner_entry =
-            self.asset_definitions_by_owner
-                .get_mut(owner)
-                .is_some_and(|definitions| {
-                    definitions.remove(definition_id);
-                    definitions.is_empty()
-                });
-        if remove_owner_entry {
-            self.asset_definitions_by_owner.remove(owner.clone());
-        }
+        remove_index_member(&mut self.asset_definitions_by_owner, owner, definition_id);
     }
     /// Insert an asset definition and keep derived indexes consistent.
-    /// This generic replacement remains an unowned quantity write.
+    /// This generic replacement remains an unowned quantity write; only fixtures use it.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn insert_asset_definition_entry(
         &mut self,
         definition_id: AssetDefinitionId,
@@ -8076,11 +8080,18 @@ impl<'block> WorldTransaction<'block, '_> {
         definition: AssetDefinition,
     ) -> Result<(), Error> {
         if self.axt_asset_incarnations.get(&definition_id).is_some()
-            || self.asset_definition_assets.get(&definition_id).is_some()
-            || self.asset_definition_holders.get(&definition_id).is_some()
             || self
-                .asset_definition_nonzero_holders
+                .asset_definition_asset_counts
                 .get(&definition_id)
+                .is_some()
+            || index_members(&self.asset_definition_assets, &definition_id)
+                .next()
+                .is_some()
+            || index_members(&self.asset_definition_holders, &definition_id)
+                .next()
+                .is_some()
+            || index_members(&self.asset_definition_nonzero_holders, &definition_id)
+                .next()
                 .is_some()
             || self
                 .asset_definition_direct_homes
@@ -8244,28 +8255,32 @@ impl<'block> WorldTransaction<'block, '_> {
     }
     /// Record that the given account now holds at least one balance partition of the definition.
     pub(crate) fn track_asset_holder(&mut self, asset_id: &AssetId) {
-        insert_set_index_member(
+        insert_index_member(
             &mut self.asset_definition_holders,
             asset_id.definition(),
             asset_id.account(),
         );
-        insert_set_index_member(
+        if insert_index_member(
             &mut self.asset_definition_assets,
             asset_id.definition(),
             asset_id,
-        );
-        insert_set_index_member(&mut self.assets_by_account, asset_id.account(), asset_id);
+        ) {
+            increment_index_count(
+                &mut self.asset_definition_asset_counts,
+                asset_id.definition(),
+            );
+        }
         if let Some(domain_id) = self
             .asset_definition_domains
             .get(asset_id.definition())
             .cloned()
         {
-            insert_set_index_member(&mut self.assets_by_domain, &domain_id, asset_id);
+            insert_index_member(&mut self.assets_by_domain, &domain_id, asset_id);
         }
     }
     /// Record that the given account has a non-zero balance for the definition.
     pub(crate) fn track_nonzero_asset_holder(&mut self, asset_id: &AssetId) {
-        insert_set_index_member(
+        insert_index_member(
             &mut self.asset_definition_nonzero_holders,
             asset_id.definition(),
             asset_id.account(),
@@ -8283,7 +8298,7 @@ impl<'block> WorldTransaction<'block, '_> {
             self.track_nonzero_asset_holder(asset_id);
             return;
         }
-        remove_set_index_member(
+        remove_index_member(
             &mut self.asset_definition_nonzero_holders,
             asset_id.definition(),
             asset_id.account(),
@@ -8292,18 +8307,22 @@ impl<'block> WorldTransaction<'block, '_> {
     /// Drop asset-id linkage, then remove the holder linkage when the account no longer has any
     /// remaining balance partition for the definition.
     pub(crate) fn untrack_asset_holder_if_empty(&mut self, asset_id: &AssetId) {
-        remove_set_index_member(
+        if remove_index_member(
             &mut self.asset_definition_assets,
             asset_id.definition(),
             asset_id,
-        );
-        remove_set_index_member(&mut self.assets_by_account, asset_id.account(), asset_id);
+        ) {
+            decrement_index_count(
+                &mut self.asset_definition_asset_counts,
+                asset_id.definition(),
+            );
+        }
         if let Some(domain_id) = self
             .asset_definition_domains
             .get(asset_id.definition())
             .cloned()
         {
-            remove_set_index_member(&mut self.assets_by_domain, &domain_id, asset_id);
+            remove_index_member(&mut self.assets_by_domain, &domain_id, asset_id);
         }
         let has_remaining_for_definition =
             self.assets
@@ -8315,7 +8334,7 @@ impl<'block> WorldTransaction<'block, '_> {
         if has_remaining_for_definition {
             return;
         }
-        remove_set_index_member(
+        remove_index_member(
             &mut self.asset_definition_holders,
             asset_id.definition(),
             asset_id.account(),
@@ -8408,38 +8427,13 @@ impl<'block> WorldTransaction<'block, '_> {
     }
     /// Record NFT ownership in the read-side owner index.
     pub(crate) fn track_nft_owner(&mut self, nft_id: &NftId, owner: &AccountId) {
-        if let Some(nfts) = self.nfts_by_owner.get_mut(owner) {
-            nfts.insert(nft_id.clone());
-        } else {
-            self.nfts_by_owner
-                .insert(owner.clone(), BTreeSet::from([nft_id.clone()]));
-        }
-        if let Some(nfts) = self.nfts_by_domain.get_mut(nft_id.domain()) {
-            nfts.insert(nft_id.clone());
-        } else {
-            self.nfts_by_domain
-                .insert(nft_id.domain().clone(), BTreeSet::from([nft_id.clone()]));
-        }
+        insert_index_member(&mut self.nfts_by_owner, owner, nft_id);
+        insert_index_member(&mut self.nfts_by_domain, nft_id.domain(), nft_id);
     }
     /// Drop NFT ownership from the read-side owner index.
     pub(crate) fn untrack_nft_owner(&mut self, nft_id: &NftId, owner: &AccountId) {
-        let remove_owner_entry = self.nfts_by_owner.get_mut(owner).is_some_and(|nfts| {
-            nfts.remove(nft_id);
-            nfts.is_empty()
-        });
-        if remove_owner_entry {
-            self.nfts_by_owner.remove(owner.clone());
-        }
-        let remove_domain_entry =
-            self.nfts_by_domain
-                .get_mut(nft_id.domain())
-                .is_some_and(|nfts| {
-                    nfts.remove(nft_id);
-                    nfts.is_empty()
-                });
-        if remove_domain_entry {
-            self.nfts_by_domain.remove(nft_id.domain().clone());
-        }
+        remove_index_member(&mut self.nfts_by_owner, owner, nft_id);
+        remove_index_member(&mut self.nfts_by_domain, nft_id.domain(), nft_id);
     }
     /// Insert an NFT and keep the owner index consistent.
     pub(crate) fn insert_nft_entry(
@@ -8479,22 +8473,11 @@ impl<'block> WorldTransaction<'block, '_> {
     }
     /// Record RWA lot ownership in the read-side owner index.
     pub(crate) fn track_rwa_owner(&mut self, rwa_id: &RwaId, owner: &AccountId) {
-        if let Some(rwas) = self.rwas_by_owner.get_mut(owner) {
-            rwas.insert(rwa_id.clone());
-        } else {
-            self.rwas_by_owner
-                .insert(owner.clone(), BTreeSet::from([rwa_id.clone()]));
-        }
+        insert_index_member(&mut self.rwas_by_owner, owner, rwa_id);
     }
     /// Drop RWA lot ownership from the read-side owner index.
     pub(crate) fn untrack_rwa_owner(&mut self, rwa_id: &RwaId, owner: &AccountId) {
-        let remove_owner_entry = self.rwas_by_owner.get_mut(owner).is_some_and(|rwas| {
-            rwas.remove(rwa_id);
-            rwas.is_empty()
-        });
-        if remove_owner_entry {
-            self.rwas_by_owner.remove(owner.clone());
-        }
+        remove_index_member(&mut self.rwas_by_owner, owner, rwa_id);
     }
     /// Record RWA lot status in the read-side status index.
     #[expect(
@@ -8502,12 +8485,7 @@ impl<'block> WorldTransaction<'block, '_> {
         reason = "the status index is keyed by Option<Name>; borrowing its exact key avoids cloning Name for lookups"
     )]
     pub(crate) fn track_rwa_status(&mut self, rwa_id: &RwaId, status: &Option<Name>) {
-        if let Some(rwas) = self.rwas_by_status.get_mut(status) {
-            rwas.insert(rwa_id.clone());
-        } else {
-            self.rwas_by_status
-                .insert(status.clone(), BTreeSet::from([rwa_id.clone()]));
-        }
+        insert_index_member(&mut self.rwas_by_status, status, rwa_id);
     }
     /// Drop RWA lot status from the read-side status index.
     #[expect(
@@ -8515,32 +8493,15 @@ impl<'block> WorldTransaction<'block, '_> {
         reason = "the status index is keyed by Option<Name>; borrowing its exact key avoids cloning Name for lookups"
     )]
     pub(crate) fn untrack_rwa_status(&mut self, rwa_id: &RwaId, status: &Option<Name>) {
-        let remove_status_entry = self.rwas_by_status.get_mut(status).is_some_and(|rwas| {
-            rwas.remove(rwa_id);
-            rwas.is_empty()
-        });
-        if remove_status_entry {
-            self.rwas_by_status.remove(status.clone());
-        }
+        remove_index_member(&mut self.rwas_by_status, status, rwa_id);
     }
     /// Record RWA lot frozen state in the read-side frozen-state index.
     pub(crate) fn track_rwa_frozen(&mut self, rwa_id: &RwaId, is_frozen: bool) {
-        if let Some(rwas) = self.rwas_by_frozen.get_mut(&is_frozen) {
-            rwas.insert(rwa_id.clone());
-        } else {
-            self.rwas_by_frozen
-                .insert(is_frozen, BTreeSet::from([rwa_id.clone()]));
-        }
+        insert_index_member(&mut self.rwas_by_frozen, &is_frozen, rwa_id);
     }
     /// Drop RWA lot frozen state from the read-side frozen-state index.
     pub(crate) fn untrack_rwa_frozen(&mut self, rwa_id: &RwaId, is_frozen: bool) {
-        let remove_frozen_entry = self.rwas_by_frozen.get_mut(&is_frozen).is_some_and(|rwas| {
-            rwas.remove(rwa_id);
-            rwas.is_empty()
-        });
-        if remove_frozen_entry {
-            self.rwas_by_frozen.remove(is_frozen);
-        }
+        remove_index_member(&mut self.rwas_by_frozen, &is_frozen, rwa_id);
     }
     /// Insert an RWA lot and keep the owner index consistent.
     pub(crate) fn insert_rwa_entry(
@@ -8591,28 +8552,18 @@ impl<'block> WorldTransaction<'block, '_> {
         self.track_rwa_frozen(rwa_id, next_is_frozen);
     }
     fn track_escrow_index<K: MvKey>(
-        storage: &mut StorageTransaction<'block, K, BTreeSet<EscrowId>>,
+        storage: &mut StorageTransaction<'block, (K, EscrowId), ()>,
         key: &K,
         escrow_id: EscrowId,
     ) {
-        if let Some(escrows) = storage.get_mut(key) {
-            escrows.insert(escrow_id);
-        } else {
-            storage.insert(key.clone(), BTreeSet::from([escrow_id]));
-        }
+        insert_index_member(storage, key, &escrow_id);
     }
     fn untrack_escrow_index<K: MvKey>(
-        storage: &mut StorageTransaction<'block, K, BTreeSet<EscrowId>>,
+        storage: &mut StorageTransaction<'block, (K, EscrowId), ()>,
         key: &K,
         escrow_id: &EscrowId,
     ) {
-        let remove_entry = storage.get_mut(key).is_some_and(|escrows| {
-            escrows.remove(escrow_id);
-            escrows.is_empty()
-        });
-        if remove_entry {
-            storage.remove(key.clone());
-        }
+        remove_index_member(storage, key, escrow_id);
     }
     /// Record a native asset escrow in all read-side indexes.
     pub(crate) fn track_asset_escrow_indexes(&mut self, record: &AssetEscrowRecord) {
@@ -8865,24 +8816,10 @@ impl<'block> WorldTransaction<'block, '_> {
         previous
     }
     fn track_proof_status_index(&mut self, record: &iroha_data_model::proof::ProofRecord) {
-        if let Some(ids) = self.proofs_by_status.get_mut(&record.status) {
-            ids.insert(record.id.clone());
-        } else {
-            self.proofs_by_status
-                .insert(record.status, BTreeSet::from([record.id.clone()]));
-        }
+        insert_index_member(&mut self.proofs_by_status, &record.status, &record.id);
     }
     fn untrack_proof_status_index(&mut self, record: &iroha_data_model::proof::ProofRecord) {
-        let remove_status = self
-            .proofs_by_status
-            .get_mut(&record.status)
-            .is_some_and(|ids| {
-                ids.remove(&record.id);
-                ids.is_empty()
-            });
-        if remove_status {
-            self.proofs_by_status.remove(record.status);
-        }
+        remove_index_member(&mut self.proofs_by_status, &record.status, &record.id);
     }
     /// Insert a proof record and keep derived proof indexes consistent.
     pub(crate) fn insert_proof_record(
@@ -9080,7 +9017,10 @@ pub struct WorldView<'world> {
     pub(crate) account_scope_directory: StorageView<'world, AccountId, AccountScopeDirectoryEntry>,
     /// Reverse read-side account scope index keyed by `(dataspace, alias-domain)`.
     pub(crate) account_scope_accounts:
-        StorageView<'world, (DataSpaceId, AccountAliasDomain), BTreeSet<AccountId>>,
+        StorageView<'world, ((DataSpaceId, AccountAliasDomain), AccountId), ()>,
+    /// Account count per account scope, maintained with membership rows.
+    pub(crate) account_scope_account_counts:
+        StorageView<'world, (DataSpaceId, AccountAliasDomain), u64>,
     /// Index from opaque identifiers to UAIDs.
     pub(crate) opaque_uaids: StorageView<'world, OpaqueAccountId, UniversalAccountId>,
     /// Global RAM-LFE program policy registry.
@@ -9127,22 +9067,20 @@ pub struct WorldView<'world> {
     /// Authoritative domain ownership context for canonical asset definition ids.
     pub(crate) asset_definition_domains: StorageView<'world, AssetDefinitionId, DomainId>,
     /// Asset-definition index keyed by definition domain.
-    pub(crate) domain_asset_definitions: StorageView<'world, DomainId, BTreeSet<AssetDefinitionId>>,
+    pub(crate) domain_asset_definitions: StorageView<'world, (DomainId, AssetDefinitionId), ()>,
     /// Asset-definition index keyed by owner account.
-    pub(crate) asset_definitions_by_owner:
-        StorageView<'world, AccountId, BTreeSet<AssetDefinitionId>>,
+    pub(crate) asset_definitions_by_owner: StorageView<'world, (AccountId, AssetDefinitionId), ()>,
     /// Holder index keyed by asset definition id.
-    pub(crate) asset_definition_holders:
-        StorageView<'world, AssetDefinitionId, BTreeSet<AccountId>>,
+    pub(crate) asset_definition_holders: StorageView<'world, (AssetDefinitionId, AccountId), ()>,
     /// Asset-id index keyed by asset definition id.
-    pub(crate) asset_definition_assets: StorageView<'world, AssetDefinitionId, BTreeSet<AssetId>>,
-    /// Exact asset-id index keyed by owner account.
-    pub(crate) assets_by_account: StorageView<'world, AccountId, BTreeSet<AssetId>>,
+    pub(crate) asset_definition_assets: StorageView<'world, (AssetDefinitionId, AssetId), ()>,
+    /// Concrete balance partition count per asset definition.
+    pub(crate) asset_definition_asset_counts: StorageView<'world, AssetDefinitionId, u64>,
     /// Exact asset-id index keyed by asset-definition domain.
-    pub(crate) assets_by_domain: StorageView<'world, DomainId, BTreeSet<AssetId>>,
+    pub(crate) assets_by_domain: StorageView<'world, (DomainId, AssetId), ()>,
     /// Non-zero holder index keyed by asset definition id.
     pub(crate) asset_definition_nonzero_holders:
-        StorageView<'world, AssetDefinitionId, BTreeSet<AccountId>>,
+        StorageView<'world, (AssetDefinitionId, AccountId), ()>,
     /// Registered assets.
     pub(crate) assets: StorageView<'world, AssetId, AssetValue>,
     /// Metadata attached to concrete asset balances.
@@ -9150,17 +9088,17 @@ pub struct WorldView<'world> {
     /// Registered NFTs.
     pub(crate) nfts: StorageView<'world, NftId, NftValue>,
     /// Read-side index from NFT owner account to owned NFT ids.
-    pub(crate) nfts_by_owner: StorageView<'world, AccountId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_owner: StorageView<'world, (AccountId, NftId), ()>,
     /// Exact NFT-id index keyed by NFT domain.
-    pub(crate) nfts_by_domain: StorageView<'world, DomainId, BTreeSet<NftId>>,
+    pub(crate) nfts_by_domain: StorageView<'world, (DomainId, NftId), ()>,
     /// Registered RWA lots.
     pub(crate) rwas: StorageView<'world, RwaId, RwaValue>,
     /// Read-side index from RWA owner account to owned RWA lot ids.
-    pub(crate) rwas_by_owner: StorageView<'world, AccountId, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_owner: StorageView<'world, (AccountId, RwaId), ()>,
     /// Read-side index from RWA status to RWA lot ids.
-    pub(crate) rwas_by_status: StorageView<'world, Option<Name>, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_status: StorageView<'world, (Option<Name>, RwaId), ()>,
     /// Read-side index from RWA frozen state to RWA lot ids.
-    pub(crate) rwas_by_frozen: StorageView<'world, bool, BTreeSet<RwaId>>,
+    pub(crate) rwas_by_frozen: StorageView<'world, (bool, RwaId), ()>,
     /// Roles. [`Role`] pairs.
     pub(crate) roles: StorageView<'world, RoleId, Role>,
     /// Permission tokens of an account.
@@ -9212,11 +9150,11 @@ pub struct WorldView<'world> {
     /// Native asset escrows keyed by escrow identifier.
     pub(crate) asset_escrows: StorageView<'world, EscrowId, AssetEscrowRecord>,
     /// Native asset escrows grouped by seller account.
-    pub(crate) asset_escrows_by_seller: StorageView<'world, AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_seller: StorageView<'world, (AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by buyer account.
-    pub(crate) asset_escrows_by_buyer: StorageView<'world, AccountId, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_buyer: StorageView<'world, (AccountId, EscrowId), ()>,
     /// Native asset escrows grouped by lifecycle status.
-    pub(crate) asset_escrows_by_status: StorageView<'world, AssetEscrowStatus, BTreeSet<EscrowId>>,
+    pub(crate) asset_escrows_by_status: StorageView<'world, (AssetEscrowStatus, EscrowId), ()>,
     /// Registered immutable compiled execution-proof profiles.
     pub(crate) execution_proof_profiles: StorageView<'world, Hash, ExecutionProofProfileV1>,
     /// Successfully verified mathematical statements, distinct from settlement.
@@ -9401,16 +9339,19 @@ pub struct WorldView<'world> {
     /// Inverted index from proof status to proof ids.
     pub(crate) proofs_by_status: StorageView<
         'world,
-        iroha_data_model::proof::ProofStatus,
-        BTreeSet<iroha_data_model::proof::ProofId>,
+        (
+            iroha_data_model::proof::ProofStatus,
+            iroha_data_model::proof::ProofId,
+        ),
+        (),
     >,
     /// ZK1 TLV tags recorded per proof id.
     pub(crate) proof_tags: StorageView<'world, iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from TLV tag to proof ids.
-    pub(crate) proofs_by_tag: StorageView<'world, [u8; 4], Vec<iroha_data_model::proof::ProofId>>,
-    /// Latest lane merge-hint roots observed via the merge ledger.
+    pub(crate) proofs_by_tag: StorageView<'world, ([u8; 4], iroha_data_model::proof::ProofId), ()>,
+    /// Retained canonical merge-hint values.
     pub(crate) merge_hint_roots: CellView<'world, Vec<Hash>>,
-    /// Latest reduced global state root advertised by the merge ledger.
+    /// Retained canonical reduced merge-root value; not the World state root.
     pub(crate) merge_global_state_root: CellView<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
@@ -12848,6 +12789,8 @@ pub struct StateBlockFields<'state> {
     pub soracloud_runtime: Option<crate::soracloud_runtime::SharedSoracloudRuntime>,
     /// Cached snapshot of account identifiers for this block.
     accounts_snapshot_cache: SyncOnceCell<Arc<Vec<AccountId>>>,
+    /// Validated election projection for this immutable view or untouched block.
+    ivm_elections_cache: ivm_elections::SnapshotCache,
     /// Pipeline execution preferences for this block.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
     /// Nexus configuration snapshot for this block.
@@ -13958,10 +13901,11 @@ impl<'state> StateBlock<'state> {
 /// [`StateTransaction::consume_privacy_transaction_intent_v1`], which makes the
 /// authorization one-shot and prevents contracts, triggers, or IVM overlays from
 /// replaying a signed direct submission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PrivacyTransactionIntentBindingV1 {
     digest: iroha_data_model::privacy::PrivacyTransactionIntentDigestV1,
     submission_hash: Hash,
+    source: Option<privacy_transaction_intent::PrivacyDirectSourceV1>,
     consumed: bool,
 }
 impl PrivacyTransactionIntentBindingV1 {
@@ -13973,6 +13917,7 @@ impl PrivacyTransactionIntentBindingV1 {
         Self {
             digest,
             submission_hash,
+            source: None,
             consumed: false,
         }
     }
@@ -13989,6 +13934,9 @@ pub(crate) enum PrivacyTransactionIntentConsumptionErrorV1 {
     /// The executing instruction is not the exact direct submission signed by the authority.
     #[error("privacy submission differs from the exact direct instruction in the signed payload")]
     SubmissionMismatch,
+    /// The instruction is not executing at its original authenticated direct occurrence.
+    #[error("privacy submission requires its exact signed direct occurrence")]
+    NotDirectOccurrence,
     /// The exact direct submission was already consumed in this state transaction.
     #[error("the signed privacy submission has already been consumed")]
     AlreadyConsumed,
@@ -14318,6 +14266,8 @@ pub struct StateTransaction<'block, 'state> {
     deferred_governance_ballot_penalties: Vec<DeferredGovernanceBallotPenaltyV1>,
     /// One-shot binding to the exact direct privacy submission in the signed payload.
     pub(crate) privacy_transaction_intent_binding: Option<PrivacyTransactionIntentBindingV1>,
+    /// Original signed privacy item ordinal, armed only around its direct native execution.
+    pub(crate) current_direct_privacy_instruction_index: Option<usize>,
     /// One-shot binding to the exact direct private-settlement carrier.
     pub(crate) private_settlement_carrier_binding: Option<PrivateSettlementCarrierBindingV1>,
     /// Original block entrypoint index for the current transaction, when known.
@@ -14407,6 +14357,8 @@ pub struct StateTransaction<'block, 'state> {
     pub(crate) last_mintable: Option<(iroha_data_model::asset::AssetDefinitionId, Mintable)>,
     /// Lazy snapshot of accounts for trigger execution within this transaction.
     accounts_snapshot_cache: OnceCell<Arc<Vec<AccountId>>>,
+    /// Parent projection, reusable only while election storage has no block edits.
+    ivm_elections_cache: &'block ivm_elections::SnapshotCache,
 }
 
 impl std::ops::Deref for StateTransaction<'_, '_> {
@@ -14587,6 +14539,8 @@ pub struct StateView<'state> {
     query_ledger_time_ms: Option<u64>,
     /// Cached snapshot of account identifiers for this view.
     accounts_snapshot_cache: SyncOnceCell<Arc<Vec<AccountId>>>,
+    /// Validated election projection for this immutable view or untouched block.
+    ivm_elections_cache: ivm_elections::SnapshotCache,
     /// State telemetry
     #[cfg(feature = "telemetry")]
     pub telemetry: &'state StateTelemetry,
@@ -14652,6 +14606,8 @@ pub struct StateQueryView<'state> {
     query_ledger_time_ms: Option<u64>,
     /// Cached snapshot of account identifiers for this view.
     accounts_snapshot_cache: SyncOnceCell<Arc<Vec<AccountId>>>,
+    /// Validated election projection for this immutable view or untouched block.
+    ivm_elections_cache: ivm_elections::SnapshotCache,
     /// State telemetry.
     #[cfg(feature = "telemetry")]
     pub telemetry: &'state StateTelemetry,
@@ -17062,6 +17018,13 @@ mod stake_snapshot_tests {
 }
 #[cfg(test)]
 mod accounts_snapshot_tests;
+pub(crate) mod ivm_elections;
+/// Validated election fields observable through IVM tally reads.
+pub type IvmElectionsSnapshot = BTreeMap<String, (u32, bool, Vec<u128>)>;
+/// An election selector or tally cannot form a canonical IVM read projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("invalid IVM election snapshot")]
+pub struct InvalidIvmElectionSnapshot;
 #[cfg(test)]
 mod sumeragi_timing_tests {
     use super::*;
@@ -19344,6 +19307,7 @@ impl World {
             account_recovery_policies: Storage::default(),
             account_recovery_requests: Storage::default(),
             account_scope_accounts: Storage::default(),
+            account_scope_account_counts: Storage::default(),
             asset_definitions,
             asset_definition_aliases: Storage::default(),
             asset_definition_alias_bindings,
@@ -19354,7 +19318,7 @@ impl World {
             asset_definitions_by_owner: Storage::default(),
             asset_definition_holders: Storage::default(),
             asset_definition_assets: Storage::default(),
-            assets_by_account: Storage::default(),
+            asset_definition_asset_counts: Storage::default(),
             assets_by_domain: Storage::default(),
             asset_definition_nonzero_holders: Storage::default(),
             assets,
@@ -19922,8 +19886,8 @@ impl World {
         let (by_owner, by_domain) = {
             let history = self.nfts.history();
             (
-                ownership_index_restore::grouped(&history, |_, nft| Some(nft.owned_by.clone())),
-                ownership_index_restore::grouped(&history, |id, _| Some(id.domain().clone())),
+                ownership_index_restore::members(&history, |_, nft| Some(nft.owned_by.clone())),
+                ownership_index_restore::members(&history, |id, _| Some(id.domain().clone())),
             )
         };
         self.nfts_by_owner = by_owner;
@@ -19933,9 +19897,9 @@ impl World {
         let (by_owner, by_status, by_frozen) = {
             let history = self.rwas.history();
             (
-                ownership_index_restore::grouped(&history, |_, rwa| Some(rwa.owned_by.clone())),
-                ownership_index_restore::grouped(&history, |_, rwa| Some(rwa.status.clone())),
-                ownership_index_restore::grouped(&history, |_, rwa| Some(rwa.is_frozen)),
+                ownership_index_restore::members(&history, |_, rwa| Some(rwa.owned_by.clone())),
+                ownership_index_restore::members(&history, |_, rwa| Some(rwa.status.clone())),
+                ownership_index_restore::members(&history, |_, rwa| Some(rwa.is_frozen)),
             )
         };
         self.rwas_by_owner = by_owner;
@@ -19946,9 +19910,9 @@ impl World {
         let (by_seller, by_buyer, by_status) = {
             let history = self.asset_escrows.history();
             (
-                ownership_index_restore::grouped(&history, |_, escrow| Some(escrow.seller.clone())),
-                ownership_index_restore::grouped(&history, |_, escrow| escrow.buyer.clone()),
-                ownership_index_restore::grouped(&history, |_, escrow| Some(escrow.status)),
+                ownership_index_restore::members(&history, |_, escrow| Some(escrow.seller.clone())),
+                ownership_index_restore::members(&history, |_, escrow| escrow.buyer.clone()),
+                ownership_index_restore::members(&history, |_, escrow| Some(escrow.status)),
             )
         };
         self.asset_escrows_by_seller = by_seller;
@@ -20805,8 +20769,9 @@ macro_rules! world_ro_accessors {
             /// Read-side account scope directory (read-only).
             storage account_scope_directory: AccountId => AccountScopeDirectoryEntry;
             /// Reverse read-side account scope index by `(dataspace, alias-domain)`.
-            storage account_scope_accounts:
-                (DataSpaceId, AccountAliasDomain) => BTreeSet<AccountId>;
+            storage account_scope_accounts: ((DataSpaceId, AccountAliasDomain), AccountId) => ();
+            /// Account count per account scope, maintained with membership rows.
+            storage account_scope_account_counts: (DataSpaceId, AccountAliasDomain) => u64;
             /// Opaque identifier to UAID index (read-only).
             storage opaque_uaids: OpaqueAccountId => UniversalAccountId;
             /// Global RAM-LFE program policy registry (read-only).
@@ -20855,19 +20820,19 @@ macro_rules! world_ro_accessors {
             /// Authoritative domain ownership context for canonical asset definition ids.
             storage asset_definition_domains: AssetDefinitionId => DomainId;
             /// Asset-definition ids grouped by domain.
-            storage domain_asset_definitions: DomainId => BTreeSet<AssetDefinitionId>;
+            storage domain_asset_definitions: (DomainId, AssetDefinitionId) => ();
             /// Asset-definition ids grouped by owner account.
-            storage asset_definitions_by_owner: AccountId => BTreeSet<AssetDefinitionId>;
+            storage asset_definitions_by_owner: (AccountId, AssetDefinitionId) => ();
             /// Holder index keyed by asset definition id.
-            storage asset_definition_holders: AssetDefinitionId => BTreeSet<AccountId>;
+            storage asset_definition_holders: (AssetDefinitionId, AccountId) => ();
             /// Asset-id index keyed by asset definition id.
-            storage asset_definition_assets: AssetDefinitionId => BTreeSet<AssetId>;
-            /// Exact asset-id index keyed by owner account.
-            storage assets_by_account: AccountId => BTreeSet<AssetId>;
+            storage asset_definition_assets: (AssetDefinitionId, AssetId) => ();
+            /// Concrete balance partition count per asset definition.
+            storage asset_definition_asset_counts: AssetDefinitionId => u64;
             /// Exact asset-id index keyed by asset-definition domain.
-            storage assets_by_domain: DomainId => BTreeSet<AssetId>;
+            storage assets_by_domain: (DomainId, AssetId) => ();
             /// Non-zero holder index keyed by asset definition id.
-            storage asset_definition_nonzero_holders: AssetDefinitionId => BTreeSet<AccountId>;
+            storage asset_definition_nonzero_holders: (AssetDefinitionId, AccountId) => ();
             /// Asset storage (read-only).
             storage assets: AssetId => AssetValue;
             /// Asset metadata storage (read-only).
@@ -20875,17 +20840,17 @@ macro_rules! world_ro_accessors {
             /// NFT storage (read-only).
             storage nfts: NftId => NftValue;
             /// NFT owner index (read-only).
-            storage nfts_by_owner: AccountId => BTreeSet<NftId>;
+            storage nfts_by_owner: (AccountId, NftId) => ();
             /// Exact NFT-id index keyed by NFT domain.
-            storage nfts_by_domain: DomainId => BTreeSet<NftId>;
+            storage nfts_by_domain: (DomainId, NftId) => ();
             /// RWA storage (read-only).
             storage rwas: RwaId => RwaValue;
             /// RWA owner index (read-only).
-            storage rwas_by_owner: AccountId => BTreeSet<RwaId>;
+            storage rwas_by_owner: (AccountId, RwaId) => ();
             /// RWA status index (read-only).
-            storage rwas_by_status: Option<Name> => BTreeSet<RwaId>;
+            storage rwas_by_status: (Option<Name>, RwaId) => ();
             /// RWA frozen-state index (read-only).
-            storage rwas_by_frozen: bool => BTreeSet<RwaId>;
+            storage rwas_by_frozen: (bool, RwaId) => ();
             /// Role storage (read-only).
             storage roles: RoleId => Role;
             /// Account permissions mapping (read-only).
@@ -20938,11 +20903,11 @@ macro_rules! world_ro_accessors {
             /// Native asset escrow records keyed by escrow identifier.
             storage asset_escrows: EscrowId => AssetEscrowRecord;
             /// Native asset escrow ids grouped by seller account.
-            storage asset_escrows_by_seller: AccountId => BTreeSet<EscrowId>;
+            storage asset_escrows_by_seller: (AccountId, EscrowId) => ();
             /// Native asset escrow ids grouped by buyer account.
-            storage asset_escrows_by_buyer: AccountId => BTreeSet<EscrowId>;
+            storage asset_escrows_by_buyer: (AccountId, EscrowId) => ();
             /// Native asset escrow ids grouped by lifecycle status.
-            storage asset_escrows_by_status: AssetEscrowStatus => BTreeSet<EscrowId>;
+            storage asset_escrows_by_status: (AssetEscrowStatus, EscrowId) => ();
             /// Immutable registered native execution relations and security descriptors.
             storage execution_proof_profiles: Hash => ExecutionProofProfileV1;
             /// First mathematical proof receipts indexed by exact profile and statement.
@@ -21038,9 +21003,9 @@ macro_rules! world_ro_accessors {
             storage runtime_upgrades:
                 iroha_data_model::runtime::RuntimeUpgradeId =>
                 iroha_data_model::runtime::RuntimeUpgradeRecord;
-            /// Latest lane merge-hint roots observed via the merge ledger.
+            /// Retained canonical merge-hint values.
             cell_ref merge_hint_roots: Vec<Hash>;
-            /// Latest reduced global state root advertised by the merge ledger.
+            /// Retained canonical reduced merge-root value; not the World state root.
             cell_ref merge_global_state_root: Option<Hash>;
             /// Persisted consensus evidence log (read-only).
             storage consensus_evidence: Hash => RetainedEvidenceRecord;
@@ -21048,8 +21013,7 @@ macro_rules! world_ro_accessors {
             storage proofs:
                 iroha_data_model::proof::ProofId => iroha_data_model::proof::ProofRecord;
             /// Inverted proof status index (read-only).
-            storage proofs_by_status:
-                iroha_data_model::proof::ProofStatus => BTreeSet<iroha_data_model::proof::ProofId>;
+            storage proofs_by_status: (iroha_data_model::proof::ProofStatus, iroha_data_model::proof::ProofId) => ();
         );
     };
     (contract_uploads, $mode:ident) => {
@@ -21057,7 +21021,7 @@ macro_rules! world_ro_accessors {
             /// Stored ZK1 TLV tags per proof id (read-only).
             storage proof_tags: iroha_data_model::proof::ProofId => Vec<[u8; 4]>;
             /// Inverted index from TLV tag to proof ids (read-only).
-            storage proofs_by_tag: [u8; 4] => Vec<iroha_data_model::proof::ProofId>;
+            storage proofs_by_tag: ([u8; 4], iroha_data_model::proof::ProofId) => ();
             /// Contract manifests (read-only).
             storage contract_manifests:
                 ContractArtifactId => iroha_data_model::smart_contract::manifest::ContractManifest;
@@ -21556,10 +21520,7 @@ pub trait WorldReadOnly {
             &'a iroha_data_model::proof::ProofRecord,
         ),
     > {
-        self.proofs_by_status()
-            .get(status)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
+        index_members(self.proofs_by_status(), status)
             .filter_map(|proof_id| self.proofs().get_key_value(proof_id))
     }
     world_ro_accessors!(contract_uploads, declaration);
@@ -21857,12 +21818,9 @@ pub trait WorldReadOnly {
         &'a self,
         id: &'a DomainId,
     ) -> impl Iterator<Item = AccountEntry<'a>> {
-        let account_ids = self
-            .account_scope_domain_key(id)
-            .and_then(|key| self.account_scope_accounts().get(&key));
-        account_ids
+        self.account_scope_domain_key(id)
             .into_iter()
-            .flat_map(BTreeSet::iter)
+            .flat_map(|key| index_members(self.account_scope_accounts(), &key))
             .filter_map(|account_id| {
                 self.accounts()
                     .get_key_value(account_id)
@@ -21905,8 +21863,11 @@ pub trait WorldReadOnly {
     /// List account subjects linked to a specific domain.
     fn account_subjects_in_domain(&self, id: &DomainId) -> Vec<AccountId> {
         self.account_scope_domain_key(id)
-            .and_then(|key| self.account_scope_accounts().get(&key))
-            .map_or_else(Vec::new, |accounts| accounts.iter().cloned().collect())
+            .map_or_else(Vec::new, |key| {
+                index_members(self.account_scope_accounts(), &key)
+                    .cloned()
+                    .collect()
+            })
     }
     #[cfg(test)]
     /// Iterate asset definitions in domain
@@ -21914,10 +21875,7 @@ pub trait WorldReadOnly {
         &'slf self,
         id: &DomainId,
     ) -> impl Iterator<Item = &'slf AssetDefinition> {
-        self.domain_asset_definitions()
-            .get(id)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
+        index_members(self.domain_asset_definitions(), id)
             .filter_map(|definition_id| self.asset_definitions().get(definition_id))
     }
     /// Iterate asset definitions owned by an account.
@@ -21925,10 +21883,7 @@ pub trait WorldReadOnly {
         &'slf self,
         id: &AccountId,
     ) -> impl Iterator<Item = &'slf AssetDefinition> {
-        self.asset_definitions_by_owner()
-            .get(id)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
+        index_members(self.asset_definitions_by_owner(), id)
             .filter_map(|definition_id| self.asset_definitions().get(definition_id))
     }
     /// Read an exact direct dataspace home from its canonical direct-home row.
@@ -22036,20 +21991,14 @@ pub trait WorldReadOnly {
         &'a self,
         definition_id: &'a AssetDefinitionId,
     ) -> impl Iterator<Item = &'a AssetId> {
-        self.asset_definition_assets()
-            .get(definition_id)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
+        index_members(self.asset_definition_assets(), definition_id)
     }
     /// Iterate accounts with at least one non-zero balance partition for an asset definition.
     fn asset_definition_nonzero_holders_iter<'a>(
         &'a self,
         definition_id: &'a AssetDefinitionId,
     ) -> impl Iterator<Item = &'a AccountId> {
-        self.asset_definition_nonzero_holders()
-            .get(definition_id)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
+        index_members(self.asset_definition_nonzero_holders(), definition_id)
     }
     /// Iterate the entitlements of `bond` in key order (cash flow, then holder), strictly
     /// between the optional `after` and `before` entitlements of the same bond.
@@ -22099,24 +22048,20 @@ pub trait WorldReadOnly {
     }
     /// Iterate borrowed asset entries matching any of the specified definitions.
     ///
-    /// This owns only the indexed asset identifiers while yielding borrowed
-    /// storage entries, so callers can stream selected definition results
-    /// without materializing cloned asset values per definition.
+    /// Each definition seeks its membership rows directly and yields borrowed
+    /// entries without materializing identifiers or asset values.
     fn asset_entries_by_definition_ids_iter<'a>(
         &'a self,
         ids: impl IntoIterator<Item = AssetDefinitionId> + 'a,
     ) -> impl Iterator<Item = AssetEntry<'a>> + 'a {
         ids.into_iter().flat_map(move |definition_id| {
-            self.asset_definition_assets()
-                .get(&definition_id)
-                .cloned()
-                .into_iter()
-                .flatten()
-                .filter_map(move |asset_id| {
+            index_members(self.asset_definition_assets(), &definition_id).filter_map(
+                move |asset_id| {
                     self.assets()
-                        .get_key_value(&asset_id)
+                        .get_key_value(asset_id)
                         .map(|(asset_id, value)| AssetEntry::new(asset_id, value))
-                })
+                },
+            )
         })
     }
     /// Iterate borrowed asset entries for owned asset identifiers.
@@ -22302,15 +22247,11 @@ pub trait WorldReadOnly {
     }
     /// Iterate NFTs owned by an account.
     fn nfts_in_account_iter<'a>(&'a self, id: &'a AccountId) -> impl Iterator<Item = NftEntry<'a>> {
-        self.nfts_by_owner()
-            .get(id)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(|nft_id| {
-                self.nfts()
-                    .get_key_value(nft_id)
-                    .map(|(id, value)| NftEntry::new(id, value))
-            })
+        index_members(self.nfts_by_owner(), id).filter_map(|nft_id| {
+            self.nfts()
+                .get_key_value(nft_id)
+                .map(|(id, value)| NftEntry::new(id, value))
+        })
     }
     /// Iterate borrowed NFT entries for owned NFT identifiers.
     fn nft_entries_by_ids_iter<'a>(
@@ -22349,42 +22290,30 @@ pub trait WorldReadOnly {
     }
     /// Iterate RWAs owned by an account.
     fn rwas_in_account_iter<'a>(&'a self, id: &'a AccountId) -> impl Iterator<Item = RwaEntry<'a>> {
-        self.rwas_by_owner()
-            .get(id)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(|rwa_id| {
-                self.rwas()
-                    .get_key_value(rwa_id)
-                    .map(|(id, value)| RwaEntry::new(id, value))
-            })
+        index_members(self.rwas_by_owner(), id).filter_map(|rwa_id| {
+            self.rwas()
+                .get_key_value(rwa_id)
+                .map(|(id, value)| RwaEntry::new(id, value))
+        })
     }
     /// Iterate RWAs with the given status.
     fn rwas_by_status_iter<'a>(
         &'a self,
         status: &'a Option<Name>,
     ) -> impl Iterator<Item = RwaEntry<'a>> {
-        self.rwas_by_status()
-            .get(status)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(|rwa_id| {
-                self.rwas()
-                    .get_key_value(rwa_id)
-                    .map(|(id, value)| RwaEntry::new(id, value))
-            })
+        index_members(self.rwas_by_status(), status).filter_map(|rwa_id| {
+            self.rwas()
+                .get_key_value(rwa_id)
+                .map(|(id, value)| RwaEntry::new(id, value))
+        })
     }
     /// Iterate RWAs with the given frozen state.
     fn rwas_by_frozen_iter(&self, is_frozen: bool) -> impl Iterator<Item = RwaEntry<'_>> {
-        self.rwas_by_frozen()
-            .get(&is_frozen)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(|rwa_id| {
-                self.rwas()
-                    .get_key_value(rwa_id)
-                    .map(|(id, value)| RwaEntry::new(id, value))
-            })
+        index_members(self.rwas_by_frozen(), &is_frozen).filter_map(|rwa_id| {
+            self.rwas()
+                .get_key_value(rwa_id)
+                .map(|(id, value)| RwaEntry::new(id, value))
+        })
     }
     // Role-related methods
     /// Get `Role` and return reference to it.
@@ -23113,15 +23042,8 @@ impl WorldTransaction<'_, '_> {
             return;
         };
         for key in account_scope_index_keys(&entry) {
-            let remove_key = self
-                .account_scope_accounts
-                .get_mut(&key)
-                .is_some_and(|accounts| {
-                    accounts.remove(account_id);
-                    accounts.is_empty()
-                });
-            if remove_key {
-                self.account_scope_accounts.remove(key);
+            if remove_index_member(&mut self.account_scope_accounts, &key, account_id) {
+                decrement_index_count(&mut self.account_scope_account_counts, &key);
             }
         }
     }
@@ -23134,24 +23056,13 @@ impl WorldTransaction<'_, '_> {
         let previous_keys = previous.map(account_scope_index_keys).unwrap_or_default();
         let next_keys = next.map(account_scope_index_keys).unwrap_or_default();
         for key in previous_keys.difference(&next_keys) {
-            let remove_key = self
-                .account_scope_accounts
-                .get_mut(key)
-                .is_some_and(|accounts| {
-                    accounts.remove(account_id);
-                    accounts.is_empty()
-                });
-            if remove_key {
-                self.account_scope_accounts.remove(key.clone());
+            if remove_index_member(&mut self.account_scope_accounts, key, account_id) {
+                decrement_index_count(&mut self.account_scope_account_counts, key);
             }
         }
         for key in next_keys.difference(&previous_keys) {
-            if self.account_scope_accounts.get(key).is_none() {
-                self.account_scope_accounts
-                    .insert(key.clone(), BTreeSet::new());
-            }
-            if let Some(accounts) = self.account_scope_accounts.get_mut(key) {
-                accounts.insert(account_id.clone());
+            if insert_index_member(&mut self.account_scope_accounts, key, account_id) {
+                increment_index_count(&mut self.account_scope_account_counts, key);
             }
         }
     }
@@ -24719,6 +24630,7 @@ impl WorldTransaction<'_, '_> {
             account_aliases_by_account: _,
             account_scope_directory: _,
             account_scope_accounts: _,
+            account_scope_account_counts: _,
             opaque_uaids: _,
             ram_lfe_program_policies: _,
             identifier_policies: _,
@@ -24742,7 +24654,7 @@ impl WorldTransaction<'_, '_> {
             asset_definitions_by_owner: _,
             asset_definition_holders: _,
             asset_definition_assets: _,
-            assets_by_account: _,
+            asset_definition_asset_counts: _,
             assets_by_domain: _,
             asset_definition_nonzero_holders: _,
             assets: _,
@@ -25285,8 +25197,8 @@ impl WorldTransaction<'_, '_> {
         self.asset_definition_domains.apply();
         self.asset_definition_nonzero_holders.apply();
         self.assets_by_domain.apply();
-        self.assets_by_account.apply();
         self.asset_definition_assets.apply();
+        self.asset_definition_asset_counts.apply();
         self.asset_definition_holders.apply();
         self.asset_definitions_by_owner.apply();
         self.domain_asset_definitions.apply();
@@ -25297,6 +25209,7 @@ impl WorldTransaction<'_, '_> {
         self.account_aliases_by_account.apply();
         self.account_scope_directory.apply();
         self.account_scope_accounts.apply();
+        self.account_scope_account_counts.apply();
         self.opaque_uaids.apply();
         self.domains.apply();
         self.domains_by_owner.apply();
@@ -25953,7 +25866,7 @@ impl<'block, 'world> WorldTransaction<'block, 'world> {
     /// Test helper: get mutable access to the tag → proof index for direct seeding.
     pub fn proofs_by_tag_mut_for_testing(
         &mut self,
-    ) -> &mut StorageTransaction<'block, [u8; 4], Vec<iroha_data_model::proof::ProofId>> {
+    ) -> &mut StorageTransaction<'block, ([u8; 4], iroha_data_model::proof::ProofId), ()> {
         &mut self.proofs_by_tag
     }
     /// Test helper: get mutable access to verifying-key registry for seeding.
@@ -30296,6 +30209,7 @@ impl State {
             query_handle: &self.query_handle,
             query_ledger_time_ms,
             accounts_snapshot_cache: SyncOnceCell::new(),
+            ivm_elections_cache: ivm_elections::SnapshotCache::new(),
             #[cfg(feature = "telemetry")]
             telemetry: &self.telemetry,
             pipeline: crate::pipeline_validity_policy::effective_pipeline(
@@ -31574,6 +31488,7 @@ impl State {
                 query_handle: &self.query_handle,
                 query_ledger_time_ms,
                 accounts_snapshot_cache: SyncOnceCell::new(),
+                ivm_elections_cache: ivm_elections::SnapshotCache::new(),
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
                 pipeline,
@@ -36019,6 +35934,15 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// [`CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS`](crate::smartcontracts::ivm::host::CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
     /// entries: the only consumer, `CREATE_NFTS_FOR_ALL_USERS`, observes no later account.
     fn accounts_snapshot(&self) -> Arc<Vec<AccountId>>;
+    /// Validated election projection for IVM state reads.
+    ///
+    /// # Errors
+    /// Rejects malformed election selectors or tallies before host hydration.
+    fn ivm_elections_snapshot(
+        &self,
+    ) -> Result<Arc<IvmElectionsSnapshot>, InvalidIvmElectionSnapshot> {
+        ivm_elections::project(self.world().elections())
+    }
     /// Resolve the exact canonical `3f+1` committee for a lane/dataspace route
     /// at an explicit consensus height.
     ///
@@ -36287,6 +36211,9 @@ macro_rules! impl_state_ro {
             }
             fn axt_execution_policy_snapshot(&self) -> Option<AxtPolicySnapshot> {
                 AxtBlockContextSource::execution_axt_policy_snapshot(self)
+            }
+            fn ivm_elections_snapshot(&self) -> Result<Arc<IvmElectionsSnapshot>, InvalidIvmElectionSnapshot> {
+                ivm_elections::cached_snapshot(&self.ivm_elections_cache, &self.world)
             }
             fn accounts_snapshot(&self) -> Arc<Vec<AccountId>> {
                 Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
@@ -36893,6 +36820,12 @@ mod consensus_owned_parameter_tests {
                 "pipeline_validity_policy_v1" => Json::new(
                     crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default(),
                 ),
+                "zk_validity_policy_v1" => Json::new(
+                    iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default(),
+                ),
+                "root_fees_v1" => {
+                    Json::new(iroha_config::parameters::defaults::nexus::fees::genesis_policy())
+                }
                 _ => Json::new("committed"),
             };
             let committed = CustomParameter::new(id.clone(), payload);
@@ -36969,6 +36902,22 @@ mod consensus_owned_parameter_tests {
             let state = state_over(World::default());
             let mut block = state.block(second_header());
             let mut transaction = block.transaction();
+            // Fixture startup installs some protected policies, including root
+            // fees. Explicitly establish the absent case before reconciliation.
+            transaction
+                .world
+                .parameters
+                .get_mut()
+                .remove_custom_parameter(&id);
+            assert!(
+                transaction
+                    .world
+                    .parameters
+                    .get()
+                    .custom()
+                    .get(&id)
+                    .is_none()
+            );
             let mut declares = ExecutorDataModel::default();
             declares.parameters.insert(id.clone(), attacker);
             transaction.world.apply_executor_data_model(declares);
@@ -38847,6 +38796,7 @@ impl<'state> StateBlock<'state> {
             native_amx_leg_execution: None,
             deferred_governance_ballot_penalties: Vec::new(),
             privacy_transaction_intent_binding: None,
+            current_direct_privacy_instruction_index: None,
             private_settlement_carrier_binding: None,
             current_entrypoint_index: None,
             current_direct_stream_token_instruction_index: None,
@@ -38895,6 +38845,7 @@ impl<'state> StateBlock<'state> {
             last_numeric_spec: None,
             last_mintable: None,
             accounts_snapshot_cache: OnceCell::new(),
+            ivm_elections_cache: &fields.ivm_elections_cache,
         })
     }
     #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
@@ -41203,9 +41154,23 @@ mod fastpq_tx_set_hash_tests {
                     .expect("FASTPQ context");
                 assert!(witness.fastpq_batches.is_empty());
                 assert_eq!(context.tx_set_hash, Some(tx_set_hash));
-                // A second capture with no block-owned commitment must not synthesize
-                // one from the transcript's execution identity.
-                state_block.fastpq_tx_set_hash = None;
+                // A completed execution cannot lose or replace its original
+                // cached commitment through ordinary mutable field access.
+                let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    state_block.fastpq_tx_set_hash = None;
+                }))
+                .expect_err("sealed execution must retain its cached transaction set");
+                let reason = refused
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| refused.downcast_ref::<String>().map(String::as_str));
+                assert_eq!(
+                    reason,
+                    Some("completed execution retains immutable original State")
+                );
+                assert_eq!(state_block.fastpq_tx_set_hash, Some(tx_set_hash));
+                // Replaying transcript bytes on a new recorder cannot replace
+                // the original execution recorder either.
                 crate::exec_witness::start_block();
                 crate::exec_witness::record_fastpq_transcript(&transcript);
                 assert!(state_block.capture_exec_witness().is_err());
@@ -41217,6 +41182,36 @@ mod fastpq_tx_set_hash_tests {
                         .is_none()
                 );
                 let _ = crate::exec_witness::drain_exec_witness();
+            },
+        );
+    }
+    #[test]
+    fn capture_exec_witness_rejects_missing_tx_set_hash_before_sealing() {
+        crate::state::native_capture_fixture::with_native_capture_source(
+            true,
+            |_, mut state_block, _guard, source, _batch_hash| {
+                // The actual output producer has run, but its mutable carrier
+                // has not sealed an ordered transaction-wire commitment yet.
+                state_block.fastpq_tx_set_hash = None;
+                let transcripts = state_block.fastpq_transcripts.clone();
+                assert!(!transcripts.is_empty());
+                let error = state_block
+                    .finalize_fastpq_source_inventory(source.external_entrypoints_slice(), &[], &[])
+                    .unwrap_err();
+                assert!(
+                    error.contains("ordered transaction-wire commitment"),
+                    "{error}"
+                );
+                assert_eq!(state_block.fastpq_tx_set_hash, None);
+                assert_eq!(state_block.fastpq_transcripts, transcripts);
+                assert!(state_block.capture_exec_witness().is_err());
+                assert!(state_block.take_exec_witness().is_none());
+                assert!(state_block.take_fastpq_witness_context().is_none());
+                assert!(
+                    state_block
+                        .take_parliament_timed_ovn_casting_bindings()
+                        .is_none()
+                );
             },
         );
     }
@@ -42019,6 +42014,7 @@ impl StateTransaction<'_, '_> {
             Hash,
         )>,
     ) {
+        self.current_direct_privacy_instruction_index = None;
         self.privacy_transaction_intent_binding = binding.map(|(digest, submission_hash)| {
             PrivacyTransactionIntentBindingV1::new(digest, submission_hash)
         });
@@ -42108,9 +42104,11 @@ impl StateTransaction<'_, '_> {
     /// or already consumed.
     pub(crate) fn consume_privacy_transaction_intent_v1(
         &mut self,
+        authority: &AccountId,
         actual_digest: iroha_data_model::privacy::PrivacyTransactionIntentDigestV1,
         actual_submission_hash: Hash,
     ) -> Result<(), PrivacyTransactionIntentConsumptionErrorV1> {
+        let direct = self.privacy_direct_source_matches(authority);
         let binding = self
             .privacy_transaction_intent_binding
             .as_mut()
@@ -42124,7 +42122,11 @@ impl StateTransaction<'_, '_> {
         if binding.consumed {
             return Err(PrivacyTransactionIntentConsumptionErrorV1::AlreadyConsumed);
         }
+        if !direct {
+            return Err(PrivacyTransactionIntentConsumptionErrorV1::NotDirectOccurrence);
+        }
         binding.consumed = true;
+        self.current_direct_privacy_instruction_index = None;
         Ok(())
     }
     /// Check whether one canonical privacy action can be reserved without
@@ -43658,9 +43660,8 @@ impl StateTransaction<'_, '_> {
             let accounts = self.trigger_accounts_snapshot();
             let streaming_metadata =
                 crate::pipeline::overlay::resolve_streaming_metadata(self, authority);
-            let bound_contract_records =
-                crate::smartcontracts::code::snapshot_bound_contract_records_by_subject(self)
-                    .map_err(|error| self.attempt_error_to_validation_fail(error))?;
+            crate::smartcontracts::code::validate_bound_contract_records_by_subject(self)
+                .map_err(|error| self.attempt_error_to_validation_fail(error))?;
             let mut host = crate::smartcontracts::ivm::host::CoreHostImpl::with_accounts_and_args(
                 authority.clone(),
                 accounts,
@@ -43697,12 +43698,10 @@ impl StateTransaction<'_, '_> {
                 )
             })?;
             host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
-            host.set_bound_contract_records_by_subject_snapshot(bound_contract_records);
             crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
-            host.set_zk_snapshots_from_world(&self.world, &self.zk)
-                .map_err(|error| {
-                    ValidationFail::InternalError(format!("invalid ZK snapshot state: {error}"))
-                })?;
+            host.set_zk_snapshots_from_state(self).map_err(|error| {
+                ValidationFail::InternalError(format!("invalid ZK snapshot state: {error}"))
+            })?;
             let run_result = vm
                 .run_with_host(&mut host)
                 .and_then(|()| host.finish_contract_result(&vm).map(|_| ()));
@@ -44232,10 +44231,9 @@ impl StateTransaction<'_, '_> {
                 host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                 host.set_contract_runtime_context(contract_runtime_context.clone());
                 host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
-                host.set_zk_snapshots_from_world(&self.world, &self.zk)
-                    .map_err(|e| {
-                        ValidationFail::InternalError(format!("invalid ZK snapshot state: {e}"))
-                    })?;
+                host.set_zk_snapshots_from_state(self).map_err(|e| {
+                    ValidationFail::InternalError(format!("invalid ZK snapshot state: {e}"))
+                })?;
                 vm.set_max_cycles(eff_cycles.get());
                 vm.set_gas_limit(gas_limit);
                 let precharge_result = contract_call_context
@@ -44529,12 +44527,11 @@ impl StateTransaction<'_, '_> {
                             host.set_contract_entrypoint_authorization(Some(
                                 entrypoint_authorization,
                             ));
-                            host.set_zk_snapshots_from_world(&self.world, &self.zk)
-                                .map_err(|e| {
-                                    ValidationFail::InternalError(format!(
-                                        "invalid ZK snapshot state: {e}"
-                                    ))
-                                })?;
+                            host.set_zk_snapshots_from_state(self).map_err(|e| {
+                                ValidationFail::InternalError(format!(
+                                    "invalid ZK snapshot state: {e}"
+                                ))
+                            })?;
                             vm.set_max_cycles(eff_cycles.get());
                             vm.set_gas_limit(gas_limit);
                             let precharge_result = contract_call_context
@@ -44733,7 +44730,7 @@ impl StateTransaction<'_, '_> {
     }
 }
 /// Bounds for `range` queries
-mod range_bounds {
+pub mod range_bounds {
     use iroha_model_base::domain::DomainId;
     include!("state/range_bounds.rs");
 }
@@ -45008,14 +45005,14 @@ mod npos_effect_application_tests {
 
     fn marker_effects(height: u64) -> iroha_data_model::consensus::NposConsensusEffects {
         iroha_data_model::consensus::NposConsensusEffects {
-            penalty_actions: vec![
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(vec![
                 iroha_data_model::consensus::NposPenaltyAction::MarkConsensusEvidenceApplied(
                     iroha_data_model::consensus::NposMarkConsensusEvidenceAppliedAction {
                         evidence_key: Hash::new([0xA5]),
                         height,
                     },
                 ),
-            ],
+            ]),
             ..Default::default()
         }
     }

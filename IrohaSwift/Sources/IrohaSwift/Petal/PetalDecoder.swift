@@ -32,6 +32,15 @@ public struct PetalLaneResult: Equatable, Sendable {
     public let erasures: Int
 }
 
+/// The tile patches sampled under one decoded pose, in camera levels, and
+/// that capture's finder levels. A capture holds about 128 KB. Use
+/// ``PetalDecoder/tileEvidence(_:frame:options:)`` to sample it and
+/// ``PetalDecoder/mergeTiles(_:options:)`` to average captures of one shown frame.
+public struct PetalTileEvidence: Equatable, Sendable {
+    let patches: [Double]
+    let reference: PetalDecoder.Reference
+}
+
 /// Everything read from one camera frame.
 public struct PetalDecodedFrame: Equatable, Sendable {
     /// Canvas-to-pixel homography that was used.
@@ -495,7 +504,7 @@ public enum PetalDecoder {
     // MARK: - Reference levels and dots
 
     /// Lit and dark levels at the four finders, interpolated over the canvas.
-    struct Reference {
+    struct Reference: Equatable, Sendable {
         let lit: [Double]
         let dark: [Double]
 
@@ -975,7 +984,7 @@ public enum PetalDecoder {
 
     /// The level read: every patch is judged against the light and dark
     /// levels measured at the finders, interpolated to the tile.
-    static func readTiles(_ patches: [Double], _ reference: Reference, _ sigmas: [Double]) -> [TileRead] {
+    static func levelledPatches(_ patches: [Double], _ reference: Reference) -> [Double] {
         var levelled = patches
         levelled.withUnsafeMutableBufferPointer { levelled in
             for tile in 0..<PetalLayout.tileCount {
@@ -987,8 +996,12 @@ public enum PetalDecoder {
                 }
             }
         }
+        return levelled
+    }
+
+    static func readTiles(_ patches: [Double], _ reference: Reference, _ sigmas: [Double]) -> [TileRead] {
         return classify(
-            levelled,
+            levelledPatches(patches, reference),
             sigmas,
             rescaleTemplates: false,
             erased: [Bool](repeating: false, count: PetalLayout.tileCount)
@@ -1033,6 +1046,62 @@ public enum PetalDecoder {
         var k = decodeWithErasures(.k, words.k, words.kConfidence)
         if p == nil || k == nil {
             let words = tileWords(readTilesNormalised(patches, sigmas))
+            if p == nil { p = decodeWithErasures(.p, words.p, words.pConfidence) }
+            if k == nil { k = decodeWithErasures(.k, words.k, words.kConfidence) }
+        }
+        return (p, k)
+    }
+
+    /// Samples the tile field of `image` under the pose that decoded `frame`.
+    /// Returns `nil` for an unusable image, an invalid inferred corner, or
+    /// finder levels too weak to read. Evidence is in canonical code coordinates,
+    /// so captures may have different positions, rotations and reflections.
+    public static func tileEvidence(
+        _ image: PetalLuma,
+        frame: PetalDecodedFrame,
+        options: PetalDecodeOptions = PetalDecodeOptions()
+    ) -> PetalTileEvidence? {
+        guard isSupported(image, options: options),
+              frame.inferredCorner.map({ (0...3).contains($0) }) ?? true else { return nil }
+        return image.withView { view in
+            guard let reference = referenceLevels(view, frame.homography, inferred: frame.inferredCorner) else {
+                return nil
+            }
+            return PetalTileEvidence(patches: samplePatches(view, frame.homography), reference: reference)
+        }
+    }
+
+    /// Reads tile lanes from the average of captures of one shown frame.
+    /// The level read averages patches after applying each capture's finder
+    /// levels. Any lane still unreadable is tried with the normalised read of
+    /// the mean raw patches. One capture reads exactly its original tile lanes.
+    /// The caller must group evidence using independently decoded lane headers
+    /// and check each recovered lane's header before offering its atoms.
+    public static func mergeTiles(
+        _ evidence: [PetalTileEvidence],
+        options: PetalDecodeOptions = PetalDecodeOptions()
+    ) -> (p: PetalLaneResult?, k: PetalLaneResult?) {
+        guard !evidence.isEmpty else { return (nil, nil) }
+        // Sum cell by cell in capture order, matching the Rust reference.
+        func mean(_ patches: (PetalTileEvidence) -> [Double]) -> [Double] {
+            var result = [Double](repeating: 0, count: PetalLayout.tileCount * cells)
+            for capture in evidence {
+                let values = patches(capture)
+                for index in result.indices { result[index] += values[index] }
+            }
+            for index in result.indices { result[index] /= Double(evidence.count) }
+            return result
+        }
+        let levelled = mean { levelledPatches($0.patches, $0.reference) }
+        let reads = classify(
+            levelled, options.templateSigmas, rescaleTemplates: false,
+            erased: [Bool](repeating: false, count: PetalLayout.tileCount)
+        )
+        var words = tileWords(reads)
+        var p = decodeWithErasures(.p, words.p, words.pConfidence)
+        var k = decodeWithErasures(.k, words.k, words.kConfidence)
+        if p == nil || k == nil {
+            words = tileWords(readTilesNormalised(mean { $0.patches }, options.templateSigmas))
             if p == nil { p = decodeWithErasures(.p, words.p, words.pConfidence) }
             if k == nil { k = decodeWithErasures(.k, words.k, words.kConfidence) }
         }

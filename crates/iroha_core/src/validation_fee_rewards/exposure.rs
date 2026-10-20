@@ -162,7 +162,7 @@ pub(super) fn serviced_validators_before_block(
             if records.get_before_block(key).is_some_and(|record| {
                 record.validator == key.1
                     && record.lane_id == key.0
-                    && parent.signers().contains(&record.peer_id)
+                    && parent.contains_signer(&record.peer_id)
                     && record.activation_height <= parent.height()
                     && record
                         .deactivation_height

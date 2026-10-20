@@ -500,7 +500,12 @@ Lanes `P` and `K` are first read against the light and dark levels measured at
 the finders; a lane that does not decode is retried from a normalised read that
 rescales every tile patch and glyph template by its own contrast, which cancels
 most over-exposure, veiling light, glare and shadow instead of losing the turbo
-lane.
+lane. `PetalScanSession` also averages up to four captures of each of six shown
+frames to recover missing tile lanes. Independently decoded headers must agree,
+and recovered lane headers must name that frame. `PetalScanOutcome.Merged` and
+`PetalScanStats.Merges`, `MergedP` and `MergedK` report this recovery separately
+from individual captures; reset and stream timeouts discard held evidence.
+`PetalDecoder.TileEvidence` and `MergeTiles` expose the same low-level read.
 `PetalScanSession`, `PetalStreamAssembler` and `PetalRenderer`/`PetalDrawList`
 expose the lower layers, and `PetalPng` writes inspection images. Memory and
 work are bounded by `PetalDecodeOptions.MaxPixels` (12 MP) and

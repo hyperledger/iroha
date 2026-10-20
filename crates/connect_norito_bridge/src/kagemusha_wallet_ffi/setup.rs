@@ -22,7 +22,7 @@ pub(crate) enum Setup {
     },
     RequestWithFeePolicy {
         id: [u8; 32],
-        offer: Vec<u8>,
+        amount: u128,
         schedule: Vec<u8>,
         certificates: Vec<u8>,
     },
@@ -91,19 +91,18 @@ pub(crate) enum Setup {
         wrap: bool,
         original: Vec<u8>,
     },
-    Offer {
-        id: [u8; 32],
-        amount: u128,
-    },
     Request {
         id: [u8; 32],
-        offer: Vec<u8>,
+        amount: u128,
         fee: Option<
             Box<(
                 KagemushaWalletFeeScheduleV1,
                 KagemushaWalletSignerCertificateV1,
             )>,
         >,
+    },
+    PaymentCompanion {
+        payment: Vec<u8>,
     },
     Credited(Vec<u8>),
     BoundCredited {
@@ -164,9 +163,8 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
             KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
             0,
         ],
-        0 | 1 | 4 | 6 | 15 | 18 | 19 | 20 | 24 | 27 | 38 => [0; 3],
-        39 => [KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1; 3],
-        40 => [
+        0 | 4 | 6 | 15 | 18 | 19 | 20 | 24 | 27 | 38 => [0; 3],
+        39 | 40 => [
             KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
             KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
             0,
@@ -196,12 +194,16 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
             state::PAYOUT_RECORD_MAX_BYTES_V1,
             0,
         ],
+        // The open Request has no first original: Native signs only its own terms.
         2 => [
-            KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+            0,
             KAGEMUSHA_WALLET_FEE_SCHEDULE_MAX_BYTES_V1,
             KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1,
         ],
-        3 | 7..=14 | 16..=17 | 41..=42 => [KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, 0, 0],
+        // Transport selectors 7 and 11 (the deleted Offer) stay retired.
+        3 | 8..=10 | 12..=14 | 16..=17 | 41..=42 | 54 | 55 => {
+            [KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, 0, 0]
+        }
         5 => [
             KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1,
             KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1,
@@ -229,9 +231,9 @@ pub(crate) fn request(
     let bounds = bounds(selector)?;
     if (matches!(
         selector,
-        1 | 2 | 19 | 20 | 25 | 27 | 30 | 33 | 34 | 39 | 41 | 42 | 43 | 44 | 45
+        2 | 19 | 20 | 25 | 27 | 30 | 33 | 34 | 39 | 41 | 42 | 43 | 44 | 45 | 54
     ) != (id != [0; 32]))
-        || (!matches!(selector, 47 | 53) && (matches!(selector, 1 | 27) != (amount != 0)))
+        || (!matches!(selector, 47 | 53) && (matches!(selector, 2 | 27 | 39) != (amount != 0)))
         || (selector == 53 && amount > u128::from(u64::MAX))
         || (matches!(selector, 5 | 6 | 29 | 49 | 51) != (token != 0))
         || (selector == 29 && !(1..=3).contains(&token))
@@ -256,14 +258,12 @@ pub(crate) fn request(
         },
         47 => Setup::CollectRetained { sequence: amount },
         38 => Setup::RequestFeeSelection,
-        39 if !first.is_empty() && second.is_empty() == third.is_empty() => {
-            Setup::RequestWithFeePolicy {
-                id,
-                offer: first.to_vec(),
-                schedule: second.to_vec(),
-                certificates: third.to_vec(),
-            }
-        }
+        39 if first.is_empty() == second.is_empty() => Setup::RequestWithFeePolicy {
+            id,
+            amount,
+            schedule: first.to_vec(),
+            certificates: second.to_vec(),
+        },
         40 if !first.is_empty() && !second.is_empty() => Setup::ValidateRequestFeePolicy {
             schedule: first.to_vec(),
             certificates: second.to_vec(),
@@ -316,15 +316,17 @@ pub(crate) fn request(
         15 => Setup::Activation,
         18 => Setup::BackgroundStatus,
         19 => Setup::CloseLoads { id },
-        1 => Setup::Offer { id, amount },
-        2 if !first.is_empty() && second.is_empty() == third.is_empty() => Setup::Request {
+        2 if second.is_empty() == third.is_empty() => Setup::Request {
             id,
-            offer: first.to_vec(),
+            amount,
             fee: if second.is_empty() {
                 None
             } else {
                 Some(Box::new((decode(second)?, decode(third)?)))
             },
+        },
+        55 if !first.is_empty() => Setup::PaymentCompanion {
+            payment: first.to_vec(),
         },
         3 if !first.is_empty() => Setup::Credited(first.to_vec()),
         41..=42 if !first.is_empty() => Setup::BoundCredited {
@@ -342,13 +344,19 @@ pub(crate) fn request(
             anchor: first.to_vec(),
             newer: second.to_vec(),
         },
+        // Verified delivery before any Archive: the Credited original alone, with no anchor.
+        54 if !first.is_empty() => Setup::CreditProjection {
+            id,
+            anchor: Vec::new(),
+            newer: first.to_vec(),
+        },
         16..=17 if !first.is_empty() => Setup::CreditedOriginal {
             status: selector == 17,
             original: first.to_vec(),
         },
         4 => Setup::BeginTime,
         6 => Setup::CancelTime { token },
-        7..=14 if !first.is_empty() => Setup::Transport {
+        8..=10 | 12..=14 if !first.is_empty() => Setup::Transport {
             kind: ((selector - 7) % 4 + 1) as u8,
             wrap: selector < 11,
             original: first.to_vec(),
@@ -428,12 +436,12 @@ where
             }
             Setup::RequestWithFeePolicy {
                 id,
-                offer,
+                amount,
                 schedule,
                 certificates,
             } => self
                 .wallet
-                .request_with_fee_policy(id, &offer, &schedule, &certificates)?,
+                .request_with_fee_policy(id, amount, &schedule, &certificates)?,
             Setup::UnloadClaim {
                 request_id,
                 beneficiary,
@@ -620,11 +628,11 @@ where
                     ..Response::default()
                 });
             }
-            Setup::Offer { id, amount } => self.wallet.offer(id, amount)?,
-            Setup::Request { id, offer, fee } => {
+            Setup::Request { id, amount, fee } => {
                 let fee = fee.map(|value| *value);
-                self.wallet.request(id, &offer, fee.as_ref())?
+                self.wallet.request(id, amount, fee.as_ref())?
             }
+            Setup::PaymentCompanion { payment } => self.wallet.payment_companion(&payment)?,
             Setup::Credited(bytes) => {
                 return completion(Some(self.wallet.accept_credited(&bytes)?));
             }
@@ -655,8 +663,12 @@ where
             Setup::CreditProjection { id, anchor, newer } => {
                 return Ok(Response {
                     kind: 47,
-                    bytes: if anchor.is_empty() {
+                    bytes: if anchor.is_empty() && newer.is_empty() {
                         self.wallet.receive_credit_projection(&id)?.bytes()
+                    } else if anchor.is_empty() {
+                        self.wallet
+                            .verified_delivery_projection(&id, &newer)?
+                            .bytes()
                     } else {
                         self.wallet
                             .delivery_credit_projection(&id, &anchor, &newer)?
@@ -713,6 +725,21 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Canonical bytes of the first vectored object of `name`; DATA only, no wallet authority.
+    fn vector_object(name: &str) -> Vec<u8> {
+        let vectors: norito::json::Value = norito::json::from_str(include_str!(
+            "../../../../fixtures/kagemusha/wallet_v1_vectors.json"
+        ))
+        .unwrap();
+        let row = vectors["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["type"].as_str() == Some(name))
+            .unwrap();
+        hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()
+    }
 
     #[test]
     fn epoch_ingress_has_one_bounded_original_and_no_authority_fields() {
@@ -775,15 +802,22 @@ mod tests {
         assert!(request(&id, 43, 0, 0, [empty; 3]).is_ok());
         assert!(request(&id, 44, 0, 0, [one, empty, empty]).is_ok());
         assert!(request(&id, 44, 0, 0, [one, one, empty]).is_ok());
+        assert!(matches!(
+            request(&id, 54, 0, 0, [one, empty, empty]).unwrap(),
+            Setup::CreditProjection { id: value, anchor, newer }
+                if value == id && anchor.is_empty() && newer == one
+        ));
         assert!(request(&id, 43, 0, 0, [one, empty, empty]).is_err());
         assert!(request(&id, 44, 0, 0, [empty, one, empty]).is_err());
         assert!(request(&id, 44, 0, 0, [one; 3]).is_err());
-        for selector in [43, 44] {
-            let inputs = if selector == 43 {
-                [empty; 3]
-            } else {
-                [one, one, empty]
-            };
+        assert!(request(&id, 54, 0, 0, [empty; 3]).is_err());
+        assert!(request(&id, 54, 0, 0, [empty, one, empty]).is_err());
+        assert!(request(&id, 54, 0, 0, [one, one, empty]).is_err());
+        for (selector, inputs) in [
+            (43, [empty; 3]),
+            (44, [one, one, empty]),
+            (54, [one, empty, empty]),
+        ] {
             assert!(request(&zero, selector, 0, 0, inputs).is_err());
             assert!(request(&id, selector, 1, 0, inputs).is_err());
             assert!(request(&id, selector, 0, 1, inputs).is_err());
@@ -794,6 +828,8 @@ mod tests {
             inputs[index] = &oversized;
             assert!(request(&id, 44, 0, 0, inputs).is_err());
         }
+        let oversized = vec![0; 10_001];
+        assert!(request(&id, 54, 0, 0, [&oversized, empty, empty]).is_err());
     }
     #[test]
     fn bound_delivery_intake_requires_exact_send_identity_and_bounded_original() {
@@ -835,20 +871,90 @@ mod tests {
             assert!(request(&zero, selector, 1, 0, originals).is_err());
             assert!(request(&zero, selector, 0, 1, originals).is_err());
         }
-        assert!(request(&id, 39, 0, 0, [one, empty, empty]).is_ok());
-        assert!(request(&id, 39, 0, 0, [one; 3]).is_ok());
+        // An open Request for a positive amount, with no fee pair or with the paired
+        // FeeSchedule and Certificates PolicyData originals; there is no third original.
+        assert!(matches!(
+            request(&id, 39, 7, 0, [empty; 3]).unwrap(),
+            Setup::RequestWithFeePolicy { id: selected, amount: 7, schedule, certificates }
+                if selected == id && schedule.is_empty() && certificates.is_empty()
+        ));
+        assert!(matches!(
+            request(&id, 39, u128::MAX, 0, [one, one, empty]).unwrap(),
+            Setup::RequestWithFeePolicy { amount: u128::MAX, schedule, certificates, .. }
+                if schedule == one && certificates == one
+        ));
+        assert!(request(&id, 39, 7, 0, [one, empty, empty]).is_err());
+        assert!(request(&id, 39, 7, 0, [empty, one, empty]).is_err());
+        assert!(request(&id, 39, 7, 0, [one; 3]).is_err());
+        assert!(request(&id, 39, 7, 0, [empty, empty, one]).is_err());
         assert!(request(&id, 39, 0, 0, [one, one, empty]).is_err());
-        assert!(request(&id, 39, 0, 0, [one, empty, one]).is_err());
-        assert!(request(&zero, 39, 0, 0, [one; 3]).is_err());
-        assert!(request(&id, 39, 0, 0, [empty, one, one]).is_err());
+        assert!(request(&zero, 39, 7, 0, [one, one, empty]).is_err());
+        assert!(request(&id, 39, 7, 1, [one, one, empty]).is_err());
         assert!(request(&zero, 40, 0, 0, [one, empty, empty]).is_err());
         assert!(request(&zero, 40, 0, 0, [one; 3]).is_err());
-        for index in 0..3 {
+        for index in 0..2 {
             let oversized = vec![0; 10_001];
-            let mut inputs = [one; 3];
+            let mut inputs = [one, one, empty];
             inputs[index] = &oversized;
-            assert!(request(&id, 39, 0, 0, inputs).is_err());
+            assert!(request(&id, 39, 7, 0, inputs).is_err());
         }
+    }
+    #[test]
+    fn open_request_intake_takes_an_amount_and_an_optional_fee_pair_but_no_original() {
+        let id = [7; 32];
+        let empty: &[u8] = &[];
+        assert_eq!(bounds(2).unwrap(), [0, 1_024, 512]);
+        assert!(matches!(
+            request(&id, 2, u128::MAX, 0, [empty; 3]).unwrap(),
+            Setup::Request { id: selected, amount: u128::MAX, fee: None } if selected == id
+        ));
+        let schedule = vector_object("KagemushaWalletFeeScheduleV1");
+        let certificate = vector_object("KagemushaWalletSignerCertificateV1");
+        assert!(matches!(
+            request(&id, 2, 7, 0, [empty, &schedule, &certificate]).unwrap(),
+            Setup::Request { id: selected, amount: 7, fee: Some(fee) }
+                if selected == id
+                    && norito::encode_canonical(&fee.0).unwrap() == schedule
+                    && norito::encode_canonical(&fee.1).unwrap() == certificate
+        ));
+        for (selected, amount, token, originals) in [
+            ([0; 32], 7, 0, [empty; 3]),
+            (id, 0, 0, [empty; 3]),
+            (id, 7, 1, [empty; 3]),
+            // The first slot carried the payer's Offer; an open Request has none.
+            (id, 7, 0, [&[7][..], empty, empty]),
+            (id, 7, 0, [empty, &schedule[..], empty]),
+            (id, 7, 0, [empty, empty, &certificate[..]]),
+            (id, 7, 0, [empty, &[7][..], &certificate[..]]),
+        ] {
+            assert!(request(&selected, 2, amount, token, originals).is_err());
+        }
+        // The Offer selector is deleted: no shape of it reaches an owner.
+        assert!(bounds(1).is_err());
+        for amount in [0, 1, u128::MAX] {
+            for selected in [[0; 32], id] {
+                assert!(request(&selected, 1, amount, 0, [empty; 3]).is_err());
+            }
+        }
+    }
+    #[test]
+    fn payment_companion_intake_takes_only_one_bounded_payment_original() {
+        let zero = [0; 32];
+        let one: &[u8] = &[7];
+        let empty: &[u8] = &[];
+        assert_eq!(bounds(55).unwrap(), [10_000, 0, 0]);
+        assert!(matches!(
+            request(&zero, 55, 0, 0, [one, empty, empty]).unwrap(),
+            Setup::PaymentCompanion { payment } if payment == one
+        ));
+        assert!(request(&zero, 55, 0, 0, [&vec![7; 10_000], empty, empty]).is_ok());
+        assert!(request(&zero, 55, 0, 0, [&vec![7; 10_001], empty, empty]).is_err());
+        assert!(request(&zero, 55, 0, 0, [empty; 3]).is_err());
+        assert!(request(&[1; 32], 55, 0, 0, [one, empty, empty]).is_err());
+        assert!(request(&zero, 55, 1, 0, [one, empty, empty]).is_err());
+        assert!(request(&zero, 55, 0, 1, [one, empty, empty]).is_err());
+        assert!(request(&zero, 55, 0, 0, [one, one, empty]).is_err());
+        assert!(request(&zero, 55, 0, 0, [one, empty, one]).is_err());
     }
     #[test]
     fn collection_intake_accepts_only_a_sequence_and_no_foreign_authority() {
@@ -865,38 +971,52 @@ mod tests {
                 assert!(request(&[0; 32], 47, sequence, 0, originals).is_err());
             }
         }
-        assert!(bounds(54).is_err());
+        assert!(bounds(56).is_err());
     }
 
     #[test]
     fn setup_intake_rejects_unused_authority_fields_and_wrong_bounds() {
-        for selector in [0, 1, 3, 4, 15, 18, 19] {
-            let id = if matches!(selector, 1 | 19) {
+        for selector in [0, 2, 3, 4, 15, 18, 19] {
+            let id = if matches!(selector, 2 | 19) {
                 [1; 32]
             } else {
                 [0; 32]
             };
-            let amount = if selector == 1 { u128::MAX } else { 0 };
+            let amount = if selector == 2 { u128::MAX } else { 0 };
             let first: &[u8] = if selector == 3 { &[7] } else { &[] };
             assert!(request(&id, selector, amount, 0, [first, &[], &[]]).is_ok());
             assert!(request(&id, selector, amount, 1, [first, &[], &[]]).is_err());
             assert!(request(&id, selector, amount, 0, [first, &[7], &[]]).is_err());
         }
-        assert!(request(&[1; 32], 2, 0, 0, [&[7], &[], &[]]).is_ok());
-        assert!(request(&[1; 32], 2, 0, 0, [&[7], &[7], &[]]).is_err());
-        assert!(request(&[0; 32], 2, 0, 0, [&[7], &[], &[]]).is_err());
-        assert!(request(&[1; 31], 1, 1, 0, [&[]; 3]).is_err());
+        assert!(request(&[1; 32], 2, 1, 0, [&[7], &[], &[]]).is_err());
+        assert!(request(&[0; 32], 2, 1, 0, [&[]; 3]).is_err());
+        assert!(request(&[1; 32], 2, 0, 0, [&[]; 3]).is_err());
+        assert!(request(&[1; 31], 2, 1, 0, [&[]; 3]).is_err());
         assert!(request(&[0; 32], 5, 0, 1, [&[]; 3]).is_err());
         assert!(request(&[0; 32], 6, 0, 1, [&[]; 3]).is_ok());
         assert!(request(&[0; 32], 6, 0, 0, [&[]; 3]).is_err());
         assert!(request(&[1; 32], 6, 0, 1, [&[]; 3]).is_err());
         assert!(request(&[0; 32], 6, 1, 1, [&[]; 3]).is_err());
         assert!(request(&[0; 32], 6, 0, 1, [&[7], &[], &[]]).is_err());
-        for selector in (7..=14).chain(16..=17) {
+        for selector in (8..=10).chain(12..=14) {
+            assert!(matches!(
+                request(&[0; 32], selector, 0, 0, [&[7], &[], &[]]).unwrap(),
+                Setup::Transport { kind, wrap, original }
+                    if u32::from(kind) == (selector - 7) % 4 + 1
+                        && wrap == (selector < 11)
+                        && original == [7]
+            ));
+        }
+        for selector in (8..=10).chain(12..=14).chain(16..=17) {
             assert!(request(&[0; 32], selector, 0, 0, [&[7], &[], &[]]).is_ok());
             assert!(request(&[0; 32], selector, 0, 0, [&[]; 3]).is_err());
         }
-        assert!(bounds(54).is_err());
+        // Envelope conversion of the deleted Offer kind has no selector.
+        for selector in [7, 11] {
+            assert!(bounds(selector).is_err());
+            assert!(request(&[0; 32], selector, 0, 0, [&[7], &[], &[]]).is_err());
+        }
+        assert!(bounds(56).is_err());
     }
     #[test]
     fn unload_projection_requires_request_identity_and_only_optional_beneficiary() {
@@ -1051,21 +1171,8 @@ mod tests {
     }
     #[test]
     fn malformed_time_response_retires_only_its_owned_exchange_before_decoding() {
-        let vectors: norito::json::Value = norito::json::from_str(include_str!(
-            "../../../../fixtures/kagemusha/wallet_v1_vectors.json"
-        ))
-        .unwrap();
-        let original = |name| {
-            let row = vectors["objects"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|row| row["type"].as_str() == Some(name))
-                .unwrap();
-            hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()
-        };
-        let anchor = original("KagemushaWalletTimeAnchorV1");
-        let certificate = original("KagemushaWalletSignerCertificateV1");
+        let anchor = vector_object("KagemushaWalletTimeAnchorV1");
+        let certificate = vector_object("KagemushaWalletSignerCertificateV1");
         let malformed = vec![7];
         let mut times = BTreeMap::from([(1, [11; 32]), (2, [22; 32]), (3, [33; 32])]);
         for (token, first, second) in [(1, &malformed, &certificate), (2, &anchor, &malformed)] {
@@ -1112,5 +1219,21 @@ mod tests {
         assert_eq!(times.len(), 1);
         assert_eq!(take_time(&mut times, 2).unwrap(), [22; 32]);
         assert!(times.is_empty());
+    }
+    #[test]
+    fn verified_delivery_and_payment_companion_share_ingest_admission() {
+        let one: &[u8] = &[1];
+        let empty: &[u8] = &[];
+        let verified = request(&[7; 32], 54, 0, 0, [one, empty, empty]).unwrap();
+        let companion = request(&[0; 32], 55, 0, 0, [one, empty, empty]).unwrap();
+        assert_eq!(
+            super::super::setup_priority(&verified),
+            super::super::Priority::Ingest
+        );
+        assert_eq!(
+            super::super::setup_priority(&companion),
+            super::super::Priority::Ingest
+        );
+        assert!(bounds(56).is_err());
     }
 }

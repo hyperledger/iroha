@@ -94,6 +94,18 @@ impl CanonicalNodes {
         self.tree.update_hashed_leaf_sha256(index, digest);
     }
 
+    /// Install every leaf marked in `marked_words` and rehash each affected
+    /// parent once per level, bit-identical to one path update per leaf.
+    pub(super) fn update_marked_leaf_digests(&mut self, leaves: &[[u8; 32]], marked_words: &[u64]) {
+        assert!(
+            self.is_current(),
+            "incremental updates require current canonical nodes"
+        );
+        self.tree
+            .update_marked_hashed_leaves_sha256(leaves, marked_words)
+            .expect("fixed canonical nodes and leaves have the same SHA-256 geometry");
+    }
+
     pub(super) fn mark_stale(&mut self) {
         self.stale = true;
     }

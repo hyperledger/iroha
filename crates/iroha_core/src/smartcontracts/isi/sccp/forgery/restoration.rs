@@ -91,6 +91,9 @@ impl From<crate::execution_attempt::ExecutionAttemptError<std::io::Error>> for E
 fn verification_error(error: ForgeryVerificationError) -> Error {
     match error {
         ForgeryVerificationError::Allocation(error) => Preparation::Admission(error).into(),
+        ForgeryVerificationError::PhysicalAllocation(original) => Error::Source(
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+        ),
         _ => invalid("restored SCCP evidence fails its original recorded relation"),
     }
 }
@@ -302,7 +305,8 @@ impl SccpRestore {
                     TransactionEntrypoint::SealedReveal(reveal) => {
                         Some(reveal.signed_transaction())
                     }
-                    TransactionEntrypoint::SealedCommitment(_) => None,
+                    TransactionEntrypoint::SealedCommitment(_)
+                    | TransactionEntrypoint::AnonymousBallot(_) => None,
                 };
                 if let Some(transaction) = transaction {
                     if let Executable::Instructions(instructions) = transaction.instructions() {

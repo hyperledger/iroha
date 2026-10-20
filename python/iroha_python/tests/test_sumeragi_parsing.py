@@ -42,7 +42,7 @@ def test_sumeragi_native_status_requires_every_field(field):
 
 
 def test_retired_consensus_queries_are_absent():
-    client = ToriiClient("http://127.0.0.1:8080")
+    client = ToriiClient("http://127.0.0.1:8080", chain_discriminant=753)
     assert not hasattr(client, "get_sumeragi_qc")
     assert not hasattr(client, "get_sumeragi_commit_qc_typed")
     assert not hasattr(client, "get_sumeragi_phases_typed")

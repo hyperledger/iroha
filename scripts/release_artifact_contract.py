@@ -17,6 +17,24 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, NoReturn
 
 
+# These are artifact targets, not permission to execute or deploy on a host.
+LINUX_GNU_TARGETS = ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
+
+
+def linux_gnu_elf_matches_target(header: bytes, target: str) -> bool:
+    """Match one explicit receipt target to ELF64 little-endian executable bytes.
+
+    No target is inferred from a filename, build host or the image itself. This
+    structural check grants no source, signature, execution or deployment authority.
+    """
+    machine = {"aarch64-unknown-linux-gnu": 183,
+               "x86_64-unknown-linux-gnu": 62}.get(target) if isinstance(target, str) else None
+    return (machine is not None and len(header) >= 20
+            and header[:7] == b"\x7fELF\x02\x01\x01"
+            and int.from_bytes(header[16:18], "little") in (2, 3)
+            and int.from_bytes(header[18:20], "little") == machine)
+
+
 RELEASE_MANIFEST_SCHEMA = "iroha.release_manifest"
 RELEASE_MANIFEST_SCHEMA_VERSION = 1
 # gzip and several release-channel formats carry an unsigned 32-bit timestamp.

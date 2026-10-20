@@ -12,7 +12,7 @@ public enum PrivacyExact12CapabilityManifestErrorV1: Error, LocalizedError, Equa
     public var errorDescription: String? {
         switch self {
         case .nativeUnavailable:
-            return "Exact12 capability admission requires the exact ABI30 native bridge."
+            return "Exact12 capability admission requires the exact ABI31 native bridge."
         case let .invalidArchive(reason):
             return "Exact12 capability manifest is invalid: \(reason)"
         case let .unavailableProtocol(protocolId):
@@ -278,7 +278,7 @@ public struct PrivacyExact12CapabilityRowV1: Equatable, Sendable {
     public let compiledProfile: PrivacyCompiledProfileResultV1
     public let readiness: PrivacyCapabilityReadinessV1
     public let activation: PrivacyProtocolActivationRecordV1?
-    /// True only after byte-exact comparison with the ABI30-validated local catalog.
+    /// True only after byte-exact comparison with the ABI31-validated local catalog.
     public let localCompiledTupleMatches: Bool
 
     public var isNetworkAvailable: Bool {

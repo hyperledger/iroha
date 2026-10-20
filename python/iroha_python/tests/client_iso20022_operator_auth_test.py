@@ -57,6 +57,7 @@ def test_iso_submission_signs_exact_network_query_and_body_once() -> None:
         max_retries=5,
         retry_on_methods=["POST"],
         retry_on_status=[503],
+        chain_discriminant=753,
     )
     body = b"<Document><MsgId>signed-1</MsgId></Document>"
 
@@ -94,7 +95,7 @@ def test_iso_submission_signs_exact_network_query_and_body_once() -> None:
 
 def test_iso_operator_auth_is_mandatory_one_shot_and_rejects_retired_shapes() -> None:
     unsigned_session = RecordingSession([])
-    unsigned = ToriiClient("https://torii.example", session=unsigned_session)
+    unsigned = ToriiClient("https://torii.example", session=unsigned_session, chain_discriminant=753)
     with pytest.raises(ValueError, match="operator_signing_context"):
         unsigned.submit_iso_pacs008(b"<xml/>")
     assert unsigned_session.calls == []
@@ -107,6 +108,7 @@ def test_iso_operator_auth_is_mandatory_one_shot_and_rejects_retired_shapes() ->
         max_retries=5,
         retry_on_methods=["POST"],
         retry_on_status=[503],
+        chain_discriminant=753,
     )
     with pytest.raises(RuntimeError):
         retrying.submit_iso_pacs009(b"<xml/>")
@@ -130,6 +132,7 @@ def test_iso_operator_auth_is_mandatory_one_shot_and_rejects_retired_shapes() ->
                 session=session,
                 operator_signing_context=context(),
                 **options,
+                chain_discriminant=753,
             )
             client.get_iso_message_status("signed-1")
         assert session.calls == []
@@ -142,6 +145,7 @@ def test_iso_rejects_retrying_adapter_before_signing_or_dispatch() -> None:
         "https://torii.example",
         session=session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
 
     with pytest.raises(ValueError, match="transport retries to be disabled"):
@@ -160,6 +164,7 @@ def test_iso_status_polls_use_fresh_operator_nonces() -> None:
         "https://torii.example",
         session=session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
 
     result = client.wait_for_iso_message_status(
@@ -197,6 +202,7 @@ def test_iso_status_exposes_pinned_participant_provenance() -> None:
         "https://torii.example",
         session=session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
 
     record = client.get_iso_message_status_typed("provenance-1")
@@ -264,6 +270,7 @@ def test_iso_status_preserves_schema_v3_replay_settlement_and_plan_fields() -> N
         "https://torii.example",
         session=session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
 
     record = client.get_iso_message_status_typed("schema-v3")
@@ -292,6 +299,7 @@ def test_iso_profiles_require_exact_catalog_identifiers(profile: str) -> None:
         "https://torii.example",
         session=session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
 
     with pytest.raises(ValueError, match="canonical lowercase profile id"):

@@ -94,6 +94,8 @@ def _decode(args: argparse.Namespace) -> int:
             status += " (tracked)"
         if stats.inferred > before.inferred:
             status += " (one corner blossom is hidden)"
+        if outcome.merged:
+            status += f" (merged {outcome.merged})"
         progress = outcome.progress
         if not args.quiet:
             print(
@@ -106,7 +108,8 @@ def _decode(args: argparse.Namespace) -> int:
     if not args.quiet:
         print(
             f"frames: {stats.frames} read, {stats.located} located, {stats.readable} readable, "
-            f"{stats.tracked} tracked, {stats.inferred} with a hidden corner blossom",
+            f"{stats.tracked} tracked, {stats.inferred} with a hidden corner blossom, "
+            f"{stats.merges} merges, {stats.merged_p} merged P, {stats.merged_k} merged K",
             file=sys.stderr,
         )
     if completed is None:

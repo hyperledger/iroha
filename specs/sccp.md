@@ -1248,12 +1248,12 @@ D17); the Parliament workstream owns the ballot items that the pass runs.
 
 S0 (§4.2) runs first and is not part of the pass. The pass runs, on the global
 chain's ordinary carrier only, in this order under the shared budget
-`gov.governance_block_start_work_units` (default 64, minimum 43):
-The committed minimum funds one cost-one recurring height-progress ticket, one
-cost-32 complete generation draw (the largest Parliament item), all six
-possible cost-one SCCP conclusions and one cost-four enactment in a pass
-(1 + 32 + 6 + 4 = 43), preventing recertification alone from starving every
-enactment. Genesis and parameter updates enforce the same minimum.
+`gov.governance_block_start_work_units` (default 64, range 43–4 096; genesis
+and parameter updates enforce the range). The minimum funds, in one pass, one
+recurring height-progress ticket (1 unit), the largest Parliament item, a
+complete generation draw (32), all six possible SCCP conclusions (1 each) and
+one enactment (4): 1 + 32 + 6 + 4 = 43. It does not promise that every
+enactment fits a busy pass; the maximum bounds the work of one block start.
 
 - **G0** pause-panel draw (§4.14.7), at the native pre-boundary pulse
   carrying height, one block before the committee boundary. Outside the budget;
@@ -1302,7 +1302,8 @@ enactment. Genesis and parameter updates enforce the same minimum.
   network.
 
 **Budget.** Each G1–G3 item has a fixed cost set by its owner (an enactment
-costs 4, a pause-panel conclusion or reconciliation end 1). The first item of a
+costs 4, a pause-panel conclusion or reconciliation end 1; the Parliament
+workstream fixes the costs of its own items). The first item of a
 pass is always processed; after that, processing stops at the first item whose
 cost exceeds the remaining budget, order is never skipped, and leftover items
 stay due. A ballot closure that the budget defers changes no corpus, because
@@ -6516,7 +6517,7 @@ still missing is named separately from external authority and audit gates.
 | Certified time CT1–CT5 and `Execute.certified` (§4.3) | Implemented original-parent due observations, source-bound first-Prepare admission, fresh-clock resampling, matching held-PrepareQC exemption and authenticated restart/retransmission. Native and simulator tests cover queue/worker waits, cached execution, fresh-view proposal time and final signing checks. External gate: clock-guard audit; current-candidate qualification is separate. |
 | Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and once-only reset identities. Profile/signing-order/reset tests and four-peer startup cover initialization. No route revision is registered in genesis. |
 | Frozen-surface golden tests and mutation entries (§11.6) | Implemented native wire/reference goldens and named SCCP/Core/clock mutation controls, including HC400 for both registration gates and HC401 for casting-open anchor propagation. Qualification requires passing current baselines and causal named-test kills; compiler failures are never kills. |
-| Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Implemented forgery evidence, immutable offence ownership, closed penalty records, liability release checks and configuration refusal. Unit tests and the four-peer earlier-generation forgery scenario cover delayed penalty/stake reduction. Remaining internal shared S8 work: original-pool ownership of generic evidence/history graphs and penalty-action arithmetic, also used by SCCP. External gate: liability audit. |
+| Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Implemented forgery evidence, immutable offence ownership, closed penalty records, liability release checks and configuration refusal. Unit tests and the four-peer earlier-generation forgery scenario cover delayed penalty/stake reduction. On the SCCP paths, the forgery event graph, penalty actions and slash amounts, evidence decode bounds, the certified-prefix authority, metadata and RS16 scratch, the BLS pairing scratch and the snapshot evidence index and comparison are charged to the captured original pool; exhaustion and allocator failure are typed local refusals that keep the original source (registered mutation controls in the reserved HC900–HC999 block). Dependency owned by the Sumeragi workstream (`specs/sumeragi_goals.md` S8/H3): original-pool custody of the block carrier for consensus effects, the live World evidence table, the generic staking and asset State tables, the vendored Concread trees and a shared admitted AccountId parser. External gate: liability audit. |
 | Committee generations, anchors, `X`, degradation/resync and pruning (§4.2, §4.5, §4.6, §4.11) | Implemented retained current/undo custody, genesis/key/heartbeat/resync transitions, destination clearance, original-parent anchors and sealed X publication. Tests cover bounded pruning, sparse generations and pending-penalty retention. Current-candidate combined qualification remains required. |
 | Shared Keepalive, `governance_due`, positions and millisecond clock (§4.7) | Implemented SCCP due predicates, quotas, certified-time handling and positioned rank-3 pause/reconciliation consumers, with boundary and unavailable-owner tests. External gate: Parliament's authenticated due iterator, ranks 0–2, carried remaining budget and shared-pass positions; missing authority never means an empty or successful pass. |
 | Control leaf and fast-pause track (§3.4, §4.14.6–§4.14.7) | Implemented pause-only consumers for funded panels, acceptance/replacement, endorsements, certification, suspension, capacity/nonce checks, enactment, expiry and selective lift. Tests and shared fixtures bind certificate id/effect/s0 and the original pulse. External gates: qualified Parliament eligibility/draw, casting-open authority and shared-pass positions for the complete lifecycle. |
@@ -6527,9 +6528,9 @@ still missing is named separately from external authority and audit gates.
 | First-release retirement | Implemented removal of TRON, EIP-712 attestations, attestor rosters, bridge-key files/signature sets and obsolete readers. Live OpenAPI, inventory and test descriptions name native finality. Remaining rejection/removal references, native validator schedules and ordinary EVM signing/recovery serve distinct current purposes. |
 | Parliament post-quantum ballot | External launch dependency. Proof components do not supply the qualified binding ballot, authoritative eligibility/draw/due positions, casting-open anchor or finite attempt-latency contract. Both SCCP launch gates stay false until those authorities are integrated and qualified. |
 
-**Order of work.** Complete the shared S8 penalty allocation ownership, then
-qualify the current
-combined candidate: workspace compilation/tests/lint,
+**Order of work.** SCCP's own allocation custody is implemented; the generic
+S8/H3 custody named in the penalty row belongs to the Sumeragi workstream.
+Qualify the current combined candidate: workspace compilation/tests/lint,
 registered mutations with named causal kills, native four-peer targets and
 cross-language replay. The reference, native producers/readers, route
 installation, narrow Parliament consumer interface and destination tooling

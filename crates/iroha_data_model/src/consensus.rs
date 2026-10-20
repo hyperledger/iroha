@@ -9,6 +9,14 @@ use iroha_schema::{Ident, IntoSchema};
 use norito::codec::{Decode, Encode};
 use norito::json::JsonKeyCodec;
 use std::str::FromStr;
+mod parent_service;
+pub use parent_service::{
+    NposParentServiceCommitQc, ParentServiceCustodyError, PreparedParentServiceCommitQc,
+};
+mod penalty_actions;
+pub use penalty_actions::{
+    NposPenaltyActions, NposPenaltyActionsCustodyError, PreparedNposPenaltyActions,
+};
 /// Version of the validator-set hashing scheme (`HashOf` over the ordered peer identities)
 /// that lane committee records and queue-plan admission contexts name.
 pub const VALIDATOR_SET_HASH_VERSION_V1: u16 = 1;
@@ -41,16 +49,16 @@ pub const PARENT_SERVICE_COMMIT_QC_MAX_BYTES: usize = 512 * 1024;
     DeriveJsonSerialize,
     DeriveJsonDeserialize,
 )]
-#[norito(deny_unknown_fields)]
+#[norito(deny_unknown_fields, decode_fields)]
 pub struct NposConsensusEffects {
     /// Original parent `CommitQC` selected by this proposal. It is consensus input,
     /// never the replica's local certificate. None is valid only before H3.
     #[norito(required)]
-    pub parent_service_commit_qc: Option<Vec<u8>>,
+    pub parent_service_commit_qc: Option<NposParentServiceCommitQc>,
     /// Original native evidence admitted in canonical evidence-key order.
     pub evidence_admissions: Vec<crate::block::consensus::Evidence>,
     /// Penalty and marker actions applied by this block.
-    pub penalty_actions: Vec<NposPenaltyAction>,
+    pub penalty_actions: NposPenaltyActions,
 }
 impl NposConsensusEffects {
     /// Returns true when the bundle carries no committed state changes.
@@ -85,6 +93,7 @@ impl PartialOrd for NposConsensusEffects {
     DeriveJsonSerialize,
     DeriveJsonDeserialize,
 )]
+#[norito(decode_fields)]
 pub struct NposConsensusSlashAction {
     /// Domain-separated consensus evidence digest.
     pub evidence_key: Hash,
@@ -116,6 +125,7 @@ pub struct NposConsensusSlashAction {
     DeriveJsonSerialize,
     DeriveJsonDeserialize,
 )]
+#[norito(decode_fields)]
 pub struct NposMarkConsensusEvidenceAppliedAction {
     /// Domain-separated consensus evidence digest.
     pub evidence_key: Hash,

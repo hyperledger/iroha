@@ -237,9 +237,11 @@ pub extern "C" fn connect_norito_kagemusha_wallet_activity_v1(
 }
 /// Typed lifecycle input. Unused original slots and amount limbs must be zero/empty.
 /// Selectors: Load0, Send1, Receive2, Credential3, SchemePolicy4, BlacklistInstall5,
-/// TimeAnchor6, QuotaShare7, Unload8, Retire9, ReceiveFromOffer10. These never select proof keys.
-/// BlacklistInstall5(list, certificates) stores a signed list locally: no operation or proof.
-/// ReceiveFromOffer carries exact Payment and signed Offer originals; Native extracts payer custody.
+/// TimeAnchor6, QuotaShare7, Unload8, Retire9, ReceiveWithCompanion10. These never select proof
+/// keys. BlacklistInstall5(list, certificates) stores a signed list locally: no operation or proof.
+/// Send1 takes the receiver's open Request; Native completes it for this payer.
+/// ReceiveWithCompanion10 carries exact Payment and payer companion originals; Native binds the
+/// companion to the Payment and forwards its payer credential and certificates to Receive.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WalletOperationRequest {
@@ -253,7 +255,7 @@ pub struct WalletOperationRequest {
     pub first: *const u8,
     /// Exact first-original length.
     pub first_length: usize,
-    /// Second original: finality/payer credential/certificate set, depending on selector.
+    /// Second original: finality/payer credential/certificate set/payer companion, by selector.
     pub second: *const u8,
     /// Exact second-original length.
     pub second_length: usize,
@@ -293,8 +295,11 @@ pub unsafe extern "C" fn connect_norito_kagemusha_wallet_execute_v1(
     }
 }
 /// Typed setup input for the same exclusive Native wallet owner.
-/// Selectors: Bootstrap0, Offer1, Request2, Credited3, BeginTime4, FinishTime5, CancelTime6.
-/// Envelope wrap7..10/unwrap11..14 follows Offer, Request, Payment, Credited order.
+/// Selectors: Bootstrap0, Request2, Credited3, BeginTime4, FinishTime5, CancelTime6,
+/// PaymentCompanion55. Request2 issues an open Request for a positive amount (no first
+/// original; optional fee schedule and signer certificate). PaymentCompanion55 takes this
+/// wallet's own Payment and returns its payer companion. Envelope wrap8..10/unwrap12..14
+/// follows Request, Payment, Credited order. The Offer selectors 1, 7 and 11 are retired.
 /// Unused fields must be zero/empty. No field supplies a clock, nonce or signature body.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -303,7 +308,7 @@ pub struct WalletSetupRequest {
     pub setup_id: *const u8,
     /// One fixed setup selector documented above.
     pub selector: u32,
-    /// Positive Offer/ledger Load amount, or historical sequence for collection47 (zero allowed).
+    /// Positive Request/ledger Load amount, or historical sequence for collection47 (zero allowed).
     /// Zero for every other selector.
     pub amount: WalletU128,
     /// Native time/destructive-review token or ledger instruction kind, selected by operation.
@@ -322,7 +327,7 @@ pub struct WalletSetupRequest {
     pub third_length: usize,
 }
 /// Execute source-bound setup through the existing exclusive Native wallet owner.
-/// Bootstrap/Credited return existing completion statuses. Offer/Request return original12;
+/// Bootstrap/Credited return existing completion statuses. Request/PaymentCompanion return original12;
 /// BeginTime returns challenge13 with its opaque token in sequence; FinishTime returns retained14.
 /// CancelTime returns idle6; envelope conversion returns original12 without monetary authority.
 /// # Safety
@@ -434,14 +439,13 @@ mod setup_boundary_tests {
                 setup::Setup::FeePayout { .. } => (35, 0, vec![]),
                 setup::Setup::CloseLoads { .. } => (30, 0, vec![0xc1; 16_384]),
                 setup::Setup::Activation => (17, 0, vec![0xa1; 16_384]),
-                setup::Setup::Offer { id, amount } => {
-                    assert_eq!(id, [7; 32]);
-                    assert_eq!(amount, u128::MAX);
+                setup::Setup::PaymentCompanion { payment } => {
+                    assert_eq!(payment, [0, 255, 7]);
                     (12, 0, vec![0, 255, 2])
                 }
-                setup::Setup::Request { id, offer, fee } => {
+                setup::Setup::Request { id, amount, fee } => {
                     assert_eq!(id, [7; 32]);
-                    assert_eq!(offer, [0, 255, 7]);
+                    assert_eq!(amount, u128::MAX);
                     assert!(fee.is_none());
                     (12, 0, vec![0, 255, 3])
                 }
@@ -682,7 +686,7 @@ mod setup_boundary_tests {
             }
             assert_failure(handle, &input, INVALID);
         }
-        assert_failure(handle, &request(&zero, 54), INVALID);
+        assert_failure(handle, &request(&zero, 56), INVALID);
         assert_eq!(calls.load(Ordering::SeqCst), 3);
         assert_eq!(connect_norito_kagemusha_wallet_close_v1(handle), 0);
     }
@@ -695,7 +699,6 @@ mod setup_boundary_tests {
         let original = [0, 255, 7];
         for (selector, expected, sequence, bytes) in [
             (0, 1, 0, vec![0, 255, 1]),
-            (1, 12, 0, vec![0, 255, 2]),
             (2, 12, 0, vec![0, 255, 3]),
             (3, 4, 0, vec![]),
             (4, 13, 19, vec![0, 255, 4]),
@@ -732,22 +735,23 @@ mod setup_boundary_tests {
                 0,
                 vec![0xf2; KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1],
             ),
+            (55, 12, 0, vec![0, 255, 2]),
         ] {
             let mut request = request(
-                if matches!(selector, 1 | 2 | 19 | 20 | 25 | 27 | 30 | 33 | 34 | 43 | 45) {
+                if matches!(selector, 2 | 19 | 20 | 25 | 27 | 30 | 33 | 34 | 43 | 45) {
                     &id
                 } else {
                     &zero
                 },
                 selector,
             );
-            if matches!(selector, 1 | 27) {
+            if matches!(selector, 2 | 27) {
                 request.amount = WalletU128 {
                     low: u64::MAX,
                     high: u64::MAX,
                 };
             }
-            if matches!(selector, 2 | 3 | 16 | 17 | 21..=23 | 25 | 26 | 29 | 30 | 33..=37 | 45 | 46)
+            if matches!(selector, 3 | 16 | 17 | 21..=23 | 25 | 26 | 29 | 30 | 33..=37 | 45 | 46 | 55)
             {
                 request.first = original.as_ptr();
                 request.first_length = original.len();
@@ -797,6 +801,12 @@ mod setup_boundary_tests {
         for selector in [28, 31, 32] {
             assert_failure(handle, &request(&zero, selector), INVALID);
         }
+        // The deleted Offer selector never reaches the owner, with or without its old inputs.
+        let mut offer = request(&id, 1);
+        assert_failure(handle, &offer, INVALID);
+        offer.amount = WalletU128 { low: 1, high: 0 };
+        assert_failure(handle, &offer, INVALID);
+        assert_eq!(calls.load(Ordering::SeqCst), 28);
         close(handle).unwrap();
         assert_failure(handle, &request(&zero, 0), CLOSED);
         assert_eq!(calls.load(Ordering::SeqCst), 28);
@@ -813,6 +823,11 @@ mod setup_boundary_tests {
             } else {
                 value.first = original.as_ptr();
                 value.first_length = original.len();
+            }
+            if matches!(selector, 7 | 11) {
+                // The deleted Offer kind has no envelope selector.
+                assert_failure(handle, &value, INVALID);
+                continue;
             }
             let mut out = WalletResult::default();
             assert_eq!(
@@ -839,7 +854,7 @@ mod setup_boundary_tests {
                 crate::connect_norito_free(out.bytes);
             }
         }
-        assert_eq!(calls.load(Ordering::SeqCst), 9);
+        assert_eq!(calls.load(Ordering::SeqCst), 7);
         close(handle).unwrap();
     }
     #[test]
@@ -849,11 +864,18 @@ mod setup_boundary_tests {
         let id = [7; 32];
         let invalid_pointer = std::ptr::dangling::<u8>();
         let mut value = request(&id, 2);
-        // Even first is unreadable: the oversized last original must reject first.
-        value.first = invalid_pointer;
-        value.first_length = 1;
+        value.amount.low = 1;
+        // Even second is unreadable: the oversized last original must reject first.
+        value.second = invalid_pointer;
+        value.second_length = 1;
         value.third = invalid_pointer;
         value.third_length = KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1 + 1;
+        assert_failure(handle, &value, INVALID);
+        // An open Request has no first original: any first length is out of bounds.
+        value = request(&id, 2);
+        value.amount.low = 1;
+        value.first = invalid_pointer;
+        value.first_length = 1;
         assert_failure(handle, &value, INVALID);
         value = request(&zero, 6);
         value.first = invalid_pointer;
@@ -868,9 +890,8 @@ mod setup_boundary_tests {
         value.amount.low = 1;
         assert_failure(handle, &value, INVALID);
         value = request(&id, 2);
+        value.amount.low = 1;
         let original = [7];
-        value.first = original.as_ptr();
-        value.first_length = 1;
         value.second = original.as_ptr();
         value.second_length = 1;
         assert_failure(handle, &value, INVALID);

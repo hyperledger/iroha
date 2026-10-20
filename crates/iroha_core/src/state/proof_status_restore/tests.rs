@@ -47,12 +47,13 @@ where
 }
 
 fn image(
-    index: &impl StorageReadOnly<ProofStatus, BTreeSet<ProofId>>,
+    index: &impl StorageReadOnly<(ProofStatus, ProofId), ()>,
 ) -> BTreeMap<ProofStatus, BTreeSet<ProofId>> {
-    index
-        .iter()
-        .map(|(status, ids)| (*status, ids.clone()))
-        .collect()
+    let mut result = BTreeMap::<ProofStatus, BTreeSet<ProofId>>::new();
+    for ((status, id), ()) in index.iter() {
+        result.entry(*status).or_default().insert(id.clone());
+    }
+    result
 }
 
 fn fixture() -> World {
@@ -127,9 +128,9 @@ fn proof_status_restore_matches_live_both_images_and_redundant_touches() {
             .proofs_by_status
             .snapshot()
             .revert_map()
-            .get(&ProofStatus::Rejected),
-        Some(&Some(BTreeSet::from([id("metadata"), id("redundant")]))),
-        "redundant and metadata-only writes retain the unchanged bucket preimage"
+            .get(&(ProofStatus::Rejected, id("metadata"))),
+        Some(&Some(())),
+        "metadata-only writes retain their unchanged membership preimage"
     );
     assert!(
         recovered
@@ -143,7 +144,7 @@ fn proof_status_restore_matches_live_both_images_and_redundant_touches() {
         let mut replacement = recovered.block_and_revert();
         assert_eq!(image(&replacement.proofs_by_status), before);
         assert_eq!(
-            replacement.proofs_by_status.get(&ProofStatus::Submitted),
+            image(&replacement.proofs_by_status).get(&ProofStatus::Submitted),
             Some(&BTreeSet::from([id("moving"), id("untouched")]))
         );
         change(&mut replacement, true);
@@ -213,10 +214,15 @@ fn last_status_member_move_keeps_prior_absence_and_removed_bucket() {
         encoded(&world.proofs_by_status)
     );
     let prior = recovered.proofs_by_status.snapshot();
-    assert_eq!(prior.revert_map().get(&ProofStatus::Rejected), Some(&None));
     assert_eq!(
-        prior.revert_map().get(&ProofStatus::Submitted),
-        Some(&Some(BTreeSet::from([id("only")])))
+        prior.revert_map().get(&(ProofStatus::Rejected, id("only"))),
+        Some(&None)
+    );
+    assert_eq!(
+        prior
+            .revert_map()
+            .get(&(ProofStatus::Submitted, id("only"))),
+        Some(&Some(()))
     );
     assert_eq!(
         image(&recovered.block_and_revert().proofs_by_status),

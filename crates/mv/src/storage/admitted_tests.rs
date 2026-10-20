@@ -673,6 +673,8 @@ impl ClonePlanning<u64, Option<u64>> for ReplacementPolicy {
 }
 impl AdmittedStoragePolicy for ReplacementPolicy {
     fn from_admission(reservation: AllocationReservation) -> Self {
+        // Each admission is a phase boundary for physical allocator fault tests.
+        crate::allocation_test_support::mark_layout_trace();
         let calls = REPLACEMENT_POLICY_CALLS.with(|calls| {
             calls.set(calls.get() + 1);
             calls.get()
@@ -1370,4 +1372,176 @@ fn admitted_initial_storage_includes_identity_notification_before_allocation() {
     );
     drop(wait);
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+// Each raw writer is free: an ordinary admitted cursor opens and is abandoned.
+fn assert_both_writers_free(storage: &ReplacementStorage, budget: &AllocationBudget) {
+    let provider = |demand: AllocationDemand| {
+        Ok::<_, ()>(ReplacementPolicy(
+            budget.try_reserve_bytes(demand.bytes()).unwrap(),
+        ))
+    };
+    budget.with_deferred_refund_notifications(|_| {
+        assert!(
+            storage.revert.try_write_admitted(provider).is_ok(),
+            "the undo writer was released"
+        );
+        assert!(
+            storage.blocks.try_write_admitted(provider).is_ok(),
+            "the current writer was released"
+        );
+    });
+}
+
+#[test]
+fn admitted_storage_construction_allocator_refusals_retire_every_partial_owner() {
+    use crate::allocation_test_support::{refuse_layout_during, trace_layout_during};
+    let notification = ReleaseNotification::allocation_layout::<AllocationCharge>();
+    let identity = NextPublication::allocation_layout();
+    assert_eq!(
+        Publication::initial_layouts(),
+        [identity, identity, notification],
+        "publication owner, version and notification layouts"
+    );
+    let required = ReplacementStorage::initial_allocation_demand()
+        .unwrap()
+        .bytes();
+    let budget = AllocationBudget::new(required);
+    let construct = || ReplacementStorage::try_new_admitted(budget.clone());
+    drop(construct().unwrap());
+    let (storage, notifications) = trace_layout_during(notification, construct);
+    drop(storage.unwrap());
+    let (storage, identities) = trace_layout_during(identity, construct);
+    drop(storage.unwrap());
+    // Both map notifications precede the two map admissions. The publication
+    // owner, version and notification are the last of their layouts after them.
+    assert_eq!(notifications.marks[0], 2, "{notifications:?}");
+    assert!(
+        notifications.marked >= 2 && notifications.seen > notifications.marks[1],
+        "{notifications:?}"
+    );
+    assert!(
+        identities.marked >= 2 && identities.seen >= identities.marks[1] + 2,
+        "{identities:?}"
+    );
+    for (layout, occurrence) in [
+        (notification, 0),
+        (notification, 1),
+        (identity, identities.seen - 2),
+        (identity, identities.seen - 1),
+        (notification, notifications.seen - 1),
+    ] {
+        let (result, refused) = refuse_layout_during(layout, occurrence, construct);
+        assert!(
+            refused,
+            "refusal reaches allocation {occurrence} of {layout:?}"
+        );
+        assert_eq!(
+            result.err(),
+            Some(AdmittedStorageError::Allocator { layout })
+        );
+        assert_eq!(
+            budget.reserved_bytes(),
+            0,
+            "every partial owner retires before its refund"
+        );
+        let retry = construct().unwrap();
+        assert_eq!(budget.reserved_bytes(), required);
+        drop(retry);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn admitted_snapshot_restore_successor_identity_refusal_retires_its_destination() {
+    use crate::allocation_test_support::{refuse_layout_during, trace_layout_during};
+    let identity = NextPublication::allocation_layout();
+    let budget = AllocationBudget::new(1 << 20);
+    let source = replacement_fixture(&budget);
+    let snapshot = source.snapshot();
+    let destination = AllocationBudget::new(1 << 20);
+    let restore = || ReplacementStorage::try_from_snapshot_admitted(&snapshot, destination.clone());
+    drop(restore().unwrap());
+    let (restored, trace) = trace_layout_during(identity, restore);
+    drop(restored.unwrap());
+    // Admissions: both maps, both writers, then the first row copy. The writers'
+    // successor identity is the last allocation of its layout before that copy.
+    assert!(
+        trace.marked >= 5 && trace.marks[4] > trace.marks[3],
+        "{trace:?}"
+    );
+    let (result, refused) = refuse_layout_during(identity, trace.marks[4] - 1, restore);
+    assert!(refused, "refusal reaches the writer successor identity");
+    assert_eq!(
+        result.err(),
+        Some(AdmittedStorageError::Allocator { layout: identity })
+    );
+    assert_eq!(
+        destination.reserved_bytes(),
+        0,
+        "both writers and the partial destination retire before refund"
+    );
+    let retry = restore().unwrap();
+    assert_eq!(
+        replacement_rows(&retry.view()),
+        replacement_rows(snapshot.current())
+    );
+    drop(retry);
+    assert_eq!(destination.reserved_bytes(), 0);
+    drop(snapshot);
+    drop(source);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn admitted_block_successor_identity_refusal_releases_both_writers_for_retry() {
+    use crate::allocation_test_support::{refuse_layout_during, trace_layout_during};
+    let identity = NextPublication::allocation_layout();
+    for replacement in [false, true] {
+        let calls = std::cell::Cell::new(0_usize);
+        let run = |storage: &ReplacementStorage| {
+            let operation = |_: &mut Block<'_, _, _, _>| {
+                calls.set(calls.get() + 1);
+                Ok::<_, ()>(())
+            };
+            if replacement {
+                storage.try_with_admitted_replacement(operation)
+            } else {
+                storage.try_with_admitted_block(operation)
+            }
+        };
+        let traced_budget = AllocationBudget::new(1 << 20);
+        let traced = replacement_fixture(&traced_budget);
+        let (result, trace) = trace_layout_during(identity, || run(&traced));
+        result.unwrap();
+        // Admissions: both writers, then the block contents. The successor
+        // identity is the last allocation of its layout before the contents.
+        assert!(
+            trace.marked >= 3 && trace.marks[2] > trace.marks[1],
+            "{trace:?}"
+        );
+        let budget = AllocationBudget::new(1 << 20);
+        let storage = replacement_fixture(&budget);
+        let rows = replacement_rows(&storage.view());
+        let before = budget.reserved_bytes();
+        calls.set(0);
+        let (result, refused) =
+            refuse_layout_during(identity, trace.marks[2] - 1, || run(&storage));
+        assert!(refused, "refusal reaches the block successor identity");
+        assert!(
+            matches!(
+                result,
+                Err(AdmittedBlockError::Admission(AdmittedStorageError::Allocator { layout }))
+                    if layout == identity
+            ),
+            "{result:?}"
+        );
+        assert_eq!(calls.get(), 0, "no callback runs without its successor");
+        assert_eq!(budget.reserved_bytes(), before);
+        assert_both_writers_free(&storage, &budget);
+        assert_eq!(budget.reserved_bytes(), before);
+        assert_eq!(replacement_rows(&storage.view()), rows);
+        run(&storage).unwrap();
+        assert_eq!(calls.get(), 1);
+    }
 }

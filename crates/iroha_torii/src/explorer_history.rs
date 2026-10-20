@@ -91,7 +91,8 @@ impl HistoryTransactionRow {
         let transaction = match source {
             TransactionEntrypoint::External(transaction) => transaction,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => {
                 return Err(BoundedJsonError::LengthMismatch);
             }
         };

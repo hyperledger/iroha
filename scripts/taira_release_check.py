@@ -712,7 +712,8 @@ DISPATCHER_TRANSITION_STAGES = (("reversible dispatcher upgrade and native plan 
     "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_staging_publication_crashes_resume_only_owned_prefixes",
     "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_inode_scan_rejects_alias_executable_own_fd_and_maps",
     "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_requires_complete_qualified_transfer_producer_join",
-    "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_requires_native_aarch64_elf_header",
+    "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_artifact_target_matches_each_preparation_record",
+    "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_requires_exact_candidate_target_elf_header",
     "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_prepare_reuses_current_typed_split_source_bindings",
     "taira_public_reset::host::dispatcher_transition::tests::dispatcher_transition_prepare_cli_requires_pinned_native_inputs",
 )), )
@@ -1091,6 +1092,13 @@ TEST_NETWORK_STAGES += (("checkout-local owner-private broker custody", (
     "disposable_runtime_provider_broker::tests::configured_broker_root_rejects_oversized_endpoint_before_creating_custody",
 )),)
 
+TEST_NETWORK_STAGES += (("original optional broker shutdown evidence", (
+    "disposable_runtime_provider_broker::shutdown::tests::actual_broker_shutdown_preserves_success_and_nonzero_terminal",
+    "disposable_runtime_provider_broker::shutdown::tests::original_broker_timeout_is_reaped_without_becoming_success",
+    "disposable_runtime_provider_broker::shutdown::tests::retiring_run_retains_actual_optional_broker_receipt_through_best_effort_cleanup",
+    "disposable_runtime_provider_broker::shutdown::tests::original_broker_receipt_rejects_missing_stale_and_changed_boot_without_config_inference",
+)),)
+
 NETWORK_OBSERVATION_STAGES = (("signed genesis paid authority and public failure observation", (
     'dataspace_deploy_cli::signed_genesis_validator_mapping_preserves_runtime_accounts',
     'dataspace_deploy_cli::phase_failure_summary_excludes_signed_payloads',
@@ -1449,6 +1457,17 @@ CURRENT_CONSENSUS_STAGES = (("current nonempty consensus and bounded work wakeup
     'machine::tests::signing::det_ct3_genuine_matching_pqc_reproposes_without_fresh_clock_owner',
     'sim::world::clock_guard::tests::det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare',
 )))
+
+CURRENT_CONSENSUS_STAGES += (("current shared-source semantic QC custody", (
+    'qc_custody::tests::shared_qc_retains_original_source_partial_fields_and_fixed_pool_retry',
+    'qc_custody::tests::shared_qc_refuses_same_wire_replacement_and_different_source_span',
+    'qc_custody::tests::shared_qc_requires_leaf_and_control_to_share_the_exact_original_pool',
+    'qc_custody::physical_tests::every_actual_qc_control_layout_refusal_retains_original_charge_prefix_and_same_source_retry',
+    'qc_custody::physical_tests::actual_qc_bitmap_allocator_refusal_preserves_controls_and_same_source_retry',
+    'qc_custody::physical_tests::complete_qc_decode_has_only_original_controls_and_bitmap_then_publication_and_sharing_allocate_nothing',
+    'qc_custody::physical_tests::actual_original_qc_source_allocation_failure_refunds_only_its_own_charge',
+    'qc_custody::physical_tests::actual_bitmap_allocator_error_chain_borrows_same_cause_and_keeps_original_credit',
+)),)
 
 CURRENT_BEACON_CORE_STAGES = (("current authenticated threshold pulse production and execution", (
     'smartcontracts::isi::world::isi::tests::set_parameter_rejects_consensus_epoch_that_conflicts_with_npos',
@@ -2079,6 +2098,7 @@ MV_OWNERSHIP_STAGES = (
     ('funded snapshot restoration retains exact history and source custody', (
         'storage::admitted_tests::admitted_snapshot_preserves_exact_current_undo_and_replacement_history',
         'storage::admitted_tests::admitted_snapshot_capacity_and_planning_refusals_leave_source_reusable',
+        'storage::admitted_tests::admitted_snapshot_restore_successor_identity_refusal_retires_its_destination',
     )),
     ('finite transaction touch-key custody', (
         'storage::touches::tests::touch_sorted_unique_growth_moves_original_key_allocations_without_copying',
@@ -2287,6 +2307,16 @@ CORE_NATIVE_CONNECTION_STAGES = (
         'sumeragi::lanes::registry::tests::proposal_reads::compatible_cancelled_proposal_adoption_preserves_original_body_certificate_and_pool',
         'sumeragi::lanes::store::refund_tests::cancelled_proposal_read_refund_reenters_only_after_both_native_guards_release',
         'sumeragi::executor::proposal_read_tests::final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_tick',
+        'sumeragi::executor::proposal_read_tests::discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclusion',
+        'sumeragi::executor::proposal_read_tests::authenticated_incoming_execution_moves_the_original_local_lane_request_without_reopening',
+        'sumeragi::lanes::registry::tests::proposal_reads::cancelled_read_only_incoming_frame_is_released_when_original_inflight_owner_parks',
+        'sumeragi::lanes::store::refund_tests::state_read_cancellation_after_cleanup_observation_cannot_be_lost',
+        'sumeragi::lanes::store::refund_tests::batch_read_cancellation_after_cleanup_observation_cannot_be_lost',
+        'sumeragi::lanes::registry::tests::isolation_tests::final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery',
+        'sumeragi::lanes::registry::tests::proposal_reads::cancelled_incoming_read_retires_request_only_opening_and_preserves_historical_join',
+        'sumeragi::lanes::registry::tests::proposal_reads::cancelled_original_sweep_does_not_wait_for_new_disjoint_opening',
+        'sumeragi::lanes::registry::tests::proposal_reads::original_sweep_preserves_a_later_same_key_native_owner',
+        'sumeragi::lanes::registry::tests::proposal_reads::exhausted_registration_identity_refuses_before_new_native_custody',
         'sumeragi::executor::proposal_read_tests::successful_parent_commit_cancels_proposal_read_only_after_original_publication',
         'sumeragi::lanes::store::refund_tests::original_lane_body_refund_waits_for_state_unlock',
         'sumeragi::lanes::store::refund_tests::original_lane_batch_refund_waits_for_both_original_guards',
@@ -2639,6 +2669,14 @@ MODEL_SHARED_BLOCK_STAGES = (("original immutable shared block controls", (
     'block::shared::tests::prepaid_shared_block_shell_can_be_cancelled_or_initialized_without_new_admission',
 )),)
 DATA_MODEL_STAGES += MODEL_SHARED_BLOCK_STAGES
+DATA_MODEL_STAGES += (("original canonical block constructor custody", (
+    "block::prepared_signatures::tests::prepared_block_counter_physical_refusals_keep_original_charges_prefix_source_and_retry",
+    "block::prepared_signatures::tests::original_shared_block_charge_survives_actual_allocator_refusal_and_retries_without_credit",
+)),)
+DATA_MODEL_STAGES += (("native parent-service producer destination custody", (
+    "consensus::parent_service::prepared::tests::producer_copy_binds_actual_parent_control_pool_and_unchanged_vec_wire",
+    "consensus::parent_service::prepared::tests::producer_input_cannot_substitute_a_canonical_field_or_missing_certificate",
+)),)
 
 CORE_SHARED_BLOCK_HISTORY_STAGES = (("original canonical history and hydration refusal", (
     'kura::tests::startup_history_retains_original_cold_kura_refusal_and_exact_retry',
