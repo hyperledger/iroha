@@ -10324,7 +10324,7 @@ fn reject_unknown(map: &SnapshotJsonMap<'_>, context: &str) -> Result<(), json::
 /// Decode and validate the World component without granting authenticated State
 /// history. This test-only helper returns a World, never an installed native tip.
 #[cfg(test)]
-pub(in crate::state) fn decode_world_component_for_testing(
+pub(crate) fn decode_world_component_for_testing(
     world: &World,
 ) -> Result<World, StateRestoreError> {
     let encoded = json::to_json(world)?;

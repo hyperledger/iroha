@@ -273,8 +273,8 @@ pub(crate) struct Movement<'a> {
 /// Validate a complete ordered occurrence against one exclusive World view.
 ///
 /// Returning encoded writes lets the caller finish every fallible preflight
-/// before writing balances. The state-map reads join sibling wallets to the
-/// same native transaction conflict set; independent legs call this separately.
+/// before writing balances. Every sibling wallet is checked against the same
+/// exclusive transaction World; independent legs call this separately.
 pub(crate) fn prepare_movements(
     world: &impl WorldReadOnly,
     movements: &[Movement<'_>],

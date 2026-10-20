@@ -33,10 +33,13 @@ fn typed_controlled_lock_calls_compile_to_four_distinct_effects() {
         syscalls::SYSCALL_ASSET_LOCK_EXPIRE,
     ] {
         assert_eq!(
-            words.iter().filter(|word| {
-                instruction::wide::opcode(**word) == instruction::wide::system::SYSTEM
-                    && encoding::wide::decode_syscallx(**word) == syscall
-            }).count(),
+            words
+                .iter()
+                .filter(|word| {
+                    instruction::wide::opcode(**word) == instruction::wide::system::SYSTEM
+                        && encoding::wide::decode_syscallx(**word) == syscall
+                })
+                .count(),
             1,
             "each operation must emit exactly its own syscall"
         );
@@ -57,7 +60,10 @@ fn controlled_lock_open_rejects_wrong_quantity_and_deadline_types() {
     ] {
         let source = SOURCE.replace(original, replacement);
         let parsed = parse(&source).expect("well-formed negative source");
-        assert!(analyze(&parsed).is_err(), "invalid typed lock call admitted");
+        assert!(
+            analyze(&parsed).is_err(),
+            "invalid typed lock call admitted"
+        );
     }
 }
 

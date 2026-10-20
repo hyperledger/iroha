@@ -177,6 +177,23 @@ fn reject_reserved_orderbook_escrow_id(escrow_id: &EscrowId) -> Result<(), Error
     }
     Ok(())
 }
+fn reject_reserved_controlled_asset_lock_id(escrow_id: &EscrowId) -> Result<(), Error> {
+    if iroha_data_model::escrow::control::is_reserved_controlled_asset_lock_id_v1(escrow_id) {
+        return Err(validation_err(
+            "reserved controlled asset lock ids require authenticated controller execution",
+        ));
+    }
+    Ok(())
+}
+fn reject_reserved_native_escrow_id(escrow_id: &EscrowId) -> Result<(), Error> {
+    reject_reserved_orderbook_escrow_id(escrow_id)?;
+    reject_reserved_controlled_asset_lock_id(escrow_id)
+}
+enum AssetLockNamespace {
+    Generic,
+    Orderbook,
+    Controlled,
+}
 fn ensure_positive(value: &Quantity) -> Result<(), Error> {
     if value.is_zero() {
         return Err(validation_err("escrow amount must be non-zero"));
@@ -458,7 +475,12 @@ pub(crate) fn open_orderbook_order_asset_lock(
         Some(expires_at_ms),
         Vec::new(),
     );
-    execute_open_asset_lock(instruction, owner, state_transaction, true)?;
+    execute_open_asset_lock(
+        instruction,
+        owner,
+        state_transaction,
+        AssetLockNamespace::Orderbook,
+    )?;
     mark_orderbook_order_lock(state_transaction, &escrow_id)?;
     state_transaction
         .world
@@ -1258,7 +1280,7 @@ impl Execute for OpenAssetEscrow {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        reject_reserved_orderbook_escrow_id(&self.escrow_id)?;
+        reject_reserved_native_escrow_id(&self.escrow_id)?;
         if state_transaction
             .world
             .asset_escrows
@@ -1619,10 +1641,23 @@ fn execute_open_asset_lock(
     instruction: OpenAssetLock,
     authority: &AccountId,
     state_transaction: &mut StateTransaction<'_, '_>,
-    allow_reserved_orderbook_id: bool,
+    namespace: AssetLockNamespace,
 ) -> Result<(), Error> {
-    if !allow_reserved_orderbook_id {
-        reject_reserved_orderbook_escrow_id(&instruction.escrow_id)?;
+    match namespace {
+        AssetLockNamespace::Generic => reject_reserved_native_escrow_id(&instruction.escrow_id)?,
+        AssetLockNamespace::Orderbook => {
+            reject_reserved_controlled_asset_lock_id(&instruction.escrow_id)?;
+        }
+        AssetLockNamespace::Controlled => {
+            reject_reserved_orderbook_escrow_id(&instruction.escrow_id)?;
+            if !iroha_data_model::escrow::control::is_reserved_controlled_asset_lock_id_v1(
+                &instruction.escrow_id,
+            ) {
+                return Err(validation_err(
+                    "controlled asset lock requires its reserved namespace",
+                ));
+            }
+        }
     }
     if state_transaction
         .world
@@ -1702,7 +1737,12 @@ impl Execute for OpenAssetLock {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_open_asset_lock(self, authority, state_transaction, false)
+        execute_open_asset_lock(
+            self,
+            authority,
+            state_transaction,
+            AssetLockNamespace::Generic,
+        )
     }
 }
 impl Execute for DrawdownAssetLock {
@@ -2067,7 +2107,7 @@ pub(crate) fn prepare_conditional_escrow_opening(
         expires_at_ms,
         evidence_hashes,
     } = terms;
-    reject_reserved_orderbook_escrow_id(&escrow_id)?;
+    reject_reserved_native_escrow_id(&escrow_id)?;
     if state_transaction
         .world
         .asset_escrows

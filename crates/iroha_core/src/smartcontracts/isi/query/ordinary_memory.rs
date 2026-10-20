@@ -686,6 +686,8 @@ enum AdmittedIterableSource {
     Triggers,
     /// `FindActiveTriggerIds`.
     ActiveTriggerIds,
+    /// Owner-scoped exact-asset UID policies.
+    AssetUidPolicies,
 }
 impl AdmittedIterableSource {
     fn for_item(item: iroha_data_model::query::QueryItemKind) -> Option<Self> {
@@ -695,6 +697,7 @@ impl AdmittedIterableSource {
             QueryItemKind::AccountId => Some(Self::AccountIds),
             QueryItemKind::Trigger => Some(Self::Triggers),
             QueryItemKind::TriggerId => Some(Self::ActiveTriggerIds),
+            QueryItemKind::AssetUidPolicyViewV1 => Some(Self::AssetUidPolicies),
             _ => None,
         }
     }
@@ -837,6 +840,7 @@ fn admitted_source_has_pass_predicate(
         }};
     }
     match source {
+        AdmittedIterableSource::AssetUidPolicies => pass_shape!(iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1, iroha_data_model::asset::uid::AssetUidPolicyViewV1),
         AdmittedIterableSource::Peers => pass_shape!(FindPeers, PeerId),
         AdmittedIterableSource::AccountIds => pass_shape!(FindAccountIds, AccountId),
         AdmittedIterableSource::Triggers => pass_shape!(FindTriggers, Trigger),
@@ -2320,6 +2324,14 @@ mod tests {
         use norito::codec::Encode as _;
         for request in [
             peer_start(peer_params()),
+            erased_start::<iroha_data_model::asset::uid::AssetUidPolicyViewV1>(
+                CompoundPredicate::PASS,
+                iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1 {
+                    asset_definition_id: iroha_data_model::asset::AssetDefinitionId::from_uuid_bytes([0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0x48,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8]).unwrap(),
+                    uid: None,
+                }.encode(),
+                peer_params(),
+            ),
             erased_start::<AccountId>(
                 CompoundPredicate::PASS,
                 FindAccountIds.encode(),

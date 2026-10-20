@@ -185,6 +185,7 @@ impl ResolveEscrowDispute {
 }
 isi! {
     /// Open a generic ledger-managed asset lock.
+    #[derive (crate :: DeriveJsonSerialize , crate :: DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow::OpenAssetLock")]
     pub struct OpenAssetLock {
         /// Caller-selected lock identifier.
@@ -362,6 +363,7 @@ impl ExpireConditionalEscrow {
 }
 isi! {
     /// Draw down funds from an active generic asset lock.
+    #[derive (crate :: DeriveJsonSerialize , crate :: DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow::DrawdownAssetLock")]
     pub struct DrawdownAssetLock {
         /// Lock to draw down.
@@ -420,6 +422,7 @@ impl CancelAssetLock {
 }
 isi! {
     /// Expire a generic asset lock whose deadline has passed.
+    #[derive (crate :: DeriveJsonSerialize , crate :: DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow::ExpireAssetLock")]
     pub struct ExpireAssetLock {
         /// Lock to expire.

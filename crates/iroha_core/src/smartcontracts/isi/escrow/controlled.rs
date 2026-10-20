@@ -2,7 +2,10 @@
 use super::*;
 use crate::executor::ContractRuntimeExecutionContext;
 use iroha_data_model::{
-    escrow::control::AssetLockControlV1,
+    escrow::control::{
+        AssetLockControlV1, MAX_CONTROLLED_ASSET_LOCK_KEY_BYTES_V1, controlled_asset_lock_id,
+        is_reserved_controlled_asset_lock_id_v1,
+    },
     isi::{
         InstructionBox,
         escrow_control::{
@@ -90,6 +93,19 @@ fn execute_open(
     context: Option<&ContractRuntimeExecutionContext>,
 ) -> Result<(), Error> {
     authenticate(tx.world(), authority, context, &instruction.control)?;
+    if instruction.key.is_empty() || instruction.key.len() > MAX_CONTROLLED_ASSET_LOCK_KEY_BYTES_V1
+    {
+        return Err(validation_err(
+            "controlled asset lock key must contain 1..=4096 bytes",
+        ));
+    }
+    if instruction.lock.escrow_id
+        != controlled_asset_lock_id(&instruction.control.controller, &instruction.key)
+    {
+        return Err(validation_err(
+            "controlled asset lock id differs from its exact controller and key",
+        ));
+    }
     if instruction.lock.release_authority.as_ref()
         != Some(&instruction.control.controller.subject_id())
     {
@@ -113,7 +129,12 @@ fn execute_open(
     let bytes = norito::encode_canonical(&instruction.control)
         .map_err(|_| validation_err("cannot encode native asset lock control"))?;
     let state_key = key(&instruction.lock.escrow_id);
-    execute_open_asset_lock(instruction.lock, &instruction.source, tx, false)?;
+    execute_open_asset_lock(
+        instruction.lock,
+        &instruction.source,
+        tx,
+        AssetLockNamespace::Controlled,
+    )?;
     tx.world.smart_contract_state.insert(state_key, bytes);
     Ok(())
 }
@@ -208,7 +229,7 @@ pub(crate) fn validate_persistence(world: &impl WorldReadOnly) -> Result<(), Err
             id.parse::<iroha_crypto::Hash>()
                 .map_err(|_| validation_err("invalid native asset lock control key"))?,
         );
-        if key(&id) != *path {
+        if key(&id) != *path || !is_reserved_controlled_asset_lock_id_v1(&id) {
             return Err(validation_err("noncanonical native asset lock control key"));
         }
         let terms: AssetLockControlV1 = norito::decode_canonical(bytes)

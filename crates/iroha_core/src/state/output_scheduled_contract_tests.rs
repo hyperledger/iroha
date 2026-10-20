@@ -18,8 +18,14 @@ use iroha_data_model::{
     },
     trigger::action::TimeTriggerRetryPolicy,
 };
-use iroha_model_base::topology::{DataSpaceId, LaneId};
-use std::{collections::BTreeSet, time::Duration};
+use iroha_model_base::{
+    state_path::StatePath,
+    topology::{DataSpaceId, LaneId},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 fn permission(address: &ContractAddress, name: &str) -> Permission {
     iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
@@ -213,9 +219,61 @@ fn run_and_capture(state: &State, source: &SignedBlock) -> Vec<(String, bool)> {
     statuses
 }
 
+fn encoded_state_int(value: i128) -> Vec<u8> {
+    use ivm_abi::state_value::{
+        StateValueAtomV1, StateValueRecordV1, state_value_schema_for_embedded_type_v1,
+        state_value_schema_hash_v1,
+    };
+
+    let schema = state_value_schema_for_embedded_type_v1(&ivm::EmbeddedStateType::Int)
+        .expect("fixture Int state schema");
+    let schema_bytes = norito::encode_canonical(&schema).unwrap();
+    let envelope =
+        ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(value))
+            .unwrap();
+    norito::encode_canonical(&StateValueRecordV1 {
+        schema_hash: state_value_schema_hash_v1(&schema_bytes),
+        atoms: vec![StateValueAtomV1::Pointer(envelope)],
+    })
+    .unwrap()
+}
+
+fn assert_applied_state(state: &State, address: &ContractAddress, expected: &[(i128, i128)]) {
+    let scope = hex::encode(iroha_crypto::Hash::new(address.to_string().as_bytes()).as_ref());
+    let prefix = format!("sc/{scope}/");
+    let path = |job| -> StatePath {
+        let logical = ivm::host::canonical_state_map_path(
+            &"Applied".parse().unwrap(),
+            &encoded_state_int(job),
+        )
+        .unwrap();
+        format!("{prefix}{logical}").parse().unwrap()
+    };
+    let view = state.view();
+    let stored = view.world.smart_contract_state();
+    assert!(
+        stored.get(&path(2)).is_none(),
+        "the rejected callback's Applied[2] = 99 must always roll back"
+    );
+    let actual: BTreeMap<_, _> = stored
+        .iter()
+        .filter(|(key, _)| key.as_ref().starts_with(&prefix))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let expected: BTreeMap<_, _> = expected
+        .iter()
+        .map(|&(job, value)| (path(job), encoded_state_int(value)))
+        .collect();
+    assert_eq!(
+        actual, expected,
+        "the exact contract namespace must contain only successful fixed-argument writes"
+    );
+}
+
 #[test]
 fn scheduled_batch_fixed_arguments_isolate_rejections_and_rollback_callback_state() {
-    let (state, source, _, _) = compiled_fixture();
+    let (state, source, address, _) = compiled_fixture();
+    assert_applied_state(&state, &address, &[]);
     assert_eq!(
         run_and_capture(&state, &source),
         vec![
@@ -224,12 +282,8 @@ fn scheduled_batch_fixed_arguments_isolate_rejections_and_rollback_callback_stat
             ("z_ready".into(), true),
         ]
     );
+    assert_applied_state(&state, &address, &[(3, 1)]);
     let view = state.view();
-    assert_eq!(
-        view.world.smart_contract_state().iter().count(),
-        1,
-        "the successful fixed-argument call writes once; the rejected write must roll back"
-    );
     assert!(
         view.world
             .triggers()
@@ -259,10 +313,13 @@ fn scheduled_batch_fixed_arguments_isolate_rejections_and_rollback_callback_stat
 
 #[test]
 fn scheduled_callback_retry_survives_trigger_snapshot_and_executes_once_after_role_restore() {
-    let (mut state, source, _, retry_permission) = compiled_fixture();
+    let (mut state, source, address, retry_permission) = compiled_fixture();
+    assert_applied_state(&state, &address, &[]);
     run_and_capture(&state, &source);
+    assert_applied_state(&state, &address, &[(3, 1)]);
     let saved = SetDto::from(&state.world.triggers).encode().unwrap();
     state.world.triggers = Set::try_from(SetDto::decode(&saved).unwrap()).unwrap();
+    assert_applied_state(&state, &address, &[(3, 1)]);
     {
         let (mut setup, _recording) = output_fixture_setup(&state);
         let mut transaction = setup.transaction_for_callback_testing();
@@ -286,14 +343,15 @@ fn scheduled_callback_retry_survives_trigger_snapshot_and_executes_once_after_ro
         run_and_capture(&state, &before_retry).is_empty(),
         "no early retry after rehydration"
     );
+    assert_applied_state(&state, &address, &[(3, 1)]);
     let due_retry = source_at(&state, first_ms + 6);
     assert_eq!(
         run_and_capture(&state, &due_retry),
         vec![("a_retry".into(), true), ("b_refused".into(), false),]
     );
+    assert_applied_state(&state, &address, &[(1, 1), (3, 1)]);
     {
         let view = state.view();
-        assert_eq!(view.world.smart_contract_state().iter().count(), 2);
         assert!(
             view.world
                 .triggers()
@@ -312,5 +370,5 @@ fn scheduled_callback_retry_survives_trigger_snapshot_and_executes_once_after_ro
     }
     let later = source_at(&state, first_ms + 20);
     assert!(run_and_capture(&state, &later).is_empty());
-    assert_eq!(state.view().world.smart_contract_state().iter().count(), 2);
+    assert_applied_state(&state, &address, &[(1, 1), (3, 1)]);
 }

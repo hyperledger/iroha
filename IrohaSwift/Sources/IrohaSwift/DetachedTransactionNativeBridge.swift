@@ -85,6 +85,7 @@ public enum DetachedTransactionExecutableInspection: Sendable, Equatable {
     case contractCall(DetachedContractCallInspection)
     case assetTransfer(DetachedAssetTransferInspection)
     case atomicTransferSequence([DetachedAssetTransferInspection])
+    case transferInstructionSequence([DetachedAssetTransferInspection])
     case assetTransferBatch(DetachedAssetTransferBatchInspection)
     case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
 }
@@ -155,6 +156,7 @@ private enum ExecutableDTO: Decodable {
     case contractCall(ContractCallDTO)
     case assetTransfer(AssetTransferDTO)
     case atomicTransferSequence([AssetTransferDTO])
+    case transferInstructionSequence([AssetTransferDTO])
     case assetTransferBatch(DetachedAssetTransferBatchInspection)
     case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
 
@@ -171,6 +173,8 @@ private enum ExecutableDTO: Decodable {
             self = .assetTransfer(try AssetTransferDTO(from: decoder))
         case "atomic_transfer_sequence":
             self = .atomicTransferSequence(try container.decode([AssetTransferDTO].self, forKey: .transfers))
+        case "transfer_instruction_sequence":
+            self = .transferInstructionSequence(try container.decode([AssetTransferDTO].self, forKey: .transfers))
         case "asset_transfer_batch":
             self = .assetTransferBatch(try DetachedAssetTransferBatchInspection(from: decoder))
         case "conditional_escrow_open":
@@ -311,6 +315,9 @@ enum DetachedTransactionBridgeJSONCodec {
         case let .atomicTransferSequence(transfers):
             guard transfers.count == 2 else { throw NativeBridgeError.invalidDetachedTransactionOutput }
             executable = .atomicTransferSequence(try transfers.map(transferInspection))
+        case let .transferInstructionSequence(transfers):
+            guard (2...16).contains(transfers.count) else { throw NativeBridgeError.invalidDetachedTransactionOutput }
+            executable = .transferInstructionSequence(try transfers.map(transferInspection))
         case let .assetTransferBatch(batch):
             executable = .assetTransferBatch(batch)
         case let .conditionalEscrowOpen(escrow):
@@ -383,10 +390,10 @@ enum DetachedTransactionBridgeJSONCodec {
             }
         case "asset_transfer":
             try validateTransferShape(executable)
-        case "atomic_transfer_sequence":
+        case "atomic_transfer_sequence", "transfer_instruction_sequence":
             guard Set(executable.keys) == ["kind", "transfers"],
                   let transfers = executable["transfers"] as? [[String: Any]],
-                  transfers.count == 2 else { throw NativeBridgeError.invalidDetachedTransactionOutput }
+                  (kind == "atomic_transfer_sequence" ? transfers.count == 2 : (2...16).contains(transfers.count)) else { throw NativeBridgeError.invalidDetachedTransactionOutput }
             for transfer in transfers {
                 guard transfer["kind"] as? String == "asset_transfer" else { throw NativeBridgeError.invalidDetachedTransactionOutput }
                 try validateTransferShape(transfer)

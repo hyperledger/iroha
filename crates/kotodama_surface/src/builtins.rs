@@ -3452,6 +3452,33 @@ mod tests {
         }
     }
     #[test]
+    fn controlled_lock_registry_is_typed_namespaced_and_effectful() {
+        for (builtin, syscall, count) in [
+            (Builtin::AssetLockOpen, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_OPEN, 8),
+            (Builtin::AssetLockDrawdown, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN, 3),
+            (Builtin::AssetLockCancel, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_CANCEL, 2),
+            (Builtin::AssetLockExpire, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_EXPIRE, 1),
+        ] {
+            let spec = builtin.spec();
+            assert_eq!(Builtin::from_source_name(spec.name), Some(builtin));
+            assert_eq!(Builtin::from_source_name(builtin.name()), None);
+            assert_eq!(spec.signature.parameters.len(), count);
+            assert_eq!(spec.signature.parameter_names.len(), count);
+            assert_eq!(spec.signature.return_type, "()");
+            assert_eq!(spec.syscall, Some(syscall));
+            assert_eq!(spec.effects, BuiltinEffects::HOST);
+            assert_eq!(spec.access, BuiltinAccess::LedgerWrite);
+            assert!(!ivm_abi::syscalls::is_generic_program_syscall_allowed(
+                ivm_abi::SyscallPolicy::AbiV1, syscall
+            ));
+        }
+        assert_eq!(Builtin::AssetLockOpen.signature().parameters, &[
+            "bytes", "AccountId", "AccountId", "AssetDefinitionId",
+            "quantity", "int", "int", "int",
+        ]);
+    }
+
+    #[test]
     fn escrow_open_offer_registry_matches_the_lowered_host_abi() {
         let spec = Builtin::EscrowOpenOffer.spec();
         assert_eq!(

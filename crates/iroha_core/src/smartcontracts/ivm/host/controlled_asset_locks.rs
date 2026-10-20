@@ -2,7 +2,9 @@
 
 use super::*;
 use iroha_data_model::{
-    escrow::control::{AssetLockControlV1, controlled_asset_lock_id},
+    escrow::control::{
+        AssetLockControlV1, MAX_CONTROLLED_ASSET_LOCK_KEY_BYTES_V1, controlled_asset_lock_id,
+    },
     isi::{
         escrow::{CancelAssetLock, DrawdownAssetLock, ExpireAssetLock, OpenAssetLock},
         escrow_control::{
@@ -18,15 +20,18 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         vm: &IVM,
         pointer: u64,
         controller: &iroha_data_model::smart_contract::ContractAddress,
-    ) -> Result<EscrowId, ivm::VMError> {
+    ) -> Result<(EscrowId, Vec<u8>), ivm::VMError> {
         let key = Self::decode_pointer_tlv(vm, pointer, PointerType::Blob)?;
-        if key.payload.is_empty() || key.payload.len() > 4096 {
+        if key.payload.is_empty() || key.payload.len() > MAX_CONTROLLED_ASSET_LOCK_KEY_BYTES_V1 {
             return Err(ivm::VMError::DecodeError);
         }
-        Ok(controlled_asset_lock_id(controller, key.payload))
+        Ok((
+            controlled_asset_lock_id(controller, key.payload),
+            key.payload.to_vec(),
+        ))
     }
 
-    fn controlled_asset_lock(
+    pub(super) fn controlled_asset_lock(
         &mut self,
         vm: &IVM,
         number: u32,
@@ -47,13 +52,13 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 if !base.is_multiple_of(8) {
                     return Err(ivm::VMError::DecodeError);
                 }
+                // This validates both allocation provenance and public memory tags.
                 vm.ensure_owned_heap_range(base, 64)?;
-                vm.ensure_public_memory(base, 64)?;
                 let mut words = [0_u64; 8];
                 for (index, word) in words.iter_mut().enumerate() {
                     *word = vm.load_u64(base + index as u64 * 8)?;
                 }
-                let escrow_id = Self::controlled_lock_key(vm, words[0], &controller)?;
+                let (escrow_id, key) = Self::controlled_lock_key(vm, words[0], &controller)?;
                 let source: AccountId =
                     Self::decode_tlv_typed(vm, words[1], PointerType::AccountId)?;
                 let destination: AccountId =
@@ -63,6 +68,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 let amount = Self::decode_quantity(vm, words[4])?;
                 InstructionBox::from(OpenControlledAssetLockV1 {
                     source,
+                    key,
                     lock: OpenAssetLock::with_options(
                         escrow_id,
                         asset_definition,
@@ -82,7 +88,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             ivm::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN => {
                 vm.ensure_public_register(11)?;
                 vm.ensure_public_register(12)?;
-                let escrow_id = Self::controlled_lock_key(vm, vm.register(10), &controller)?;
+                let (escrow_id, _) = Self::controlled_lock_key(vm, vm.register(10), &controller)?;
                 InstructionBox::from(DrawdownControlledAssetLockV1 {
                     drawdown: DrawdownAssetLock::new(
                         escrow_id,
@@ -93,7 +99,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             }
             ivm::syscalls::SYSCALL_ASSET_LOCK_CANCEL => {
                 vm.ensure_public_register(11)?;
-                let escrow_id = Self::controlled_lock_key(vm, vm.register(10), &controller)?;
+                let (escrow_id, _) = Self::controlled_lock_key(vm, vm.register(10), &controller)?;
                 InstructionBox::from(CancelControlledAssetLockV1 {
                     cancel: CancelAssetLock::new(
                         escrow_id,
@@ -102,7 +108,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 })
             }
             ivm::syscalls::SYSCALL_ASSET_LOCK_EXPIRE => {
-                let escrow_id = Self::controlled_lock_key(vm, vm.register(10), &controller)?;
+                let (escrow_id, _) = Self::controlled_lock_key(vm, vm.register(10), &controller)?;
                 InstructionBox::from(ExpireControlledAssetLockV1 {
                     expiry: ExpireAssetLock::new(escrow_id),
                 })
@@ -117,8 +123,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::{norito_blob, store_quantity, store_tlv};
+    use super::*;
     use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
     use iroha_test_samples::{ALICE_ID, BOB_ID};
     use ivm::host::IVMHost;
@@ -156,7 +162,11 @@ mod tests {
             store_tlv(&mut vm, PointerType::Blob, b"ns:1/lock"),
             store_tlv(&mut vm, PointerType::AccountId, &norito_blob(&*ALICE_ID)),
             store_tlv(&mut vm, PointerType::AccountId, &norito_blob(&*BOB_ID)),
-            store_tlv(&mut vm, PointerType::AssetDefinitionId, &norito_blob(&asset)),
+            store_tlv(
+                &mut vm,
+                PointerType::AssetDefinitionId,
+                &norito_blob(&asset),
+            ),
             store_quantity(&mut vm, &100_u32.into()),
             300,
             701,
@@ -171,9 +181,14 @@ mod tests {
             .unwrap();
         assert_eq!(host.queued.len(), 1);
         let effect = &host.queued[0];
-        let opening = effect.instruction().unwrap().as_any()
-            .downcast_ref::<OpenControlledAssetLockV1>().unwrap();
+        let opening = effect
+            .instruction()
+            .unwrap()
+            .as_any()
+            .downcast_ref::<OpenControlledAssetLockV1>()
+            .unwrap();
         assert_eq!(opening.source, *ALICE_ID);
+        assert_eq!(opening.key, b"ns:1/lock");
         assert_eq!(opening.lock.destination, *BOB_ID);
         assert_eq!(opening.lock.amount, 100_u32.into());
         assert_eq!(opening.control.release_until_ms.unwrap().get(), 300);
@@ -182,7 +197,11 @@ mod tests {
         assert_eq!(effect.authority, opening.control.controller.subject_id());
         assert_ne!(effect.authority, opening.source);
         assert_eq!(
-            effect.contract_runtime_context.as_ref().unwrap().contract_address,
+            effect
+                .contract_runtime_context
+                .as_ref()
+                .unwrap()
+                .contract_address,
             opening.control.controller
         );
     }
@@ -194,7 +213,12 @@ mod tests {
         let key = store_tlv(&mut vm, PointerType::Blob, b"ns:1/lock");
         let amount = store_quantity(&mut vm, &20_u32.into());
         let remaining = store_quantity(&mut vm, &100_u32.into());
-        let controller = host.current_contract_runtime_context.as_ref().unwrap().contract_address.clone();
+        let controller = host
+            .current_contract_runtime_context
+            .as_ref()
+            .unwrap()
+            .contract_address
+            .clone();
         let id = controlled_asset_lock_id(&controller, b"ns:1/lock");
         for (number, expected, second, third) in [
             (
@@ -202,21 +226,24 @@ mod tests {
                 InstructionBox::from(DrawdownControlledAssetLockV1 {
                     drawdown: DrawdownAssetLock::new(id, 20_u32, 100_u32),
                 }),
-                amount, remaining,
+                amount,
+                remaining,
             ),
             (
                 ivm::syscalls::SYSCALL_ASSET_LOCK_CANCEL,
                 InstructionBox::from(CancelControlledAssetLockV1 {
                     cancel: CancelAssetLock::new(id, 100_u32),
                 }),
-                remaining, 0,
+                remaining,
+                0,
             ),
             (
                 ivm::syscalls::SYSCALL_ASSET_LOCK_EXPIRE,
                 InstructionBox::from(ExpireControlledAssetLockV1 {
                     expiry: ExpireAssetLock::new(id),
                 }),
-                0, 0,
+                0,
+                0,
             ),
         ] {
             vm.set_register(10, key);
@@ -244,13 +271,129 @@ mod tests {
         for bytes in [vec![], vec![1; 4097]] {
             let key = store_tlv(&mut vm, PointerType::Blob, &bytes);
             vm.set_register(10, key);
-            assert!(host.syscall(ivm::syscalls::SYSCALL_ASSET_LOCK_EXPIRE, &mut vm).is_err());
+            assert!(
+                host.syscall(ivm::syscalls::SYSCALL_ASSET_LOCK_EXPIRE, &mut vm)
+                    .is_err()
+            );
             assert!(host.queued.is_empty());
         }
         // INPUT cannot impersonate a compiler-owned mutable argument table.
         let input = store_tlv(&mut vm, PointerType::Blob, &[0; 64]);
         vm.set_register(10, input);
-        assert!(host.syscall(ivm::syscalls::SYSCALL_ASSET_LOCK_OPEN, &mut vm).is_err());
+        assert!(
+            host.syscall(ivm::syscalls::SYSCALL_ASSET_LOCK_OPEN, &mut vm)
+                .is_err()
+        );
         assert!(host.queued.is_empty());
+    }
+
+    #[test]
+    fn compiled_calls_preserve_all_typed_arguments_and_reject_negative_deadlines() {
+        let source = r#"
+seiyaku ControlledLock {
+    kotoage fn lock(
+        bytes key, AccountId source, AccountId destination,
+        AssetDefinitionId asset_definition, quantity amount, quantity remaining,
+        int release_until_ms, int cancel_not_before_ms, int expires_at_ms
+    ) authorize(anyone) {
+        ledger::asset_lock::open(
+            key, source, destination, asset_definition, amount,
+            release_until_ms, cancel_not_before_ms, expires_at_ms
+        );
+        ledger::asset_lock::drawdown(key, amount, expected_remaining: remaining);
+        ledger::asset_lock::cancel(key, expected_remaining: remaining);
+        ledger::asset_lock::expire(key);
+    }
+}"#;
+        let program = kotodama_lang::compiler::Compiler::new()
+            .compile_source(source)
+            .expect("compile typed native lock calls");
+        let metadata = ivm::ProgramMetadata::parse(&program).unwrap();
+        let entrypoint = metadata
+            .contract_interface
+            .as_ref()
+            .unwrap()
+            .entrypoints
+            .iter()
+            .find(|entrypoint| entrypoint.name == "lock")
+            .unwrap();
+        let schema = entrypoint.argument_schema.as_ref().unwrap();
+        let asset = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("escrow", "universal").unwrap(),
+            "ds".parse().unwrap(),
+        );
+        let payer = ALICE_ID.canonical_i105().unwrap();
+        let beneficiary = BOB_ID.canonical_i105().unwrap();
+        for release in [271_i64, -1] {
+            let args = Json::new(std::collections::BTreeMap::from([
+                ("key", "0x6c6f636b".to_owned()),
+                ("source", payer.clone()),
+                ("destination", beneficiary.clone()),
+                ("asset_definition", asset.canonical_address()),
+                ("amount", "5".to_owned()),
+                ("remaining", "13".to_owned()),
+                ("release_until_ms", release.to_string()),
+                ("cancel_not_before_ms", "737".to_owned()),
+                ("expires_at_ms", "739".to_owned()),
+            ]));
+            let canonical =
+                ivm_abi::arguments::encode_argument_record_from_json(schema, &args).unwrap();
+            let prepared = ivm::prepare_argument_record_with_gas_limit(
+                schema,
+                Arc::from(canonical),
+                50_000_000,
+            )
+            .unwrap();
+            let mut host = host();
+            host.set_entrypoint_argument_record(Some(prepared.clone()));
+            let mut vm = IVM::new(50_000_000);
+            vm.load_program(&program).unwrap();
+            vm.set_register(1, vm.memory.code_len());
+            vm.set_program_counter(metadata.prefix_len() as u64 + entrypoint.entry_pc)
+                .unwrap();
+            prepared.precharge_vm(&mut vm).unwrap();
+            let result = vm.run_with_host(&mut host);
+            if release < 0 {
+                assert!(result.is_err(), "negative deadline must not wrap into u64");
+                assert!(host.queued.is_empty());
+                continue;
+            }
+            result.expect("execute compiler marshalling through real native host");
+            assert_eq!(host.queued.len(), 4);
+            let open = host.queued[0]
+                .instruction()
+                .unwrap()
+                .as_any()
+                .downcast_ref::<OpenControlledAssetLockV1>()
+                .unwrap();
+            assert_eq!(open.source, *ALICE_ID);
+            assert_eq!(open.key, b"lock");
+            assert_eq!(open.lock.destination, *BOB_ID);
+            assert_eq!(open.lock.asset_definition, asset);
+            assert_eq!(open.lock.amount, 5_u32.into());
+            assert_eq!(open.control.release_until_ms.unwrap().get(), 271);
+            assert_eq!(open.control.cancel_not_before_ms.unwrap().get(), 737);
+            assert_eq!(open.lock.expires_at_ms, Some(739));
+            let id = controlled_asset_lock_id(&open.control.controller, b"lock");
+            assert_eq!(open.lock.escrow_id, id);
+            assert_eq!(
+                host.queued[1].instruction(),
+                Some(&InstructionBox::from(DrawdownControlledAssetLockV1 {
+                    drawdown: DrawdownAssetLock::new(id, 5_u32, 13_u32),
+                },))
+            );
+            assert_eq!(
+                host.queued[2].instruction(),
+                Some(&InstructionBox::from(CancelControlledAssetLockV1 {
+                    cancel: CancelAssetLock::new(id, 13_u32),
+                },))
+            );
+            assert_eq!(
+                host.queued[3].instruction(),
+                Some(&InstructionBox::from(ExpireControlledAssetLockV1 {
+                    expiry: ExpireAssetLock::new(id)
+                },))
+            );
+        }
     }
 }

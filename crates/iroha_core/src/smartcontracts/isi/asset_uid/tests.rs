@@ -58,19 +58,15 @@ fn fixture(first: u32, second: u32) -> (Fixture, State) {
         ),
     };
     let domain = Domain::new(DomainId::try_new("uid", "universal").unwrap()).build(&f.owner);
-    let mut definition = AssetDefinition::numeric(
-        f.definition.clone(),
-        "DS".into(),
-        AssetBalancePolicy::Global,
-        None,
-    )
-    .build(&f.owner);
+    let mut definition =
+        AssetDefinition::numeric(f.definition.clone(), "DS", AssetBalancePolicy::Global, None)
+            .build(&f.owner);
     definition.total_quantity = Quantity::from(1_000 + first + second);
     let assets = [(&f.owner, 1_000), (&f.first, first), (&f.second, second)]
         .into_iter()
         .filter(|(_, amount)| *amount > 0)
         .map(|(id, amount)| Asset::new(f.asset(id), Quantity::from(amount)));
-    let mut world = World::with_assets(
+    let world = World::with_assets(
         [domain],
         [&f.owner, &f.first, &f.second, &f.payee, &f.attestor]
             .into_iter()
@@ -382,8 +378,14 @@ fn uid_native_lock_cannot_create_an_alternative_holding_bucket() {
 }
 
 #[test]
-fn uid_snapshot_roundtrip_retains_membership_usage_and_old_asset_history() {
+fn uid_snapshot_roundtrip_retains_membership_usage_and_existing_balances() {
     let (f, state) = fixture(30, 20);
+    // Complete fixture asset registration before testing the production World
+    // decoder. This projection does not grant an authenticated ledger tip.
+    state
+        .block(header(1, 999))
+        .commit_world_overlay_for_testing()
+        .unwrap();
     let initial = crate::state::deserialize::decode_world_component_for_testing(&state.world)
         .expect("existing asset state without UID policies remains decodable");
     assert_eq!(
@@ -396,7 +398,7 @@ fn uid_snapshot_roundtrip_retains_membership_usage_and_old_asset_history() {
         &Quantity::from(30_u32)
     );
     {
-        let mut block = state.block(header(1, 1_000));
+        let mut block = state.block(header(2, 1_000));
         let mut tx = block.transaction_for_fastpq_testing(Hash::new("uid-before-restart"));
         f.configure(&mut tx, 1, 50, 10);
         f.transfer(&mut tx, &f.first, &f.payee, 10).unwrap();
@@ -410,7 +412,7 @@ fn uid_snapshot_roundtrip_retains_membership_usage_and_old_asset_history() {
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    let mut block = state.block(header(2, 2_000));
+    let mut block = state.block(header(3, 2_000));
     let mut tx = block.transaction_for_fastpq_testing(Hash::new("uid-after-restart"));
     f.transfer(&mut tx, &f.second, &f.payee, 1)
         .expect_err("restart preserves sibling usage");
@@ -497,7 +499,7 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
     use crate::executor::{ContractRuntimeExecutionContext, Executor};
     use iroha_data_model::{
         account::{AccountDetails, AccountValue},
-        escrow::control::AssetLockControlV1,
+        escrow::control::{AssetLockControlV1, controlled_asset_lock_id},
         isi::{
             InstructionBox,
             escrow::{CancelAssetLock, DrawdownAssetLock, ExpireAssetLock},
@@ -513,25 +515,29 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
     let address =
         ContractAddress::derive(&state.network_id, &f.owner, 901, DataSpaceId::UNIVERSAL).unwrap();
     let controller = address.subject_id();
+    let other_address =
+        ContractAddress::derive(&state.network_id, &f.owner, 902, DataSpaceId::UNIVERSAL).unwrap();
     {
         let mut world = state.world.block();
-        world.accounts.insert(
-            controller.clone(),
-            AccountValue::new(AccountDetails::default()),
-        );
         let code = Hash::new("uid-controlled-lock-contract");
-        world.contract_instances.insert(address.clone(), code);
-        world
-            .contract_subject_addresses
-            .insert(controller.clone(), address.clone());
-        world.contract_subject_bindings.insert(
-            address.clone(),
-            crate::smartcontracts::code::ContractSubjectBinding::new_direct(
-                &address,
-                f.owner.clone(),
-            )
-            .with_active_code_hash(code),
-        );
+        for instance in [&address, &other_address] {
+            world.accounts.insert(
+                instance.subject_id(),
+                AccountValue::new(AccountDetails::default()),
+            );
+            world.contract_instances.insert(instance.clone(), code);
+            world
+                .contract_subject_addresses
+                .insert(instance.subject_id(), instance.clone());
+            world.contract_subject_bindings.insert(
+                instance.clone(),
+                crate::smartcontracts::code::ContractSubjectBinding::new_direct(
+                    instance,
+                    f.owner.clone(),
+                )
+                .with_active_code_hash(code),
+            );
+        }
         world.commit();
     }
     let context = ContractRuntimeExecutionContext {
@@ -540,12 +546,14 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
         contract_alias: None,
         entrypoint: "lock".into(),
     };
-    let id = EscrowId::new(Hash::new("uid-controlled-native-lock"));
+    let key = b"uid-controlled-native-lock".to_vec();
+    let id = controlled_asset_lock_id(&address, &key);
     let mut lock = OpenAssetLock::new(id, f.definition.clone(), f.payee.clone(), 30_u32);
     lock.release_authority = Some(controller.clone());
     lock.expires_at_ms = Some(2_000);
     let open = OpenControlledAssetLockV1 {
         source: f.first.clone(),
+        key,
         lock,
         control: AssetLockControlV1 {
             controller: address,
@@ -564,9 +572,56 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
         )
     };
     {
-        let mut block = state.block(header(1, 1_000));
+        state
+            .block(header(1, 999))
+            .commit_world_overlay_for_testing()
+            .unwrap();
+        let mut block = state.block(header(2, 1_000));
         let mut tx = block.transaction_for_fastpq_testing(Hash::new("uid-controlled-open"));
         f.configure(&mut tx, 1, 50, 30);
+        open.lock
+            .clone()
+            .execute(&f.first, &mut tx)
+            .expect_err("generic lock cannot squat a controller's reserved id");
+        iroha_data_model::isi::escrow::OpenAssetEscrow::new(id, f.definition.clone(), 1_u32)
+            .execute(&f.first, &mut tx)
+            .expect_err("generic escrow cannot squat a controller's reserved id");
+        let mut conditional = f.escrow("controlled-id-squat", 1, 2_000);
+        conditional.escrow_id = id;
+        conditional
+            .execute(&f.first, &mut tx)
+            .expect_err("conditional and atomic opening admission reserve controlled ids");
+        let mut other = open.clone();
+        other.control.controller = other_address.clone();
+        other.lock.release_authority = Some(other_address.subject_id());
+        let other_context = ContractRuntimeExecutionContext {
+            contract_address: other_address.clone(),
+            contract_subject: other_address.subject_id(),
+            ..context.clone()
+        };
+        let error = Executor::Initial
+            .execute_instruction_with_contract_runtime_context(
+                &mut tx,
+                &other_address.subject_id(),
+                other.into(),
+                Some(&other_context),
+            )
+            .expect_err("another authenticated controller cannot squat this id");
+        assert!(
+            matches!(
+                &error,
+                iroha_data_model::executor::ValidationFail::InstructionFailed(
+                    iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(message)
+                ) if message.as_ref() == "controlled asset lock id differs from its exact controller and key"
+            ),
+            "{error:?}"
+        );
+        for key in [Vec::new(), vec![0; 4_097], b"changed-key".to_vec()] {
+            let mut invalid = open.clone();
+            invalid.key = key;
+            run(&mut tx, invalid.into(), Some(&context))
+                .expect_err("keys must be bounded and match the exact derived id");
+        }
         run(&mut tx, open.clone().into(), Some(&context)).expect_err("source debit grant required");
         assert_eq!(f.balance(&tx, &f.first), Quantity::from(40_u32));
         tx.world.account_permissions.insert(
@@ -629,7 +684,7 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
         tx.apply();
         block.commit_world_overlay_for_testing().unwrap();
     }
-    for (height, now, succeeds) in [(2, 2_000, false), (3, 2_500, true)] {
+    for (height, now, succeeds) in [(3, 2_000, false), (4, 2_500, true)] {
         let mut block = state.block(header(height, now));
         let mut tx = block
             .transaction_for_fastpq_testing(Hash::new(format!("uid-controlled-expire-{height}")));

@@ -492,10 +492,6 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_AXT_COMMIT, Axt),
     sc!(SYSCALL_VERIFY_DS_PROOF, Axt),
     sc!(SYSCALL_AXT_STAGE_ANCHORED_SPEND, Axt),
-    sc!(SYSCALL_ASSET_LOCK_OPEN, LedgerEffect),
-    sc!(SYSCALL_ASSET_LOCK_DRAWDOWN, LedgerEffect),
-    sc!(SYSCALL_ASSET_LOCK_CANCEL, LedgerEffect),
-    sc!(SYSCALL_ASSET_LOCK_EXPIRE, LedgerEffect),
     sc!(SYSCALL_ESCROW_OPEN_OFFER, LedgerEffect),
     sc!(SYSCALL_ESCROW_ACCEPT, LedgerEffect),
     sc!(SYSCALL_ESCROW_MARK_PAYMENT_SENT, LedgerEffect),
@@ -625,6 +621,10 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_ACCOUNT_RECOVERY_APPROVE, LedgerEffect),
     sc!(SYSCALL_ACCOUNT_RECOVERY_CANCEL, LedgerEffect),
     sc!(SYSCALL_ACCOUNT_RECOVERY_FINALIZE, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_OPEN, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_DRAWDOWN, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_CANCEL, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_EXPIRE, LedgerEffect),
 ];
 
 // The table is binary-searched and compared with the sorted ABI list.

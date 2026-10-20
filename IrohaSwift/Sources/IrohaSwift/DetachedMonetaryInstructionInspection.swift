@@ -34,7 +34,7 @@ public struct DetachedTransferBatchLegInspection: Decodable, Sendable, Equatable
         amount = try values.decode(String.self, forKey: .amount)
         guard !legId.isEmpty, !sourceAccountId.isEmpty, !destinationAccountId.isEmpty,
               !assetDefinitionId.isEmpty, !amount.isEmpty else {
-            throw NativeBridgeError.invalidDetachedTransactionOutput
+            throw invalidMonetaryInspection(decoder)
         }
     }
 }
@@ -44,15 +44,18 @@ public struct DetachedAssetTransferBatchInspection: Decodable, Sendable, Equatab
     public let mode: DetachedTransferBatchMode
     public let entries: [DetachedTransferBatchLegInspection]
 
-    private enum CodingKeys: String, CodingKey { case mode, entries }
+    private enum CodingKeys: String, CodingKey { case kind, mode, entries }
 
     public init(from decoder: Decoder) throws {
         try requireMonetaryFields(decoder, ["kind", "mode", "entries"])
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard try values.decode(String.self, forKey: .kind) == "asset_transfer_batch" else {
+            throw invalidMonetaryInspection(decoder)
+        }
         mode = try values.decode(DetachedTransferBatchMode.self, forKey: .mode)
         entries = try values.decode([DetachedTransferBatchLegInspection].self, forKey: .entries)
         guard !entries.isEmpty, Set(entries.map(\.legId)).count == entries.count else {
-            throw NativeBridgeError.invalidDetachedTransactionOutput
+            throw invalidMonetaryInspection(decoder)
         }
     }
 }
@@ -72,7 +75,7 @@ public enum DetachedEscrowValueInspection: Decodable, Sendable, Equatable {
         case "bool": self = .bool(try values.decode(Bool.self, forKey: .value))
         case "text": self = .text(try values.decode(String.self, forKey: .value))
         case "quantity": self = .quantity(try values.decode(String.self, forKey: .value))
-        default: throw NativeBridgeError.invalidDetachedTransactionOutput
+        default: throw invalidMonetaryInspection(decoder)
         }
     }
 }
@@ -92,7 +95,7 @@ public enum DetachedEscrowPredicateInspection: Decodable, Sendable, Equatable {
             self = .equals(try values.decode(DetachedEscrowValueInspection.self, forKey: .value))
         case "quantity_at_most":
             self = .quantityAtMost(try values.decode(String.self, forKey: .value))
-        default: throw NativeBridgeError.invalidDetachedTransactionOutput
+        default: throw invalidMonetaryInspection(decoder)
         }
     }
 }
@@ -110,14 +113,14 @@ public enum DetachedEscrowConditionInspection: Decodable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let id = try values.decode(String.self, forKey: .id)
-        guard !id.isEmpty else { throw NativeBridgeError.invalidDetachedTransactionOutput }
+        guard !id.isEmpty else { throw invalidMonetaryInspection(decoder) }
         switch try values.decode(String.self, forKey: .kind) {
         case "oracle":
             try requireMonetaryFields(decoder, ["kind", "id", "attestor", "sequence", "predicate"])
             let attestor = try values.decode(String.self, forKey: .attestor)
             let sequence = try values.decode(UInt32.self, forKey: .sequence)
             guard !attestor.isEmpty, sequence > 0 else {
-                throw NativeBridgeError.invalidDetachedTransactionOutput
+                throw invalidMonetaryInspection(decoder)
             }
             self = .oracle(
                 id: id, attestor: attestor, sequence: sequence,
@@ -126,10 +129,10 @@ public enum DetachedEscrowConditionInspection: Decodable, Sendable, Equatable {
         case "within":
             try requireMonetaryFields(decoder, ["kind", "id", "duration_ms"])
             let duration = try values.decode(UInt64.self, forKey: .durationMs)
-            guard duration > 0 else { throw NativeBridgeError.invalidDetachedTransactionOutput }
+            guard duration > 0 else { throw invalidMonetaryInspection(decoder) }
             self = .within(id: id, durationMs: duration)
         default:
-            throw NativeBridgeError.invalidDetachedTransactionOutput
+            throw invalidMonetaryInspection(decoder)
         }
     }
 }
@@ -145,6 +148,7 @@ public struct DetachedConditionalEscrowInspection: Decodable, Sendable, Equatabl
     public let evidenceHashes: [String]
 
     private enum CodingKeys: String, CodingKey {
+        case kind
         case escrowId = "escrow_id"
         case assetDefinitionId = "asset_definition_id"
         case beneficiary, amount, conditions
@@ -158,6 +162,9 @@ public struct DetachedConditionalEscrowInspection: Decodable, Sendable, Equatabl
             "conditions", "expires_at_ms", "evidence_hashes"
         ])
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard try values.decode(String.self, forKey: .kind) == "conditional_escrow_open" else {
+            throw invalidMonetaryInspection(decoder)
+        }
         escrowId = try values.decode(String.self, forKey: .escrowId)
         assetDefinitionId = try values.decode(String.self, forKey: .assetDefinitionId)
         beneficiary = try values.decode(String.self, forKey: .beneficiary)
@@ -167,7 +174,7 @@ public struct DetachedConditionalEscrowInspection: Decodable, Sendable, Equatabl
         evidenceHashes = try values.decode([String].self, forKey: .evidenceHashes)
         guard !escrowId.isEmpty, !assetDefinitionId.isEmpty, !beneficiary.isEmpty,
               !amount.isEmpty, !conditions.isEmpty, expiresAtMs > 0 else {
-            throw NativeBridgeError.invalidDetachedTransactionOutput
+            throw invalidMonetaryInspection(decoder)
         }
     }
 }
@@ -182,6 +189,10 @@ private struct MonetaryInspectionKey: CodingKey {
 private func requireMonetaryFields(_ decoder: Decoder, _ fields: Set<String>) throws {
     let values = try decoder.container(keyedBy: MonetaryInspectionKey.self)
     guard Set(values.allKeys.map(\.stringValue)) == fields else {
-        throw NativeBridgeError.invalidDetachedTransactionOutput
+        throw invalidMonetaryInspection(decoder)
     }
+}
+
+private func invalidMonetaryInspection(_ decoder: Decoder) -> DecodingError {
+    .dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unsupported or malformed native monetary inspection"))
 }

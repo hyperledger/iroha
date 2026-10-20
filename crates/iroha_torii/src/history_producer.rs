@@ -283,6 +283,20 @@ impl HistoryProducerOwner {
         Self::from_reservation(&reservation)
     }
 
+    /// Acquire one fresh fail-fast owner for a background worker's off-chain history read.
+    /// A worker has no request: a present request owner is refused, never borrowed, and the
+    /// worker's own owner is installed only inside its synchronous scopes. Each read takes a
+    /// separate reservation from the same query-fanout pool as HTTP readers, never State
+    /// execution memory; a busy pool refuses with `CapacityLimit` and the caller retries.
+    pub(crate) fn background_read(app: &crate::SharedAppState) -> Result<Self, Error> {
+        if Self::current_if_admitted()?.is_some() {
+            return Err(capacity());
+        }
+        let reservation =
+            crate::try_acquire_new_query_fanout_memory(app).map_err(|_| capacity())?;
+        Self::from_reservation(&reservation)
+    }
+
     /// Compact row and cursor backing may not borrow the decoded-graph corridor.
     pub(crate) fn retained_bytes(&self) -> usize {
         self.budget.envelope.accumulator_retained_bytes

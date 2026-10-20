@@ -13,10 +13,16 @@ use crate::{
 
 isi! {
     /// Fund a native lock from an explicitly authorized payer under immutable contract control.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow_control::OpenControlledAssetLockV1")]
     pub struct OpenControlledAssetLockV1 {
         /// Actual funding owner, retained as the native record's seller.
         pub source: AccountId,
+        /// Exact opaque application key, nonempty and at most 4,096 bytes.
+        ///
+        /// Native admission derives the reserved lock ID from the authenticated
+        /// controller and these bytes, preventing another contract from opening it.
+        pub key: Vec<u8>,
         /// Native lock identity, beneficiary, amount and expiry.
         ///
         /// The release authority must equal the controller's immutable subject.
@@ -28,6 +34,7 @@ isi! {
 
 isi! {
     /// Draw from a controlled native lock through its authenticated controller.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow_control::DrawdownControlledAssetLockV1")]
     pub struct DrawdownControlledAssetLockV1 {
         /// Native lock drawdown, including exact expected remainder.
@@ -37,6 +44,7 @@ isi! {
 
 isi! {
     /// Cancel a controlled native lock through its authenticated controller.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow_control::CancelControlledAssetLockV1")]
     pub struct CancelControlledAssetLockV1 {
         /// Native lock cancellation, including exact expected remainder.
@@ -46,6 +54,7 @@ isi! {
 
 isi! {
     /// Expire a controlled native lock through its authenticated controller.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::escrow_control::ExpireControlledAssetLockV1")]
     pub struct ExpireControlledAssetLockV1 {
         /// Native lock expiry; the retained record determines owner and remainder.
@@ -82,7 +91,7 @@ macro_rules! controlled_lock_instruction {
 
 controlled_lock_instruction!(
     OpenControlledAssetLockV1, "iroha.asset.lock.controlled.open.v1",
-    { source: AccountId, lock: OpenAssetLock, control: AssetLockControlV1 }
+    { source: AccountId, key: Vec<u8>, lock: OpenAssetLock, control: AssetLockControlV1 }
 );
 controlled_lock_instruction!(
     DrawdownControlledAssetLockV1, "iroha.asset.lock.controlled.drawdown.v1",
@@ -101,8 +110,8 @@ controlled_lock_instruction!(
 mod tests {
     use super::*;
     use crate::{
-        NetworkId, asset::AssetDefinitionId, block::BlockHeader, escrow::EscrowId,
-        smart_contract::ContractAddress,
+        NetworkId, asset::AssetDefinitionId, block::BlockHeader,
+        escrow::control::controlled_asset_lock_id, smart_contract::ContractAddress,
     };
     use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
     use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
@@ -120,9 +129,11 @@ mod tests {
             DomainId::try_new("escrow", "universal").expect("test domain"),
             "ds".parse().expect("test asset name"),
         );
-        let escrow_id = EscrowId::new(Hash::new(b"test-lock"));
+        let application_key = b"test-lock".to_vec();
+        let escrow_id = controlled_asset_lock_id(&controller, &application_key);
         let opening = OpenControlledAssetLockV1 {
             source: source.clone(),
+            key: application_key,
             lock: OpenAssetLock::with_options(
                 escrow_id,
                 asset,
@@ -142,6 +153,11 @@ mod tests {
         let bytes = norito::encode_canonical(&opening).expect("encode opening");
         let decoded: OpenControlledAssetLockV1 =
             norito::decode_canonical(&bytes).expect("decode opening");
+        assert_eq!(decoded, opening);
+        let json = norito::json::to_json(&opening).expect("encode JSON opening");
+        let decoded: OpenControlledAssetLockV1 =
+            norito::json::from_str(&json).expect("decode JSON opening");
+        assert_eq!(decoded.key, b"test-lock");
         assert_eq!(decoded, opening);
         let registry = crate::isi::registry::default();
         for (instruction, expected_id) in [

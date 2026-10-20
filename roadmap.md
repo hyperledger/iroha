@@ -7,6 +7,12 @@ the linked specifications. Routine repair receipts belong in PRs and CI.
 
 ## Current priorities
 
+Contract-controlled native locks require matching ABI inventories and compiler
+artifacts, native controller/bypass/CAS/deadline tests, and application custody
+qualification. Complete controlled drawdown with owner-consented waterfall
+distribution under native UID limits before migrating that business path;
+preserve the original payer's beneficial holdings and ordinary refund controls.
+
 1. Deliver the recoverable payment contract below, starting with included-but-rejected
    ISO settlement and withheld AMX decisions across committee changes. Reuse native
    settlement, receipt, finality and workflow owners; complete each running flow

@@ -559,6 +559,29 @@ execution and exact transfer. Native lane
 relay and fee-vault admissions use separate finalized/current-state anchors and
 do not derive authority from standalone `VERIFY_DS_PROOF` success.
 
+Contract-controlled asset locks
+
+`ledger::asset_lock::{open,drawdown,cancel,expire}` use dedicated syscalls
+`0x010220`–`0x010223`. They require an authenticated contract frame. The host
+derives the native lock ID from the exact controller address and an application
+key of 1–4096 bytes; the guest cannot supply a different controller. Opening
+retains the exact key in its typed instruction so native admission can verify
+the derivation independently. IDs reserve the `ICL1` prefix plus 224 digest bits;
+generic escrow creation must reject this range, and another controller cannot
+choose an ID derived for the original controller. The source
+account remains the native escrow seller and beneficial owner. The executor
+requires the controller's source-asset debit permission and prevents ordinary
+lock instructions from bypassing the controlled path.
+
+Opening takes a fixed public heap table containing key, source, beneficiary,
+asset definition, quantity, inclusive claim deadline, inclusive earliest
+cancellation time, and native expiry. Zero times mean absent. An application
+whose refunds require strictly later time passes `business_expiry + 1`, checked
+for overflow, as native expiry. Claim and cancellation windows are independent.
+Drawing and cancellation retain the native exact-remainder precondition.
+These additions change the IVM ABI hash; compiler, host and contract manifests
+must match. They do not change the privacy bridge ABI version.
+
 Native asset escrow
 - 0xB8 ESCROW_OPEN_OFFER — Args: `r10=&Name(escrow)`, `r11=&AssetDefinitionId`, `r12=&Quantity`, `r13=&NoritoBytes(Vec<Hash>)` or `0` → 0. Gas: G_escrow + bytes. Queues `OpenAssetEscrow`; the seller authority locks funds into the deterministic protocol custody account.
 - 0xB9 ESCROW_ACCEPT — Args: `r10=&Name(escrow)` → 0. Gas: G_escrow + bytes. Queues `AcceptAssetEscrow` for the buyer authority.
@@ -929,6 +952,10 @@ node enforces that policy unconditionally.
 | 0x10211 | ACCOUNT_RECOVERY_APPROVE | r10=&Blob(alias), r11=request_generation | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
 | 0x10212 | ACCOUNT_RECOVERY_CANCEL | r10=&Blob(alias), r11=request_generation | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
 | 0x10213 | ACCOUNT_RECOVERY_FINALIZE | r10=&Blob(alias), r11=request_generation | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
+| 0x10220 | ASSET_LOCK_OPEN | r10=owned public 8-word heap table [&Blob(key:1..4096 bytes), &AccountId(source), &AccountId(destination), &AssetDefinitionId, &Quantity, release_until_ms:u64, cancel_not_before_ms:u64, expires_at_ms:u64]; controller=authenticated frame | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
+| 0x10221 | ASSET_LOCK_DRAWDOWN | r10=&Blob(key:1..4096 bytes), r11=&Quantity(amount), r12=&Quantity(expected_remaining); controller=authenticated frame | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
+| 0x10222 | ASSET_LOCK_CANCEL | r10=&Blob(key:1..4096 bytes), r11=&Quantity(expected_remaining); controller=authenticated frame | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
+| 0x10223 | ASSET_LOCK_EXPIRE | r10=&Blob(key:1..4096 bytes); controller=authenticated frame | u64=0 | asset:gas/G_sci@ivm.core/v2 + bytes |
 <!-- END GENERATED SYSCALLS -->
 
 

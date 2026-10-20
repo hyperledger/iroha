@@ -26,6 +26,8 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
         )
         let inspection = try DetachedTransactionBridgeJSONCodec.decodeInspection(json)
         XCTAssertEqual(inspection.payloadSigningHash, Data(repeating: 0x11, count: 32))
+        XCTAssertEqual(inspection.payloadHash, Data(repeating: 0x33, count: 32))
+        XCTAssertEqual(inspection.feePayment, .authority(chargeLimits: [], gasLimit: nil))
         XCTAssertEqual(inspection.entrypointHash, Data(repeating: 0x22, count: 32))
         XCTAssertEqual(inspection.networkId, networkId)
         XCTAssertEqual(inspection.creationTimeMs, UInt64.max)
@@ -153,6 +155,67 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
             XCTAssertThrowsError(
                 try DetachedTransactionBridgeJSONCodec.decodeFinalization(Data(candidate.utf8))
             )
+        }
+    }
+
+    private func monetaryReview(_ executable: String) -> Data {
+        Data("""
+        {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)",
+        "payload_hash_hex":"\(hashC)","fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},
+        "authority":"owner","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,
+        "metadata":{},"entrypoint_hash_hex":"\(hashB)","executable":\(executable)}
+        """.utf8)
+    }
+
+    func testNativeBatchReviewRetainsModeOrderedIdentitiesAndRejectsHiddenFields() throws {
+        let legs = """
+        [{"leg_id":"israel","source_account_id":"owner","destination_account_id":"israel-wallet","asset_definition_id":"ds","amount":"20"},
+        {"leg_id":"roman","source_account_id":"owner","destination_account_id":"roman-wallet","asset_definition_id":"ds","amount":"60"}]
+        """
+        for mode in ["atomic", "independent"] {
+            let json = """
+            {"kind":"asset_transfer_batch","mode":"\(mode)","entries":\(legs)}
+            """
+            let result = try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(json))
+            guard case let .assetTransferBatch(batch) = result.executable else { return XCTFail("native batch") }
+            XCTAssertEqual(batch.mode.rawValue, mode)
+            XCTAssertEqual(batch.entries.map(\.legId), ["israel", "roman"])
+            XCTAssertEqual(batch.entries.map(\.amount), ["20", "60"])
+            for hostile in [
+                json.replacingOccurrences(of: "\"mode\":\"\(mode)\"", with: "\"mode\":\"best_effort\""),
+                json.replacingOccurrences(of: "\"leg_id\":\"roman\"", with: "\"leg_id\":\"israel\""),
+                json.replacingOccurrences(of: "\"amount\":\"60\"", with: "\"amount\":\"60\",\"hidden_transfer\":true"),
+                json.replacingOccurrences(of: "\"entries\":", with: "\"retired_transfers\":"),
+            ] {
+                XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)))
+            }
+        }
+    }
+
+    func testConditionalReviewPreservesIndependentAttestorsAndDistinctDeliveryAndConfirmationTerms() throws {
+        let json = """
+        {"kind":"conditional_escrow_open","escrow_id":"laptop","asset_definition_id":"ds","beneficiary":"intel",
+        "amount":"20","expires_at_ms":1700604800000,"evidence_hashes":["document-digest"],"conditions":[
+        {"kind":"oracle","id":"product","attestor":"product-asp","sequence":1,"predicate":{"kind":"equals","value":{"kind":"text","value":"i7"}}},
+        {"kind":"oracle","id":"delivery","attestor":"delivery-asp","sequence":2,"predicate":{"kind":"quantity_at_most","value":"3"}},
+        {"kind":"within","id":"confirmation","duration_ms":604800000}]}
+        """
+        let result = try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(json))
+        guard case let .conditionalEscrowOpen(escrow) = result.executable else { return XCTFail("conditional escrow") }
+        XCTAssertEqual(escrow.conditions, [
+            .oracle(id: "product", attestor: "product-asp", sequence: 1, predicate: .equals(.text("i7"))),
+            .oracle(id: "delivery", attestor: "delivery-asp", sequence: 2, predicate: .quantityAtMost("3")),
+            .within(id: "confirmation", durationMs: 604_800_000),
+        ])
+        XCTAssertEqual(escrow.expiresAtMs, 1_700_604_800_000)
+        XCTAssertEqual(escrow.evidenceHashes, ["document-digest"])
+        for hostile in [
+            json.replacingOccurrences(of: "\"quantity_at_most\"", with: "\"approve_any\""),
+            json.replacingOccurrences(of: "\"sequence\":2", with: "\"sequence\":0"),
+            json.replacingOccurrences(of: "\"duration_ms\":604800000", with: "\"duration_ms\":604800000,\"cancel_anytime\":true"),
+            json.replacingOccurrences(of: "\"value\":\"i7\"", with: "\"value\":true"),
+        ] {
+            XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)))
         }
     }
 

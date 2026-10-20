@@ -2628,6 +2628,13 @@ fn detached_transaction_executable_json(tx: &SignedTransaction) -> BridgeResult<
                 .ok_or(BridgeError::DetachedTransactionScaffold)?;
             detached_transaction_inspection::instruction_json(instruction)
         }
+        Executable::Instructions(instructions) if (2..=16).contains(&instructions.len()) => {
+            // An Instructions sequence is atomic. Do not mislabel it as TransferAssetBatch,
+            // whose independent mode has different partial-settlement semantics.
+            let transfers = instructions.iter().map(detached_asset_transfer_json)
+                .collect::<BridgeResult<Vec<_>>>()?;
+            Ok(::norito::json!({"kind": "transfer_instruction_sequence", "transfers": transfers}))
+        }
         Executable::Batch(entries) if entries.len() == 2 => {
             let transfers = entries
                 .iter()
@@ -4957,7 +4964,7 @@ mod detached_transaction_scaffold_tests {
         let entries = ["israel", "roman"].map(|leg_id| {
             TransferAssetBatchEntry::with_leg_id(
                 leg_id, transfer.source.account().clone(), transfer.destination.clone(),
-                transfer.source.definition().clone(), transfer.object,
+                transfer.source.definition().clone(), transfer.object.clone(),
             )
         });
         let mut previous = None;
@@ -5020,11 +5027,30 @@ mod detached_transaction_scaffold_tests {
         assert_eq!(conditions.len(), 3);
         assert_eq!(conditions[0].as_object().unwrap().get("attestor"), Some(&JsonValue::from(product.to_string())));
         assert_eq!(conditions[1].as_object().unwrap().get("attestor"), Some(&JsonValue::from(delivery.to_string())));
-        assert_eq!(conditions[1].as_object().unwrap().get("predicate"), Some(&norito::json::json!({"kind": "quantity_at_most", "value": "3"})));
+        assert_eq!(conditions[1].as_object().unwrap().get("predicate"), Some(&::norito::json!({"kind": "quantity_at_most", "value": "3"})));
         assert_eq!(conditions[2].as_object().unwrap().get("duration_ms"), Some(&JsonValue::from(seven_days)));
         assert_eq!(executable.get("expires_at_ms"), Some(&JsonValue::from(escrow.expires_at_ms)));
         assert_eq!(executable.get("evidence_hashes").unwrap().as_array().unwrap().len(), 1);
     }
+    #[test]
+    fn instruction_sequence_review_is_distinct_from_native_bulk() {
+        let key = fixture_keypair(0x46);
+        let principal = transfer_scaffold(&key, false);
+        let fee = transfer_scaffold(&key, true);
+        let Executable::Instructions(principal) = principal.instructions() else { panic!("fixture") };
+        let Executable::Instructions(fee) = fee.instructions() else { panic!("fixture") };
+        let tx = scaffold_transaction(&key, Executable::from(vec![principal[0].clone(), fee[0].clone()]), |_| {});
+        let value = inspect_value(&tx);
+        let executable = value.as_object().unwrap().get("executable").unwrap().as_object().unwrap();
+        assert_eq!(executable.get("kind").and_then(JsonValue::as_str), Some("transfer_instruction_sequence"));
+        let transfers = executable.get("transfers").unwrap().as_array().unwrap();
+        assert_eq!(transfers.len(), 2);
+        assert_ne!(transfers[0], transfers[1]);
+        // Resource bounds never permit a hidden trailing transfer.
+        let oversized = scaffold_transaction(&key, Executable::from(vec![principal[0].clone(); 17]), |_| {});
+        assert!(inspect_detached_transaction_scaffold(&oversized.encode_versioned()).is_err());
+    }
+
     #[test]
     fn atomic_transfer_batch_inspection_binds_two_exact_ordered_native_transfers() {
         use iroha_data_model::transaction::ExecutableBatchItem;
@@ -5276,12 +5302,12 @@ mod detached_transaction_scaffold_tests {
             unreachable!()
         };
         let instruction = instructions.iter().next().unwrap().clone();
-        let two = scaffold_transaction(
+        let oversized = scaffold_transaction(
             &keypair,
-            Executable::from([instruction.clone(), instruction]),
+            Executable::from(vec![instruction; 17]),
             |_| {},
         );
-        assert!(inspect_detached_transaction_scaffold(&two.encode_versioned()).is_err());
+        assert!(inspect_detached_transaction_scaffold(&oversized.encode_versioned()).is_err());
         let empty = scaffold_transaction(
             &keypair,
             Executable::from(Vec::<InstructionBox>::new()),

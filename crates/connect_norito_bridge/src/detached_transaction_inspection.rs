@@ -20,21 +20,21 @@ pub(super) fn instruction_json(instruction: &InstructionBox) -> BridgeResult<Jso
 
 fn batch_json(batch: &TransferAssetBatch) -> JsonValue {
     let entries = batch
-        .entries
+        .entries()
         .iter()
         .map(|leg| {
-            norito::json::json!({
-                "leg_id": (leg.leg_id),
-                "source_account_id": (leg.from.to_string()),
-                "destination_account_id": (leg.to.to_string()),
-                "asset_definition_id": (leg.asset_definition.to_string()),
-                "amount": (leg.amount.to_string()),
+            ::norito::json!({
+                "leg_id": (leg.leg_id()),
+                "source_account_id": (leg.from().to_string()),
+                "destination_account_id": (leg.to().to_string()),
+                "asset_definition_id": (leg.asset_definition().to_string()),
+                "amount": (leg.amount().to_string()),
             })
         })
         .collect::<Vec<_>>();
-    norito::json::json!({
+    ::norito::json!({
         "kind": "asset_transfer_batch",
-        "mode": (match batch.mode {
+        "mode": (match batch.mode() {
             BatchMode::Atomic => "atomic",
             BatchMode::Independent => "independent",
         }),
@@ -45,13 +45,13 @@ fn batch_json(batch: &TransferAssetBatch) -> JsonValue {
 fn value_json(value: &ConditionalEscrowValue) -> JsonValue {
     match value {
         ConditionalEscrowValue::Bool(value) => {
-            norito::json::json!({"kind": "bool", "value": value})
+            ::norito::json!({"kind": "bool", "value": (*value)})
         }
         ConditionalEscrowValue::Text(value) => {
-            norito::json::json!({"kind": "text", "value": value})
+            ::norito::json!({"kind": "text", "value": value})
         }
         ConditionalEscrowValue::Quantity(value) => {
-            norito::json::json!({"kind": "quantity", "value": (value.to_string())})
+            ::norito::json!({"kind": "quantity", "value": (value.to_string())})
         }
     }
 }
@@ -59,24 +59,24 @@ fn value_json(value: &ConditionalEscrowValue) -> JsonValue {
 fn predicate_json(predicate: &ConditionalEscrowPredicate) -> JsonValue {
     match predicate {
         ConditionalEscrowPredicate::Equals(value) => {
-            norito::json::json!({"kind": "equals", "value": (value_json(value))})
+            ::norito::json!({"kind": "equals", "value": (value_json(value))})
         }
         ConditionalEscrowPredicate::QuantityAtMost(value) => {
-            norito::json::json!({"kind": "quantity_at_most", "value": (value.to_string())})
+            ::norito::json!({"kind": "quantity_at_most", "value": (value.to_string())})
         }
     }
 }
 
 fn condition_json(condition: &ConditionalEscrowCondition) -> JsonValue {
     match condition {
-        ConditionalEscrowCondition::Oracle(condition) => norito::json::json!({
+        ConditionalEscrowCondition::Oracle(condition) => ::norito::json!({
             "kind": "oracle",
             "id": (condition.id.to_string()),
             "attestor": (condition.attestor.to_string()),
             "sequence": (condition.sequence.get()),
             "predicate": (predicate_json(&condition.predicate)),
         }),
-        ConditionalEscrowCondition::Within(condition) => norito::json::json!({
+        ConditionalEscrowCondition::Within(condition) => ::norito::json!({
             "kind": "within",
             "id": (condition.id.to_string()),
             "duration_ms": (condition.duration_ms.get()),
@@ -85,7 +85,7 @@ fn condition_json(condition: &ConditionalEscrowCondition) -> JsonValue {
 }
 
 fn escrow_json(escrow: &OpenConditionalEscrow) -> JsonValue {
-    norito::json::json!({
+    ::norito::json!({
         "kind": "conditional_escrow_open",
         "escrow_id": (escrow.escrow_id.as_hash().to_string()),
         "asset_definition_id": (escrow.asset_definition.to_string()),

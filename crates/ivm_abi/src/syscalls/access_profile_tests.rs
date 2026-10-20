@@ -51,6 +51,10 @@ fn generic_program_syscall_profile_is_sorted_complete_and_fail_closed() {
             SYSCALL_STATE_LEN,
             SYSCALL_STATE_COUNT,
             SYSCALL_STATE_SCAN,
+            SYSCALL_ASSET_LOCK_OPEN,
+            SYSCALL_ASSET_LOCK_DRAWDOWN,
+            SYSCALL_ASSET_LOCK_CANCEL,
+            SYSCALL_ASSET_LOCK_EXPIRE,
         ]
     );
     for &syscall in GENERIC_PROGRAM_DENIED_SYSCALLS_V1 {

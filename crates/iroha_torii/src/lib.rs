@@ -3386,10 +3386,37 @@ fn iso_bridge_transition_completed(
         "ISO bridge could not durably record canonical transaction {transition} for {transaction_hash}"
     )))
 }
+// ISO projection reads are background reads with no request (see
+// `background_history_refusal`). A busy history pool or a local read deferral leaves that
+// record untouched for the worker's retry. A read this node's budget can never serve leaves it
+// unresolved with an error log, never published, rejected or failed, so one oversized block
+// cannot stop Torii. Every other refusal keeps its original fail-closed exit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IsoBridgeReconciliation {
+    Complete,
+    Deferred,
+}
+// A deferred pass is retried after this delay unless a block or notification retries it first.
+#[cfg(not(test))]
+const ISO_BRIDGE_PROJECTION_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const ISO_BRIDGE_PROJECTION_RETRY_INTERVAL: Duration = Duration::from_millis(25);
+fn iso_bridge_projection_retry(
+    reconciliation: IsoBridgeReconciliation,
+) -> Option<tokio::time::Instant> {
+    match reconciliation {
+        IsoBridgeReconciliation::Complete => None,
+        IsoBridgeReconciliation::Deferred => {
+            iroha_logger::debug!("ISO bridge projection is waiting for history read capacity");
+            Some(tokio::time::Instant::now() + ISO_BRIDGE_PROJECTION_RETRY_INTERVAL)
+        }
+    }
+}
 fn reconcile_iso_bridge_transactions(
     runtime: &Iso20022BridgeRuntime,
-    state: &CoreState,
-) -> Result<(), Error> {
+    app: &SharedAppState,
+) -> Result<IsoBridgeReconciliation, Error> {
+    let mut reconciliation = IsoBridgeReconciliation::Complete;
     for request in runtime.native_payment_requests().map_err(|error| {
         pipeline_status_projection_error(format!("invalid retained ISO native intent: {error}"))
     })? {
@@ -3402,12 +3429,33 @@ fn reconcile_iso_bridge_transactions(
                         "ISO native intent retains invalid attempted hash",
                     )
                 })?;
-                canonical_transaction_outcome(state, &hash)
+                canonical_transaction_outcome_in_background(app, &hash)
             })
-            .transpose()?
-            .flatten();
-        let business = canonical_iso_business(state, &request)?;
-        publish_iso_native_outcomes(runtime, &request, attempted, business)?;
+            .transpose()
+            .map(Option::flatten);
+        // Publish only a complete observation: both reads finish in this same pass.
+        let observed = attempted.and_then(|attempted| {
+            canonical_iso_business_in_background(app, &request)
+                .map(|business| (attempted, business))
+        });
+        match observed {
+            Ok((attempted, business)) => {
+                publish_iso_native_outcomes(runtime, &request, attempted, business)?;
+            }
+            Err(error) => match background_history_refusal(&error) {
+                BackgroundHistoryRefusal::Transient => {
+                    reconciliation = IsoBridgeReconciliation::Deferred;
+                }
+                BackgroundHistoryRefusal::Budget => {
+                    iroha_logger::error!(
+                        ?error,
+                        message_id = %request.message_id,
+                        "ISO native payment needs a history read this node's budget cannot serve; it stays unresolved"
+                    );
+                }
+                BackgroundHistoryRefusal::Fatal => return Err(error),
+            },
+        }
     }
     runtime.resolve_unsubmitted_return_reports().map_err(|error| pipeline_status_projection_error(format!(
         "ISO bridge could not durably resolve locally unsubmitted original reports: {error:?}"
@@ -3423,8 +3471,24 @@ fn reconcile_iso_bridge_transactions(
                 "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
             ))
         })?;
-        let Some(outcome) = canonical_transaction_outcome(state, &hash)? else {
-            continue;
+        let outcome = match canonical_transaction_outcome_in_background(app, &hash) {
+            Ok(Some(outcome)) => outcome,
+            Ok(None) => continue,
+            Err(error) => match background_history_refusal(&error) {
+                BackgroundHistoryRefusal::Transient => {
+                    reconciliation = IsoBridgeReconciliation::Deferred;
+                    continue;
+                }
+                BackgroundHistoryRefusal::Budget => {
+                    iroha_logger::error!(
+                        ?error,
+                        %transaction_hash,
+                        "ISO bridge transaction needs a history read this node's budget cannot serve; it stays unresolved"
+                    );
+                    continue;
+                }
+                BackgroundHistoryRefusal::Fatal => return Err(error),
+            },
         };
         let applied = matches!(outcome, CanonicalTransactionOutcome::Applied { .. });
         match outcome {
@@ -3456,7 +3520,7 @@ fn reconcile_iso_bridge_transactions(
                 )))?;
         }
     }
-    Ok(())
+    Ok(reconciliation)
 }
 fn process_iso_bridge_transaction_event(
     runtime: &Iso20022BridgeRuntime,
@@ -3479,31 +3543,33 @@ fn process_iso_bridge_transaction_event(
         | TransactionStatus::Rejected(_) => Ok(()),
     }
 }
+// `None` means the event ran no reconciliation, so a pending retry stays scheduled.
 fn process_iso_bridge_pipeline_event(
     runtime: &Iso20022BridgeRuntime,
-    state: &CoreState,
+    app: &SharedAppState,
     event: &PipelineEventBox,
-) -> Result<(), Error> {
+) -> Result<Option<IsoBridgeReconciliation>, Error> {
     match event {
         PipelineEventBox::Transaction(event) => {
-            process_iso_bridge_transaction_event(runtime, event)
+            process_iso_bridge_transaction_event(runtime, event).map(|()| None)
         }
         PipelineEventBox::Block(event) if event.status == BlockStatus::Applied => {
-            reconcile_iso_bridge_transactions(runtime, state)
+            reconcile_iso_bridge_transactions(runtime, app).map(Some)
         }
-        _ => Ok(()),
+        _ => Ok(None),
     }
 }
 fn start_iso_bridge_projection_worker(
     runtime: Arc<Iso20022BridgeRuntime>,
-    state: Arc<CoreState>,
+    app: SharedAppState,
     events: &EventsSender,
     shutdown_signal: ShutdownSignal,
 ) -> Result<tokio::task::JoinHandle<ToriiCriticalWorkerExit>, Error> {
     // Subscribe before the startup snapshot so any concurrent commit is either
     // visible in State or retained for the worker to observe.
     let mut receiver = events.subscribe();
-    reconcile_iso_bridge_transactions(&runtime, &state)?;
+    // A deferred startup pass is retried by the worker; it is not a startup failure.
+    let mut retry = iso_bridge_projection_retry(reconcile_iso_bridge_transactions(&runtime, &app)?);
     Ok(tokio::spawn(async move {
         loop {
             let event_result = tokio::select! {
@@ -3511,9 +3577,27 @@ fn start_iso_bridge_projection_worker(
                     return ToriiCriticalWorkerExit::StoppedByShutdown;
                 }
                 () = runtime.projection_work_available() => {
-                    if let Err(error) = reconcile_iso_bridge_transactions(&runtime, &state) {
-                        iroha_logger::error!(?error, "ISO bridge notified projection failed closed");
-                        return ToriiCriticalWorkerExit::UnexpectedExit;
+                    match reconcile_iso_bridge_transactions(&runtime, &app) {
+                        Ok(reconciliation) => retry = iso_bridge_projection_retry(reconciliation),
+                        Err(error) => {
+                            iroha_logger::error!(?error, "ISO bridge notified projection failed closed");
+                            return ToriiCriticalWorkerExit::UnexpectedExit;
+                        }
+                    }
+                    continue;
+                }
+                () = async move {
+                    match retry {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match reconcile_iso_bridge_transactions(&runtime, &app) {
+                        Ok(reconciliation) => retry = iso_bridge_projection_retry(reconciliation),
+                        Err(error) => {
+                            iroha_logger::error!(?error, "ISO bridge deferred projection failed closed");
+                            return ToriiCriticalWorkerExit::UnexpectedExit;
+                        }
                     }
                     continue;
                 }
@@ -3521,25 +3605,34 @@ fn start_iso_bridge_projection_worker(
             };
             match event_result {
                 Ok(EventBox::Pipeline(event)) => {
-                    if let Err(error) = process_iso_bridge_pipeline_event(&runtime, &state, &event)
-                    {
-                        iroha_logger::error!(
-                            ?error,
-                            "ISO bridge canonical projection failed closed"
-                        );
-                        return ToriiCriticalWorkerExit::UnexpectedExit;
+                    match process_iso_bridge_pipeline_event(&runtime, &app, &event) {
+                        Ok(Some(reconciliation)) => {
+                            retry = iso_bridge_projection_retry(reconciliation);
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            iroha_logger::error!(
+                                ?error,
+                                "ISO bridge canonical projection failed closed"
+                            );
+                            return ToriiCriticalWorkerExit::UnexpectedExit;
+                        }
                     }
                 }
                 Ok(EventBox::PipelineBatch(events)) => {
                     for event in &events {
-                        if let Err(error) =
-                            process_iso_bridge_pipeline_event(&runtime, &state, event)
-                        {
-                            iroha_logger::error!(
-                                ?error,
-                                "ISO bridge canonical batch projection failed closed"
-                            );
-                            return ToriiCriticalWorkerExit::UnexpectedExit;
+                        match process_iso_bridge_pipeline_event(&runtime, &app, event) {
+                            Ok(Some(reconciliation)) => {
+                                retry = iso_bridge_projection_retry(reconciliation);
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                iroha_logger::error!(
+                                    ?error,
+                                    "ISO bridge canonical batch projection failed closed"
+                                );
+                                return ToriiCriticalWorkerExit::UnexpectedExit;
+                            }
                         }
                     }
                 }
@@ -3548,17 +3641,21 @@ fn start_iso_bridge_projection_worker(
                     // Canonical block outcomes are recoverable, so persist
                     // those before stopping. Queue expiry is not replayable;
                     // continuing would silently strand ISO records.
-                    if let Err(error) = reconcile_iso_bridge_transactions(&runtime, &state) {
-                        iroha_logger::error!(
-                            ?error,
-                            skipped,
-                            "ISO bridge lag reconciliation failed closed"
-                        );
-                    } else {
-                        iroha_logger::error!(
-                            skipped,
-                            "ISO bridge event subscription lagged; queue expiry may have been lost"
-                        );
+                    match reconcile_iso_bridge_transactions(&runtime, &app) {
+                        Err(error) => {
+                            iroha_logger::error!(
+                                ?error,
+                                skipped,
+                                "ISO bridge lag reconciliation failed closed"
+                            );
+                        }
+                        Ok(reconciliation) => {
+                            iroha_logger::error!(
+                                skipped,
+                                ?reconciliation,
+                                "ISO bridge event subscription lagged; queue expiry may have been lost"
+                            );
+                        }
                     }
                     return ToriiCriticalWorkerExit::UnexpectedExit;
                 }
@@ -41604,7 +41701,7 @@ ingress,
         if !emergency_fast && let Some(runtime) = self.iso_bridge.clone() {
             let task = match start_iso_bridge_projection_worker(
                 runtime,
-                self.state.clone(),
+                app_state.clone(),
                 &self.events,
                 shutdown_signal.clone(),
             )

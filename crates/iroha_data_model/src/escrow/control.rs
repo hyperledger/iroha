@@ -12,19 +12,44 @@ use norito::codec::{Decode, Encode};
 
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, smart_contract::ContractAddress};
 
+/// Reserved native namespace for contract-controlled locks.
+///
+/// Generic escrow creators must reject this prefix. Controlled creation must
+/// additionally verify the exact controller/key derivation, since a prefix alone
+/// does not distinguish two authenticated contracts.
+pub const CONTROLLED_ASSET_LOCK_ID_PREFIX_V1: [u8; 4] = *b"ICL1";
+
+/// Maximum opaque application-key length admitted by the native lock controller.
+pub const MAX_CONTROLLED_ASSET_LOCK_KEY_BYTES_V1: usize = 4096;
+
 /// Derive a contract-scoped lock identity from an opaque application key.
 ///
 /// Canonical contract literals are length-prefixed; key bytes occupy the remaining
 /// suffix. Equal keys in different contract instances cannot address the same lock.
+/// Four reserved namespace bytes retain 224 bits of the domain-separated digest.
+/// Admission separately requires a nonempty key within the native length bound.
 #[must_use]
 pub fn controlled_asset_lock_id(controller: &ContractAddress, key: &[u8]) -> super::EscrowId {
     let address: &str = controller.as_ref();
-    super::EscrowId::new(iroha_crypto::Hash::new_from_chunks(&[
+    let hash = iroha_crypto::Hash::new_from_chunks(&[
         b"iroha:controlled-asset-lock:v1\0",
         &(address.len() as u64).to_be_bytes(),
         address.as_bytes(),
         key,
-    ]))
+    ]);
+    let mut digest = [0_u8; 32];
+    digest.copy_from_slice(hash.as_ref());
+    digest[..CONTROLLED_ASSET_LOCK_ID_PREFIX_V1.len()]
+        .copy_from_slice(&CONTROLLED_ASSET_LOCK_ID_PREFIX_V1);
+    super::EscrowId::new(iroha_crypto::Hash::prehashed(digest))
+}
+
+/// Whether a generic escrow creator must reject the identifier.
+#[must_use]
+pub fn is_reserved_controlled_asset_lock_id_v1(id: &super::EscrowId) -> bool {
+    id.as_hash()
+        .as_ref()
+        .starts_with(&CONTROLLED_ASSET_LOCK_ID_PREFIX_V1)
 }
 
 /// Immutable policy attached to a native lock controlled by one contract.
@@ -154,6 +179,10 @@ mod tests {
         )
         .unwrap();
         let id = controlled_asset_lock_id(&first, b"ns:1/lock");
+        assert!(is_reserved_controlled_asset_lock_id_v1(&id));
+        assert!(!is_reserved_controlled_asset_lock_id_v1(
+            &super::super::EscrowId::new(Hash::new(b"ordinary-lock"))
+        ));
         assert_eq!(id, controlled_asset_lock_id(&first, b"ns:1/lock"));
         assert_ne!(id, controlled_asset_lock_id(&first, b"ns:2/lock"));
         assert_ne!(id, controlled_asset_lock_id(&second, b"ns:1/lock"));

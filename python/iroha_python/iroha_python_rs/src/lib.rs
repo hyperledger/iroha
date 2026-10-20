@@ -7486,10 +7486,12 @@ mod tests {
             let dict = PyDict::new(py);
             dict.set_item("haircut_bps", "250").unwrap();
             dict.set_item("margin_frequency_secs", 60_u64).unwrap();
+            dict.set_item("allow_early_repayment", false).unwrap();
             let governance =
                 parse_repo_governance(dict.as_any()).expect("repo governance should parse");
             assert_eq!(governance.haircut_bps(), 250);
             assert_eq!(governance.margin_frequency_secs(), 60);
+            assert!(!governance.allow_early_repayment());
         });
     }
     #[test]
