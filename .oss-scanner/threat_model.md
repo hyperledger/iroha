@@ -33,7 +33,7 @@ Treat the following as attacker-controlled, roughly from the weakest attacker to
   - contract view and simulate routes, which run IVM outside consensus
 - **Any account holder.** An account holder signs transactions with arbitrary instructions, metadata, IVM bytecode to
   deploy or invoke, triggers, ZK proofs and attachments. Accounts are cheap to create on a local network.
-- **Any network peer before authentication.** It controls TLS 1.3 and QUIC handshakes, handshake frames of up to
+- **Any network peer before authentication.** It controls TLS 1.3 over TCP handshakes, handshake frames of up to
   `u16::MAX` bytes and proof-of-work admission. After authentication it can send every `NetworkMessage`
   (`crates/iroha_core/src/lib.rs`): transaction and peer gossip, time samples, Torii proxy traffic, streaming
   control and Sumeragi frames.
@@ -120,6 +120,8 @@ In priority order:
      - `network.rs`.
      - `peer.rs`: the handshake, frame caps and decode limits.
      - `preauth.rs` and `puzzle_work_admission.rs`: per-source admission.
+   - Shipping QUIC constructors currently reject before creating an endpoint, pending transport requalification.
+     The feature-gated QUIC implementation is available for review but is not a reachable shipping transport.
    - Handshake cryptography: `crates/iroha_crypto/src/soranet/`.
    - ML-KEM and ML-DSA run as C code through `crates/soranet_pq/`.
 7. **Cryptography and proof verification.**
@@ -179,10 +181,14 @@ Out of scope:
 **The image.**
 - `/src` is a checkout of `optimizations`, `.git` included, built with the toolchain from `rust-toolchain.toml`
   (rustfmt and clippy installed).
-- `CARGO_NET_OFFLINE=true`, `CARGO_INCREMENTAL=0` and the mold linker setting in `/usr/local/cargo/config.toml` match
-  the prebuilt artifacts. Changing any of them, `RUSTFLAGS` or a profile recompiles everything.
-- `/opt/oss-scanner/build.log` says which prebuild steps finished. The image build stops compiling at a deadline, so a
-  step marked unfinished needs its command run again. That is slow here.
+- `CARGO_NET_OFFLINE=true` prevents registry access. `CARGO_INCREMENTAL=0` and the mold linker setting in
+  `/usr/local/cargo/config.toml` match the prebuilt artifacts; changing compilation settings such as these,
+  `RUSTFLAGS` or a profile can invalidate those artifacts.
+- `/opt/oss-scanner/build.log` says which prebuild steps finished. The shared compilation budget starts after
+  dependency fetch and is reset whenever the compilation layer runs, including after cached setup layers. Package
+  and toolchain installation and dependency fetch are outside that budget and still count toward the scanner's
+  overall build limit. A step marked unfinished needs its command run again. That is slow here. Compile errors or
+  abnormal exits, including SIGKILL, fail the image build; they are not reported as budget exhaustion.
 
 **Prebuilt, in this order:**
 1. The release binaries in `target/debug/`: `iroha3d`, `iroha3d_taira`, `sorafs_governance_dag`,
@@ -191,18 +197,20 @@ Out of scope:
 3. The test binaries of `cargo test -p norito`, `cargo test -p iroha_sumeragi --features sim`,
    `cargo test -p iroha_crypto`, `cargo test -p ivm` and `cargo test -p iroha_p2p`.
 
-All of it uses the dev profile, so debug assertions and overflow checks are on.
+The binaries use the dev profile and the tests use the test profile. Both enable debug assertions and overflow
+checks.
 
 **Building on this machine (2 CPUs, 8 GB).**
 - Rebuilding `iroha_core` (about 1.5M lines) or anything above it takes hours here, so run the prebuilt binaries
   directly.
-- Cargo resolves features per invocation, so only the exact command shapes above are prebuilt. Another `-p` or
-  `--features` combination is a new build.
+- Cargo resolves features per invocation. The command shapes above are the prebuild targets; another `-p` or
+  `--features` combination may require additional compilation.
 - `crates/iroha_plonk/build.rs` makes Cargo rebuild it, and everything above it, on every invocation. The image
   works around this.
   - After you build a new configuration that includes `iroha_plonk` (anything that depends on `iroha_data_model` or
     `ivm`), run `pin-iroha-plonk` once.
-  - This is a build-speed problem, not a finding.
+  - The workaround suppresses discovery of newly added source files until another watched input changes or the
+    sentinel is removed. It does not establish source-identity freshness after such changes.
 
 **Reproducers as tests.**
 - The main crates set `autotests = false` and group their integration tests.
@@ -210,7 +218,8 @@ All of it uses the dev profile, so debug assertions and overflow checks are on.
   1. Write `crates/<crate>/tests/<name>.rs`.
   2. Add `#[path = "../<name>.rs"] mod <name>;` to one of the crate's `tests/grouped/group_NN.rs` files.
   3. Run `cargo test -p <crate> --test <crate>_group_NN <name>`. Test target names are in the crate's `Cargo.toml`.
-- This compiles only the test, while a unit test in `src/` recompiles the crate.
+- A grouped test avoids changing the crate's `src/`, but the native source-identity build script also watches test
+  inputs. Editing them can still rebuild `iroha_plonk` and dependent crates.
 
 ```sh
 cd /src
