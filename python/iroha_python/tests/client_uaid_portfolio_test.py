@@ -64,7 +64,7 @@ def test_get_uaid_portfolio_emits_only_exact_optional_asset_id(
 ) -> None:
     payload = {"uaid": "uaid:" + "ab" * 32, "totals": {}, "dataspaces": []}
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     result = client.get_uaid_portfolio(payload["uaid"], asset_id=asset_id)
 
@@ -83,7 +83,7 @@ def test_get_uaid_portfolio_rejects_nonexact_asset_id_before_dispatch(
 ) -> None:
     payload = {"uaid": "uaid:" + "ab" * 32, "totals": {}, "dataspaces": []}
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError):
         client.get_uaid_portfolio(payload["uaid"], asset_id=asset_id)
@@ -105,7 +105,7 @@ def test_get_uaid_portfolio_rejects_noncanonical_literals_before_dispatch(
     literal: str,
 ) -> None:
     session = RecordingSession(StubResponse(200, {}))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="exact canonical uaid"):
         client.get_uaid_portfolio(literal)
@@ -117,7 +117,7 @@ def test_typed_uaid_portfolio_rejects_noncanonical_response_literal() -> None:
     canonical = "uaid:" + "ab" * 32
     payload = {"uaid": canonical.upper(), "totals": {}, "dataspaces": []}
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="exact canonical uaid"):
         client.get_uaid_portfolio_typed(canonical)
@@ -139,7 +139,7 @@ def test_typed_uaid_portfolio_requires_exact_response_fields() -> None:
         ],
     }
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     snapshot = client.get_uaid_portfolio_typed(canonical)
 
@@ -151,6 +151,7 @@ def test_typed_uaid_portfolio_requires_exact_response_fields() -> None:
         "http://torii.example",
         session=RecordingSession(StubResponse(200, payload)),
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(ValueError, match="unknown field"):
         client.get_uaid_portfolio_typed(canonical)
@@ -169,7 +170,7 @@ def test_typed_uaid_bindings_requires_accounts_and_rejects_padding() -> None:
         ],
     }
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.get_uaid_bindings_typed(canonical).dataspaces[0].accounts == [
         ACCOUNT_ID
@@ -180,6 +181,7 @@ def test_typed_uaid_bindings_requires_accounts_and_rejects_padding() -> None:
         "http://torii.example",
         session=RecordingSession(StubResponse(200, payload)),
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(ValueError, match="surrounding whitespace"):
         client.get_uaid_bindings_typed(canonical)
@@ -188,7 +190,7 @@ def test_typed_uaid_bindings_requires_accounts_and_rejects_padding() -> None:
 def test_space_directory_manifest_query_and_response_are_exact_v1() -> None:
     payload = _manifest_list_payload()
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     result = client.uaid_manifests("uaid:" + "cd" * 32).list(
         filter=(F.dataspace_id == 7) & (F.status == "Active"),
@@ -232,7 +234,7 @@ def test_space_directory_manifest_query_rejects_noncanonical_options(
 ) -> None:
     payload = _manifest_list_payload()
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError), match=message):
         client.uaid_manifests("uaid:" + "cd" * 32).list(**kwargs)
@@ -269,7 +271,7 @@ def test_space_directory_manifest_typed_response_rejects_legacy_shapes(
     payload = copy.deepcopy(_manifest_list_payload())
     mutation(payload)
     session = RecordingSession(StubResponse(200, payload))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.uaid_manifests("uaid:" + "cd" * 32).list()
@@ -277,6 +279,6 @@ def test_space_directory_manifest_typed_response_rejects_legacy_shapes(
 
 def test_manifest_collection_binds_records_to_requested_uaid() -> None:
     payload = _manifest_list_payload()
-    client = ToriiClient("http://torii.example", session=RecordingSession(StubResponse(200, payload)), max_retries=0)
+    client = ToriiClient("http://torii.example", session=RecordingSession(StubResponse(200, payload)), max_retries=0, chain_discriminant=753)
     with pytest.raises(ValueError, match="requested UAID"):
         client.uaid_manifests("uaid:" + "ab" * 32).list()

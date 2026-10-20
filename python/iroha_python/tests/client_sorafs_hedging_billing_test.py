@@ -192,7 +192,7 @@ def test_hedging_billing_routes_sign_exact_requests_once_and_bound_responses() -
         ]
     )
     auth = canonical_auth(signer)
-    client = ToriiClient(BASE_URL, session=session, max_retries=9)
+    client = ToriiClient(BASE_URL, session=session, max_retries=9, chain_discriminant=753)
 
     assert client.get_sorafs_billing_status(canonical_auth=auth) == {"route": "status"}
     assert client.list_sorafs_billing_statements(
@@ -303,7 +303,7 @@ def test_hedging_billing_routes_sign_exact_requests_once_and_bound_responses() -
 
 def test_hedging_billing_inputs_are_rejected_before_transport() -> None:
     session = SequencedSession([])
-    client = ToriiClient(BASE_URL, session=session, max_retries=0)
+    client = ToriiClient(BASE_URL, session=session, max_retries=0, chain_discriminant=753)
     auth = canonical_auth()
 
     for invalid in (
@@ -353,13 +353,13 @@ def test_hedging_billing_rejects_oversized_and_transformed_responses() -> None:
         ]
     )
     with pytest.raises(ValueError, match="byte limit"):
-        ToriiClient(BASE_URL, session=oversized).get_sorafs_billing_status(
+        ToriiClient(BASE_URL, session=oversized, chain_discriminant=753).get_sorafs_billing_status(
             canonical_auth=canonical_auth()
         )
 
     transformed = SequencedSession([json_response({}, content_encoding="gzip")])
     with pytest.raises(ValueError, match="Content-Encoding must be identity"):
-        ToriiClient(BASE_URL, session=transformed).get_sorafs_billing_status(
+        ToriiClient(BASE_URL, session=transformed, chain_discriminant=753).get_sorafs_billing_status(
             canonical_auth=canonical_auth()
         )
 
@@ -372,7 +372,7 @@ def test_hedging_billing_rejects_oversized_and_transformed_responses() -> None:
         ]
     )
     with pytest.raises(ValueError, match="exactly application/x-norito"):
-        ToriiClient(BASE_URL, session=ambiguous).get_sorafs_billing_statement(
+        ToriiClient(BASE_URL, session=ambiguous, chain_discriminant=753).get_sorafs_billing_statement(
             STATEMENT_ID,
             CHECKPOINT,
             canonical_auth=canonical_auth(),
@@ -391,6 +391,7 @@ def test_hedging_billing_rejects_oversized_and_transformed_responses() -> None:
         ToriiClient(
             BASE_URL,
             session=too_large_statement,
+            chain_discriminant=753,
         ).get_sorafs_billing_statement(
             STATEMENT_ID,
             CHECKPOINT,
@@ -402,7 +403,7 @@ def test_hedging_billing_rejects_adapter_retries_before_signing() -> None:
     signed_messages: list[bytes] = []
     session = SequencedSession([json_response({"route": "status"})])
     session.mount("https://", HTTPAdapter(max_retries=1))
-    client = ToriiClient(BASE_URL, session=session, max_retries=0)
+    client = ToriiClient(BASE_URL, session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="transport retries to be disabled"):
         client.get_sorafs_billing_status(canonical_auth=canonical_auth(signed_messages.append))

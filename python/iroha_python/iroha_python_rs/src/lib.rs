@@ -5,6 +5,7 @@ mod acceleration_bn254;
 mod acceleration_poseidon;
 use acceleration_bn254::{bn254_add_many, bn254_mul_many, bn254_sub_many};
 mod committed_transaction_verification;
+mod public_finality_checkpoint;
 mod confidential_wallet;
 mod connect_key_bindings;
 #[cfg(test)]
@@ -40,7 +41,7 @@ use iroha_crypto::{
 };
 use iroha_data_model::{
     NetworkId,
-    account::{Account, address::AccountAddress},
+    account::{Account, address::{AccountAddress, ChainDiscriminantGuard}},
     alias_setup::{
         AccountAliasName, AccountAliasRoleV1, AccountProvisionV1, AliasFramedInstructionV1,
         AliasIntentV1, AliasLeaseAcquisitionV1, AliasPlanAnchorV1, AliasPlanDispositionV1,
@@ -454,6 +455,25 @@ fn require_non_blank_unpadded(value: &str, field: &str) -> PyResult<()> {
         )));
     }
     Ok(())
+}
+/// A selected presentation context is an exact Python integer, never bool or inferred text.
+fn exact_chain_discriminant(value: &Bound<'_, PyAny>) -> PyResult<u16> {
+    if !value.is_exact_instance_of::<pyo3::types::PyInt>() {
+        return Err(PyTypeError::new_err("chain_discriminant must be an exact integer"));
+    }
+    value.extract::<u16>().map_err(|_| {
+        PyValueError::new_err("chain_discriminant must be in 0..=65535")
+    })
+}
+fn parse_selected_account_id(value: &str, field: &str, discriminant: u16) -> PyResult<AccountId> {
+    let account = parse_exact_i105_account_id(value, field)?;
+    let selected = account.to_i105_for_discriminant(discriminant).map_err(|error| {
+        PyValueError::new_err(format!("failed to render {field}: {error}"))
+    })?;
+    if selected != value {
+        return Err(PyValueError::new_err(format!("{field} must use the selected chain_discriminant")));
+    }
+    Ok(account)
 }
 fn parse_account_id(value: &str) -> PyResult<AccountId> {
     parse_exact_i105_account_id(value, "account_id")
@@ -5301,6 +5321,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("ordinary transaction builder");
         let inspected = privacy_capability_manifest::PyPrivacyExact12CapabilityManifestV1::test_binding_for_protocol(
@@ -5387,6 +5408,7 @@ mod tests {
                 "not-an-account",
                 "merchant@universal",
                 "[]",
+                753,
             )
             .is_err()
         );
@@ -5560,6 +5582,7 @@ mod tests {
         .expect("test envelope JSON")
     }
     include!("tests/python_crypto_boundary_tests.rs");
+    include!("tests/python_transaction_account_context_tests.rs");
     #[test]
     fn native_sdk_bridge_abi_version_is_exactly_twenty_two() {
         assert_eq!(connect_norito_bridge_abi_version_py(), 31);
@@ -5578,6 +5601,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs");
         let envelope = builder.sign(signing.as_bytes()).expect("transaction signs");
@@ -5592,6 +5616,7 @@ mod tests {
             signed_transaction_envelope_from_versioned_v1_py(
                 &envelope.signed_transaction_versioned,
                 &wrong_network,
+                753,
             )
             .is_err(),
             "a valid signature from another NetworkId must reject",
@@ -5611,7 +5636,7 @@ mod tests {
                 canonical_network_id_literal(&envelope.network_id)
             );
             let envelope_type = py.get_type::<SignedTransactionEnvelope>();
-            let restored = SignedTransactionEnvelope::from_json(&envelope_type, &envelope_json)
+            let restored = SignedTransactionEnvelope::from_json(&envelope_type, &envelope_json, 753)
                 .expect("exact envelope JSON roundtrip");
             assert_eq!(restored.network_id, envelope.network_id);
             let short_signature_json = envelope_json_with_crypto_fields(
@@ -5620,7 +5645,7 @@ mod tests {
                 envelope.public_key.clone(),
             );
             let Err(error) =
-                SignedTransactionEnvelope::from_json(&envelope_type, &short_signature_json)
+                SignedTransactionEnvelope::from_json(&envelope_type, &short_signature_json, 753)
             else {
                 panic!("63-byte Ed25519 envelope signature must reject");
             };
@@ -5642,14 +5667,14 @@ mod tests {
                 let retired =
                     envelope_json.replacen("\"network_id\"", &format!("\"{retired_key}\""), 1);
                 assert!(
-                    SignedTransactionEnvelope::from_json(&envelope_type, &retired).is_err(),
+                    SignedTransactionEnvelope::from_json(&envelope_type, &retired, 753).is_err(),
                     "retired {retired_key} envelope metadata must reject",
                 );
             }
             let unsupported =
                 envelope_json.replacen("\"authority\"", "\"unsupported\":true,\"authority\"", 1);
             assert!(
-                SignedTransactionEnvelope::from_json(&envelope_type, &unsupported).is_err(),
+                SignedTransactionEnvelope::from_json(&envelope_type, &unsupported, 753).is_err(),
                 "unknown envelope metadata must reject",
             );
         });
@@ -5680,7 +5705,7 @@ mod tests {
             ModelTransactionBuilder::new(python_test_network_id().inner, authority, fee_payment)
                 .try_sign(keypair.private_key())
                 .expect("ML-DSA-65 transaction signs");
-        let envelope = signed_transaction_envelope_from_model_v1(&signed)
+        let envelope = signed_transaction_envelope_from_model_v1(&signed, 753)
             .expect("authenticated ML-DSA-65 envelope");
         assert_eq!(
             envelope.signature.len(),
@@ -5690,7 +5715,7 @@ mod tests {
         let envelope_json = envelope.to_json().expect("ML-DSA-65 envelope JSON");
         Python::attach(|py| {
             let envelope_type = py.get_type::<SignedTransactionEnvelope>();
-            let restored = SignedTransactionEnvelope::from_json(&envelope_type, &envelope_json)
+            let restored = SignedTransactionEnvelope::from_json(&envelope_type, &envelope_json, 753)
                 .expect("ML-DSA-65 envelope JSON roundtrip");
             assert_eq!(restored.signature, envelope.signature);
             assert_eq!(restored.public_key, envelope.public_key);
@@ -5723,7 +5748,7 @@ mod tests {
             ];
             for (label, signature, public_key, expected) in cases {
                 let malformed = envelope_json_with_crypto_fields(&envelope, signature, public_key);
-                let Err(error) = SignedTransactionEnvelope::from_json(&envelope_type, &malformed)
+                let Err(error) = SignedTransactionEnvelope::from_json(&envelope_type, &malformed, 753)
                 else {
                     panic!("{label} must reject");
                 };
@@ -5762,6 +5787,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs");
         let attachment = |byte| {
@@ -5836,6 +5862,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs");
         let attachment = |proof_bytes| {
@@ -5925,6 +5952,7 @@ mod tests {
                 &python_test_network_id(),
                 &padded_authority,
                 authority_fee_payment_json(),
+                753,
             ) {
                 Ok(_) => panic!("padded authority must reject before account parsing"),
                 Err(err) => err,
@@ -8141,7 +8169,7 @@ mod tests {
             .canonical_i105()
             .expect("canonical I105 authority");
         let intent = r#"{"payer":"authority","value":{"charge_limits":[],"gas_limit":100}}"#;
-        let mut builder = TransactionBuilder::new(&python_test_network_id(), &authority, intent)
+        let mut builder = TransactionBuilder::new(&python_test_network_id(), &authority, intent, 753)
             .expect("builder constructs");
         builder.set_creation_time_ms(42).expect("creation time");
         let draft = builder.payload_json().expect("payload JSON");
@@ -8150,7 +8178,7 @@ mod tests {
             .expect("exact quote signs");
         assert_eq!(envelope.authority, authority);
         let mut substituted =
-            TransactionBuilder::new(&python_test_network_id(), &authority, intent)
+            TransactionBuilder::new(&python_test_network_id(), &authority, intent, 753)
                 .expect("builder constructs");
         substituted.set_creation_time_ms(42).expect("creation time");
         let draft = substituted.payload_json().expect("payload JSON");
@@ -8177,6 +8205,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs");
         let error = builder
@@ -8205,6 +8234,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             r#"{"payer":"authority","value":{"charge_limits":[],"gas_limit":1000}}"#,
+            753,
         )
         .expect("builder constructs");
         let first = batch_test_instruction("before");
@@ -8257,6 +8287,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("instruction builder constructs");
         instruction_builder
@@ -8288,6 +8319,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("batch builder constructs");
         explicit.use_executable_batch().expect("select batch");
@@ -8324,6 +8356,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs");
         empty.use_executable_batch().expect("select batch");
@@ -8338,6 +8371,7 @@ mod tests {
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs");
         without_gas
@@ -8352,7 +8386,7 @@ mod tests {
         );
         let gas_intent = r#"{"payer":"authority","value":{"charge_limits":[],"gas_limit":1000}}"#;
         let mut invalid =
-            TransactionBuilder::new(&python_test_network_id(), &authority, gas_intent)
+            TransactionBuilder::new(&python_test_network_id(), &authority, gas_intent, 753)
                 .expect("builder");
         assert!(
             invalid
@@ -8380,14 +8414,14 @@ mod tests {
                 )
                 .is_err()
         );
-        let mut ivm = TransactionBuilder::new(&python_test_network_id(), &authority, gas_intent)
+        let mut ivm = TransactionBuilder::new(&python_test_network_id(), &authority, gas_intent, 753)
             .expect("builder");
         ivm.set_bytecode_hex("00").expect("bytecode");
         assert!(
             ivm.add_instruction(&batch_test_instruction("mixed"))
                 .is_err()
         );
-        let mut items = TransactionBuilder::new(&python_test_network_id(), &authority, gas_intent)
+        let mut items = TransactionBuilder::new(&python_test_network_id(), &authority, gas_intent, 753)
             .expect("builder");
         items
             .add_instruction(&batch_test_instruction("mixed"))
@@ -9276,10 +9310,30 @@ impl Instruction {
 #[pymethods]
 impl Instruction {
     #[classmethod]
-    fn from_json(_cls: &Bound<'_, PyType>, payload: &str) -> PyResult<Self> {
+    #[pyo3(signature = (payload, *, chain_discriminant))]
+    fn from_json(_cls: &Bound<'_, PyType>, payload: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         let instruction = json::from_str::<InstructionBox>(payload)
             .map_err(|err| PyValueError::new_err(format!("invalid instruction JSON: {err}")))?;
         Ok(Instruction::new(instruction))
+    }
+    /// Load exact canonical InstructionBox bytes, whose controller identities are prefix-neutral.
+    /// This cannot authenticate a presentation prefix discarded by an earlier encoder.
+    #[classmethod]
+    fn from_norito_bytes(_cls: &Bound<'_, PyType>, payload: &[u8]) -> PyResult<Self> {
+        if payload.is_empty() || payload.len() > 32 * 1024 * 1024 {
+            return Err(PyValueError::new_err("InstructionBox must contain 1..32 MiB"));
+        }
+        let inner = norito::decode_from_bytes::<InstructionBox>(payload)
+            .map_err(|error| PyValueError::new_err(format!("invalid canonical InstructionBox: {error}")))?;
+        let canonical = norito::to_bytes(&inner)
+            .map_err(|error| PyValueError::new_err(format!("encode canonical InstructionBox: {error}")))?;
+        if canonical != payload {
+            return Err(PyValueError::new_err("InstructionBox must use exact canonical framing"));
+        }
+        Ok(Self::new(inner))
     }
     /// Build the choice-free update of one existing public standalone ballot.
     #[classmethod]
@@ -9525,17 +9579,19 @@ impl Instruction {
     }
     /// Create a new fail-closed fee sponsor program.
     #[classmethod]
-    #[pyo3(signature = (sponsor, payout_account, program_name = "default"))]
+    #[pyo3(signature = (sponsor, payout_account, program_name = "default", *, chain_discriminant))]
     fn create_fee_sponsor_program(
         _cls: &Bound<'_, PyType>,
         sponsor: &str,
         payout_account: &str,
         program_name: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
-        let sponsor: AccountId = parse_account_id(sponsor).map_err(|err| {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
+        let sponsor: AccountId = parse_selected_account_id(sponsor, "sponsor", chain_discriminant).map_err(|err| {
             PyValueError::new_err(format!("invalid fee sponsor account `{sponsor}`: {err}"))
         })?;
-        let payout_account = parse_account_id(payout_account).map_err(|err| {
+        let payout_account = parse_selected_account_id(payout_account, "payout_account", chain_discriminant).map_err(|err| {
             PyValueError::new_err(format!(
                 "invalid fee sponsor payout account `{payout_account}`: {err}"
             ))
@@ -9555,10 +9611,13 @@ impl Instruction {
     }
     /// Stage an immutable fee sponsor program revision from canonical Norito JSON.
     #[classmethod]
+    #[pyo3(signature = (revision_json, *, chain_discriminant))]
     fn stage_fee_sponsor_program_revision(
         _cls: &Bound<'_, PyType>,
         revision_json: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         let revision =
             json::from_str::<FeeSponsorProgramRevision>(revision_json).map_err(|err| {
                 PyValueError::new_err(format!("invalid fee sponsor program revision JSON: {err}"))
@@ -9572,12 +9631,15 @@ impl Instruction {
     }
     /// Schedule an exact staged fee sponsor program revision for activation.
     #[classmethod]
+    #[pyo3(signature = (program_id, revision, activate_at_height, *, chain_discriminant))]
     fn activate_fee_sponsor_program_revision(
         _cls: &Bound<'_, PyType>,
         program_id: &str,
         revision: u64,
         activate_at_height: u64,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         if revision == 0 {
             return Err(PyValueError::new_err(
                 "fee sponsor program revision must be non-zero",
@@ -9595,7 +9657,11 @@ impl Instruction {
     }
     /// Pause an active fee sponsor program.
     #[classmethod]
-    fn pause_fee_sponsor_program(_cls: &Bound<'_, PyType>, program_id: &str) -> PyResult<Self> {
+    #[pyo3(signature = (program_id, *, chain_discriminant))]
+    fn pause_fee_sponsor_program(_cls: &Bound<'_, PyType>, program_id: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         Ok(Instruction::new(
             iroha_data_model::isi::nexus::PauseFeeSponsorProgram {
                 program_id: parse_fee_sponsor_program_id(program_id)?,
@@ -9605,10 +9671,13 @@ impl Instruction {
     }
     /// Begin the fail-closed drain phase for a fee sponsor program.
     #[classmethod]
+    #[pyo3(signature = (program_id, *, chain_discriminant))]
     fn begin_close_fee_sponsor_program(
         _cls: &Bound<'_, PyType>,
         program_id: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         Ok(Instruction::new(
             iroha_data_model::isi::nexus::BeginCloseFeeSponsorProgram {
                 program_id: parse_fee_sponsor_program_id(program_id)?,
@@ -9618,7 +9687,11 @@ impl Instruction {
     }
     /// Permanently close a fully drained fee sponsor program.
     #[classmethod]
-    fn close_fee_sponsor_program(_cls: &Bound<'_, PyType>, program_id: &str) -> PyResult<Self> {
+    #[pyo3(signature = (program_id, *, chain_discriminant))]
+    fn close_fee_sponsor_program(_cls: &Bound<'_, PyType>, program_id: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         Ok(Instruction::new(
             iroha_data_model::isi::nexus::CloseFeeSponsorProgram {
                 program_id: parse_fee_sponsor_program_id(program_id)?,
@@ -9628,12 +9701,15 @@ impl Instruction {
     }
     /// Enroll one exact canonical account in a fee sponsor program.
     #[classmethod]
+    #[pyo3(signature = (program_id, beneficiary, *, chain_discriminant))]
     fn enroll_fee_sponsor_beneficiary(
         _cls: &Bound<'_, PyType>,
         program_id: &str,
         beneficiary: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
-        let beneficiary = parse_account_id(beneficiary)?;
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
+        let beneficiary = parse_selected_account_id(beneficiary, "beneficiary", chain_discriminant)?;
         Ok(Instruction::new(
             iroha_data_model::isi::nexus::EnrollFeeSponsorBeneficiary {
                 program_id: parse_fee_sponsor_program_id(program_id)?,
@@ -9644,12 +9720,15 @@ impl Instruction {
     }
     /// Remove one exact canonical account from a fee sponsor program.
     #[classmethod]
+    #[pyo3(signature = (program_id, beneficiary, *, chain_discriminant))]
     fn unenroll_fee_sponsor_beneficiary(
         _cls: &Bound<'_, PyType>,
         program_id: &str,
         beneficiary: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
-        let beneficiary = parse_account_id(beneficiary)?;
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
+        let beneficiary = parse_selected_account_id(beneficiary, "beneficiary", chain_discriminant)?;
         Ok(Instruction::new(
             iroha_data_model::isi::nexus::UnenrollFeeSponsorBeneficiary {
                 program_id: parse_fee_sponsor_program_id(program_id)?,
@@ -9660,12 +9739,15 @@ impl Instruction {
     }
     /// Allocate a positive asset amount to one program-isolated fee vault.
     #[classmethod]
+    #[pyo3(signature = (program_id, asset_definition_id, amount, *, chain_discriminant))]
     fn fund_fee_sponsor_program(
         _cls: &Bound<'_, PyType>,
         program_id: &str,
         asset_definition_id: &str,
         amount: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         let amount = parse_asset_quantity(amount, "fee sponsor funding amount")?;
         if amount.is_zero() {
             return Err(PyValueError::new_err(
@@ -9688,12 +9770,15 @@ impl Instruction {
     }
     /// Withdraw a positive asset amount from a paused or closing program vault.
     #[classmethod]
+    #[pyo3(signature = (program_id, asset_definition_id, amount, *, chain_discriminant))]
     fn withdraw_fee_sponsor_program(
         _cls: &Bound<'_, PyType>,
         program_id: &str,
         asset_definition_id: &str,
         amount: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
     ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         let amount = parse_asset_quantity(amount, "fee sponsor withdrawal amount")?;
         if amount.is_zero() {
             return Err(PyValueError::new_err(
@@ -10946,6 +11031,7 @@ fn python_vega_statement_v1(
 #[derive(Clone)]
 struct TransactionBuilder {
     network_id: NetworkId,
+    chain_discriminant: u16,
     authority: AccountId,
     fee_payment: FeePaymentIntent,
     creation_time: Option<Duration>,
@@ -11048,7 +11134,7 @@ impl TransactionBuilder {
         py: Python<'_>,
         signed: &crate::privacy_native_actions::SignedPrivacyActionV1,
     ) -> PyResult<PrivacyNativeActionBuildResultV1> {
-        let envelope = signed_transaction_envelope_from_model_v1(signed.signed_transaction())?;
+        let envelope = signed_transaction_envelope_from_model_v1(signed.signed_transaction(), self.chain_discriminant)?;
         Ok(PrivacyNativeActionBuildResultV1 {
             envelope: Py::new(py, envelope)?,
             protocol_id: signed.protocol_id().canonical_label().to_owned(),
@@ -11139,23 +11225,7 @@ impl TransactionBuilder {
         &self,
         signed: &SignedTransaction,
     ) -> PyResult<SignedTransactionEnvelope> {
-        let signature: Signature = signed.signature().payload().clone();
-        let signature_bytes = signature.payload().to_vec();
-        let hash: HashOf<SignedTransaction> = signed.hash();
-        let hash_bytes: [u8; Hash::LENGTH] = *hash.as_ref();
-        let signed_bytes = codec::encode_adaptive(signed);
-        let signed_versioned = signed.encode_versioned();
-        let signatory = require_single_signatory(signed.authority(), "transaction authority")?;
-        let (_, public_key_bytes) = public_key_to_bytes(signatory, "authority public key")?;
-        Ok(SignedTransactionEnvelope {
-            network_id: self.network_id,
-            authority: self.authority.to_string(),
-            signed_transaction: signed_bytes,
-            signed_transaction_versioned: signed_versioned,
-            hash: hash_bytes,
-            signature: signature_bytes,
-            public_key: public_key_bytes.to_vec(),
-        })
+        signed_transaction_envelope_from_model_v1(signed, self.chain_discriminant)
     }
     fn clear_transaction_state(&mut self) {
         self.executable_items.clear();
@@ -11168,10 +11238,16 @@ impl TransactionBuilder {
 #[pymethods]
 impl TransactionBuilder {
     #[new]
-    fn new(network_id: &PyNetworkId, authority: &str, fee_payment_json: &str) -> PyResult<Self> {
+    #[pyo3(signature = (network_id, authority, fee_payment_json, *, chain_discriminant))]
+    fn new(network_id: &PyNetworkId, authority: &str, fee_payment_json: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
         require_non_blank_unpadded(authority, "authority")?;
-        let authority = parse_account_id(authority)?;
-        let fee_payment = parse_fee_payment_intent_json(fee_payment_json)?;
+        let authority = parse_selected_account_id(authority, "authority", chain_discriminant)?;
+        let fee_payment = {
+            let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
+            parse_fee_payment_intent_json(fee_payment_json)?
+        };
         let creation_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|err| {
@@ -11179,6 +11255,7 @@ impl TransactionBuilder {
             })?;
         Ok(Self {
             network_id: network_id.inner,
+            chain_discriminant,
             authority,
             fee_payment,
             creation_time: Some(creation_time),
@@ -11212,6 +11289,7 @@ impl TransactionBuilder {
     }
     /// Replace the exact signature-bound fee payment intent.
     fn set_fee_payment_json(&mut self, fee_payment_json: &str) -> PyResult<()> {
+        let _guard = ChainDiscriminantGuard::enter(self.chain_discriminant);
         self.fee_payment = parse_fee_payment_intent_json(fee_payment_json)?;
         Ok(())
     }
@@ -11340,6 +11418,7 @@ impl TransactionBuilder {
     }
     /// Add an instruction described by `norito::json` syntax.
     fn add_instruction_json(&mut self, instruction_json: &str) -> PyResult<()> {
+        let _guard = ChainDiscriminantGuard::enter(self.chain_discriminant);
         if self.executable_override.is_some() {
             return Err(PyValueError::new_err(
                 "raw IVM bytecode cannot be mixed with executable batch items",
@@ -11427,6 +11506,7 @@ impl TransactionBuilder {
     }
     /// Return the exact unsigned payload submitted to `/v1/fees/quote`.
     fn payload_json(&self) -> PyResult<String> {
+        let _guard = ChainDiscriminantGuard::enter(self.chain_discriminant);
         self.validate_executable()?;
         let payload = self
             .to_model_builder()
@@ -11578,10 +11658,12 @@ impl TransactionBuilder {
     ) -> PyResult<SignedTransactionEnvelope> {
         ensure_ed25519_account(&self.authority)?;
         self.validate_executable()?;
-        let mut draft =
+        let mut draft = {
+            let _guard = ChainDiscriminantGuard::enter(self.chain_discriminant);
             json::from_str::<TransactionPayload>(draft_payload_json).map_err(|err| {
                 PyValueError::new_err(format!("invalid quoted transaction payload JSON: {err}"))
-            })?;
+            })?
+        };
         let expected = self
             .to_model_builder()
             .into_payload()
@@ -11591,7 +11673,10 @@ impl TransactionBuilder {
                 "quoted transaction payload does not match this builder's exact draft",
             ));
         }
-        let quoted_fee_payment = parse_fee_payment_intent_json(quoted_fee_payment_json)?;
+        let quoted_fee_payment = {
+            let _guard = ChainDiscriminantGuard::enter(self.chain_discriminant);
+            parse_fee_payment_intent_json(quoted_fee_payment_json)?
+        };
         if !draft
             .fee_payment
             .has_same_payer_and_gas_bound(&quoted_fee_payment)
@@ -11741,7 +11826,10 @@ struct SignedTransactionEnvelope {
 impl SignedTransactionEnvelope {
     /// Construct an envelope from its JSON representation produced by `to_json`.
     #[classmethod]
-    fn from_json(_cls: &Bound<'_, PyType>, json_str: &str) -> PyResult<Self> {
+    #[pyo3(signature = (json_str, *, chain_discriminant))]
+    fn from_json(_cls: &Bound<'_, PyType>, json_str: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
         let value: norito::json::Value = norito::json::from_str(json_str).map_err(|err| {
             PyValueError::new_err(format!("failed to parse envelope JSON: {err}"))
         })?;
@@ -11905,7 +11993,7 @@ impl SignedTransactionEnvelope {
                 "envelope network_id does not match the signed transaction NetworkId",
             ));
         }
-        let authenticated = signed_transaction_envelope_from_model_v1(&decoded)?;
+        let authenticated = signed_transaction_envelope_from_model_v1(&decoded, chain_discriminant)?;
         if authenticated.authority != authority
             || authenticated.signed_transaction != signed_transaction
             || authenticated.hash != hash
@@ -12489,7 +12577,7 @@ fn batch_outcome_json(outcome: &AssetBatchTransferOutcome) -> PyResult<json::Val
     Ok(json::Value::Object(result))
 }
 #[pyfunction]
-#[pyo3(name = "verify_committed_transaction_inclusion")]
+#[pyo3(name = "verify_committed_transaction_inclusion", signature = (transaction_hash, transaction_response_bytes, native_finality_proof_chain_json, expected_network_id, expected_chain, trusted_checkpoint, *, expected_chain_discriminant))]
 /// Authenticate a selected full output against an independently anchored finality chain.
 fn verify_committed_transaction_inclusion_py(
     py: Python<'_>,
@@ -12499,7 +12587,8 @@ fn verify_committed_transaction_inclusion_py(
     expected_network_id: &PyNetworkId,
     expected_chain: &str,
     trusted_checkpoint: &[u8],
-) -> PyResult<(String, Py<PyBytes>)> {
+        #[pyo3(from_py_with = exact_chain_discriminant)] expected_chain_discriminant: u16,
+    ) -> PyResult<(String, Py<PyBytes>)> {
     let expected = parse_typed_hash::<TransactionEntrypoint>(transaction_hash, "transaction hash")?;
     let (committed, page) = committed_transaction_verification::authenticate_committed_transaction(
         expected,
@@ -12509,6 +12598,7 @@ fn verify_committed_transaction_inclusion_py(
         expected_chain,
         trusted_checkpoint,
     )?;
+    let _guard = ChainDiscriminantGuard::enter(expected_chain_discriminant);
     let tip = page.tip();
     let execution_commitment = tip.execution();
     let entrypoint_kind = match &committed.entrypoint {
@@ -12749,6 +12839,7 @@ fn verify_committed_transaction_inclusion_py(
         .checkpoint()
         .encode_canonical()
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    drop(_guard);
     Ok((projection, Py::from(PyBytes::new(py, &promoted))))
 }
 #[pyfunction]
@@ -13033,6 +13124,7 @@ fn decode_canonical_signed_transaction_v1(bytes: &[u8]) -> PyResult<SignedTransa
 }
 fn signed_transaction_envelope_from_model_v1(
     signed: &SignedTransaction,
+    chain_discriminant: u16,
 ) -> PyResult<SignedTransactionEnvelope> {
     signed.verify_signature().map_err(|_| {
         PyValueError::new_err("signed_transaction_versioned has an invalid authority signature")
@@ -13048,7 +13140,8 @@ fn signed_transaction_envelope_from_model_v1(
     })?;
     Ok(SignedTransactionEnvelope {
         network_id,
-        authority: signed.authority().to_string(),
+        authority: signed.authority().to_i105_for_discriminant(chain_discriminant)
+            .map_err(|error| PyValueError::new_err(format!("failed to render authority: {error}")))?,
         signed_transaction: codec::encode_adaptive(signed),
         signed_transaction_versioned: signed.encode_versioned(),
         hash: *hash.as_ref(),
@@ -13057,19 +13150,20 @@ fn signed_transaction_envelope_from_model_v1(
     })
 }
 #[pyfunction]
-#[pyo3(name = "signed_transaction_envelope_from_versioned_v1")]
+#[pyo3(name = "signed_transaction_envelope_from_versioned_v1", signature = (signed_transaction_versioned, network_id, *, chain_discriminant))]
 /// Decode one exact current signed wire and reconstruct its authenticated public envelope.
 fn signed_transaction_envelope_from_versioned_v1_py(
     signed_transaction_versioned: &[u8],
     network_id: &PyNetworkId,
-) -> PyResult<SignedTransactionEnvelope> {
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<SignedTransactionEnvelope> {
     let signed = decode_canonical_signed_transaction_v1(signed_transaction_versioned)?;
     if signed.network_id() != Some(&network_id.inner) {
         return Err(PyValueError::new_err(
             "signed transaction network does not match NetworkId",
         ));
     }
-    signed_transaction_envelope_from_model_v1(&signed)
+    signed_transaction_envelope_from_model_v1(&signed, chain_discriminant)
 }
 fn canonical_signed_transaction_hash_v1(bytes: &[u8]) -> PyResult<[u8; Hash::LENGTH]> {
     let signed = decode_canonical_signed_transaction_v1(bytes)?;
@@ -13316,7 +13410,7 @@ fn verify_python_account_onboarding_receipt_v1(
 }
 
 #[pyfunction]
-#[pyo3(name = "verify_account_onboarding_receipt_v1")]
+#[pyo3(name = "verify_account_onboarding_receipt_v1", signature = (receipt_json, network_id, expected_authority, expected_account_id, expected_alias, expected_permissions_json, *, chain_discriminant))]
 /// Authenticate one exact canonical V1 onboarding receipt and its trust pins.
 fn verify_account_onboarding_receipt_v1_py(
     receipt_json: &str,
@@ -13325,15 +13419,17 @@ fn verify_account_onboarding_receipt_v1_py(
     expected_account_id: &str,
     expected_alias: &str,
     expected_permissions_json: &str,
-) -> PyResult<String> {
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<String> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
     let receipt =
         json::from_str::<PythonAccountOnboardingPlanReceiptV1>(receipt_json).map_err(|error| {
             PyValueError::new_err(format!("invalid account onboarding receipt JSON: {error}"))
         })?;
     let expected_authority =
-        parse_exact_i105_account_id(expected_authority, "account onboarding expected authority")?;
+        parse_selected_account_id(expected_authority, "account onboarding expected authority", chain_discriminant)?;
     let expected_account =
-        parse_exact_i105_account_id(expected_account_id, "account onboarding expected account")?;
+        parse_selected_account_id(expected_account_id, "account onboarding expected account", chain_discriminant)?;
     let expected_permissions =
         json::from_str::<Vec<String>>(expected_permissions_json).map_err(|error| {
             PyValueError::new_err(format!(
@@ -13623,7 +13719,7 @@ fn verify_python_prepared_faucet_context_v1(
 }
 
 #[pyfunction]
-#[pyo3(name = "verify_prepared_transaction_context_v1")]
+#[pyo3(name = "verify_prepared_transaction_context_v1", signature = (signed_transaction_versioned, network_id, expected_authority, binding_json, operation, semantic_hash_hex, fee_payment_json, operation_context_json, *, chain_discriminant))]
 /// Authenticate one fixed-V1 prepared transaction and its exact public operation context.
 #[expect(
     clippy::too_many_arguments,
@@ -13638,16 +13734,19 @@ fn verify_prepared_transaction_context_v1_py(
     semantic_hash_hex: &str,
     fee_payment_json: &str,
     operation_context_json: &str,
-) -> PyResult<SignedTransactionEnvelope> {
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<SignedTransactionEnvelope> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
     if !matches!(operation, "onboarding" | "faucet") {
         return Err(PyValueError::new_err(
             "prepared transaction operation must be onboarding or faucet",
         ));
     }
     let semantic_hash = parse_lower_hex_32(semantic_hash_hex, "prepared semantic hash")?;
-    let expected_authority = parse_exact_i105_account_id(
+    let expected_authority = parse_selected_account_id(
         expected_authority,
         "prepared transaction expected authority",
+        chain_discriminant,
     )?;
     let binding_value = require_prepared_binding_json_v1(binding_json, operation)?;
     if binding_value
@@ -13738,6 +13837,7 @@ fn verify_prepared_transaction_context_v1_py(
                     "prepared binding deadline exceeds receipt validity",
                 ));
             }
+            parse_selected_account_id(&context.account_id, "prepared onboarding account_id", chain_discriminant)?;
             verify_python_prepared_onboarding_context_v1(
                 &context,
                 &signed,
@@ -13753,11 +13853,12 @@ fn verify_prepared_transaction_context_v1_py(
                     "invalid prepared faucet operation context JSON: {error}"
                 ))
             })?;
+            parse_selected_account_id(&context.account_id, "prepared faucet account_id", chain_discriminant)?;
             verify_python_prepared_faucet_context_v1(&context, &signed, &semantic_hash)?;
         }
         _ => unreachable!("operation was closed above"),
     }
-    signed_transaction_envelope_from_model_v1(&signed)
+    signed_transaction_envelope_from_model_v1(&signed, chain_discriminant)
 }
 const PRIVACY_EXACT12_ACTION_DRIVER_SEED_DOMAIN_V1: &[u8] =
     b"iroha.taira.privacy_action_driver_seed.v1\0";
@@ -15433,6 +15534,7 @@ fn canonical_genesis_header_hash_v1_py(
 }
 #[pymodule]
 fn _crypto(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    public_finality_checkpoint::register(module)?;
     confidential_wallet::register(module)?;
     identity_codec_v1::register(module)?;
     module.add(

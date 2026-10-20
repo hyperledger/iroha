@@ -251,7 +251,22 @@ fn pinned_frame_reader_charges_raw_buffer_once_and_retains_cumulative_scope() {
             .unwrap();
         let length = source.wire_len();
         let bytes = source.read(length, &budget).map_err(|_| ())?.ok_or(())?;
-        iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|_| ())
+        // Match the native reader's prepared body traversal after exactly one raw
+        // acquisition. Its certificate plan and fill both consume logical work;
+        // ordinary owning decoding has a different allocation-accounting trace.
+        let mut decoder =
+            iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&budget)
+                .map_err(|_| ())?;
+        decoder
+            .decode(
+                bytes.charged_source(),
+                norito::core::SequenceSpan {
+                    start: 0,
+                    end: bytes.len(),
+                },
+                norito::canonical_decode_limits(bytes.len()),
+            )
+            .map_err(|_| ())
     };
     let accepts = |limit| {
         norito::core::with_decode_limits_scope(
@@ -273,7 +288,8 @@ fn pinned_frame_reader_charges_raw_buffer_once_and_retains_cumulative_scope() {
     assert!(low > 0);
     let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, low, 128);
     norito::core::with_decode_limits_scope(limits, || {
-        assert!(read_durable_pinned_block(chain.kura(), index, expected, &budget).is_ok());
+        read_durable_pinned_block(chain.kura(), index, expected, &budget)
+            .expect("one raw acquisition and the same prepared native body fit exactly");
         assert!(
             read_durable_pinned_block(chain.kura(), index, expected, &budget).is_err(),
             "second read cannot renew the original allocation budget"

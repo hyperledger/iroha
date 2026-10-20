@@ -205,6 +205,7 @@ fn privacy_transaction_construction_requires_the_matching_network_manifest_tuple
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs")
     };
@@ -517,6 +518,7 @@ fn transaction_submission_native_boundary_pins_wire_hash_and_receipt_signer() {
         &python_test_network_id(),
         &authority,
         authority_fee_payment_json(),
+        753,
     )
     .expect("transaction builder");
     let envelope = builder

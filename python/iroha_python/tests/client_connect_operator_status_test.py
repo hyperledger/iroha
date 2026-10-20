@@ -41,7 +41,7 @@ def json_response(status: int, payload: object) -> requests.Response:
 
 def test_connect_aggregate_status_requires_operator_context_before_dispatch() -> None:
     session = RecordingSession(json_response(200, {"enabled": True}))
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="operator_signing_context"):
         client.get_connect_status()
@@ -58,6 +58,7 @@ def test_connect_aggregate_status_signs_exact_network_target_once() -> None:
         max_retries=5,
         retry_on_methods=["GET"],
         retry_on_status=[503],
+        chain_discriminant=753,
     )
 
     assert client.get_connect_status() == {"enabled": True}

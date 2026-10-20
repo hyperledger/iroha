@@ -135,6 +135,7 @@ def test_signed_pipeline_details_is_exact_network_bound_and_one_shot(
         session=session,
         max_retries=4,
         local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT,
+        chain_discriminant=753,
     )
 
     details = client.get_pipeline_transaction_details(
@@ -176,6 +177,7 @@ def test_signed_pipeline_details_never_replays_redirects(
         session=session,
         max_retries=4,
         local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT,
+        chain_discriminant=753,
     )
 
     with pytest.raises(RuntimeError, match=f"unexpected status {redirect_status}"):
@@ -537,6 +539,7 @@ def test_prepared_transaction_v1_shared_golden_authenticates_inner_context() -> 
             prepared["semantic_hash_hex"],
             json.dumps(prepared["fee_payment"], sort_keys=True, separators=(",", ":")),
             json.dumps(operation_context, sort_keys=True, separators=(",", ":")),
+            chain_discriminant=753,
         )
         assert envelope.hash_hex() == prepared["transaction_hash_hex"]
         substituted_context = copy.deepcopy(operation_context)
@@ -554,6 +557,7 @@ def test_prepared_transaction_v1_shared_golden_authenticates_inner_context() -> 
                 prepared["semantic_hash_hex"],
                 json.dumps(prepared["fee_payment"], sort_keys=True, separators=(",", ":")),
                 json.dumps(substituted_context, sort_keys=True, separators=(",", ":")),
+                chain_discriminant=753,
             )
         if vector["name"] == "onboarding_prepared":
             receipt = prepared["receipt"]
@@ -566,6 +570,7 @@ def test_prepared_transaction_v1_shared_golden_authenticates_inner_context() -> 
                     request["account_id"],
                     request["alias"],
                     json.dumps(request["permissions"], separators=(",", ":")),
+                    chain_discriminant=753,
                 )
                 == prepared["semantic_hash_hex"]
             )
@@ -577,6 +582,7 @@ def test_prepared_transaction_v1_shared_golden_authenticates_inner_context() -> 
                     request["account_id"],
                     request["alias"],
                     '["CanGrantAccountPermission"]',
+                    chain_discriminant=753,
                 )
 
 
@@ -644,7 +650,7 @@ def test_prepared_transaction_v1_rejects_validly_signed_missing_operation_bindin
     unbound_wire = b"\x01" + field(field(signature_wire)) + field(unbound_payload) + field(b"\x00")
     network_id = NetworkId.parse(vector["network_id"])
     # The negative case must reach the prepared verifier with a valid signature.
-    crypto_module.signed_transaction_envelope_from_versioned_v1(unbound_wire, network_id)
+    crypto_module.signed_transaction_envelope_from_versioned_v1(unbound_wire, network_id, chain_discriminant=753)
     operation_context = (
         {
             "receipt": prepared["receipt"],
@@ -671,6 +677,7 @@ def test_prepared_transaction_v1_rejects_validly_signed_missing_operation_bindin
             prepared["semantic_hash_hex"],
             json.dumps(prepared["fee_payment"], sort_keys=True, separators=(",", ":")),
             json.dumps(operation_context, sort_keys=True, separators=(",", ":")),
+            chain_discriminant=753,
         )
 
 
@@ -720,6 +727,7 @@ def test_prepared_faucet_native_context_rejects_optional_pow_claim(
             prepared["semantic_hash_hex"],
             json.dumps(prepared["fee_payment"], sort_keys=True, separators=(",", ":")),
             json.dumps(operation_context, sort_keys=True, separators=(",", ":")),
+            chain_discriminant=753,
         )
 
 
@@ -758,6 +766,7 @@ def test_account_onboarding_is_explicit_plan_prepare_submit(
         "https://torii.example",
         session=session,
         api_token="global-api-token",
+        chain_discriminant=753,
     )
 
     plan = client.plan_account_onboarding(
@@ -842,6 +851,7 @@ def test_onboarding_receipt_permissions_must_match_complete_original_request() -
             network_id=NETWORK_ID,
             expected_request=onboarding_request(),
             context="permission substitution",
+            chain_discriminant=753,
         )
 
 
@@ -863,7 +873,7 @@ def test_proof_required_onboarding_uses_one_exact_atomic_post(
         "_copy_account_onboarding_proof_required_v1",
         lambda value, **_: copy.deepcopy(value),
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
     durable_binding = prepared_binding("onboarding")
     durable_binding["execution_expires_at_unix_ms"] = 1
 
@@ -925,6 +935,7 @@ def test_proof_required_onboarding_never_retries_atomic_post(
         max_retries=4,
         backoff_initial=0,
         retry_on_methods=["POST"],
+        chain_discriminant=753,
     )
 
     with pytest.raises(RuntimeError, match="unexpected status 503"):
@@ -962,7 +973,7 @@ def test_proof_required_onboarding_rejects_adapter_retries_before_signing(
         "_copy_account_onboarding_proof_required_v1",
         lambda value, **_: copy.deepcopy(value),
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="transport retries to be disabled"):
         client.prove_account_onboarding_current_state(
@@ -996,7 +1007,7 @@ def test_proof_required_onboarding_rejects_missing_or_foreign_canonical_auth(
         "_copy_account_onboarding_proof_required_v1",
         lambda value, **_: copy.deepcopy(value),
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
     common = {
         "proof_required": proof_required,
         "binding": prepared_binding("onboarding"),
@@ -1056,7 +1067,7 @@ def test_proof_required_onboarding_classifies_absent_and_conflicting_aliases(
                 )
             ]
         )
-        client = ToriiClient("https://torii.example", session=session)
+        client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
         result = client.prove_account_onboarding_current_state(
             proof_required=proof_required,
             binding=prepared_binding("onboarding"),
@@ -1117,7 +1128,7 @@ def test_proof_required_onboarding_rejects_open_substituted_or_unanchored_respon
 
     for candidate in candidates:
         session = OnboardingSession([response(200, candidate)])
-        client = ToriiClient("https://torii.example", session=session)
+        client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
         with pytest.raises((TypeError, ValueError)):
             client.prove_account_onboarding_current_state(
                 proof_required=proof_required,
@@ -1153,7 +1164,7 @@ def test_proof_required_onboarding_rejects_response_over_four_kib_before_decodin
         "_copy_account_onboarding_proof_required_v1",
         lambda value, **_: copy.deepcopy(value),
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="4096-byte limit"):
         client.prove_account_onboarding_current_state(
@@ -1198,7 +1209,7 @@ def test_proof_required_onboarding_rejects_duplicate_response_fields(
         "_copy_account_onboarding_proof_required_v1",
         lambda value, **_: copy.deepcopy(value),
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="duplicate object key 'version'"):
         client.prove_account_onboarding_current_state(
@@ -1231,7 +1242,7 @@ def test_onboarding_prepare_rejects_malformed_route_token_before_dispatch(
     token: object,
 ) -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)) as error:
         client.prepare_account_onboarding(
@@ -1251,7 +1262,7 @@ def test_onboarding_prepare_rejects_malformed_route_token_before_dispatch(
 
 def test_onboarding_requests_require_explicit_token_and_reject_global_default() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(TypeError, match="onboarding_token"):
         client.plan_account_onboarding(  # type: ignore[call-arg]
@@ -1265,6 +1276,7 @@ def test_onboarding_requests_require_explicit_token_and_reject_global_default() 
             "https://torii.example",
             session=session,
             default_headers={ACCOUNT_ONBOARDING_TOKEN_HEADER.lower(): ONBOARDING_TOKEN},
+            chain_discriminant=753,
         )
     assert session.calls == []
 
@@ -1298,7 +1310,7 @@ def test_client_rejects_session_route_secret_headers_at_construction(
     session.headers[header_name.swapcase()] = "must-not-leak"
 
     with pytest.raises(ValueError, match="session.headers") as error:
-        ToriiClient("https://torii.example", session=session)
+        ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     assert "must-not-leak" not in str(error.value)
 
@@ -1322,7 +1334,7 @@ def test_client_rejects_session_route_secret_conflicts(
     session.headers[header_name] = "must-not-conflict"
 
     with pytest.raises(ValueError, match="session.headers") as error:
-        ToriiClient("https://torii.example", session=session, **explicit_kwargs)
+        ToriiClient("https://torii.example", session=session, **explicit_kwargs, chain_discriminant=753)
 
     assert "must-not-conflict" not in str(error.value)
 
@@ -1331,24 +1343,24 @@ def test_client_rejects_session_auth_and_cookies_but_keeps_harmless_headers() ->
     auth_session = requests.Session()
     auth_session.auth = ("retired-user", "must-not-leak")
     with pytest.raises(ValueError, match="session.auth") as auth_error:
-        ToriiClient("https://torii.example", session=auth_session)
+        ToriiClient("https://torii.example", session=auth_session, chain_discriminant=753)
     assert "must-not-leak" not in str(auth_error.value)
 
     cookie_session = requests.Session()
     cookie_session.cookies.set("route_secret", "must-not-leak")
     with pytest.raises(ValueError, match="session.cookies") as cookie_error:
-        ToriiClient("https://torii.example", session=cookie_session)
+        ToriiClient("https://torii.example", session=cookie_session, chain_discriminant=753)
     assert "must-not-leak" not in str(cookie_error.value)
 
     harmless_session = requests.Session()
     harmless_session.headers["X-Trace-Id"] = "trace-only"
-    client = ToriiClient("https://torii.example", session=harmless_session)
+    client = ToriiClient("https://torii.example", session=harmless_session, chain_discriminant=753)
     assert client._session.headers["X-Trace-Id"] == "trace-only"
 
 
 def test_prepared_account_mutations_require_explicit_trust_pins() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(TypeError, match="expected_authority"):
         client.submit_prepared_account_faucet(prepared_faucet())  # type: ignore[call-arg]
@@ -1379,7 +1391,7 @@ def test_faucet_policy_pins_have_no_defaults() -> None:
 
 def test_prepared_account_submissions_reject_expired_forward_binding() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
     onboarding = prepared_onboarding()
     onboarding_binding = onboarding["binding"]
     assert isinstance(onboarding_binding, dict)
@@ -1412,7 +1424,7 @@ def test_prepared_account_submissions_reject_expired_forward_binding() -> None:
 
 def test_prepared_account_submissions_reject_independent_fee_substitution() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
     substituted = authority_fee_payment(charge_limits=[], gas_limit=1)
 
     with pytest.raises(ValueError, match="independent selection"):
@@ -1438,7 +1450,7 @@ def test_prepared_account_submissions_reject_independent_fee_substitution() -> N
 
 def test_onboarding_plan_does_not_follow_redirect_or_accept_retired_fields() -> None:
     session = OnboardingSession([response(307, text="redirect")])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     result = client.plan_account_onboarding(
         onboarding_token=ONBOARDING_TOKEN,
@@ -1464,7 +1476,7 @@ def test_onboarding_plan_does_not_follow_redirect_or_accept_retired_fields() -> 
 
 def test_prepared_submit_rejects_legacy_or_aggregate_envelopes_before_dispatch() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     legacy = prepared_onboarding()
     legacy["receipt_only"] = legacy.pop("signed_transaction_wire_hex")
@@ -1519,7 +1531,7 @@ def test_account_faucet_is_explicit_prepare_then_exact_submit(
         "_verify_prepared_transaction_authentication_v1",
         authenticate,
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     prepare = client.prepare_account_faucet(
         ONBOARDING_ACCOUNT_ID,
@@ -1583,7 +1595,7 @@ def test_faucet_prepare_rejects_independent_policy_substitution(
         "_verify_prepared_transaction_authentication_v1",
         lambda *_, **__: None,
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match=message):
         client.prepare_account_faucet(
@@ -1624,7 +1636,7 @@ def test_faucet_submit_rejects_independent_policy_substitution_before_dispatch(
         "_verify_prepared_transaction_authentication_v1",
         lambda *_, **__: None,
     )
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match=message):
         client.submit_prepared_account_faucet(
@@ -1657,7 +1669,7 @@ def test_faucet_prepare_rejects_invalid_independent_policy_before_dispatch(
     expected_amount: object,
 ) -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.prepare_account_faucet(
@@ -1677,7 +1689,7 @@ def test_faucet_prepare_rejects_invalid_independent_policy_before_dispatch(
 
 def test_faucet_registration_rejects_invalid_policy_before_puzzle_dispatch() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="positive exact quantity"):
         client.prepare_account_faucet_registration(
@@ -1695,7 +1707,7 @@ def test_faucet_registration_rejects_invalid_policy_before_puzzle_dispatch() -> 
 
 def test_faucet_registration_rejects_explicit_empty_puzzle_without_dispatch() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(TypeError, match="exactly the V1 fields"):
         client.prepare_account_faucet_registration(
@@ -1733,7 +1745,7 @@ def test_faucet_submit_rejects_optional_or_noncanonical_pow_before_dispatch(
     assert isinstance(claim, dict)
     claim[field] = invalid
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.submit_prepared_account_faucet(
@@ -1769,7 +1781,7 @@ def test_faucet_prepare_rejects_noncanonical_claim_before_dispatch(
     nonce: object,
 ) -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.prepare_account_faucet(
@@ -1803,7 +1815,7 @@ def test_faucet_prepare_rejects_noncanonical_fee_intent_before_dispatch(
     fee_payment: object,
 ) -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.prepare_account_faucet(
@@ -1867,7 +1879,7 @@ def test_fee_intent_v1_requires_canonical_sponsor_account() -> None:
 
 def test_faucet_submit_rejects_claim_body_and_wrong_binding_kind() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(TypeError, match="exactly the faucet V1 fields"):
         client.submit_prepared_account_faucet(
@@ -1898,7 +1910,7 @@ def test_faucet_submit_rejects_claim_body_and_wrong_binding_kind() -> None:
 
 def test_onboarding_plan_rejects_normalizing_alias_and_permission() -> None:
     session = OnboardingSession([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="surrounding whitespace"):
         client.plan_account_onboarding(
@@ -2175,7 +2187,7 @@ def account_address(seed: int, discriminant: int = 0x02F1) -> str:
 
 
 def test_submit_transaction_draft_result_wait_false_preserves_hash_after_submit_timeout() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
 
     class FakeEnvelope:
         hash = bytes.fromhex("ab" * 32)
@@ -2210,7 +2222,7 @@ def test_submit_transaction_draft_result_wait_false_preserves_hash_after_submit_
 
 
 def test_submit_transaction_draft_result_wait_true_raises_submit_timeout() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
 
     class FakeEnvelope:
         hash = bytes.fromhex("cd" * 32)
@@ -2233,7 +2245,7 @@ def test_submit_transaction_draft_result_wait_true_raises_submit_timeout() -> No
 
 
 def test_submit_transaction_draft_result_wait_false_does_not_hide_rejection() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
 
     class FakeEnvelope:
         hash = bytes.fromhex("ef" * 32)
@@ -2265,7 +2277,7 @@ def test_account_exists_rejects_route_unavailable_without_listing_fallback() -> 
             ),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(RuntimeError, match="unexpected status 503"):
         client.account_exists("adult@is")
@@ -2277,7 +2289,7 @@ def test_account_exists_rejects_route_unavailable_without_listing_fallback() -> 
 def test_asset_balance_rejects_wrong_network_prefix_without_retry() -> None:
     taira_account = account_address(0x6A, discriminant=369)
     session = FakeSession([response(400, text="ERR_UNEXPECTED_NETWORK_PREFIX")])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(RuntimeError, match="unexpected status 400"):
         client.asset_balance(taira_account, "ds#wonderland.is")
@@ -2335,7 +2347,7 @@ def test_asset_balance_sums_every_matching_bucket_across_pages() -> None:
             ),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.asset_balance(account, alias) == Decimal("3.5")
     expected_filter = {"op": "eq", "args": ["asset_alias", alias]}
@@ -2365,7 +2377,7 @@ def test_asset_balance_reads_one_scope_by_base58_definition() -> None:
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.asset_balance(account, "5Ff9", scope="global") == Decimal("4")
     assert json.loads(session.calls[0]["data"]) == {
@@ -2561,7 +2573,7 @@ def test_asset_balance_rejects_noncanonical_or_untyped_quantities(quantity: obje
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.asset_balance("adult@is", "ds#wonderland.is")
@@ -2569,7 +2581,7 @@ def test_asset_balance_rejects_noncanonical_or_untyped_quantities(quantity: obje
 
 def test_get_asset_definition_returns_none_for_missing_definition() -> None:
     session = FakeSession([response(404, text="missing")])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.get_asset_definition("ds#wonderland.is") is None
 
@@ -2639,7 +2651,7 @@ def test_accounts_list_returns_a_typed_cursor_page() -> None:
 
 def test_collection_controls_are_validated_before_any_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     for call, code in (
         (lambda: client.accounts.list(limit=0), "invalid_limit"),
@@ -2668,7 +2680,7 @@ def test_collection_page_envelope_is_strict() -> None:
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="next_cursor"):
         client.accounts.assets("x").list()
@@ -2681,7 +2693,7 @@ def test_domains_iter_follows_next_cursor_until_the_last_page() -> None:
             response(200, {"items": [{"id": "c"}], "next_cursor": None}),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert [domain.id for domain in client.domains.iter(limit=2)] == ["a", "b", "c"]
     assert [json.loads(call["data"]) for call in session.calls] == [
@@ -2710,7 +2722,7 @@ def test_rwa_lots_decode_exact_quantities() -> None:
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     lot = client.rwas.list(filter=F.quantity > Decimal("10")).items[0]
 
@@ -2796,7 +2808,8 @@ def test_global_transactions_are_a_history_collection() -> None:
 def test_typed_collection_calls_reject_projections_and_bad_select() -> None:
     account = account_address(0x32)
     transactions = ToriiClient(
-        "http://torii.example", session=FakeSession([]), max_retries=0
+        "http://torii.example", session=FakeSession([]), max_retries=0,
+        chain_discriminant=753,
     ).accounts.transactions(account)
 
     with pytest.raises(ListQueryError, match="rows"):
@@ -2821,7 +2834,7 @@ def test_collection_query_errors_are_typed_and_text_filters_pass_through() -> No
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     text_filter = 'owned_by == "x" && quantity > 1'
 
     with pytest.raises(ToriiQueryError) as raised:
@@ -2857,7 +2870,7 @@ def test_repo_agreements_collection_decodes_typed_records_anonymously() -> None:
     session = FakeSession(
         [response(200, {"items": [_REPO_ROW], "next_cursor": None, "total": 1})]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     page = client.repo_agreements.list(filter=F.status == "active", include_total=True)
 
@@ -2906,7 +2919,7 @@ def test_sns_helpers_read_policy_and_name() -> None:
             response(200, {"literal": "merchant@paynet"}),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.get_sns_policy(2)["payment_asset_id"] == "fee"
     registration = client.get_sns_name("account-alias", "merchant@paynet")
@@ -2952,6 +2965,7 @@ def test_zk_verifying_key_helpers_detect_active_status_and_return_registration_d
         session=session,
         local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
         max_retries=0,
+        chain_discriminant=753,
     )
     assert client.local_signing_context is VK_LOCAL_SIGNING_CONTEXT
 
@@ -2977,7 +2991,7 @@ def test_zk_verifying_key_helpers_detect_active_status_and_return_registration_d
 
 def test_zk_verifying_key_helpers_reject_labels_outside_exact_registry() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     for backend in ("stark/fri/latest", "stark/fri/attestation", "stark/fri/contest"):
         with pytest.raises(
@@ -2996,7 +3010,7 @@ def test_zk_verifying_key_helpers_reject_labels_outside_exact_registry() -> None
 
 def test_zk_verifying_key_registration_rejects_unsupported_backends_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     for backend in (
         "halo2/pasta/kaigi-authorization-v1",
         "halo2/pasta/kaigi-usage-v1",
@@ -3098,7 +3112,7 @@ def test_zk_verifying_key_registration_rejects_unsupported_backends_before_reque
 
 def test_zk_verifying_key_registration_rejects_bad_names_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     for bad_name in ("", "   ", "\t", " vk_transfer", "vk_transfer ", None, 7):
         with pytest.raises((TypeError, ValueError), match="register_zk_verifying_key.name"):
@@ -3111,7 +3125,7 @@ def test_zk_verifying_key_registration_rejects_bad_names_before_request() -> Non
 
 def test_zk_verifying_key_registration_rejects_padded_selector_metadata_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     base = {
         "authority": "alice",
         "backend": "pipa-r/pasta",
@@ -3142,7 +3156,7 @@ def test_zk_verifying_key_registration_rejects_padded_selector_metadata_before_r
 
 def test_zk_verifying_key_registration_rejects_missing_authority_and_private_keys() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     for authority in (None, "", "   ", 7):
         with pytest.raises((TypeError, ValueError), match="register_zk_verifying_key.authority"):
@@ -3184,6 +3198,7 @@ def test_zk_verifying_key_registration_rejects_mismatched_inline_commitment() ->
         session=session,
         local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
         max_retries=0,
+        chain_discriminant=753,
     )
     vk_bytes = b"abc"
     matching_commitment = zk_verifying_key_commitment("pipa-r/pasta", vk_bytes)
@@ -3224,7 +3239,7 @@ def test_zk_verifying_key_registration_rejects_mismatched_inline_commitment() ->
 
 def test_zk_verifying_key_registration_rejects_withdraw_height_before_activation_height() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="withdraw_height"):
         client.submit_zk_verifying_key_registration(
@@ -3290,6 +3305,7 @@ def test_zk_verifying_key_update_helper_returns_unsigned_draft(
         session=session,
         local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
         max_retries=0,
+        chain_discriminant=753,
     )
 
     decoded = client.update_zk_verifying_key(update_payload)
@@ -3364,6 +3380,7 @@ def test_zk_verifying_key_mutation_helpers_enforce_unsigned_draft_contract() -> 
             session=FakeSession([response(200, malformed)]),
             local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
             max_retries=0,
+            chain_discriminant=753,
         )
         with pytest.raises((TypeError, ValueError), match=pattern):
             client.register_zk_verifying_key(payload)
@@ -3373,6 +3390,7 @@ def test_zk_verifying_key_mutation_helpers_enforce_unsigned_draft_contract() -> 
         session=FakeSession([response(202, zk_verifying_key_transaction_draft())]),
         local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(RuntimeError, match=r"unexpected status 202; expected \[200\]"):
         legacy_status_client.update_zk_verifying_key(payload)
@@ -3433,6 +3451,7 @@ def test_zk_verifying_key_drafts_reject_substitution_extra_wrong_context_and_non
             ),
             local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
             max_retries=0,
+            chain_discriminant=753,
         )
         with pytest.raises(ValueError, match=pattern):
             client.register_zk_verifying_key(payload)
@@ -3470,6 +3489,7 @@ def test_zk_verifying_key_draft_rejects_any_record_field_mismatch(
         session=FakeSession([response(200, zk_verifying_key_transaction_draft())]),
         local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(
         ValueError,
@@ -3480,7 +3500,7 @@ def test_zk_verifying_key_draft_rejects_any_record_field_mismatch(
 
 def test_zk_verifying_key_local_signing_fails_closed_without_network_context() -> None:
     session = FakeSession([response(200, zk_verifying_key_transaction_draft())])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     payload = {
         "authority": account_address(36),
         "backend": "pipa-r/pasta",
@@ -3537,7 +3557,8 @@ def test_zk_verifying_key_local_signing_fails_closed_without_network_context() -
     with pytest.raises(TypeError, match="unexpected keyword argument 'signing_chain_id'"):
         ToriiClient(
             "http://torii.example",
-            **{"signing_chain_id": "vk-test"},  # type: ignore[arg-type]
+            **{"signing_chain_id": "vk-test"},  # type: ignore[arg-type],
+            chain_discriminant=753,
         )
 
     signing_client = ToriiClient(
@@ -3545,6 +3566,7 @@ def test_zk_verifying_key_local_signing_fails_closed_without_network_context() -
         session=session,
         local_signing_context=VK_LOCAL_SIGNING_CONTEXT,
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(ValueError, match="must be an exact canonical I105 account id"):
         signing_client.register_zk_verifying_key(
@@ -3555,7 +3577,7 @@ def test_zk_verifying_key_local_signing_fails_closed_without_network_context() -
 
 def test_zk_verifying_key_update_rejects_bad_inputs_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     vk_bytes = b"abc"
     matching_commitment = zk_verifying_key_commitment("pipa-r/pasta", vk_bytes)
 
@@ -3646,7 +3668,7 @@ def test_zk_verifying_key_update_rejects_bad_inputs_before_request() -> None:
 
 def test_zk_verifying_key_read_helpers_reject_unsupported_backends_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     for backend in (
         " halo2/ipa",
         "halo2/ipa ",
@@ -3746,7 +3768,7 @@ def test_zk_verifying_key_read_helpers_reject_unsupported_backends_before_reques
 
 def test_zk_verifying_key_read_helpers_reject_padded_names_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     for name in (" vk_transfer", "vk_transfer "):
         with pytest.raises(ValueError, match="name.*surrounding whitespace"):
@@ -3758,7 +3780,7 @@ def test_zk_verifying_key_read_helpers_reject_padded_names_before_request() -> N
 
 
 def test_event_stream_filters_use_the_collection_text_grammar() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     captured = []
 
     def capture_stream(path, **kwargs):
@@ -3792,7 +3814,7 @@ def test_event_stream_filters_use_the_collection_text_grammar() -> None:
 )
 def test_event_stream_rejects_retired_and_json_filter_shapes(retired: object) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(TypeError):
         client.stream_events(filter=retired)  # type: ignore[arg-type]
@@ -3801,7 +3823,7 @@ def test_event_stream_rejects_retired_and_json_filter_shapes(retired: object) ->
 
 def test_event_stream_filters_reject_object_and_array_literals_before_request() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(FilterError, match="no text form"):
         client.stream_events(filter=F.metadata.tags == ["a"])
@@ -3826,7 +3848,7 @@ def test_account_has_permission_follows_effective_permission_collection() -> Non
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.account_has_permission(
         "asset-owner@is",
@@ -3906,7 +3928,7 @@ def test_dataspace_visible_account_reads_remain_anonymous_without_signer() -> No
             response(200, {"items": [], "next_cursor": None}),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.find_account(account) == {"id": account}
     assert client.accounts.assets(account).list().items == ()
@@ -3930,7 +3952,7 @@ def test_dataspace_visible_account_reads_remain_anonymous_without_signer() -> No
 def test_account_permission_listing_rejects_foreign_chain_discriminant() -> None:
     taira_account = account_address(6, 0x0171)
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(
         ValueError,
@@ -3944,7 +3966,7 @@ def test_account_permission_listing_rejects_foreign_chain_discriminant() -> None
 def test_call_contract_and_wait_delegates_to_caller_signed_batch() -> None:
     tx_hash = "d" * 64
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     captured: dict[str, object] = {}
 
     def call_batch(**kwargs: object) -> dict[str, object]:
@@ -3988,7 +4010,7 @@ def test_call_contract_and_wait_delegates_to_caller_signed_batch() -> None:
 
 def test_call_contract_and_wait_rejects_retired_chain_id_before_dispatch() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     client.call_contract_batch_and_wait = (  # type: ignore[method-assign]
         lambda **_kwargs: pytest.fail("retired chain_id must fail before dispatch")
     )
@@ -4007,7 +4029,7 @@ def test_call_contract_and_wait_rejects_retired_chain_id_before_dispatch() -> No
 
 
 def test_mint_assets_quantity_and_wait_batches_records_in_one_transaction() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     captured: dict[str, object] = {}
     asset_definition_id = "7MBRDd8cGFBZkFGdDMwV7S6FPwbw"
     adult = account_address(0x11)
@@ -4041,7 +4063,7 @@ def test_mint_assets_quantity_and_wait_batches_records_in_one_transaction() -> N
 
 
 def test_transaction_draft_rejects_retired_chain_and_padded_authority_before_signing() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
 
     with pytest.raises(
         TypeError,
@@ -4064,7 +4086,7 @@ def test_transaction_draft_rejects_retired_chain_and_padded_authority_before_sig
 
 
 def test_transfer_assets_quantity_and_wait_batches_records_in_one_transaction() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     captured: dict[str, object] = {}
     asset_definition_id = "7MBRDd8cGFBZkFGdDMwV7S6FPwbw"
     source = account_address(0x11)
@@ -4106,7 +4128,7 @@ def test_transfer_assets_quantity_and_wait_batches_records_in_one_transaction() 
 
 
 def test_permission_grant_and_revoke_helpers_build_one_instruction() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     captured: list[tuple[object, dict[str, object]]] = []
     account = account_address(0x44)
 
@@ -4149,7 +4171,7 @@ def test_permission_grant_and_revoke_helpers_build_one_instruction() -> None:
     assert revoke_kwargs["wait"] is True
 
 
-def test_permission_grant_normalizes_configured_chain_discriminant_for_transaction_draft() -> None:
+def test_permission_grant_preserves_selected_chain_discriminant_for_transaction_draft() -> None:
     client = ToriiClient(
         "http://torii.example",
         session=FakeSession([]),
@@ -4159,7 +4181,6 @@ def test_permission_grant_normalizes_configured_chain_discriminant_for_transacti
     )
     captured: dict[str, object] = {}
     account = account_address(0x45, 0x0171)
-    fixed_account = account_address(0x45)
 
     def fake_submit(draft: object, **kwargs: object) -> dict[str, object]:
         captured["draft"] = draft
@@ -4179,12 +4200,13 @@ def test_permission_grant_normalizes_configured_chain_discriminant_for_transacti
     ) == {"hash": "permission-taira"}
 
     draft = captured["draft"]
-    assert draft.config.authority == fixed_account
+    assert draft.config.authority == account
+    assert draft.config.chain_discriminant == 369
     assert len(draft) == 1
     assert captured["kwargs"]["private_key_hex"] == "11" * 32
 
 
-def test_transfer_helper_normalizes_configured_chain_discriminant_for_transaction_draft() -> None:
+def test_transfer_helper_preserves_selected_chain_discriminant_for_transaction_draft() -> None:
     client = ToriiClient(
         "http://torii.example",
         session=FakeSession([]),
@@ -4195,7 +4217,6 @@ def test_transfer_helper_normalizes_configured_chain_discriminant_for_transactio
     captured: dict[str, object] = {}
     source = account_address(0x46, 0x0171)
     destination = account_address(0x47, 0x0171)
-    fixed_source = account_address(0x46)
     asset_definition_id = "7MBRDd8cGFBZkFGdDMwV7S6FPwbw"
 
     def fake_submit(draft: object, **kwargs: object) -> dict[str, object]:
@@ -4216,12 +4237,13 @@ def test_transfer_helper_normalizes_configured_chain_discriminant_for_transactio
     ) == {"hash": "transfer-taira"}
 
     draft = captured["draft"]
-    assert draft.config.authority == fixed_source
+    assert draft.config.authority == source
+    assert draft.config.chain_discriminant == 369
     assert len(draft) == 1
     assert captured["kwargs"]["private_key_hex"] == "22" * 32
 
 
-def test_transfer_helper_normalizes_scoped_asset_id_account_segment() -> None:
+def test_transfer_helper_preserves_selected_scoped_asset_id_account_segment() -> None:
     client = ToriiClient(
         "http://torii.example",
         session=FakeSession([]),
@@ -4232,7 +4254,6 @@ def test_transfer_helper_normalizes_scoped_asset_id_account_segment() -> None:
     captured: dict[str, object] = {}
     source = account_address(0x48, 0x0171)
     destination = account_address(0x49, 0x0171)
-    fixed_source = account_address(0x48)
     asset_definition_id = "7MBRDd8cGFBZkFGdDMwV7S6FPwbw"
     scope = "dataspace:6647857470246403404"
 
@@ -4254,7 +4275,8 @@ def test_transfer_helper_normalizes_scoped_asset_id_account_segment() -> None:
     ) == {"hash": "transfer-taira-scoped"}
 
     draft = captured["draft"]
-    assert draft.config.authority == fixed_source
+    assert draft.config.authority == source
+    assert draft.config.chain_discriminant == 369
     assert len(draft) == 1
     assert captured["kwargs"]["private_key_hex"] == "23" * 32
 
@@ -4276,7 +4298,7 @@ def test_zk_instruction_helpers_serialize_full_surface() -> None:
     encoded = [instruction.to_json() for instruction in instructions]
     assert all(payload for payload in encoded)
     assert "\"vk_shield\"" not in encoded[0]
-    assert [Instruction.from_json(payload).to_json() for payload in encoded] == encoded
+    assert [Instruction.from_json(payload, chain_discriminant=753).to_json() for payload in encoded] == encoded
 
 
 def test_legacy_zk_ace_instruction_and_client_surfaces_are_absent() -> None:
@@ -4365,6 +4387,7 @@ def test_register_zk_asset_entry_surfaces_reject_transitional_keywords(
                     network_id=NETWORK_ID,
                     authority=account_address(0x75),
                     fee_payment=FEE_PAYMENT,
+                    chain_discriminant=753,
                 )
             ).register_zk_asset(asset_definition_id, **unexpected)
         else:
@@ -4373,6 +4396,7 @@ def test_register_zk_asset_entry_surfaces_reject_transitional_keywords(
                 "http://torii.example",
                 session=FakeSession([]),
                 max_retries=0,
+                chain_discriminant=753,
             ).register_zk_asset_and_wait(
                 authority="authority@is",
                 fee_payment=FEE_PAYMENT,
@@ -4391,7 +4415,7 @@ def test_zk_registration_helper_rejects_adversarial_inputs() -> None:
 
 
 def test_zk_client_helpers_build_transaction_drafts() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     captured: list[tuple[object, dict[str, object]]] = []
     asset_definition_id = "7MBRDd8cGFBZkFGdDMwV7S6FPwbw"
     source = account_address(0x63)
@@ -4427,7 +4451,7 @@ def test_zk_client_helpers_build_transaction_drafts() -> None:
 
 
 def test_verify_proof_client_helper_rejects_non_mapping_before_submission() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     client._submit_transaction_draft_result = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: pytest.fail("invalid ZK helper should not submit")
     )
@@ -4513,7 +4537,7 @@ def test_batch_helpers_reject_invalid_records(
     error_type: type[Exception],
     match: str,
 ) -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     client._submit_transaction_draft_result = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: pytest.fail("invalid batch should not submit")
     )
@@ -4556,7 +4580,7 @@ def test_permission_helpers_reject_invalid_inputs(
     kwargs: dict[str, object],
     match: str,
 ) -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT, chain_discriminant=753)
     client._submit_transaction_draft_result = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: pytest.fail("invalid permission should not submit")
     )

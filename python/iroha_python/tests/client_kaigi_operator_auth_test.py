@@ -380,7 +380,7 @@ def assert_exact_signature(call: dict[str, Any], target: str) -> None:
 
 def test_kaigi_diagnostics_require_operator_context_and_reject_precomputed_auth() -> None:
     missing_session = RecordingSession([])
-    missing = ToriiClient("https://torii.example", session=missing_session)
+    missing = ToriiClient("https://torii.example", session=missing_session, chain_discriminant=753)
     for call in (
         missing.list_kaigi_relays,
         lambda: missing.get_kaigi_relay(RELAY_ID),
@@ -400,6 +400,7 @@ def test_kaigi_diagnostics_require_operator_context_and_reject_precomputed_auth(
             session=precomputed_session,
             operator_signing_context=context(),
             default_headers={"X-Iroha-Operator-Nonce": "precomputed"},
+            chain_discriminant=753,
         )
         precomputed.list_kaigi_relays()
     assert precomputed_session.calls == []
@@ -409,6 +410,7 @@ def test_kaigi_diagnostics_require_operator_context_and_reject_precomputed_auth(
         "https://torii.example",
         session=cookie_session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
     cookie_session.cookies.set("session", "ambient-authority")
     with pytest.raises(ValueError, match="Session.cookies"):
@@ -442,6 +444,7 @@ def test_kaigi_diagnostics_sign_exact_network_targets_once() -> None:
         max_retries=7,
         retry_on_methods=["GET"],
         retry_on_status=[503],
+        chain_discriminant=753,
     )
 
     assert client.list_kaigi_relays_typed().total == 0
@@ -472,6 +475,7 @@ def test_kaigi_operator_read_does_not_retry_after_dispatch() -> None:
         max_retries=7,
         retry_on_methods=["GET"],
         retry_on_status=[503],
+        chain_discriminant=753,
     )
 
     with pytest.raises(RuntimeError):
@@ -486,6 +490,7 @@ def test_kaigi_detail_empty_success_is_not_treated_as_not_found() -> None:
         "https://torii.example",
         session=session,
         operator_signing_context=context(),
+        chain_discriminant=753,
     )
 
     with pytest.raises(RuntimeError, match="empty success response"):

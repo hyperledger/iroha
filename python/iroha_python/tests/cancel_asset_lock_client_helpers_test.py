@@ -69,13 +69,14 @@ def test_asset_lock_instruction_helpers_serialize_full_surface() -> None:
         Instruction.expire_asset_lock("lock-sdk-1"),
     ]
     encoded = [instruction.to_json() for instruction in instructions]
-    assert [Instruction.from_json(payload).to_json() for payload in encoded] == encoded
+    assert [Instruction.from_json(payload, chain_discriminant=753).to_json() for payload in encoded] == encoded
 
     draft = TransactionDraft(
         TransactionConfig(
             network_id=NETWORK_ID,
             authority=source,
             fee_payment=authority_fee_payment(charge_limits=[]),
+            chain_discriminant=753,
         )
     )
     draft.open_asset_lock(
@@ -93,7 +94,7 @@ def test_asset_lock_instruction_helpers_serialize_full_surface() -> None:
 
     draft_encoded = [instruction.to_json() for instruction in draft.instructions]
     assert len(draft_encoded) == 4
-    assert [Instruction.from_json(payload).to_json() for payload in draft_encoded] == draft_encoded
+    assert [Instruction.from_json(payload, chain_discriminant=753).to_json() for payload in draft_encoded] == draft_encoded
 
 
 def test_cancel_asset_lock_instruction_builder_has_exact_two_argument_runtime_shape() -> None:
@@ -127,6 +128,7 @@ def test_cancel_asset_lock_and_wait_builds_compare_and_cancel_instruction() -> N
         session=NoRequestSession(),
         max_retries=0,
         local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT,
+        chain_discriminant=753,
     )
     captured: dict[str, object] = {}
 
@@ -185,6 +187,7 @@ def test_cancel_asset_lock_and_wait_requires_expected_remaining_amount() -> None
         session=NoRequestSession(),
         max_retries=0,
         local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT,
+        chain_discriminant=753,
     )
 
     with pytest.raises(TypeError, match="expected_remaining_amount"):
@@ -203,6 +206,7 @@ def test_cancel_asset_lock_and_wait_rejects_non_positive_remaining_amount() -> N
         session=NoRequestSession(),
         max_retries=0,
         local_signing_context=TRANSACTION_LOCAL_SIGNING_CONTEXT,
+        chain_discriminant=753,
     )
 
     with pytest.raises(ValueError, match="expected_remaining_amount must be positive"):
@@ -233,7 +237,7 @@ def test_native_asset_lock_accepts_exact_quantity_boundaries(amount: str) -> Non
     )
 
     encoded = instruction.to_json()
-    assert Instruction.from_json(encoded).to_json() == encoded
+    assert Instruction.from_json(encoded, chain_discriminant=753).to_json() == encoded
 
 
 @pytest.mark.parametrize(
@@ -280,6 +284,7 @@ def test_cancel_asset_lock_bounds_exact_utf8_lock_id_preimage() -> None:
             network_id=NETWORK_ID,
             authority=account_address(0x75),
             fee_payment=authority_fee_payment(charge_limits=[]),
+            chain_discriminant=753,
         )
     )
     draft.cancel_asset_lock(exact_bound, "1")
@@ -305,6 +310,7 @@ def test_cancel_asset_lock_rejects_unclean_lock_id_preimage(lock_id: str) -> Non
             network_id=NETWORK_ID,
             authority=account_address(0x75),
             fee_payment=authority_fee_payment(charge_limits=[]),
+            chain_discriminant=753,
         )
     )
     with pytest.raises(ValueError):
@@ -340,6 +346,7 @@ def test_asset_lock_transaction_draft_rejects_non_positive_amounts(
             network_id=NETWORK_ID,
             authority=account,
             fee_payment=authority_fee_payment(charge_limits=[]),
+            chain_discriminant=753,
         )
     )
     method = getattr(draft, method_name)
@@ -372,6 +379,7 @@ def test_asset_lock_transaction_draft_rejects_non_positive_expected_remaining_am
             network_id=NETWORK_ID,
             authority=account,
             fee_payment=authority_fee_payment(charge_limits=[]),
+            chain_discriminant=753,
         )
     )
     method = getattr(draft, method_name)
@@ -396,6 +404,7 @@ def test_asset_lock_transaction_draft_rejects_empty_identifiers() -> None:
             network_id=NETWORK_ID,
             authority=account,
             fee_payment=authority_fee_payment(charge_limits=[]),
+            chain_discriminant=753,
         )
     )
 

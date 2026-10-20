@@ -4910,9 +4910,28 @@ def test_native_original_start_guard_refuses_before_body_admission():
     capture = source.split("pub(crate) fn native_frame_read(", 1)[1].split("/// Read the exact frame", 1)[0]
     assert "let slot = store.read_block_index(position)?;" in capture
     assert "start: slot.start" in capture
-    read = source.split("pub(crate) fn read(", 1)[1].split("impl Kura", 1)[0]
-    assert read.index('sumeragi_core_mutation = "HC187"') < read.index("NativeFrameDestination::new")
+    # The retained destination constructor stores only the original pool handle;
+    # backing admission lives in prepare after exact durable-source authentication.
+    destination = source.split("impl NativeFrameDestination {", 1)[1].split("impl AsRef", 1)[0]
+    constructor = named_rust_function(destination, "new")
+    assert re.sub(r"\s+", "", constructor) == (
+        "fnnew(budget:&iroha_allocation::AllocationBudget)->Self{Self{"
+        "bytes:None,charge:None,length:None,budget:budget.clone(),}}"
+    )
+    owner = source.split("impl NativeFrameBinding {", 1)[1].split("impl Kura", 1)[0]
+    read = named_rust_function(owner, "read_original")
+    guard = read.index('sumeragi_core_mutation = "HC187"')
     assert "slot.start != start" in read
+    assert read.index("slot.start != start") < read.index("let length = usize::try_from(wire_len)?;")
+    assert read.count("destination.prepare(length, height)") == 2
+    for admission in ("Kura::read_regular_sidecar_snapshot_into(",
+                      "reserve_decode_allocation(length)",
+                      "destination.prepare(length, height)",
+                      "store.read_block_data(slot.start, bytes.as_mut())?"):
+        assert guard < read.index(admission)
+    prepare = named_rust_function(destination, "prepare")
+    assert "self.budget.try_reserve(layout)" in prepare
+    assert "iroha_allocation::ChargedBuffer::try_from_charge(length, charge)" in prepare
     body = source.split("fn native_frame_original_start_refuses_same_inode_relocation_before_body_admission()", 1)[1].split("#[test]", 1)[0]
     for required in ["slot.start.checked_add(1)", "pool.try_reserve_bytes(pool.limit_bytes())",
                      "source.read(length, &pool)", "Error::CanonicalBlockWireMismatch { height: 2 }",

@@ -211,6 +211,7 @@ def test_sumeragi_evidence_query_rejects_noncanonical_values_before_dispatch(
         "https://torii.example",
         session=session,
         operator_signing_context=signing_context(),
+        chain_discriminant=753,
     )
 
     with pytest.raises((TypeError, ValueError), match=expected):
@@ -271,6 +272,7 @@ def test_sumeragi_evidence_reads_enforce_strict_bounded_json(
         "https://torii.example",
         session=session,
         operator_signing_context=signing_context(),
+        chain_discriminant=753,
     )
 
     with pytest.raises(error_type, match=message):
@@ -327,6 +329,7 @@ def test_operator_reads_sign_exact_path_network_and_empty_body_once(
         max_retries=5,
         retry_on_methods=["GET"],
         retry_on_status=[503],
+        chain_discriminant=753,
     )
 
     with pytest.raises(RuntimeError):
@@ -374,7 +377,7 @@ def test_operator_reads_fail_before_dispatch_without_context(
 ) -> None:
     del path
     session = RecordingSession()
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="operator_signing_context"):
         invoke(client)
@@ -390,6 +393,7 @@ def test_operator_reads_reject_session_auth_and_adapter_retries_before_dispatch(
             "https://torii.example",
             session=header_session,
             operator_signing_context=signing_context(),
+            chain_discriminant=753,
         )
     assert header_session.calls == []
 
@@ -400,6 +404,7 @@ def test_operator_reads_reject_session_auth_and_adapter_retries_before_dispatch(
             "https://torii.example",
             session=auth_session,
             operator_signing_context=signing_context(),
+            chain_discriminant=753,
         )
     assert auth_session.calls == []
 
@@ -409,6 +414,7 @@ def test_operator_reads_reject_session_auth_and_adapter_retries_before_dispatch(
         "https://torii.example",
         session=retry_session,
         operator_signing_context=signing_context(),
+        chain_discriminant=753,
     )
     with pytest.raises(ValueError, match="retries to be disabled"):
         retry_client.get_time_status()
@@ -421,6 +427,7 @@ def test_operator_reads_generate_a_fresh_nonce_for_each_dispatch() -> None:
         "https://torii.example",
         session=session,
         operator_signing_context=signing_context(),
+        chain_discriminant=753,
     )
 
     for _ in range(2):
@@ -517,6 +524,7 @@ def _evidence_page(payload: Any, *, limit: int = 50, offset: int = 0, kind: str 
     client = ToriiClient(
         "https://torii.example", session=RecordingSession(response),
         operator_signing_context=signing_context(),
+        chain_discriminant=753,
     )
     return client.list_sumeragi_evidence(limit=limit, offset=offset, kind=kind)
 

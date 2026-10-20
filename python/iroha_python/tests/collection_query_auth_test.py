@@ -110,6 +110,7 @@ def _signed_client(
             timestamp_ms=4_102_444_801_000,
             nonce="python-collection-query-auth",
         ),
+        chain_discriminant=753,
     )
 
 
@@ -165,7 +166,7 @@ def test_configured_credentials_sign_the_exact_one_shot_target_of_every_query() 
 
 def test_queries_never_require_credentials() -> None:
     session = _Session([200] * len(_EXPECTED_PATHS))
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     _query_every_collection(client)
 
@@ -178,7 +179,7 @@ def test_queries_never_require_credentials() -> None:
 
 def test_inline_secrets_and_precomputed_signatures_are_rejected_before_dispatch() -> None:
     session = _Session([])
-    client = ToriiClient("https://torii.example", session=session)
+    client = ToriiClient("https://torii.example", session=session, chain_discriminant=753)
     with pytest.raises(TypeError, match="private_key"):
         client.accounts.list(limit=1, private_key="inline-secret")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="canonical authentication headers"):
@@ -186,6 +187,7 @@ def test_inline_secrets_and_precomputed_signatures_are_rejected_before_dispatch(
             "https://torii.example",
             session=_Session([]),
             default_headers={"X-Iroha-Signature": "precomputed"},
+            chain_discriminant=753,
         )
     assert session.calls == []
 
@@ -196,7 +198,7 @@ def test_query_dispatch_is_not_retried_after_a_503(signed: bool) -> None:
     client = (
         _signed_client(session)
         if signed
-        else ToriiClient("https://torii.example", session=session, max_retries=4)
+        else ToriiClient("https://torii.example", session=session, max_retries=4, chain_discriminant=753)
     )
     with pytest.raises(ToriiUnavailableError, match="unexpected status 503"):
         client.accounts.list(limit=1)

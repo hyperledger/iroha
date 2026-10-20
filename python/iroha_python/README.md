@@ -754,6 +754,7 @@ from iroha_python import NetworkId, TransactionConfig, TransactionDraft, authori
 
 draft = TransactionDraft(
     TransactionConfig(
+        chain_discriminant=753,  # Independently selected for these fixture accounts.
         network_id=NetworkId.parse(
             "hash:A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5#95D7"
         ),
@@ -1289,6 +1290,7 @@ from iroha_python import (
 )
 
 config = TransactionConfig(
+    chain_discriminant=753,  # Independently selected for these fixture accounts.
     network_id=NetworkId.parse(
         "hash:A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5#95D7"
     ),
@@ -1299,6 +1301,7 @@ config = TransactionConfig(
 client = ToriiClient(
     "http://127.0.0.1:8080",
     local_signing_context=LocalSigningContext(config.network_id),
+    chain_discriminant=config.chain_discriminant,
 )
 draft = TransactionDraft(config)
 draft.register_domain("wonderland") \
@@ -1381,6 +1384,24 @@ The ABI-30 native call returns projection JSON and checkpoint bytes separately.
 An authenticated contract rejection includes a nullable `message` from the
 contract's static error catalog, preserving its exact Unicode text and spacing.
 
+Transaction construction, fee-program factories, typed instruction JSON input,
+envelope import/reconstruction, prepared receipt verification, and verified
+committed-output projections require an independently selected exact u16
+`chain_discriminant` (the output verifier calls it `expected_chain_discriminant`).
+Boolean values, omission, and foreign-prefix textual account literals are rejected.
+`ToriiClient` may omit this context for account-free reads; account/signing APIs
+then refuse before dispatch. The client preserves selected literals instead of
+rewriting them. This presentation context does not authenticate a network.
+
+`Instruction.from_norito_bytes` and `Instruction.to_json` operate on canonical
+prefix-neutral controller bytes. The latter returns a framed-base64 JSON string,
+not a textual account projection. `Instruction.from_json(..., chain_discriminant=...)`
+also admits structured account-bearing JSON under the selected context. Binary
+instructions retain no historical display prefix; adding them to another builder
+cannot retrospectively authenticate discarded input text. Other standalone
+identity factories (including `update_plain_conviction`) still consume canonical
+universal identities, rather than a selected network's textual input contract.
+
 Native instructions and deployed-contract calls can share one ordered, atomic
 batch. Any batch containing a contract call must bind a positive `gas_limit`
 in its fee intent:
@@ -1389,6 +1410,7 @@ in its fee intent:
 from iroha_python import Instruction, NetworkId, TransactionConfig, TransactionDraft, authority_fee_payment
 
 mixed = TransactionDraft(TransactionConfig(
+    chain_discriminant=753,  # Select the actual network presentation context.
     network_id=NetworkId.parse(
         "hash:A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5#95D7"
     ),
@@ -1422,6 +1444,7 @@ requested_fee_payment = sponsor_fee_payment(
 )
 
 config = TransactionConfig(
+    chain_discriminant=753,  # Independently selected for these fixture accounts.
     network_id=NetworkId.parse(
         "hash:A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5#95D7"
     ),

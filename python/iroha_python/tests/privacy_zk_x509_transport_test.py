@@ -79,7 +79,10 @@ class _FakeCrypto:
         self,
         wire: object,
         network_id: object,
+        *,
+        chain_discriminant: int,
     ) -> SimpleNamespace:
+        assert chain_discriminant == 753
         self.events.append("reconstruct")
         assert wire == SIGNED_X509_WIRE
         assert network_id == NETWORK_ID
@@ -127,6 +130,7 @@ def _client_with_crypto(
             "https://torii.invalid",
             sorafs_alias_policy=alias_policy,
             local_signing_context=LocalSigningContext(NETWORK_ID),
+            chain_discriminant=753,
         ),
         fake_crypto,
         events,
@@ -361,6 +365,7 @@ def test_transaction_draft_delegates_exact_x509_prepare_and_sign_inputs(
                 "value": {"charge_limits": [], "gas_limit": 1000},
             },
             creation_time_ms=42,
+            chain_discriminant=753,
         )
     )
     monkeypatch.setattr(draft, "to_builder", lambda: Builder())
@@ -396,6 +401,7 @@ def test_transaction_draft_rejects_x509_action_mixing_before_native_call(
                 "value": {"charge_limits": [], "gas_limit": 1000},
             },
             creation_time_ms=42,
+            chain_discriminant=753,
         )
     )
     draft.add_instruction(object())  # type: ignore[arg-type]

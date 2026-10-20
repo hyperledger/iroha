@@ -27,7 +27,7 @@ def test_runtime_upgrade_manifest_rejects_non_v1_abi() -> None:
 
 def test_propose_runtime_upgrade_serializes_v1_manifest() -> None:
     session = RecordingSession(StubResponse(payload={"ok": True, "tx_instructions": []}))
-    client = ToriiClient("http://node.test", session=session)
+    client = ToriiClient("http://node.test", session=session, chain_discriminant=753)
 
     client.propose_runtime_upgrade(
         {

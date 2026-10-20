@@ -42,7 +42,7 @@ def faucet_case():
         "network_id": NetworkId.parse(vector["network_id"]),
     }
     session = NoDispatchSession()
-    return ToriiClient("https://torii.example", session=session), session, prepared, pins
+    return ToriiClient("https://torii.example", session=session, chain_discriminant=753), session, prepared, pins
 
 
 def test_faucet_validation_authenticates_golden_without_dispatch(

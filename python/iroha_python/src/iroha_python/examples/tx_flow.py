@@ -52,6 +52,7 @@ def build_sample_transaction(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build and optionally submit a sample transaction")
+    parser.add_argument("--chain-discriminant", type=int, required=True, help="Independently selected I105 prefix (0..65535)")
     parser.add_argument("--base-url", default="http://127.0.0.1:8080", help="Torii base URL")
     parser.add_argument(
         "--network-id",
@@ -146,6 +147,7 @@ def main() -> None:
         parser.error(f"--network-id must be canonical: {exc}")
 
     config = TransactionConfig(
+        chain_discriminant=args.chain_discriminant,
         network_id=network_id,
         authority=args.authority,
         fee_payment=requested_fee_payment,

@@ -851,20 +851,28 @@ fn cold_child_rejects_substituted_signed_genesis_before_wallet_and_binds_reports
         .stack_size(TEST_STACK_BYTES)
         .spawn(|| {
             let root = tempfile::tempdir().unwrap();
-            let original = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
-                .with_base_seed("cold-original-pins")
-                .build();
-            let replacement = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
-                .with_base_seed("cold-replacement-pins")
-                .build();
-            let mut input = test_input(
-                &original,
-                root.path()
-                    .join("never-opened")
-                    .to_str()
-                    .unwrap()
-                    .to_owned(),
-            );
+            // These unstarted networks only supply owned signed inputs. Release
+            // each network permit before constructing the next fixture, and make
+            // the deadline-bearing input last so genesis preparation cannot age it.
+            let replacement_genesis = {
+                let replacement = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
+                    .with_base_seed("cold-replacement-pins")
+                    .build();
+                replacement.genesis().0.encode_wire().unwrap()
+            };
+            let mut input = {
+                let original = n3_smoke_builder(TopologyShape::new(PARTICIPANT_COUNT))
+                    .with_base_seed("cold-original-pins")
+                    .build();
+                test_input(
+                    &original,
+                    root.path()
+                        .join("never-opened")
+                        .to_str()
+                        .unwrap()
+                        .to_owned(),
+                )
+            };
             assert!(verifier(&input).is_ok());
             let account = client(&input).expect("explicit cold client configuration");
             assert_eq!(account.authority(), &*ALICE_ID);
@@ -902,7 +910,7 @@ fn cold_child_rejects_substituted_signed_genesis_before_wallet_and_binds_reports
                 unix_ms().unwrap() + COLD_CASE_LIMIT.as_millis() as u64 + 60_000;
             assert!(remaining(&input).is_err());
             input.deadline_unix_ms = original_deadline;
-            input.original_genesis = replacement.genesis().0.encode_wire().unwrap();
+            input.original_genesis = replacement_genesis;
             assert!(verifier(&input).is_err());
             assert!(execute(input).is_err());
             assert!(

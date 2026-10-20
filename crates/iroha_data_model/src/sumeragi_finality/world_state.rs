@@ -432,6 +432,20 @@ impl VerifiedWorldStateSnapshotV1 {
         Err(fail("Certified canonical native table omits the exact key"))
     }
 
+    /// Prove the exact asset has no direct-dataspace home at this certified complete cut.
+    /// The caller independently selects the canonical native World schema. This check
+    /// does not authenticate the asset definition or its domain; those require exact
+    /// semantic membership at the same cut. Query errors and derived indexes are not
+    /// absence evidence.
+    /// # Errors
+    /// Present or unencodable key, or incompatible native table kind.
+    pub fn verify_asset_definition_direct_home_absent(
+        &self,
+        key: &crate::asset::AssetDefinitionId,
+    ) -> Result<(), FinalityError> {
+        self.verify_native_table_key_absent("world.asset_definition_direct_homes", key)
+    }
+
     // Exact-key completeness helpers below name fixed canonical native tables.
     // The separate finite-domain verifier checks complete native table containment;
     // derived indexes and partial snapshots never establish any absence.
