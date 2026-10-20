@@ -14,6 +14,9 @@ use crate::{
 
 #[test]
 fn terminal_amx_retry_does_not_repeat_completed_target_after_gap_refusal() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (mut chain, tx, _) = committed_source(1);
     chain.commit_at(3_000, Vec::new());
     chain.commit_at(4_000, Vec::new());

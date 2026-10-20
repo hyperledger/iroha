@@ -2,7 +2,6 @@
 //! alongside functions for converting them into HTTP responses.
 #[cfg(test)]
 mod accounting_tests;
-mod canonical_topk;
 mod fast_iter_decode;
 pub(crate) mod json_predicate;
 mod ordinary_iterable;
@@ -26,11 +25,6 @@ use crate::{
         TransactionHistoryAnchor, TransactionHistoryCursor, visit_committed_transactions,
     },
     state::{State, StateReadOnly, WorldReadOnly},
-};
-pub use canonical_topk::{
-    CANONICAL_QUERY_OUTPUT_CONTAINER_OVERHEAD_BYTES, CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES,
-    CANONICAL_QUERY_RETAINED_ITEM_OVERHEAD_BYTES, CanonicalQueryOutputAccumulator,
-    CanonicalQueryOutputLimits, canonical_query_candidate_allocation_bytes,
 };
 use eyre::Result;
 use fast_iter_decode::FastIterComponentDecoder;
@@ -116,7 +110,6 @@ pub trait SortableQueryOutput {
 pub struct QueryLimits {
     max_fetch_size: u64,
     count_mode: QueryCountMode,
-    canonical_output_limits: Option<CanonicalQueryOutputLimits>,
     singular_output_limits: Option<SingularQueryOutputLimits>,
     ordinary_execution_limits: Option<OrdinaryQueryExecutionLimits>,
     server_memory_budget: bool,
@@ -456,7 +449,6 @@ impl QueryLimits {
         Self {
             max_fetch_size: max_fetch_size.max(1),
             count_mode: QueryCountMode::Exact,
-            canonical_output_limits: None,
             singular_output_limits: None,
             ordinary_execution_limits: None,
             server_memory_budget: false,
@@ -468,13 +460,6 @@ impl QueryLimits {
         self.count_mode = count_mode;
         self
     }
-    /// Enable bounded canonical top-K output for a server-owned ephemeral lane.
-    #[must_use]
-    pub fn with_canonical_output_limits(mut self, limits: CanonicalQueryOutputLimits) -> Self {
-        self.canonical_output_limits = Some(limits);
-        self.server_memory_budget = true;
-        self
-    }
     /// Enable bounded singular-output ownership for a server-owned ephemeral lane.
     #[must_use]
     pub fn with_singular_output_limits(mut self, limits: SingularQueryOutputLimits) -> Self {
@@ -484,8 +469,7 @@ impl QueryLimits {
     }
     /// Enable the server-owned memory corridor for one ordinary Torii query.
     ///
-    /// This is independent of canonical fanout and remains disabled for IVM
-    /// and other in-process query callers.
+    /// This remains disabled for IVM and other in-process query callers.
     #[must_use]
     pub(crate) fn with_ordinary_execution_limits(
         mut self,
@@ -1878,14 +1862,6 @@ fn try_handle_find_transactions_ephemeral(
     limits: QueryLimits,
     budget: Option<QueryExecutionBudget>,
 ) -> Result<(QueryOutput, QueryExecutionStats), Error> {
-    if limits.canonical_output_limits.is_some() {
-        // TODO: bind the carrier decode graph and projected rows to the fanout
-        // resident-memory reservation before admitting this query kind.
-        return Err(Error::Conversion(
-            "canonical fanout requires a carrier decode/resident-memory reservation before FindTransactions execution"
-                .to_owned(),
-        ));
-    }
     validate_transaction_sorted_materialization_budget(params, limits)?;
     let page = scan_transaction_page(
         state,
@@ -2676,11 +2652,6 @@ where
     let max_fetch = limits.max_fetch_size;
     if batch_size.get() > max_fetch {
         return Err(Error::FetchSizeTooBig);
-    }
-    if limits.canonical_output_limits.is_some() {
-        return Err(Error::Conversion(
-            "canonical query execution requires pre-source admission dispatch".to_owned(),
-        ));
     }
     if limits.count_mode == QueryCountMode::Bounded && params.sorting.sort_by_metadata_key.is_none()
     {
@@ -3484,7 +3455,6 @@ mod tests {
             escrow::{AssetEscrowKind, AssetEscrowRecord, AssetEscrowStatus, EscrowId},
         };
         use iroha_primitives::numeric::Quantity;
-        use std::collections::BTreeSet;
         let escrow_id = EscrowId::new(Hash::new("query-dispatch-escrow"));
         let record = AssetEscrowRecord {
             id: escrow_id,
@@ -3521,13 +3491,13 @@ mod tests {
         world.asset_escrows.insert(escrow_id, record.clone());
         world
             .asset_escrows_by_seller
-            .insert(ALICE_ID.clone(), BTreeSet::from([escrow_id]));
+            .insert((ALICE_ID.clone(), escrow_id), ());
         world
             .asset_escrows_by_buyer
-            .insert(BOB_ID.clone(), BTreeSet::from([escrow_id]));
+            .insert((BOB_ID.clone(), escrow_id), ());
         world
             .asset_escrows_by_status
-            .insert(AssetEscrowStatus::PaymentSent, BTreeSet::from([escrow_id]));
+            .insert((AssetEscrowStatus::PaymentSent, escrow_id), ());
         let handle = LiveQueryStore::start_test();
         let state = State::new(world, Kura::blank_kura_for_testing(), handle.clone());
         (state, handle, record)
@@ -8412,7 +8382,9 @@ mod tests {
                 .insert(record.id);
         }
         for (status, proof_ids) in proof_status_index {
-            state.world.proofs_by_status.insert(status, proof_ids);
+            for proof_id in proof_ids {
+                state.world.proofs_by_status.insert((status, proof_id), ());
+            }
         }
         let state_view = state.view();
         assert_eq!(

@@ -499,3 +499,78 @@ fn native_emission_projection_binds_full_historical_record_and_coordinates() {
     projection.emission = Value::Null;
     assert!(native_contract_emission_is_visible_in_block(&reader, &projection, &block).is_err());
 }
+
+#[test]
+fn anonymous_history_never_fabricates_a_signer_or_account_activity() {
+    let (key, network, _) = carrier_identity();
+    let entry = crate::anonymous_ballot_test_support::entrypoint(network);
+    let TransactionEntrypoint::AnonymousBallot(envelope) = entry else {
+        unreachable!()
+    };
+    let header = BlockHeader::new(
+        std::num::NonZeroU64::new(2).unwrap(),
+        Some(HashOf::from_untyped_unchecked(Hash::new(
+            b"anonymous projection parent",
+        ))),
+        None,
+        1_000,
+        0,
+    );
+    let mut builder = BlockBuilder::new(header);
+    builder.push_anonymous_ballot(envelope);
+    let mut block = builder.build_with_signature(0, key.private_key());
+    block
+        .set_execution_outputs(
+            vec![ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
+                input_index: 0,
+                result: TransactionResult::new(Ok(vec![])),
+                completions: vec![],
+            })],
+            0,
+            Default::default(),
+            vec![],
+            Default::default(),
+            Default::default(),
+            &ExecutionOutputLimits {
+                max_outputs: 4,
+                max_output_bytes: 65_536,
+                max_total_output_bytes: 262_144,
+                max_executed_wire_bytes: 1_048_576,
+            },
+        )
+        .unwrap();
+    let source = block.network_entrypoint_at(0).unwrap();
+    let owned = iroha_data_model::query::CommittedTransaction {
+        block_hash: block.hash(),
+        entrypoint_hash: source.hash(),
+        entrypoint_proof: block.network_input_proof(0).unwrap(),
+        entrypoint: source.clone(),
+        output_hash: HashOf::new(&block.execution_outputs()[0]),
+        output_proof: block.output_proof(0).unwrap(),
+        output: block.execution_outputs()[0].clone(),
+    };
+    assert!(owned.verify_inclusion_in_block(&block));
+    assert_eq!(
+        tx_field_value(&owned, "entrypoint_kind"),
+        Some("anonymous_ballot".into())
+    );
+    for field in ["authority", "timestamp_ms", "metadata.memo"] {
+        assert_eq!(tx_field_value(&owned, field), None);
+    }
+    let account = AccountId::new(key.public_key().clone());
+    assert!(!tx_references_account_id(&owned, &account));
+    assert!(!tx_matches_account_history_subject(&owned, &account));
+    assert!(!crate::transaction_details_authority_is_involved(
+        &account, &owned
+    ));
+    assert!(tx_collect_asset_ids(&owned).is_empty());
+    let mut index = AccountHistoryIndex::default();
+    append_account_history_projections_for_tx(&mut index, &owned, 2);
+    assert!(index.items.is_empty());
+    let projection = project_tx(&owned);
+    assert_eq!(projection.entrypoint_kind, "anonymous_ballot");
+    assert_eq!(projection.authority, None);
+    assert_eq!(projection.timestamp_ms, None);
+    assert!(external_signed_transaction_results(&block).next().is_none());
+    assert!(external_signed_transaction_result_at(&block, 0).is_none());
+}

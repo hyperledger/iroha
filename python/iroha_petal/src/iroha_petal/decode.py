@@ -791,6 +791,73 @@ def _read_tiles(
     return _classify(levelled, sigmas, False, _NOT_ERASED)
 
 
+@dataclass(frozen=True)
+class _TileEvidence:
+    """Raw canonical tile patches and finder levels from one decoded capture."""
+
+    patches: Sequence[Sequence[float]]
+    reference: _Reference
+
+
+def _tile_evidence(
+    image: Luma, frame: DecodedFrame, options: DecodeOptions
+) -> Optional[_TileEvidence]:
+    """Sample a usable capture under its independently decoded canonical pose."""
+    if not _supported(image, options) or (
+        frame.inferred_corner is not None and not 0 <= frame.inferred_corner <= 3
+    ):
+        return None
+    project = _projector(image, frame.homography)
+    reference = _reference_levels(project, frame.inferred_corner)
+    if reference is None:
+        return None
+    return _TileEvidence(_sample_patches(project), reference)
+
+
+def _levelled_patches(
+    patches: Sequence[Sequence[float]], reference: _Reference
+) -> List[List[float]]:
+    """Level each capture by its own finders before averaging its samples."""
+    levelled = []
+    for raw, (cx, cy) in zip(patches, _TILE_CENTERS):
+        lit, dark = reference.at(cx, cy)
+        levelled.append([ieee_div(value - dark, lit - dark) for value in raw])
+    return levelled
+
+
+def _mean_patches(sets: Sequence[Sequence[Sequence[float]]]) -> List[List[float]]:
+    """Cell-by-cell mean, summed in capture order like the Rust reference."""
+    mean = [[0.0] * _CELLS for _ in range(TILE_COUNT)]
+    for patches in sets:
+        for total, patch in zip(mean, patches):
+            for cell, value in enumerate(patch):
+                total[cell] += value
+    count = float(len(sets))
+    return [[value / count for value in patch] for patch in mean]
+
+
+def _merge_tiles(
+    evidence: Sequence[_TileEvidence], options: DecodeOptions
+) -> Tuple[Optional[LaneResult], Optional[LaneResult]]:
+    """Decode averaged tile lanes; the caller must check their shown-frame headers."""
+    if not evidence:
+        return None, None
+    levelled = _mean_patches([_levelled_patches(e.patches, e.reference) for e in evidence])
+    reads = _classify(levelled, options.template_sigmas, False, _NOT_ERASED)
+    (p_word, p_conf), (k_word, k_conf) = _tile_words(reads)
+    p = _decode_with_erasures(Lane.P, p_word, p_conf)
+    k = _decode_with_erasures(Lane.K, k_word, k_conf)
+    if p is None or k is None:
+        raw = _mean_patches([e.patches for e in evidence])
+        reads = _read_tiles_normalised(raw, options.template_sigmas)
+        (p_word, p_conf), (k_word, k_conf) = _tile_words(reads)
+        if p is None:
+            p = _decode_with_erasures(Lane.P, p_word, p_conf)
+        if k is None:
+            k = _decode_with_erasures(Lane.K, k_word, k_conf)
+    return p, k
+
+
 def _read_tiles_normalised(
     patches: Sequence[Sequence[float]], sigmas: Sequence[float]
 ) -> List[_TileRead]:

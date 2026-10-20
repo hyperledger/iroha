@@ -308,7 +308,7 @@ def test_sorafs_reputation_rest_helpers_validate_and_return_closed_profiles() ->
             StubResponse(200, event_page_payload()),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=9)
+    client = ToriiClient("http://torii.example", session=session, max_retries=9, chain_discriminant=753)
 
     latest = client.get_sorafs_reputation_latest(
         canonical_auth=auth,
@@ -379,7 +379,7 @@ def test_sorafs_reputation_stream_validates_snapshot_and_lagged_profiles() -> No
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=9)
+    client = ToriiClient("http://torii.example", session=session, max_retries=9, chain_discriminant=753)
     iterator = client.stream_sorafs_reputation_events(
         canonical_auth=canonical_auth(),
         since=7,
@@ -407,7 +407,7 @@ def test_sorafs_reputation_stream_validates_snapshot_and_lagged_profiles() -> No
 
 def test_sorafs_reputation_stream_rejects_redirect_without_following() -> None:
     session = SequencedSession([StubResponse(302, None)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=9)
+    client = ToriiClient("http://torii.example", session=session, max_retries=9, chain_discriminant=753)
     iterator = client.stream_sorafs_reputation_events(
         canonical_auth=canonical_auth(),
         with_metadata=True,
@@ -447,7 +447,7 @@ def test_sorafs_reputation_stream_never_reconnects_after_delivering_event() -> N
             ),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=9)
+    client = ToriiClient("http://torii.example", session=session, max_retries=9, chain_discriminant=753)
     iterator = client.stream_sorafs_reputation_events(
         canonical_auth=canonical_auth(signer),
         with_metadata=True,
@@ -462,7 +462,7 @@ def test_sorafs_reputation_stream_never_reconnects_after_delivering_event() -> N
 
 def test_sorafs_reputation_helpers_validate_inputs_before_request() -> None:
     session = SequencedSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     auth = canonical_auth()
 
     with pytest.raises(TypeError, match="unexpected keyword argument 'etag'"):
@@ -535,7 +535,7 @@ def test_sorafs_reputation_rejects_adapter_retries_before_signing() -> None:
     signed_messages: list[bytes] = []
     session = SequencedSession([StubResponse(200, snapshot_payload())])
     session.mount("http://", HTTPAdapter(max_retries=1))
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="transport retries to be disabled"):
         client.get_sorafs_reputation_latest(
@@ -596,7 +596,7 @@ def test_sorafs_reputation_witness_auth_is_exact_and_stream_is_single_attempt() 
             ),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=9)
+    client = ToriiClient("http://torii.example", session=session, max_retries=9, chain_discriminant=753)
     witness = base64_witness()
     public_key = Ed25519KeyPair.from_private_key(bytes([0x36]) * 32).public_key
     account = AccountAddress.from_account(public_key=public_key)
@@ -638,7 +638,7 @@ def test_sorafs_reputation_finite_json_boundary_rejects_invalid_bytes() -> None:
 
     for body, message in cases:
         session = SequencedSession([raw_response(body)])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         with pytest.raises(ValueError, match=message):
             client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
 
@@ -654,7 +654,7 @@ def test_sorafs_reputation_finite_response_uses_streamed_actual_byte_bound() -> 
         },
     )
     session = SequencedSession([valid])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.get_sorafs_reputation_latest(
         canonical_auth=canonical_auth()
@@ -672,7 +672,7 @@ def test_sorafs_reputation_finite_response_uses_streamed_actual_byte_bound() -> 
         },
     )
     session = SequencedSession([declared_oversize])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     with pytest.raises(ValueError, match="byte limit"):
         client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
     assert declared_oversize.iterated is False
@@ -682,7 +682,7 @@ def test_sorafs_reputation_finite_response_uses_streamed_actual_byte_bound() -> 
         [b"{" + b" " * _SORAFS_REPUTATION_RESPONSE_MAX_BYTES],
     )
     session = SequencedSession([actual_oversize])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     with pytest.raises(ValueError, match="byte limit"):
         client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
     assert actual_oversize.closed is True
@@ -720,14 +720,14 @@ def test_sorafs_reputation_finite_response_rejects_transport_aliases() -> None:
     for headers, message in cases:
         response = ChunkedStubResponse([body], headers=headers)
         session = SequencedSession([response])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         with pytest.raises(ValueError, match=message):
             client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
         assert response.closed is True
 
     prebuffered = raw_response(body)
     session = SequencedSession([prebuffered], honor_stream=False)
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     with pytest.raises(ValueError, match="transport prebuffered"):
         client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
 
@@ -739,7 +739,7 @@ def test_sorafs_reputation_error_status_is_payload_free_and_unread() -> None:
         headers={"Content-Type": "application/json"},
     )
     session = SequencedSession([response])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(RuntimeError, match="unexpected status 500"):
         client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
@@ -791,7 +791,7 @@ def test_sorafs_reputation_snapshot_validator_rejects_noncanonical_profiles() ->
 
     for payload, message in cases:
         session = SequencedSession([StubResponse(200, payload)])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         with pytest.raises(ValueError, match=message):
             client.get_sorafs_reputation_latest(canonical_auth=canonical_auth())
 
@@ -815,7 +815,7 @@ def test_sorafs_reputation_provider_proof_validator_rejects_mismatches() -> None
 
     for payload, message in cases:
         session = SequencedSession([StubResponse(200, payload)])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         with pytest.raises(ValueError, match=message):
             client.get_sorafs_reputation_provider(
                 PROVIDER_ID,
@@ -863,7 +863,7 @@ def test_sorafs_reputation_event_page_validator_rejects_chain_inconsistency() ->
 
     for payload, message in cases:
         session = SequencedSession([StubResponse(200, payload)])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         with pytest.raises(ValueError, match=message):
             client.list_sorafs_reputation_events(
                 canonical_auth=canonical_auth(),
@@ -909,7 +909,7 @@ def test_sorafs_reputation_sse_validator_rejects_invalid_profiles_before_callbac
     for lines, message in cases:
         delivered: list[Any] = []
         session = SequencedSession([SseStubResponse(lines)])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         iterator = client.stream_sorafs_reputation_events(
             canonical_auth=canonical_auth(),
             with_metadata=True,
@@ -937,7 +937,7 @@ def test_sorafs_reputation_sse_rejects_malformed_utf8_and_oversized_event() -> N
         (oversized, "exceeds its .*byte size bound"),
     ):
         session = SequencedSession([response])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         iterator = client.stream_sorafs_reputation_events(
             canonical_auth=canonical_auth(),
             with_metadata=True,
@@ -961,7 +961,7 @@ def test_sorafs_reputation_sse_requires_identity_event_stream_transport() -> Non
         response = SseStubResponse([])
         response.headers = CaseInsensitiveDict(headers)
         session = SequencedSession([response])
-        client = ToriiClient("http://torii.example", session=session, max_retries=0)
+        client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
         iterator = client.stream_sorafs_reputation_events(
             canonical_auth=canonical_auth(),
             with_metadata=True,

@@ -150,6 +150,9 @@ fn assert_prepared_without_digit_requests<'value>(
     prepare: impl Fn() -> PreparedNumericFrameV1<'value>,
     literal_frame: &[u8],
 ) {
+    // The per-thread schema frame-identity memo computes the frame name at most once per
+    // thread; warm it outside the measurement so every measured frame shows the steady state.
+    assert_eq!(prepare().encode_frame().unwrap(), literal_frame);
     for flags in [0, header_flags::COMPACT_LEN] {
         let _flags = DecodeFlagsGuard::enter(flags);
         for _ in 0..2 {
@@ -168,13 +171,13 @@ fn assert_prepared_without_digit_requests<'value>(
             assert_eq!(repeated_len, literal_frame.len());
             let (frame, requests) = measured(|| prepared.encode_frame());
             let frame = frame.unwrap();
-            // Count the existing nominal frame-name String and exact output Vec.
+            // With the frame identity memoized, only the exact output Vec is allocated.
             // This is not a fully funded native frame/output custody claim.
             assert_eq!(
                 requests,
                 Requests {
                     active: false,
-                    alloc: 2,
+                    alloc: 1,
                     zeroed: 0,
                     realloc: 0
                 }

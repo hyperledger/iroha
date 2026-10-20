@@ -124,8 +124,9 @@ pub(super) struct QueueAdmission {
 /// The production Queue's sole shared accepted owner; cloning retains the original graph.
 ///
 /// Proposal builders and gossip borrow these handles instead of copying transaction graphs;
-/// a handle keeps the original resident charge until its last reader drops it.
-pub(crate) struct QueuedTransaction {
+/// a handle keeps the original resident charge until its last reader drops it. The private
+/// module bounds it to the crate-visible re-export in `queue`.
+pub struct QueuedTransaction {
     original: Shared<QueueAdmission, QueueResidentCharge>,
 }
 

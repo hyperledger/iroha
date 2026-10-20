@@ -117,7 +117,7 @@ fn final_authority_destruction_control(opening: bool, explicit_release: bool) {
         );
         assert!(matches!(
             fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-            Some(StoreSlot::Opening(_, false))
+            Some(StoreSlot::Opening(_, owners)) if !owners.historical
         ));
         assert_eq!(
             fixture.stores.budget.reserved_bytes(),

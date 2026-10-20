@@ -137,11 +137,11 @@ impl<F: PoseidonField> RelationStatement<F> {
     /// # Errors
     /// More than [`EFFECT_UNION_FIELDS`] effect elements.
     pub fn fields(&self) -> Result<Vec<AbsorbInput<'_, F>>, Error> {
-        if self.effect.len() > EFFECT_UNION_FIELDS {
-            return Err(Error::Synthesis);
-        }
         fn optional<F: PoseidonField>(cell: Option<&Word<F>>) -> AbsorbInput<'_, F> {
             cell.map_or(AbsorbInput::Constant(F::ZERO), AbsorbInput::Word)
+        }
+        if self.effect.len() > EFFECT_UNION_FIELDS {
+            return Err(Error::Synthesis);
         }
         let word = AbsorbInput::Word;
         let mut inputs = vec![

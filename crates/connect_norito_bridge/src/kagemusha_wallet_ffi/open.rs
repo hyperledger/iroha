@@ -310,10 +310,8 @@ pub(crate) fn begin(id: u64, originals: [&[u8]; 4]) -> Result<Response> {
     {
         return Err(Failure::code(CONFLICT));
     }
-    let bytes = guard
-        .as_deref_mut()
-        .ok_or(Failure::code(CLOSED))?
-        .begin(originals)?;
+    let admission = guard.as_deref_mut().ok_or(Failure::code(CLOSED))?;
+    let bytes = custody_transaction(|| admission.begin(originals))?;
     Ok(Response {
         kind: 15,
         sequence: u128::from(id),
@@ -369,12 +367,18 @@ fn finish_with(
         };
     }
     if retained.is_none() {
-        let completed = admission
-            .as_deref_mut()
-            .ok_or(Failure::code(CLOSED))?
-            .finish(signature)?;
-        *retained = Some(completed);
-        admission.take();
+        // The owner is retained inside the custody transaction: its exit observation can refuse
+        // the answer, but never drop the admitted owner whose account authorization was consumed.
+        // A retry then promotes it, as after a registry error; its later calls observe custody.
+        custody_transaction(|| {
+            let completed = admission
+                .as_deref_mut()
+                .ok_or(Failure::code(CLOSED))?
+                .finish(signature)?;
+            *retained = Some(completed);
+            admission.take();
+            Ok(())
+        })?;
     }
     // Preserve an initialized owner before touching the registry. A registration error
     // cannot drop custody or repeat account authorization on a later promotion attempt.
@@ -431,10 +435,8 @@ fn enroll_with(owner: Arc<RuntimeOwner>, input: enrollment::Action<'_>) -> Resul
     {
         return Err(Failure::code(CONFLICT));
     }
-    admission
-        .as_deref_mut()
-        .ok_or(Failure::code(CLOSED))?
-        .enrollment(input)
+    let admission = admission.as_deref_mut().ok_or(Failure::code(CLOSED))?;
+    custody_transaction(|| admission.enrollment(input))
 }
 pub(super) fn close(owner: Arc<RuntimeOwner>) -> Result<()> {
     owner.closing.join(|| {

@@ -141,46 +141,60 @@ fn stage(block: &mut StateBlock<'_>) {
         .asset_escrows
         .insert(named(b"escrow insert"), insertion());
     block.world.asset_escrows.remove(named(b"escrow absent"));
-    let open = BTreeSet::from([named(b"escrow noop"), named(b"escrow untouched")]);
-    let alice = BTreeSet::from([
-        named(b"escrow noop"),
-        named(b"escrow untouched"),
-        named(b"escrow insert"),
-    ]);
-    block
-        .world
-        .asset_escrows_by_seller
-        .insert(ALICE_ID.clone(), alice);
-    block
-        .world
-        .asset_escrows_by_seller
-        .insert(BOB_ID.clone(), BTreeSet::from([fixture::id()]));
-    block.world.asset_escrows_by_seller.remove(absent_account());
-    block
-        .world
-        .asset_escrows_by_buyer
-        .insert(BOB_ID.clone(), open.clone());
-    block
-        .world
-        .asset_escrows_by_buyer
-        .insert(ALICE_ID.clone(), BTreeSet::from([named(b"escrow insert")]));
-    block.world.asset_escrows_by_buyer.remove(absent_account());
-    block
-        .world
-        .asset_escrows_by_status
-        .insert(AssetEscrowStatus::Open, open);
-    block
-        .world
-        .asset_escrows_by_status
-        .insert(AssetEscrowStatus::Accepted, BTreeSet::from([fixture::id()]));
-    block.world.asset_escrows_by_status.insert(
-        AssetEscrowStatus::Locked,
-        BTreeSet::from([named(b"escrow insert")]),
+    macro_rules! reset_members {
+        ($field:ident, $rows:expr) => {{
+            let old: Vec<_> = block
+                .world
+                .$field
+                .iter()
+                .map(|(key, ())| key.clone())
+                .collect();
+            for key in old {
+                block.world.$field.remove(key);
+            }
+            for key in $rows {
+                block.world.$field.insert(key, ());
+            }
+        }};
+    }
+    reset_members!(
+        asset_escrows_by_seller,
+        [
+            (ALICE_ID.clone(), named(b"escrow noop")),
+            (ALICE_ID.clone(), named(b"escrow untouched")),
+            (ALICE_ID.clone(), named(b"escrow insert")),
+            (BOB_ID.clone(), fixture::id()),
+        ]
+    );
+    reset_members!(
+        asset_escrows_by_buyer,
+        [
+            (BOB_ID.clone(), named(b"escrow noop")),
+            (BOB_ID.clone(), named(b"escrow untouched")),
+            (ALICE_ID.clone(), named(b"escrow insert")),
+        ]
+    );
+    reset_members!(
+        asset_escrows_by_status,
+        [
+            (AssetEscrowStatus::Open, named(b"escrow noop")),
+            (AssetEscrowStatus::Open, named(b"escrow untouched")),
+            (AssetEscrowStatus::Accepted, fixture::id()),
+            (AssetEscrowStatus::Locked, named(b"escrow insert")),
+        ]
     );
     block
         .world
+        .asset_escrows_by_seller
+        .remove((absent_account(), named(b"escrow absent")));
+    block
+        .world
+        .asset_escrows_by_buyer
+        .remove((absent_account(), named(b"escrow absent")));
+    block
+        .world
         .asset_escrows_by_status
-        .remove(AssetEscrowStatus::Expired);
+        .remove((AssetEscrowStatus::Expired, named(b"escrow absent")));
 }
 #[test]
 fn ordinary_buyer_migrations_insert_delete_noop_absence_and_untouched_members_retain_originals() {
@@ -215,24 +229,31 @@ fn ordinary_buyer_migrations_insert_delete_noop_absence_and_untouched_members_re
             .undo_entries()
             .any(|(id, prior)| id == &named(b"escrow absent") && prior.is_none())
     );
-    assert!(
+    assert_eq!(
         original
             .buyers
             .undo_entries()
-            .any(|(id, prior)| id == &*BOB_ID
-                && prior.as_ref().is_some_and(|members| members.len() == 4))
+            .filter(|((owner, _), prior)| owner == &*BOB_ID && prior.is_some())
+            .count(),
+        4,
     );
     assert!(
         original
             .sellers
             .undo_entries()
-            .any(|(id, prior)| id == &absent_account() && prior.is_none())
+            .any(|((owner, id), prior)| owner == &absent_account()
+                && id == &named(b"escrow absent")
+                && prior.is_none())
     );
     assert!(
         original
             .statuses
             .undo_entries()
-            .any(|(id, prior)| id == &AssetEscrowStatus::Expired && prior.is_none())
+            .any(
+                |((status, id), prior)| status == &AssetEscrowStatus::Expired
+                    && id == &named(b"escrow absent")
+                    && prior.is_none()
+            )
     );
     let work = exact(&original);
     assert_eq!(
@@ -281,12 +302,18 @@ fn replacement_keeps_exact_rewound_four_images_modes_and_canonical_bytes() {
     let state = state(world);
     let mut block = state.block_and_revert(header());
     block.world.asset_escrows.remove(named(b"escrow absent"));
-    block.world.asset_escrows_by_seller.remove(absent_account());
-    block.world.asset_escrows_by_buyer.remove(absent_account());
+    block
+        .world
+        .asset_escrows_by_seller
+        .remove((absent_account(), named(b"escrow absent")));
+    block
+        .world
+        .asset_escrows_by_buyer
+        .remove((absent_account(), named(b"escrow absent")));
     block
         .world
         .asset_escrows_by_status
-        .remove(AssetEscrowStatus::Expired);
+        .remove((AssetEscrowStatus::Expired, named(b"escrow absent")));
     freeze(&mut block);
     let original = Original::retain(&block).unwrap();
     for mode in [
@@ -361,25 +388,18 @@ macro_rules! defect {
         let restore = $restore;
         macro_rules! group {
             ($field:ident,$valid:expr,$foreign:expr) => {{
-                let key = if case % 3 == 0 { $valid } else { $foreign };
-                let value = if restore {
-                    if case % 3 == 0 {
-                        Some(BTreeSet::from([fixture::id()]))
-                    } else {
-                        None
-                    }
+                let bucket = if case % 3 == 0 { $valid } else { $foreign };
+                let member = if case % 3 == 1 {
+                    named(b"absent escrow")
                 } else {
-                    if case % 3 == 0 {
-                        None
-                    } else {
-                        Some(if case % 3 == 1 {
-                            BTreeSet::new()
-                        } else {
-                            BTreeSet::from([fixture::id()])
-                        })
-                    }
+                    fixture::id()
                 };
-                alter!($world, $kind, $field, key, value);
+                let value = if restore {
+                    (case % 3 == 0).then_some(())
+                } else {
+                    (case % 3 != 0).then_some(())
+                };
+                alter!($world, $kind, $field, (bucket, member), value);
             }};
         }
         match case / 3 {
@@ -430,7 +450,7 @@ fn every_escrow_index_mismatch_rejects_either_original_image_before_allocation()
                         },
                         mismatch: match case % 3 {
                             0 => GroupMismatch::MissingMember,
-                            1 => GroupMismatch::EmptyGroup,
+                            1 => GroupMismatch::ForeignMember,
                             _ => GroupMismatch::ForeignMember,
                         },
                     }
@@ -447,7 +467,7 @@ fn buyerless_frozen_rows_cannot_have_any_buyer_inverse_membership() {
     block
         .world
         .asset_escrows_by_buyer
-        .insert(BOB_ID.clone(), BTreeSet::from([fixture::id()]));
+        .insert((BOB_ID.clone(), fixture::id()), ());
     freeze(&mut block);
     assert_eq!(
         capture(&block, limits(), fixture::TEST_WORK_ALLOWANCE).err(),
@@ -598,18 +618,18 @@ fn later_equal_or_changed_publications_cannot_refresh_any_escrow_original() {
                 0 => publish!(asset_escrows, named(b"later escrow"), replacement()),
                 1 => publish!(
                     asset_escrows_by_seller,
-                    absent_account(),
-                    BTreeSet::from([fixture::id()])
+                    (absent_account(), fixture::id()),
+                    ()
                 ),
                 2 => publish!(
                     asset_escrows_by_buyer,
-                    absent_account(),
-                    BTreeSet::from([fixture::id()])
+                    (absent_account(), fixture::id()),
+                    ()
                 ),
                 3 => publish!(
                     asset_escrows_by_status,
-                    AssetEscrowStatus::Expired,
-                    BTreeSet::from([fixture::id()])
+                    (AssetEscrowStatus::Expired, fixture::id()),
+                    ()
                 ),
                 _ => unreachable!(),
             }

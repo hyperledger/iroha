@@ -66,6 +66,15 @@ async fn native_inventory_route_requires_canonical_signature_and_refuses_unconfi
     state.state = Arc::clone(chain.state());
     state.kura = Arc::clone(chain.kura());
     state.chain_id = Arc::new(chain.state().chain_id_ref().clone());
+    state.signed_query_admission = Arc::new(
+        crate::routing::SignedQueryAdmission::new(
+            chain.network_id(),
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(120),
+            std::num::NonZeroUsize::new(1_024).unwrap(),
+        )
+        .expect("native inventory query admission"),
+    );
     assert!(state.sorafs_provider_attestation_inventory.is_none());
     assert!(state.sorafs_node.capacity_provider_id().is_none());
     let app = router(app);

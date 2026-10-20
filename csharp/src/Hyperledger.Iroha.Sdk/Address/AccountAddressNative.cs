@@ -21,7 +21,7 @@ internal static class AccountAddressNative
                 && NativeLibrary.TryGetExport(handle, "connect_norito_bridge_abi_version", out _)
                 && NativeLibrary.TryGetExport(handle, "connect_norito_account_address_render", out _)
                 && NativeLibrary.TryGetExport(handle, "connect_norito_free", out _)
-                && BridgeAbiVersion() == 30;
+                && BridgeAbiVersion() == 31;
         }
         catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
@@ -86,7 +86,7 @@ internal static class AccountAddressNative
 
     private static AccountAddressException Unavailable(Exception? inner = null) => new(
         AccountAddressErrorCode.NativeBridgeUnavailable,
-        "Account addresses require the complete ABI-30 Rust address validator from connect_norito_bridge.", inner);
+        "Account addresses require the complete ABI-31 Rust address validator from connect_norito_bridge.", inner);
 
     private static AccountAddressErrorCode MapCode(string? code) => code switch
     {

@@ -1851,7 +1851,11 @@ async fn signed_identifier_owner_cannot_retarget_beneficiary_uri_after_signing()
     )
     .await
     .expect_err("canonical owner signature binds the exact beneficiary path");
-    assert!(matches!(error, Error::AppUnauthorized { .. }));
+    assert!(
+        matches!(error, Error::Query(iroha_data_model::ValidationFail::NotPermitted(ref message))
+        if message == "query signature failed verification"),
+        "{error:?}"
+    );
 }
 
 #[cfg(feature = "app_api")]

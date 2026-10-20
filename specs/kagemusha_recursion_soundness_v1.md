@@ -1122,9 +1122,27 @@ circuit computations: even at a fresh disjoint address, an independent uniform
 oracle word equals the fixed circuit word with probability only `1/p`. This
 refutes that proposed general implication, not the actual protocol, whose two
 paths use fixed RP57. The retained historical reverse-erasure argument has ten
-suffix calls; the current native Load order is the lean
-`A1,W0,A2,Omega` (owner decision 2026-10-17: A1 proves the Load transition
-directly, with no own `Q_sigma`, and A2 owns the single own-receipt leaf).
+suffix calls. The earlier lean Load used `A1,W0,A2,Omega`. The single-terminal
+repack uses `Q0,A0,Omega`: A0 proves the Load transition and recovery insertion,
+verifies the hard own-receipt Q0, and binds the predecessor in the same circuit.
+There is no own `Q_sigma` or W continuation on this route.
+
+`a_relation::split::close_single` accepts exactly one A stage, a predecessor in
+that stage, no incoming lineage, and no sigma leaf. It binds the complete stage-0
+Q partition and the verified predecessor to the context's expected public fields,
+Pallas/Vesta claims and successor Omega-key digest. The operation's monetary
+relation binds both state openings to the predecessor and successor lineage;
+omitting an inter-stage context digest does not omit those state bindings.
+The native and circuit fold use the same ordered claims
+`[predecessor Pallas, predecessor opening, Q0 opening, pinned trivial]` under four
+fixed-k16 sources and the hard `ATerminal` purpose. The final frame contains the
+digest binding the successor lineage and folded Pallas claim, the trivial sigma
+part and predecessor Vesta claim; the terminal output/checkpoint carries the full
+Pallas claim separately. Unload and Retiring use the same closure with their respective
+recovery/state and authorization tasks. This is a changed closure relation;
+previous split-stage capacity, key-import or proof results do not validate it.
+Its exact originals, k16 capacity, predecessor/Q binding and replay behavior
+require current-source checks and review.
 
 There is a source-backed checkpoint boundary for this current order.
 `native_worker/stages.rs` prepares a session from exact authenticated originals.
@@ -1142,10 +1160,11 @@ the σ preparation, are always in restore form: no fresh fold body, prover coin
 or producer-side checkpoint is carried between calls. A payment, cancellation,
 error, mismatch, discarded publication, completion or loss of eligibility
 releases the session.
-`native/load/checkpoint.rs::Payload` retains authority/ordinal bindings,
-`source_context`, proof and carried accumulator, but no prover coins or local
-fold body. Restoration rederives public frames/openings with empty old fold
-bodies; later continuation synthesis reads its new fold, not the old A1 fold.
+`native/load/checkpoint.rs::Payload` retains descriptor/verifying-key identities,
+`source_context`, proof and carried accumulator, but no ordinal, prover coins or
+local fold body.
+Restoration rederives the single terminal frame and opening from the session's
+originals and that decided accumulator; no continuation stage reads a fold body.
 Thus the logical next-stage kernel factors through those originals, payloads,
 the full residual oracle and the matched entropy/fault interface. All native
 checks, context queries and refusal outcomes remain. Correlated `source_context`
@@ -1166,13 +1185,14 @@ Expectations use the unconditioned genuine execution, not eventual completion.
 A failed call preserves its error and resulting custody state; later retries
 remain possible and use new invocation slots. Exact durable replay adds no
 sampling term, but retains verification, oracle and storage effects. For a
-single no-retry pass the reverse order is
-`Omega,A4,W2,A3,W1,A2,W0,A1`. Current profile errors remain symbolic: historical
-ten-role mask counts and coefficients do not transfer.
+single no-retry pass of the retained four-A/three-W route, the reverse order was
+`Omega,A4,W2,A3,W1,A2,W0,A1`; the single-terminal Load suffix has reverse order
+`Omega,A0`. Current profile errors remain symbolic: historical mask counts and
+coefficients do not transfer to the repack.
 
 Only at the all-erased endpoint may the designated fold tapes change. Under
-the preceding restricted hidden-fold interface, the current no-retry pass has
-Pallas input counts `(2,3,3,3)` and Vesta counts `(4,4,4,4)`, each with a full-k16
+the preceding restricted hidden-fold interface, the retained four-A/three-W
+selection has Pallas input counts `(2,3,3,3)` and Vesta counts `(4,4,4,4)`, each with a full-k16
 slot. Writing `p=|Fp|`, `q=|Fq|` and `b_C(m)` for the preceding generic fold
 exception bound, its hidden term is at most
 `min(1, (4*Q_P+6)/p + (4*Q_V+6)/q + b_P(2)+3*b_P(3)+4*b_V(4)
@@ -1203,7 +1223,7 @@ The current-source memo preimage, source join and exact change are retained in
 `target/qualification/c12-current-load-checkpoint-composition-update-1`.
 No new execution or C12 qualification follows from this local result.
 
-The historical fresh Load suffix below has five P and five V folds, each with a full-k16 slot. The current direct-BLS Load removes the finality stage; its four-A/three-W catalog must be re-keyed and requalified under [NF1–NF6](kagemusha_native_finality_goals.md).
+The historical fresh Load suffix below has five P and five V folds, each with a full-k16 slot. The earlier direct-BLS Load removed the finality stage and used four A and three W. The current single-terminal Load uses one A and no W; its changed original must be re-keyed with the matching catalog and verified under [NF1–NF6](kagemusha_native_finality_goals.md). Historical fold counts and catalog checks do not transfer to that selection.
 Its source-reviewed local laws include the exact ideal advice-commitment and
 identity-stop distribution, the explicit 512-bit modular-reduction bias, lookup
 membership preservation under compression, and the generic admitted-descriptor
@@ -1383,10 +1403,11 @@ or native validation work must occur before the cut or be charged explicitly;
 silently repeating preparation afterward would invalidate this equality.
 
 The Q0 comparison adds no local terms to the suffix bounds under the
-same continuation/publication premises (four current lean Load suffix calls; ten
-in the historical five-A/four-W argument). This lean-route reduction removes calls
-from the previously argued eight-call order and introduces no new call kind; it
-still requires the outside C12 review of its exact diff before qualification. Lean
+same continuation/publication premises (two single-terminal Load suffix calls;
+four in the earlier lean route and ten in the historical five-A/four-W argument).
+The repack removes W and merges the two A tasks, but the new direct-predecessor
+terminal fold still requires review of its exact relation and current-source
+checks; a smaller call count alone does not establish that reduction. Lean
 lineage milestone 2 (owner decision 2026-10-17) extends the same reduction to every
 remaining non-Refresh route. Bootstrap's only Q is its 2V/1F signature leaf and its A
 is one unsplit terminal stage, so its order is Q, A, Ω with no W. Receive, Receive

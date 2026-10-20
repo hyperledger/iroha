@@ -86,6 +86,38 @@ impl Kura {
         Ok(())
     }
 
+    /// Withdraw one committed height from the auxiliary transaction-entrypoint index.
+    ///
+    /// Models a restarted node whose rebuilt index covers only the bodies it loaded:
+    /// lookups report a partial index until the height is indexed again, and ordinary
+    /// cold reads never re-index it. Durable frames, journals, membership and finality
+    /// are unchanged.
+    ///
+    /// # Errors
+    /// Returns an error if storage recovery is required, canonical storage is poisoned,
+    /// or `height` is not committed.
+    pub fn forget_transaction_entrypoint_index_for_testing(
+        &self,
+        height: NonZeroUsize,
+    ) -> Result<()> {
+        let _prune_guard = self.prune_lock.lock();
+        self.ensure_prune_recovery_not_required()?;
+        let _canonical_guard = self.canonical_chain_lock.lock();
+        self.ensure_canonical_storage_not_poisoned()?;
+        let chain_len = self.block_data.lock().len();
+        if height.get() > chain_len {
+            return Err(Error::CanonicalBlockWireMismatch {
+                height: u64::try_from(height.get())?,
+            });
+        }
+        let mut index = self.transaction_entrypoint_index.lock();
+        Self::remove_transaction_entrypoint_height(&mut index, height);
+        index.incomplete_heights.insert(height);
+        index.complete =
+            index.incomplete_heights.is_empty() && index.indexed_heights.len() == chain_len;
+        Ok(())
+    }
+
     /// Remove the local DA cache only after a canonical body was genuinely evicted.
     ///
     /// This test-only hook models a remote-only historical block so downstream

@@ -579,42 +579,75 @@ fn archive_preparation_keeps_stricter_and_repeated_outer_decode_budgets() {
             .map(|_| ())
         };
         let local = limits().manifest_decode;
-        let (result, measured) = norito::core::with_decode_limits_measured(local, run);
-        result.unwrap();
-        let charged = measured.total_allocated_bytes();
-        assert!(
-            charged > 0,
-            "canonical manifest decoding must charge its owned allocations"
-        );
-        let exact = norito::DecodeLimits::new(
+        // The manifest contains only fixed inline fields. Canonical decoding must
+        // not invent an allocation charge, even when repeated in a zero-byte scope.
+        let no_allocations = norito::DecodeLimits::new(
             local.max_sequence_elements(),
             local.max_field_bytes(),
             local.max_total_elements(),
-            charged,
+            0,
             local.max_nesting_depth(),
         );
-        norito::core::with_decode_limits_scope(exact, || {
+        let (result, measured) = norito::core::with_decode_limits_measured(no_allocations, || {
+            run()?;
+            run()
+        });
+        result.expect("fixed manifest decoding needs no owned allocation");
+        assert_eq!(measured.total_allocated_bytes(), 0);
+
+        // An earlier real owned decode keeps its cumulative charge across both
+        // preparations; fixed-field decoding cannot reset the caller's allowance.
+        let prefix = norito::encode_canonical(&vec![0_u8; 8]).unwrap();
+        let decode_prefix = || norito::decode_canonical::<Vec<u8>>(&prefix);
+        let (result, usage) = norito::core::with_decode_limits_measured(local, decode_prefix);
+        result.unwrap();
+        assert!(usage.total_allocated_bytes() > 0);
+        let exact_prefix = norito::DecodeLimits::new(
+            local.max_sequence_elements(),
+            local.max_field_bytes(),
+            local.max_total_elements(),
+            usage.total_allocated_bytes(),
+            local.max_nesting_depth(),
+        );
+        norito::core::with_decode_limits_scope(exact_prefix, || {
+            decode_prefix().unwrap();
             run().unwrap();
-            let error = run().expect_err("later preparation cannot reset its caller's charges");
+            run().unwrap();
             assert!(
-                error.starts_with("FASTPQ source manifest is not bounded canonical Norito:"),
-                "repeated preparation must fail at manifest decode: {error}",
+                decode_prefix().is_err(),
+                "original prefix charge must remain spent"
             );
         });
-        let short = norito::DecodeLimits::new(
-            local.max_sequence_elements(),
-            local.max_field_bytes(),
-            local.max_total_elements(),
-            charged - 1,
-            local.max_nesting_depth(),
-        );
-        let error = norito::core::with_decode_limits_scope(short, run)
-            .expect_err("local manifest limits cannot relax a stricter enclosing byte budget");
-        assert!(
-            error.starts_with("FASTPQ source manifest is not bounded canonical Norito:"),
-            "short outer budget must fail at manifest decode: {error}",
-        );
-        run().expect("failed outer budget scopes must not leak into later preparation");
+
+        // The local manifest policy still cannot widen a caller's structural bounds.
+        for outer in [
+            norito::DecodeLimits::new(
+                local.max_sequence_elements(),
+                0,
+                local.max_total_elements(),
+                local.max_total_allocated_bytes(),
+                local.max_nesting_depth(),
+            ),
+            norito::DecodeLimits::new(
+                local.max_sequence_elements(),
+                local.max_field_bytes(),
+                local.max_total_elements(),
+                local.max_total_allocated_bytes(),
+                0,
+            ),
+        ] {
+            norito::core::with_decode_limits_scope(outer, || {
+                for _ in 0..2 {
+                    let error = run().expect_err("local policy cannot widen the original scope");
+                    assert!(
+                        error
+                            .starts_with("FASTPQ source manifest is not bounded canonical Norito:"),
+                        "outer structural bounds must refuse canonical decoding: {error}",
+                    );
+                }
+            });
+            run().expect("failed outer scopes must not leak into later preparation");
+        }
     }
 }
 

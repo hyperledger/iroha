@@ -308,6 +308,13 @@ state_test! { sync hydrate_da_indexes_rejects_receipt_sequence_gap
 }
 
 state_test! { sync da_hydration_capacity_refusal_preserves_indexes_and_original_retry_owner
+    // Repeated refusals compare exact reserved bytes; unrelated global EBR
+    // retirements must not release fixture credit between those observations.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::tests::da_hydration_test_cases::da_hydration_capacity_refusal_preserves_indexes_and_original_retry_owner",
+    ) {
+        return;
+    }
     use iroha_allocation::AllocationRefusal;
     use std::{future::Future as _, task::{Context, Poll, Waker}};
 

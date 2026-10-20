@@ -100,7 +100,7 @@ pub fn fixture_v1() -> &'static CaJointComponentFixtureV1 {
         )
         .unwrap();
         let auxiliary = JointAuxiliaryBindingV1::new_v1(
-            original.binding_v1(),
+            &original.binding_v1(),
             [
                 PrivacyOuterDigestV1::from_bytes([13; 48]),
                 original.auxiliary_root_v1(),

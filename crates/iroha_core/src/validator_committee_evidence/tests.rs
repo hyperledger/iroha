@@ -127,6 +127,7 @@ fn offline_proposal(
         .map(|genesis| genesis.into_parts().0)
         .map_err(|error| error.to_string())?;
     let network = match input.entrypoint() {
+        iroha_data_model::transaction::TransactionEntrypoint::AnonymousBallot(_) => None,
         iroha_data_model::transaction::TransactionEntrypoint::External(transaction) => {
             transaction.network_id()
         }

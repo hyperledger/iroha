@@ -21,7 +21,13 @@ fn retained_request_fixture() -> KagemushaWalletRequestV1 {
     let KagemushaWalletMessageV1::Request { request } = envelope.message else {
         panic!("retained Request envelope");
     };
+    // Earned-fee custody retains the completed Request from the Send capsule, while the
+    // transport fixture is the receiver's open Request.
+    let payment: KagemushaWalletPaymentV1 =
+        super::super::tests::fixture("KagemushaWalletPaymentV1");
     request
+        .complete_with(&payment.signed_request().unwrap())
+        .unwrap()
 }
 
 fn snapshot(

@@ -7,8 +7,8 @@
 use std::{alloc::Layout, fmt, ops::Deref};
 
 use iroha_allocation::{
-    AllocationBudget, AllocationRefusal, AllocationReservation, ChargedShared, PrepaidSharedError,
-    ReservedChargedShared,
+    AllocationBudget, AllocationCharge, AllocationRefusal, AllocationReservation, ChargedShared,
+    PrepaidSharedError, ReservedChargedShared, SharedFromChargeError,
 };
 
 use super::SignedBlock;
@@ -68,6 +68,16 @@ impl SharedSignedBlock {
             .map_err(SharedBlockAdmissionError::Allocation)
     }
 
+    /// Construct a block shell with an already retained exact original charge.
+    ///
+    /// # Errors
+    /// Returns the same charge on layout mismatch or physical allocation refusal.
+    /// The caller retains it across retry; no replacement credit is acquired.
+    pub fn reserve_from_charge(
+        charge: AllocationCharge,
+    ) -> Result<ReservedSharedSignedBlock, (AllocationCharge, SharedFromChargeError)> {
+        ChargedShared::reserve_from_charge(charge).map(ReservedSharedSignedBlock)
+    }
     /// Share the unchanged original graph using explicitly supplied allocation authority.
     ///
     /// # Errors

@@ -234,14 +234,10 @@ where
     W: WorldReadOnly,
 {
     if let Some(tag) = filters.has_tag {
-        let tag_slice: &[u8] = &tag;
-        if let Some(ids) = world.proofs_by_tag().get(tag_slice) {
-            return Box::new(
-                ids.iter()
-                    .filter_map(|proof_id| world.proofs().get_key_value(proof_id)),
-            );
-        }
-        return Box::new(std::iter::empty());
+        return Box::new(
+            crate::state::range_bounds::index_members(world.proofs_by_tag(), &tag)
+                .filter_map(|proof_id| world.proofs().get_key_value(proof_id)),
+        );
     }
     if let Some(backend) = filters.backend {
         Box::new(world.proofs_by_backend_iter(backend))
@@ -407,7 +403,7 @@ mod tests {
             .insert(id_verified.clone(), vec![*b"PROF"]);
         stx.world
             .proofs_by_tag
-            .insert(*b"PROF", vec![id_verified.clone()]);
+            .insert((*b"PROF", id_verified.clone()), ());
         let id_rejected = ProofId {
             backend: backend.into(),
             proof_hash: [0x22; 32],

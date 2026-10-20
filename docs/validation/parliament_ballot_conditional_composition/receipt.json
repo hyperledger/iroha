@@ -1,0 +1,148 @@
+{
+  "aes_advantage_sum": null,
+  "binding_production_activation": false,
+  "captured_at_utc": "2026-10-19T17:10:45.173177+00:00",
+  "charges": {
+    "additional_exhaustion_slack": false,
+    "deletion_comparison_count": 1,
+    "gate_ceiling": 704,
+    "material_switching_coefficient": 2892601,
+    "own_label_loss_count": 1,
+    "salt_collision_loss_count": 1
+  },
+  "complete_driver_resources": null,
+  "conditional_post_entry_composition_written": true,
+  "development_testing_enabled": true,
+  "endpoint": "IdealFrontierSim projected public lifetime within the specified query budget",
+  "entry": "B_0: prescribed challenges and bounded opening schedule already entered",
+  "frozen_arguments_revised": false,
+  "frozen_ledger_revised": false,
+  "independent_cryptographic_review": false,
+  "initial_entry_audit": {
+    "remaining": "Write and review full joint samplers, adjacent-game equivalences, bounded-stop padding and query dispatch for challenge families, including every counter domain and exhaustion.",
+    "status": "Concrete source-supported adapter outline only; no initial-entry bound adopted"
+  },
+  "known_formula_scope": "K encloses only the explicitly listed post-entry contributions. Neither endpoint is an advantage lower bound; K is not a complete security bound.",
+  "local_reviews": {
+    "calculator_and_test_reviews": 1,
+    "complete_composition_document_reviews": 2,
+    "independent_cryptographic_review": false,
+    "post_entry_stage_reviews": 2,
+    "remaining_blocking_findings": 0,
+    "resolved_findings": [
+      "Specify exact decimal-grid equality k*k*d=n*s*s, since rational square roots need not be representable on that grid."
+    ]
+  },
+  "model_and_primitive_acceptance": false,
+  "primary_theorem_rechecked": {
+    "current_check": "Web readback of the marginal-location/prior-query bound; retained version-specific source identity remains in the original H5 receipt.",
+    "sections": [
+      "Figure 2, PDF page 6",
+      "Theorem 1, PDF page 7"
+    ],
+    "url": "https://arxiv.org/pdf/2010.15103v2"
+  },
+  "prior_manifests_verified_unchanged": [
+    {
+      "manifest": "docs/validation/parliament_ballot_root_entry/SHA256SUMS",
+      "sha256": "72ce31b9c6e366b4ee91bbe0f7f76fd25be3a8e7d38a5f3b93cfa1474ef3432c",
+      "verified_entries": 7
+    },
+    {
+      "manifest": "docs/validation/parliament_ballot_material_entry/SHA256SUMS",
+      "sha256": "2492e8ef05a04c9b22b2a02b1039066443d175e401ed900657d6a7ebb6f1eb79",
+      "verified_entries": 7
+    },
+    {
+      "manifest": "docs/validation/parliament_ballot_hybrid_driver/SHA256SUMS",
+      "sha256": "cafef98be2c9bf77c614a50afda07fc9b881fd93ace250cd173dc8961ca096f5",
+      "verified_entries": 3
+    }
+  ],
+  "profile_qualified": false,
+  "query_conventions": {
+    "Q_all": "All lifetime non-prover combined evaluations, including verification, public diagnostics, relevant invalid-request checks, and post-proof access.",
+    "deletion": "Q_all+704*T combined lookups",
+    "refresh": "2*Q_all+2*T for a fixed gate domain"
+  },
+  "real_prover_entry_established_here": false,
+  "required_next_work": [
+    "Initial real-prover programming lemma",
+    "Full reduction resources and quantitative primitive/model premises",
+    "Composition with dependent anonymity and authorization reductions",
+    "Independent cryptographic/implementation and attack-cost review",
+    "Named hardware and complete native resource qualification"
+  ],
+  "schema": "parliament-ballot-conditional-composition-evidence-v1",
+  "scope": "Source-informed conditional composition and stdlib formula arithmetic; not compiled Rust, independent cryptographic review or qualification.",
+  "source_profile_check": {
+    "artifact": "profile-source-check.json",
+    "prior_receipts_reauthenticated": false,
+    "scope": "Source-literal/layout arithmetic with supplied recorded CRT digest inputs. Two descriptor and four namespace identities match; no Rust or CRT digest regeneration. Historical changed files remain explicitly recorded."
+  },
+  "validation": {
+    "full_workspace_tests_run": false,
+    "input_scope": "31 direct source, antecedent specification, arithmetic implementation/test and historical receipt inputs; not a build or transitive dependency closure.",
+    "inputs_unchanged_across_capture": true,
+    "phases": {
+      "help": {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_conditional_composition.py",
+          "--help"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.029179458040744066,
+        "started_utc": "2026-10-19T17:09:38.362029+00:00"
+      },
+      "report": {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_conditional_composition.py",
+          "--json"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.03028912516310811,
+        "started_utc": "2026-10-19T17:09:38.301284+00:00"
+      },
+      "require-qualified": {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_conditional_composition.py",
+          "--json",
+          "--require-qualified"
+        ],
+        "expected_returncode": 2,
+        "returncode": 2,
+        "seconds": 0.029621249996125698,
+        "started_utc": "2026-10-19T17:09:38.331969+00:00"
+      },
+      "tests": {
+        "command": [
+          "python3.11",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts/tests",
+          "-p",
+          "parliament_ballot_conditional_composition_test.py",
+          "-v"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.3425061251036823,
+        "started_utc": "2026-10-19T17:09:37.958120+00:00"
+      }
+    },
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.11.17 (main, Oct  1 2026, 00:48:48) [Clang 21.0.0 (clang-2100.3.34.2)]",
+    "require_qualified_stdout_matches_report": true,
+    "rust_build_or_tests_run": false,
+    "source_count": 31,
+    "tests_failed": 0,
+    "tests_passed": 15
+  }
+}

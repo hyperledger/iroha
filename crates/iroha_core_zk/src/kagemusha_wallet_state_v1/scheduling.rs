@@ -11,7 +11,7 @@
 //! close invalidate it, so payment proving never runs beside retained fold memory.
 //!
 //! One speculative proof slot sits between the two (design §5.1, Payment row): a review's
-//! σ_send proved before the user confirms. It is admitted only while no payment holds
+//! `σ_send` proved before the user confirms. It is admitted only while no payment holds
 //! priority, takes payment priority over the fold, and every payment waits for it instead of
 //! cancelling it, so a confirmed payment finds the proof finished and no two provers overlap.
 //! Its job uses the wallet owner only before admission, so that wait never needs the owner.

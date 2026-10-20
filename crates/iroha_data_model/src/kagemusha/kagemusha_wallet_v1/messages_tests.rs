@@ -1,7 +1,8 @@
 //! Peer message, envelope and `kgm1:` text tests.
 //!
 //! The fixtures are visible to the custody, ledger, vector and size test modules, which build
-//! capsules, completion records, fee claims and worst cases from the same Payment.
+//! capsules, completion records, fee claims and worst cases from the same Payment. The receiver
+//! signs an open Request; the payer completes it for its wallet, account and send ordinal 4.
 
 use p256::ecdsa::SigningKey;
 
@@ -49,7 +50,10 @@ use crate::kagemusha::kagemusha_wallet_v1::{
     KagemushaWalletFeeScheduleBodyV1, KagemushaWalletLifecycleV1, KagemushaWalletPolicyUpdateV1,
     KagemushaWalletSchemePolicyBodyV1, KagemushaWalletStatementV1,
     codec_tests::{assert_every_flip_rejected_or_rebound, norito_tag, payload_range},
-    digest::{kagemusha_wallet_field_from_u128_v1, kagemusha_wallet_is_canonical_field_v1},
+    digest::{
+        KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1, kagemusha_wallet_field_from_u128_v1,
+        kagemusha_wallet_is_canonical_field_v1, kagemusha_wallet_request_terms_items_v1,
+    },
     identity::identity_tests::{
         IdentityFixture, identity_fixture, public_key, raw_output, signing_key, test_account,
         test_certificate,
@@ -72,8 +76,6 @@ use crate::kagemusha::kagemusha_wallet_v1::{
     },
 };
 
-/// One mutation of an Offer body.
-type OfferBodyMutation = fn(&mut KagemushaWalletOfferBodyV1);
 /// One mutation of a Request body.
 type RequestBodyMutation = fn(&mut KagemushaWalletRequestBodyV1);
 /// One mutation of a Send effect.
@@ -88,6 +90,8 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) const PAYMENT_LINEAGE_LEN: usize =
 /// Other credits recorded before the fixture credit in the `CreditStatus` credit-digest tree;
 /// the fixture credit sits at slot `OPENING_OTHER_CREDITS + 1`.
 pub(in crate::kagemusha::kagemusha_wallet_v1) const OPENING_OTHER_CREDITS: usize = 3;
+/// Next send ordinal of the fixture payer: the ordinal it completes the open Request with.
+const SEND_ORDINAL: u128 = 4;
 const SESSION_NONCE: [u8; 32] = [0x5e; 32];
 
 /// Payer and receiver wallets of one scheme with distinct issuers, and a fee signer.
@@ -261,7 +265,8 @@ impl MessageFixture {
         .expect("scheme policy")
     }
 
-    /// Unsigned Request parts for `amount`, with or without the fixture fee schedule.
+    /// Unsigned open Request parts for `amount`, with or without the fixture fee schedule: the
+    /// receiver's terms, with payer wallet, payer account and send ordinal zero.
     fn request_parts(
         &self,
         fee: bool,
@@ -288,11 +293,11 @@ impl MessageFixture {
             version: KAGEMUSHA_WALLET_VERSION_V1,
             scheme_id: self.scheme_id(),
             asset_digest: self.asset_digest(),
-            payer_wallet_id: self.payer.credential.body.wallet_id,
-            payer_account_digest: self.payer.credential.body.account_digest,
+            payer_wallet_id: [0; 32],
+            payer_account_digest: [0; 32],
             receiver_wallet_id: self.receiver.credential.body.wallet_id,
             receiver_account_digest: self.receiver.credential.body.account_digest,
-            send_ordinal: 4,
+            send_ordinal: 0,
             receiver_credential_digest: self.receiver.credential.credential_digest(),
             amount,
             fee_schedule: slot.fee_schedule_digest(),
@@ -316,7 +321,6 @@ impl MessageFixture {
     ) -> WalletResult<KagemushaWalletRequestV1> {
         KagemushaWalletRequestV1::sign(
             &self.payer.scheme,
-            &self.offer(),
             *body,
             self.receiver.credential,
             slot,
@@ -325,14 +329,46 @@ impl MessageFixture {
         )
     }
 
-    /// Signed Request of 1,000 units.
-    pub(in crate::kagemusha::kagemusha_wallet_v1) fn request(
+    /// The receiver's signed open Request of 1,000 units: the Request it sends and holds.
+    pub(in crate::kagemusha::kagemusha_wallet_v1) fn open_request(
         &self,
         fee: bool,
     ) -> KagemushaWalletRequestV1 {
         let (body, slot, certificates) = self.request_parts(fee, 1_000);
         self.sign_request(&body, slot, certificates)
-            .expect("request")
+            .expect("open request")
+    }
+
+    /// The fixture payer's completion of [`Self::open_request`] at [`SEND_ORDINAL`]: the
+    /// Request its Send, Payment and capsule hold.
+    pub(in crate::kagemusha::kagemusha_wallet_v1) fn request(
+        &self,
+        fee: bool,
+    ) -> KagemushaWalletRequestV1 {
+        self.open_request(fee)
+            .complete(&self.payer.credential, SEND_ORDINAL)
+            .expect("completed request")
+    }
+
+    /// `body` completed for the fixture payer at [`SEND_ORDINAL`].
+    fn completed_body(&self, body: &KagemushaWalletRequestBodyV1) -> KagemushaWalletRequestBodyV1 {
+        let payer = &self.payer.credential.body;
+        body.completed(payer.wallet_id, payer.account_digest, SEND_ORDINAL)
+    }
+
+    /// The payer payment key's signature over the Request terms of `body`: a canonical
+    /// signature that is not the receiver's.
+    fn foreign_request_signature(
+        &self,
+        body: &KagemushaWalletRequestBodyV1,
+    ) -> KagemushaDeviceSignatureV1 {
+        kagemusha_wallet_freeze_signature_v1(
+            &self.payer.credential.body.payment_key,
+            Domain::Request,
+            &body.signing_message(),
+            raw_output(&self.payer.payment, &body.signing_message()),
+        )
+        .expect("payer-key signature")
     }
 
     /// Payer statement at sequence 3 carrying `effect`.
@@ -414,19 +450,15 @@ impl MessageFixture {
         self.payment_with(fee, PAYMENT_LINEAGE_LEN, proof_len)
     }
 
-    /// The receiver's held Request of `payment`, a Payment of this fixture.
+    /// The receiver's held Request of `payment`, a Payment of this fixture: the open Request
+    /// it issued.
     pub(in crate::kagemusha::kagemusha_wallet_v1) fn held_request(
         &self,
         payment: &KagemushaWalletPaymentV1,
     ) -> KagemushaWalletRequestV1 {
-        let request = self.request(!is_zero_v1(
-            &payment.signed_request().unwrap().body.fee_schedule,
-        ));
-        assert_eq!(
-            request.signed(),
-            payment.signed_request().unwrap(),
-            "the fixture's Request"
-        );
+        let signed = payment.signed_request().unwrap();
+        let request = self.open_request(!is_zero_v1(&signed.body.fee_schedule));
+        assert_eq!(request.body, signed.body.open(), "the fixture's Request");
         request
     }
 
@@ -654,53 +686,6 @@ impl MessageFixture {
         }
     }
 
-    pub(in crate::kagemusha::kagemusha_wallet_v1) fn offer_body(
-        &self,
-    ) -> KagemushaWalletOfferBodyV1 {
-        KagemushaWalletOfferBodyV1 {
-            version: KAGEMUSHA_WALLET_VERSION_V1,
-            scheme_id: self.scheme_id(),
-            asset_digest: self.asset_digest(),
-            payer_wallet_id: self.payer.credential.body.wallet_id,
-            payer_credential_digest: self.payer.credential.credential_digest(),
-            next_send: 4,
-            amount: 1_000,
-            session_nonce: SESSION_NONCE,
-        }
-    }
-
-    fn sign_offer(&self, body: KagemushaWalletOfferBodyV1) -> WalletResult<KagemushaWalletOfferV1> {
-        KagemushaWalletOfferV1::sign(
-            body,
-            self.payer.credential,
-            &self.payer.enrollment_certificate,
-            raw_output(&self.payer.payment, &body.signing_message()),
-        )
-    }
-
-    pub(in crate::kagemusha::kagemusha_wallet_v1) fn offer(&self) -> KagemushaWalletOfferV1 {
-        self.sign_offer(self.offer_body()).expect("offer")
-    }
-
-    /// Lineage message carrying the exact Ω(pred) bytes of `payment`, a Payment of this
-    /// fixture's payer.
-    pub(in crate::kagemusha::kagemusha_wallet_v1) fn lineage_message(
-        &self,
-        payment: &KagemushaWalletPaymentV1,
-    ) -> KagemushaWalletLineageMessageV1 {
-        let lineage = payment
-            .send
-            .lineage
-            .lineage()
-            .expect("payment lineage")
-            .clone();
-        assert_eq!(
-            lineage.public.wallet_id, self.payer.credential.body.wallet_id,
-            "the payer's Ω"
-        );
-        KagemushaWalletLineageMessageV1::new(lineage)
-    }
-
     fn control(
         &self,
         kind: KagemushaWalletSessionControlKindV1,
@@ -811,13 +796,12 @@ fn assert_too_large<T: core::fmt::Debug>(result: WalletResult<T>, expected_max: 
     }
 }
 
-/// One message of every kind, in tag order.
-fn sample_messages(f: &MessageFixture) -> [KagemushaWalletMessageV1; 7] {
+/// One message of every kind, in tag order; the Request travels open.
+fn sample_messages(f: &MessageFixture) -> [KagemushaWalletMessageV1; 5] {
     let payment = f.payment(true, 128);
     [
-        KagemushaWalletMessageV1::Offer { offer: f.offer() },
         KagemushaWalletMessageV1::Request {
-            request: f.request(true),
+            request: f.open_request(true),
         },
         KagemushaWalletMessageV1::Payment {
             payment: payment.clone(),
@@ -833,15 +817,11 @@ fn sample_messages(f: &MessageFixture) -> [KagemushaWalletMessageV1; 7] {
                 policy: f.scheme_policy(2, 0, [0; 32]),
             }),
         },
-        KagemushaWalletMessageV1::Lineage {
-            lineage: f.lineage_message(&payment),
-        },
     ]
 }
 
 #[test]
 fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
-    assert_eq!(KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1, 194);
     assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1, 418);
     assert_eq!(KAGEMUSHA_WALLET_PAYMENT_TRANSCRIPT_BYTES_V1, 163);
     assert_eq!(KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1, 162);
@@ -864,17 +844,8 @@ fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
     );
 
     let f = message_fixture();
-    let offer = f.offer();
-    assert_eq!(
-        offer.body.transcript().len(),
-        KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1
-    );
-    assert_eq!(
-        offer.body.signing_message(),
-        kagemusha_wallet_signing_message_v1(Domain::Offer, &offer.body.transcript())
-    );
-    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1, 418);
     assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1, 24);
+    assert_eq!(KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1, 19);
     let request = f.request(true);
     let transcript = request.body.transcript();
     assert_eq!(
@@ -1009,7 +980,7 @@ fn kagemusha_wallet_v1_message_enum_tags_equal_norito_tags() {
     let auths = [
         KagemushaWalletSessionAuthV1::Unsigned,
         KagemushaWalletSessionAuthV1::Signed {
-            signature: f.offer().signature,
+            signature: f.request(true).signature,
         },
     ];
     for (tag, auth) in auths.iter().enumerate() {
@@ -1038,96 +1009,171 @@ fn kagemusha_wallet_v1_message_enum_tags_equal_norito_tags() {
         assert_eq!(usize::from(item.tag()), index + 1);
         assert_eq!(norito_tag(item), u32::from(item.tag()));
     }
+    // Tag 1 (the former Offer) and tag 7 (the former Lineage hint) are unused.
     for (index, message) in sample_messages(&f).iter().enumerate() {
-        assert_eq!(usize::from(message.tag()), index + 1);
+        assert_eq!(usize::from(message.tag()), index + 2);
         assert_eq!(norito_tag(message), u32::from(message.tag()));
     }
 }
 
 #[test]
-fn kagemusha_wallet_v1_offer_binds_the_payer() {
+fn kagemusha_wallet_v1_payer_companion_binds_the_payment() {
     let f = message_fixture();
-    let offer = f.offer();
-    offer.validate().expect("offer");
-    offer.verify(&f.payer.scheme).expect("verify");
-    // The carried credential is bounded like a standalone credential frame (§5.1).
+    let payment = f.payment(true, 64);
+    let companion =
+        KagemushaWalletPayerCompanionV1::new(f.payer.credential, &f.payer.enrollment_certificate)
+            .expect("companion");
+    companion.validate().expect("valid");
+    companion
+        .check_payment(&payment)
+        .expect("the Payment's payer");
+    assert_eq!(companion.version, KAGEMUSHA_WALLET_VERSION_V1);
+    // The receiver passes the carried credential and certificate set to Receive unchanged.
+    payment
+        .verify(
+            &f.payer.scheme,
+            &companion.payer_credential,
+            &companion.certificates,
+            &f.open_request(true),
+        )
+        .expect("Receive inputs");
+    // The credential keeps its standalone bound inside the companion frame bound.
+    assert_eq!(KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1, 2_048);
     assert!(
-        offer
+        companion
             .payer_credential
             .to_canonical_bytes()
             .expect("credential frame")
             .len()
             <= KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1
     );
-    let mut bad_credential = offer.clone();
-    bad_credential.payer_credential.body.wallet_id = [0; 32];
-    assert!(bad_credential.validate().is_err());
-    let other = identity_fixture(KagemushaWalletEvidenceKindV1::AndroidKeyMintTee, 0x5f);
-    let mut foreign_root = other.scheme;
-    foreign_root.scheme_root_key = other.credential.body.payment_key;
-    assert_mismatch(offer.verify(&foreign_root), "certificate.scheme_id");
-
-    let mutations: [(OfferBodyMutation, &str); 5] = [
-        (|body| body.amount = 0, "offer.amount"),
-        (
-            |body| body.payer_wallet_id = [0x0c; 32],
-            "offer.payer_wallet_id",
+    let frame = companion.to_canonical_bytes().expect("frame");
+    assert!(frame.len() <= KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1);
+    assert_eq!(
+        KagemushaWalletPayerCompanionV1::decode_canonical(&frame).expect("decode"),
+        companion
+    );
+    let mut padded = frame.clone();
+    padded.push(0);
+    assert!(matches!(
+        KagemushaWalletPayerCompanionV1::decode_canonical(&padded),
+        Err(KagemushaWalletValidationErrorV1::Codec(_))
+    ));
+    assert_too_large(
+        KagemushaWalletPayerCompanionV1::decode_canonical(
+            &[0; KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1 + 1],
         ),
-        (
-            |body| body.payer_credential_digest = [0x0d; 32],
-            "offer.payer_credential_digest",
-        ),
-        (|body| body.asset_digest = [0x0e; 32], "offer.asset_digest"),
-        (|body| body.session_nonce = [0; 32], "offer.session_nonce"),
-    ];
-    for (mutate, field) in mutations {
-        let mut body = f.offer_body();
-        mutate(&mut body);
-        assert_invalid(f.sign_offer(body), field);
-    }
-    let mut body = f.offer_body();
-    body.scheme_id = [0x0f; 32];
-    assert_mismatch(f.sign_offer(body), "offer.scheme_id");
+        KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1,
+    );
 
-    // The certificate set is exactly the payer issuer certificate.
-    let mut extra = offer.clone();
+    // The certificate set is exactly the payer credential's issuer certificate.
+    assert_invalid(
+        KagemushaWalletPayerCompanionV1::new(
+            f.payer.credential,
+            &f.receiver.enrollment_certificate,
+        ),
+        "certificates.set",
+    );
+    let mut extra = companion.clone();
     extra.certificates = KagemushaWalletCertificateSetV1::new(vec![
         f.payer.enrollment_certificate,
         f.regulator_certificate,
     ])
     .expect("set");
     assert_invalid(extra.validate(), "certificates.set");
-    let mut other_issuer = offer.clone();
-    other_issuer.certificates =
-        KagemushaWalletCertificateSetV1::new(vec![f.receiver.enrollment_certificate]).expect("set");
-    assert_invalid(other_issuer.validate(), "certificates.set");
-
-    let mut tampered = offer.clone();
-    tampered.body.next_send += 1;
-    assert_signature(tampered.validate(), Domain::Offer);
-    assert_signature(
-        KagemushaWalletOfferV1::sign(
-            f.offer_body(),
-            f.payer.credential,
-            &f.payer.enrollment_certificate,
-            raw_output(&f.receiver.payment, &f.offer_body().signing_message()),
+    assert_invalid(extra.to_canonical_bytes(), "certificates.set");
+    let mut bad_credential = companion.clone();
+    bad_credential.payer_credential.body.wallet_id = [0; 32];
+    assert!(bad_credential.validate().is_err());
+    let mut version = companion.clone();
+    version.version = 2;
+    assert!(matches!(
+        version.validate(),
+        Err(KagemushaWalletValidationErrorV1::UnsupportedVersion {
+            field: "payer_companion.version",
+            version: 2
+        })
+    ));
+    assert!(matches!(
+        KagemushaWalletPayerCompanionV1::decode_canonical(
+            &norito::encode_canonical(&version).expect("encode")
         ),
-        Domain::Offer,
-    );
+        Err(KagemushaWalletValidationErrorV1::UnsupportedVersion {
+            field: "payer_companion.version",
+            version: 2
+        })
+    ));
 
-    let frame = norito::encode_canonical(&offer).expect("encode");
-    assert_every_flip_rejected_or_rebound(&frame, offer.body.signing_message(), |bytes| {
-        let offer: KagemushaWalletOfferV1 =
-            decode_frame_v1(bytes, KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1).ok()?;
-        offer.validate().ok()?;
-        Some(offer.body.signing_message())
-    });
+    // The credential is the one Ω(pred) names and the reconstructed Request's payer.
+    let renewed = KagemushaWalletPayerCompanionV1::new(
+        renewed_credential(&f.payer),
+        &f.payer.enrollment_certificate,
+    )
+    .expect("renewed companion");
+    assert_invalid(
+        renewed.check_payment(&payment),
+        "payer_companion.credential_digest",
+    );
+    // `check_payment` reads Ω(pred) and the reconstructed Request; the full Payment
+    // verification is Receive's. Each binding is refused on its own.
+    let with_omega = |mutate: &dyn Fn(&mut KagemushaWalletLineagePublicV1)| {
+        let mut changed = payment.clone();
+        if let KagemushaWalletLineageSlotV1::Present { lineage } = &mut changed.send.lineage {
+            mutate(&mut lineage.public);
+        }
+        changed
+    };
+    assert_invalid(
+        companion.check_payment(&with_omega(&|omega| {
+            omega.payment_key = f.receiver.credential.body.payment_key;
+        })),
+        "payer_companion.payment_key",
+    );
+    assert_invalid(
+        companion.check_payment(&with_omega(&|omega| omega.wallet_id = [0x48; 32])),
+        "payer_companion.wallet_id",
+    );
+    let mut other_account = payment.clone();
+    other_account.request.payer_account_digest = [0x49; 32];
+    assert_invalid(
+        companion.check_payment(&other_account),
+        "payer_companion.account_digest",
+    );
+    let mut other_scheme = payment.clone();
+    other_scheme.send.statement.scheme_id = [0x4a; 32];
+    assert_invalid(
+        companion.check_payment(&other_scheme),
+        "payer_companion.scheme_id",
+    );
+    let mut no_lineage = payment.clone();
+    no_lineage.send.lineage = KagemushaWalletLineageSlotV1::None;
+    assert_invalid(companion.check_payment(&no_lineage), "lineage.slot");
+
+    // Every byte of the frame is bound: a flip is refused or changes the credential.
+    let scheme = f.payer.scheme;
+    assert_every_flip_rejected_or_rebound(
+        &frame,
+        companion.payer_credential.credential_digest(),
+        |bytes| {
+            let companion = KagemushaWalletPayerCompanionV1::decode_canonical(bytes).ok()?;
+            verify_credential_with_set_v1(
+                &companion.payer_credential,
+                &scheme,
+                &companion.certificates,
+            )
+            .ok()?;
+            Some(companion.payer_credential.credential_digest())
+        },
+    );
 }
 
 #[test]
 fn kagemusha_wallet_v1_request_fee_and_certificate_rules() {
     let f = message_fixture();
     for fee in [false, true] {
+        let open = f.open_request(fee);
+        open.validate_open().expect("open request");
+        open.verify_open(&f.payer.scheme).expect("verify open");
         let request = f.request(fee);
         request.validate().expect("request");
         request.verify(&f.payer.scheme).expect("verify");
@@ -1137,12 +1183,8 @@ fn kagemusha_wallet_v1_request_fee_and_certificate_rules() {
     // 25 bp of 1,000 is 2.5, rounded up to 3, plus the fixed 3.
     assert_eq!(f.fee_schedule().fee(1_000).expect("fee"), 6);
 
-    let body_mutations: [(RequestBodyMutation, &str); 10] = [
+    let body_mutations: [(RequestBodyMutation, &str); 9] = [
         (|body| body.amount = 0, "request.amount"),
-        (
-            |body| body.payer_wallet_id = body.receiver_wallet_id,
-            "request.payer_wallet_id",
-        ),
         (|body| body.fee = u128::MAX, "request.gross"),
         (|body| body.policy_epoch = 0, "request.scheme_policy"),
         (|body| body.nonce = [0; 32], "request.nonce"),
@@ -1256,13 +1298,23 @@ fn kagemusha_wallet_v1_request_fee_and_certificate_rules() {
     tampered.body.receiver_accepted_time_ms += 1;
     assert_signature(tampered.validate(), Domain::Request);
 
+    // Every byte of the open wire Request is bound by its Request digest.
+    let open = f.open_request(true);
+    let frame = norito::encode_canonical(&open).expect("encode");
+    assert_every_flip_rejected_or_rebound(&frame, open.request_digest(), |bytes| {
+        let request: KagemushaWalletRequestV1 =
+            decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).ok()?;
+        request.validate_open().ok()?;
+        Some(request.request_digest())
+    });
+    // A completion keeps that digest; the credit identity binds its payer fields as well.
     let request = f.request(true);
     let frame = norito::encode_canonical(&request).expect("encode");
-    assert_every_flip_rejected_or_rebound(&frame, request.request_digest(), |bytes| {
+    assert_every_flip_rejected_or_rebound(&frame, request.credit_id(), |bytes| {
         let request: KagemushaWalletRequestV1 =
             decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).ok()?;
         request.validate().ok()?;
-        Some(request.request_digest())
+        Some(request.credit_id())
     });
 }
 
@@ -1294,6 +1346,11 @@ fn kagemusha_wallet_v1_signed_request_body() {
     let decoded: KagemushaWalletSignedRequestV1 =
         decode_frame_v1(&frame, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).expect("decode");
     assert_eq!(decoded, signed);
+    // The open Request's signed body names no payer: no Payment carries it.
+    assert_invalid(
+        f.open_request(true).signed().validate(),
+        "request.payer_wallet_id",
+    );
 }
 
 #[test]
@@ -1370,56 +1427,23 @@ fn kagemusha_wallet_v1_send_rule_and_send_effect() {
         "lineage.payment_key",
     );
 
-    // A wallet that reuses the receiver's payment key cannot pay it.
+    // A wallet that reuses the receiver's payment key cannot pay it: completing the open
+    // Request for it is refused.
     let same_key = same_key_credential(&f.receiver);
-    let (mut body, slot, certificates) = f.request_parts(true, 1_000);
-    body.payer_wallet_id = same_key.body.wallet_id;
-    body.payer_account_digest = same_key.body.account_digest;
-    // The ordinary fixture Offer names another payer, so canonical construction refuses it.
+    let open = f.open_request(true);
     assert_invalid(
-        f.sign_request(&body, slot, certificates.clone()),
-        "request.payer_wallet_id",
-    );
-    // Even an authenticated Offer naming this payer cannot reuse the receiver payment key.
-    let mut offer_body = f.offer().body;
-    offer_body.payer_wallet_id = same_key.body.wallet_id;
-    offer_body.payer_credential_digest = same_key.credential_digest();
-    let same_key_offer = KagemushaWalletOfferV1::sign(
-        offer_body,
-        same_key,
-        &f.receiver.enrollment_certificate,
-        raw_output(&f.receiver.payment, &offer_body.signing_message()),
-    )
-    .expect("authenticated same-key Offer");
-    same_key_offer
-        .verify(&f.payer.scheme)
-        .expect("same-key issuer");
-    assert_invalid(
-        KagemushaWalletRequestV1::sign(
-            &f.payer.scheme,
-            &same_key_offer,
-            body,
-            f.receiver.credential,
-            slot,
-            certificates.clone(),
-            raw_output(&f.receiver.payment, &body.signing_message()),
-        ),
+        open.complete(&same_key, SEND_ORDINAL),
         "request.payment_key",
     );
-    // Build a receiver-signed adversarial object directly in this test: no canonical constructor
-    // is bypassed in production, and the retained Send rule must independently refuse it.
+    // The payer fields are outside the receiver signature, so that completion can be built
+    // directly: the retained Send rule must independently refuse it.
     let same_key_request = KagemushaWalletRequestV1 {
-        body,
-        receiver_credential: f.receiver.credential,
-        fee_schedule: slot,
-        certificates,
-        signature: kagemusha_wallet_freeze_signature_v1(
-            &f.receiver.credential.body.payment_key,
-            Domain::Request,
-            &body.signing_message(),
-            raw_output(&f.receiver.payment, &body.signing_message()),
-        )
-        .expect("adversarial receiver signature"),
+        body: open.body.completed(
+            same_key.body.wallet_id,
+            same_key.body.account_digest,
+            SEND_ORDINAL,
+        ),
+        ..open.clone()
     };
     same_key_request
         .validate()
@@ -1508,6 +1532,15 @@ fn kagemusha_wallet_v1_send_rule_and_send_effect() {
         same_key_request.send_effect(&same_key, &interval),
         "request.payment_key",
     );
+    // Only a completed Request is paid: the open one names no payer.
+    assert_invalid(
+        open.check_send_rule(&f.payer.credential, &state, &omega),
+        "request.payer_wallet_id",
+    );
+    assert_invalid(
+        open.send_effect(&f.payer.credential, &interval),
+        "request.payer_wallet_id",
+    );
 }
 
 #[test]
@@ -1517,18 +1550,18 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
         let payment = f.payment(fee, 64);
         let request = f.request(fee);
         let digests = payment.digests().expect("payment");
-        assert_eq!(
-            payment
-                .verify(
-                    &f.payer.scheme,
-                    &f.payer.credential,
-                    &KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
-                        .expect("set"),
-                    &request,
-                )
-                .expect("verify"),
-            digests
-        );
+        let payer_set = KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
+            .expect("set");
+        // The receiver verifies against its held open Request; the payer's completion is the
+        // same Request.
+        for held in [f.open_request(fee), request.clone()] {
+            assert_eq!(
+                payment
+                    .verify(&f.payer.scheme, &f.payer.credential, &payer_set, &held)
+                    .expect("verify"),
+                digests
+            );
+        }
         assert_eq!(payment.signed_request().unwrap(), request.signed());
         assert_eq!(
             payment.send.lineage.lineage().unwrap().public.payment_key,
@@ -1624,20 +1657,22 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
             assert_eq!(leaf.fee, 6);
             assert_eq!(leaf.fee_schedule_digest, request.body.fee_schedule);
         }
-        assert_eq!(
-            payment
-                .receive_effect(
-                    &request,
-                    &f.receiver.credential,
-                    &receiver_head_state(&f.receiver.credential),
-                )
-                .expect("receive"),
-            KagemushaWalletEffectV1::Receive {
-                credit_id: digests.credit_id,
-                payer_wallet_id: f.payer.credential.body.wallet_id,
-                amount: 1_000,
-            }
-        );
+        for held in [f.open_request(fee), request.clone()] {
+            assert_eq!(
+                payment
+                    .receive_effect(
+                        &held,
+                        &f.receiver.credential,
+                        &receiver_head_state(&f.receiver.credential),
+                    )
+                    .expect("receive"),
+                KagemushaWalletEffectV1::Receive {
+                    credit_id: digests.credit_id,
+                    payer_wallet_id: f.payer.credential.body.wallet_id,
+                    amount: 1_000,
+                }
+            );
+        }
         let frame = payment.to_canonical_bytes().expect("frame");
         assert_eq!(
             KagemushaWalletPaymentV1::decode_canonical(&frame, &f.scheme_id()).expect("decode"),
@@ -1699,23 +1734,24 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
     ));
 
     // §3.2 Payment consumer checks: a Request payer other than Ω.wallet_id, and a
-    // relay-rewritten payment key or credential digest (§11).
+    // relay-rewritten payment key or credential digest (§11). The receiver signature leaves
+    // the payer out, so a Request completed for another payer still verifies; the payer
+    // binding refuses it, and the open Request is no Payment's Request.
     let mut wrong_payer = request.clone();
     wrong_payer.body.payer_wallet_id = [0x44; 32];
-    assert_signature(
-        KagemushaWalletPaymentV1::assemble(&wrong_payer, &f.payer.credential, payment.send.clone()),
-        Domain::Request,
-    );
-    // Also retain the payer-binding refusal after the adversarial receiver signs its change.
-    wrong_payer.signature = kagemusha_wallet_freeze_signature_v1(
-        &f.receiver.credential.body.payment_key,
-        Domain::Request,
-        &wrong_payer.body.signing_message(),
-        raw_output(&f.receiver.payment, &wrong_payer.body.signing_message()),
-    )
-    .expect("receiver-signed foreign payer");
+    wrong_payer
+        .validate()
+        .expect("the receiver signature covers no payer");
     assert_invalid(
         KagemushaWalletPaymentV1::assemble(&wrong_payer, &f.payer.credential, payment.send.clone()),
+        "request.payer_wallet_id",
+    );
+    assert_invalid(
+        KagemushaWalletPaymentV1::assemble(
+            &f.open_request(true),
+            &f.payer.credential,
+            payment.send.clone(),
+        ),
         "request.payer_wallet_id",
     );
     // The wire has one credential/key owner. Mutating that owner still invalidates the
@@ -1749,7 +1785,7 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
     );
     assert_invalid(stale_epoch.validate(), "payment.policy_epoch");
 
-    // Session verification: the held Request, the payer credential from the Offer.
+    // Session verification: the held Request, the payer credential from the Payment carrier.
     assert_invalid(
         payment.verify(
             &f.payer.scheme,
@@ -1893,12 +1929,13 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
     request_body.request.receiver_accepted_time_ms += 1;
     assert_invalid(request_body.validate(), "payment.effect.credit_id");
     let mut request_signature = payment.clone();
-    request_signature.request.signature = f.offer().signature;
+    request_signature.request.signature = f.foreign_request_signature(&request.body);
     assert_invalid(request_signature.validate(), "payment.effect.request");
-    // A Payment consistent with a forged Request signature is structurally valid; the receiver
-    // rejects it when it verifies its own held Request.
+    // A Payment consistent with a forged Request signature is structurally valid. The receiver
+    // rejects it against its own held Request, open or completed, whose signature differs, and
+    // a held Request whose own signature does not verify completes nothing.
     let forged_request = KagemushaWalletRequestV1 {
-        signature: f.offer().signature,
+        signature: f.foreign_request_signature(&request.body),
         ..request.clone()
     };
     let mut forged = payment.clone();
@@ -1909,15 +1946,12 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
     }
     forged.send = f.send_package_for(&f.payer_statement(effect), PAYMENT_LINEAGE_LEN, 64);
     forged.validate().expect("structurally valid");
-    assert_signature(
-        forged.verify(
-            &f.payer.scheme,
-            &f.payer.credential,
-            &payer_set,
-            &forged_request,
-        ),
-        Domain::Request,
-    );
+    for held in [f.open_request(true), request, forged_request] {
+        assert_invalid(
+            forged.verify(&f.payer.scheme, &f.payer.credential, &payer_set, &held),
+            "payment.request",
+        );
+    }
 }
 
 #[test]
@@ -1932,58 +1966,6 @@ fn kagemusha_wallet_v1_payment_binds_every_byte() {
             decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).ok()?;
         payment.payment_digest().ok()
     });
-}
-
-#[test]
-fn kagemusha_wallet_v1_lineage_message_matches_the_offer() {
-    let f = message_fixture();
-    let payment = f.payment(false, 32);
-    let message = f.lineage_message(&payment);
-    message.validate().expect("lineage message");
-    message.verify_for_offer(&f.offer()).expect("offer match");
-    // Byte-identity reuse compares the lineage digest with the Payment's Ω(pred).
-    assert_eq!(
-        message.lineage_digest(),
-        payment
-            .send
-            .lineage
-            .lineage()
-            .expect("lineage")
-            .lineage_digest()
-    );
-    let reject = |mutate: &dyn Fn(&mut KagemushaWalletLineageMessageV1), field: &str| {
-        let mut message = message.clone();
-        mutate(&mut message);
-        assert_invalid(message.verify_for_offer(&f.offer()), field);
-    };
-    reject(
-        &|m| m.lineage.public.wallet_id = [0x46; 32],
-        "lineage.wallet_id",
-    );
-    reject(
-        &|m| m.lineage.public.credential_digest = [0x47; 32],
-        "lineage.credential_digest",
-    );
-    reject(
-        &|m| m.lineage.public.payment_key = f.receiver.credential.body.payment_key,
-        "lineage.payment_key",
-    );
-    reject(&|m| m.lineage.proof.clear(), "lineage.proof");
-    let mut scheme = message.clone();
-    scheme.lineage.public.scheme_id = [0x48; 32];
-    assert_mismatch(scheme.verify_for_offer(&f.offer()), "lineage.scheme_id");
-    let mut version = message.clone();
-    version.version = 2;
-    assert!(matches!(
-        version.validate(),
-        Err(KagemushaWalletValidationErrorV1::UnsupportedVersion {
-            field: "lineage_message.version",
-            ..
-        })
-    ));
-    let mut tampered_offer = f.offer();
-    tampered_offer.body.amount += 1;
-    assert_signature(message.verify_for_offer(&tampered_offer), Domain::Offer);
 }
 
 #[test]
@@ -2307,6 +2289,11 @@ fn kagemusha_wallet_v1_credit_status_of_a_folded_head() {
         status.check_for(&other_receiver, &digests.payment),
         "credit_status.receiver_wallet_id",
     );
+    // The status names the payer's completed Request; the open quote names no credit.
+    assert_invalid(
+        status.check_for(&f.open_request(false), &digests.payment),
+        "credit_status.credit_id",
+    );
     // An absent credit has no opening against Ω(h)'s root: a proof of absence is not evidence.
     // Its low leaf's slot and siblings, posed as the absent credit's leaf, do not recompute it.
     let absent = KagemushaWalletCreditDigestLeafV1 {
@@ -2451,6 +2438,13 @@ fn kagemusha_wallet_v1_credited_receive_evidence() {
         .verify_for(&f.payer.scheme, &request, &payment)
         .expect("verify");
     assert_eq!(status, KagemushaWalletDeliveryStatusV1::CreditedUnfolded);
+    // The open Request completes from the Payment first and verifies the same evidence.
+    assert_eq!(
+        credited
+            .verify_for(&f.payer.scheme, &f.open_request(true), &payment)
+            .expect("held open Request"),
+        (digest, status)
+    );
     let KagemushaWalletCreditedEvidenceV1::Receive { package } = &credited.evidence else {
         panic!("receive evidence");
     };
@@ -2504,10 +2498,11 @@ fn kagemusha_wallet_v1_credited_receive_evidence() {
         other_digest.verify_for(&f.payer.scheme, &request, &payment),
         "credited.receive.payment_digest",
     );
-    // A receipt that does not verify under the held Request's receiver key.
+    // A receipt that does not verify under the held Request's receiver key: the receiver's
+    // Request signature is a signature over another message.
     let mut forged = credited.clone();
     if let KagemushaWalletCreditedEvidenceV1::Receive { package } = &mut forged.evidence {
-        package.receipt.signature = f.offer().signature;
+        package.receipt.signature = request.signature;
     }
     forged.validate().expect("structurally valid");
     assert_signature(
@@ -2650,15 +2645,17 @@ fn kagemusha_wallet_v1_archive_sent_for_credited_or_burned_evidence() {
         let (digest, _) = credited
             .verify_for(&f.payer.scheme, &request, &payment)
             .expect("verify");
-        assert_eq!(
-            credited
-                .archive_sent_effect(&f.payer.scheme, &request, &payment, &pending)
-                .expect("archive"),
-            KagemushaWalletEffectV1::ArchiveSent {
-                credit_id: pending.credit_id,
-                credited: digest,
-            }
-        );
+        for held in [&request, &f.open_request(true)] {
+            assert_eq!(
+                credited
+                    .archive_sent_effect(&f.payer.scheme, held, &payment, &pending)
+                    .expect("archive"),
+                KagemushaWalletEffectV1::ArchiveSent {
+                    credit_id: pending.credit_id,
+                    credited: digest,
+                }
+            );
+        }
         let mut wrong_leaf = pending;
         wrong_leaf.amount += 1;
         assert_invalid(
@@ -2706,31 +2703,22 @@ fn kagemusha_wallet_v1_session_controls() {
         )
     );
 
-    // Unsigned controls: UnsupportedScheme always, SetupDeclined only before the sender's key
-    // is known in the session.
+    // Unsigned controls: SetupDeclined only, before the sender's key is known in the session.
     let declined = f.control(Kind::SetupDeclined);
     declined.verify(None).expect("early decline");
     assert_invalid(
         declined.verify(Some(&f.payer.credential)),
         "session_control.auth",
     );
-    assert_invalid(f.control(Kind::Close).verify(None), "session_control.auth");
-    let mut unsupported = f.control(Kind::UnsupportedScheme);
-    unsupported.sender_wallet_id = [0; 32];
-    unsupported.verify(None).expect("unsupported scheme");
-    unsupported
-        .verify(Some(&f.payer.credential))
-        .expect("unsupported scheme stays unsigned");
-    assert_invalid(
-        f.control(Kind::UnsupportedScheme).sign(
-            &f.payer.credential,
-            raw_output(&f.payer.payment, &unsupported.signing_message()),
-        ),
-        "session_control.auth",
-    );
-    let mut signed_unsupported = f.control(Kind::UnsupportedScheme);
-    signed_unsupported.auth = f.signed_control(Kind::Close).auth;
-    assert_invalid(signed_unsupported.validate(), "session_control.auth");
+    for kind in [Kind::ReceiveDeferred, Kind::Close] {
+        assert_invalid(f.control(kind).verify(None), "session_control.auth");
+    }
+    // Every control names its sending wallet.
+    for kind in Kind::ALL {
+        let mut anonymous = f.control(kind);
+        anonymous.sender_wallet_id = [0; 32];
+        assert_invalid(anonymous.validate(), "session_control.sender_wallet_id");
+    }
 
     let mutations: [(ControlMutation, &str); 6] = [
         (|control| control.reason = 1, "session_control.reason"),
@@ -2895,8 +2883,7 @@ fn kagemusha_wallet_v1_envelope_bounds_per_kind() {
     for message in sample_messages(&f) {
         let max = message.max_bytes();
         let expected = match message {
-            KagemushaWalletMessageV1::Offer { .. }
-            | KagemushaWalletMessageV1::SessionControl { .. } => 2_048,
+            KagemushaWalletMessageV1::SessionControl { .. } => 2_048,
             _ => 10_000,
         };
         assert_eq!(max, expected);
@@ -2908,19 +2895,6 @@ fn kagemusha_wallet_v1_envelope_bounds_per_kind() {
         ));
     }
 
-    // A decodable Offer above the session bound is rejected after decode, before validation.
-    let mut offer = f.offer();
-    offer.certificates = KagemushaWalletCertificateSetV1 {
-        certificates: vec![f.payer.enrollment_certificate; 12],
-    };
-    let oversized = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer { offer });
-    let frame = norito::encode_canonical(&oversized).expect("encode");
-    assert!(frame.len() > KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1);
-    assert!(frame.len() <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1);
-    assert_too_large(
-        KagemushaWalletEnvelopeV1::decode_canonical(&frame, &[0x77; 32]),
-        KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1,
-    );
     // A Payment whose Ω and σ exceed the message bound is rejected at encode.
     let mut payment = f.payment_with(true, 4_000, 3_520);
     payment.send.step_proof.bytes.resize(6_000, 0xa5);
@@ -2938,8 +2912,9 @@ fn kagemusha_wallet_v1_envelope_bounds_per_kind() {
 #[test]
 fn kagemusha_wallet_v1_envelope_decode_order() {
     let f = message_fixture();
-    let envelope =
-        KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer { offer: f.offer() });
+    let envelope = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Request {
+        request: f.open_request(true),
+    });
     let frame = envelope.to_canonical_bytes().expect("frame");
     let scheme_id = f.scheme_id();
 
@@ -2977,8 +2952,8 @@ fn kagemusha_wallet_v1_envelope_decode_order() {
         })
     ));
     let mut message_version = envelope.clone();
-    if let KagemushaWalletMessageV1::Offer { offer } = &mut message_version.message {
-        offer.body.version = 3;
+    if let KagemushaWalletMessageV1::Request { request } = &mut message_version.message {
+        request.body.version = 3;
     }
     assert!(matches!(
         KagemushaWalletEnvelopeV1::decode_canonical(
@@ -3067,21 +3042,20 @@ fn kagemusha_wallet_v1_envelope_decode_order() {
         })
     ));
     let mut tampered = envelope.clone();
-    if let KagemushaWalletMessageV1::Offer { offer } = &mut tampered.message {
-        offer.body.amount += 1;
+    if let KagemushaWalletMessageV1::Request { request } = &mut tampered.message {
+        request.body.receiver_accepted_time_ms += 1;
     }
     assert_signature(
         KagemushaWalletEnvelopeV1::decode_canonical(
             &norito::encode_canonical(&tampered).expect("encode"),
             &scheme_id,
         ),
-        Domain::Offer,
+        Domain::Request,
     );
-    assert_signature(tampered.to_canonical_bytes(), Domain::Offer);
+    assert_signature(tampered.to_canonical_bytes(), Domain::Request);
 
     // The scheme field per kind (design §6.7).
     let credited = f.credited_receive(&payment, 32);
-    let lineage = f.lineage_message(&payment);
     assert_eq!(
         KagemushaWalletMessageV1::Payment {
             payment: payment.clone()
@@ -3096,137 +3070,76 @@ fn kagemusha_wallet_v1_envelope_decode_order() {
         .scheme_id(),
         &credited.scheme_id
     );
-    assert_eq!(
-        KagemushaWalletMessageV1::Lineage {
-            lineage: lineage.clone()
-        }
-        .scheme_id(),
-        &lineage.lineage.public.scheme_id
-    );
-    let lineage_frame =
-        KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Lineage { lineage })
-            .to_canonical_bytes()
-            .expect("lineage frame");
+    let payment_frame = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Payment {
+        payment: payment.clone(),
+    })
+    .to_canonical_bytes()
+    .expect("payment frame");
     assert_mismatch(
-        KagemushaWalletEnvelopeV1::decode_canonical(&lineage_frame, &[0x78; 32]),
+        KagemushaWalletEnvelopeV1::decode_canonical(&payment_frame, &[0x78; 32]),
         "envelope.scheme_id",
     );
 }
 
 #[test]
-fn kagemusha_wallet_v1_unsupported_scheme_reply_to_an_offer() {
+fn kagemusha_wallet_v1_request_envelope_travels_open() {
     let f = message_fixture();
-    let offer = f.offer();
-    let envelope = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer {
-        offer: offer.clone(),
+    let scheme_id = f.scheme_id();
+    let open = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Request {
+        request: f.open_request(true),
     });
-    let frame = envelope.to_canonical_bytes().expect("frame");
-    // A receiver without this scheme cannot decode the Offer for its own scheme...
-    assert_mismatch(
-        KagemushaWalletEnvelopeV1::decode_canonical(&frame, &[0x78; 32]),
-        "envelope.scheme_id",
-    );
-    // ...but learns the offered scheme through the bounded path and declines it (§8).
-    let offered = KagemushaWalletEnvelopeV1::decode_offered_scheme(&frame).expect("offered");
-    assert_eq!(offered, offer.body);
+    let frame = open.to_canonical_bytes().expect("open Request frame");
     assert_eq!(
-        KagemushaWalletEnvelopeV1::offered_scheme_from_text(&envelope.to_text().expect("text"))
-            .expect("offered text"),
-        offer.body
+        KagemushaWalletEnvelopeV1::decode_canonical(&frame, &scheme_id).expect("decode"),
+        open
     );
-    let reply = KagemushaWalletSessionControlV1::unsupported_scheme(&offered).expect("reply");
-    assert_eq!(
-        reply,
-        KagemushaWalletSessionControlV1 {
-            version: KAGEMUSHA_WALLET_VERSION_V1,
-            scheme_id: offer.body.scheme_id,
-            asset_digest: offer.body.asset_digest,
-            sender_wallet_id: [0; 32],
-            peer_wallet_id: offer.body.payer_wallet_id,
-            session_nonce: offer.body.session_nonce,
-            kind: KagemushaWalletSessionControlKindV1::UnsupportedScheme,
-            reason: 0,
-            credit_id: [0; 32],
-            auth: KagemushaWalletSessionAuthV1::Unsigned,
-        }
-    );
-    // The payer decodes the reply under its own scheme and accepts it unsigned.
-    let reply_frame =
-        KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::SessionControl { control: reply })
-            .to_canonical_bytes()
-            .expect("reply frame");
-    let decoded =
-        KagemushaWalletEnvelopeV1::decode_canonical(&reply_frame, &f.scheme_id()).expect("reply");
-    assert_eq!(
-        decoded.message,
-        KagemushaWalletMessageV1::SessionControl { control: reply }
-    );
-    reply.verify(None).expect("unsigned UnsupportedScheme");
-    // The returned body is unauthenticated: a broken signature does not stop the decline.
-    let mut tampered = envelope.clone();
-    if let KagemushaWalletMessageV1::Offer { offer } = &mut tampered.message {
-        offer.body.amount += 1;
-    }
-    assert_eq!(
-        KagemushaWalletEnvelopeV1::decode_offered_scheme(
-            &norito::encode_canonical(&tampered).expect("encode")
-        )
-        .expect("unauthenticated body")
-        .amount,
-        offer.body.amount + 1
-    );
-    // Only an Offer is accepted, in the bounded decode order.
-    let request_frame = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Request {
+    // A completed Request is the payer's own record; it never travels.
+    let completed = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Request {
         request: f.request(true),
+    });
+    assert_invalid(completed.message.validate(), "request.payer_wallet_id");
+    assert_invalid(completed.to_canonical_bytes(), "request.payer_wallet_id");
+    assert_invalid(
+        KagemushaWalletEnvelopeV1::decode_canonical(
+            &norito::encode_canonical(&completed).expect("encode"),
+            &scheme_id,
+        ),
+        "request.payer_wallet_id",
+    );
+}
+
+#[test]
+fn kagemusha_wallet_v1_retired_message_and_control_tags_do_not_decode() {
+    let f = message_fixture();
+    // `frame` with its leading enum tag replaced by `tag` and its payload checksum recomputed.
+    let retag = |frame: &[u8], tag: u32| {
+        let payload = payload_range(frame);
+        let mut retagged = frame.to_vec();
+        retagged[payload.start..payload.start + 4].copy_from_slice(&tag.to_le_bytes());
+        let checksum = norito::crc64_fallback(&retagged[payload]);
+        retagged[31..39].copy_from_slice(&checksum.to_le_bytes());
+        retagged
+    };
+    // Message tag 1 was the payer Offer and tag 7 the Lineage hint.
+    let message = norito::encode_canonical(&KagemushaWalletMessageV1::SessionControl {
+        control: f.signed_control(KagemushaWalletSessionControlKindV1::Close),
     })
-    .to_canonical_bytes()
-    .expect("request frame");
-    assert_invalid(
-        KagemushaWalletEnvelopeV1::decode_offered_scheme(&request_frame),
-        "envelope.message",
-    );
-    assert!(matches!(
-        KagemushaWalletEnvelopeV1::decode_offered_scheme(&vec![
-            0xa5;
-            KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
-                + 1
-        ]),
-        Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded { .. })
-    ));
-    let mut version = envelope.clone();
-    if let KagemushaWalletMessageV1::Offer { offer } = &mut version.message {
-        offer.body.version = 2;
+    .expect("message frame");
+    assert!(norito::decode_canonical::<KagemushaWalletMessageV1>(&retag(&message, 5)).is_ok());
+    for tag in [1, 7] {
+        assert!(
+            norito::decode_canonical::<KagemushaWalletMessageV1>(&retag(&message, tag)).is_err(),
+            "message tag {tag}"
+        );
     }
-    assert!(matches!(
-        KagemushaWalletEnvelopeV1::decode_offered_scheme(
-            &norito::encode_canonical(&version).expect("encode")
-        ),
-        Err(KagemushaWalletValidationErrorV1::UnsupportedVersion {
-            field: "message.version",
-            version: 2
-        })
-    ));
-    let mut padded = frame.clone();
-    padded.push(0);
-    assert!(matches!(
-        KagemushaWalletEnvelopeV1::decode_offered_scheme(&padded),
-        Err(KagemushaWalletValidationErrorV1::Codec(_))
-    ));
-    let mut zero_nonce = offer.body;
-    zero_nonce.session_nonce = [0; 32];
-    assert_invalid(
-        KagemushaWalletSessionControlV1::unsupported_scheme(&zero_nonce),
-        "offer.session_nonce",
+    // Session control tag 2 was the unsigned `UnsupportedScheme` reply to an Offer.
+    let kind = norito::encode_canonical(&KagemushaWalletSessionControlKindV1::SetupDeclined)
+        .expect("kind frame");
+    assert!(
+        norito::decode_canonical::<KagemushaWalletSessionControlKindV1>(&retag(&kind, 1)).is_ok()
     );
-    let mut zero_nonce_offer = envelope;
-    if let KagemushaWalletMessageV1::Offer { offer } = &mut zero_nonce_offer.message {
-        offer.body.session_nonce = [0; 32];
-    }
-    assert_invalid(
-        KagemushaWalletEnvelopeV1::decode_offered_scheme(
-            &norito::encode_canonical(&zero_nonce_offer).expect("encode"),
-        ),
-        "offer.session_nonce",
+    assert!(
+        norito::decode_canonical::<KagemushaWalletSessionControlKindV1>(&retag(&kind, 2)).is_err()
     );
 }
 
@@ -3356,20 +3269,14 @@ impl MessageFixture {
         list
     }
 
-    /// Issue only after the actual Request rule under the receiver's local `list`.
+    /// Issue the open Request only after the actual Request rule of the receiver's current
+    /// credential and head `receiver`.
     fn issue_request_at(
         &self,
         receiver: &KagemushaWalletStateV1,
-        list: Option<&KagemushaWalletBlacklistV1>,
     ) -> WalletResult<KagemushaWalletRequestV1> {
         let (body, slot, certificates) = self.request_parts(true, 1_000);
-        body.check_request_rule(
-            &self.payer.scheme,
-            &self.offer(),
-            &self.receiver.credential,
-            receiver,
-            list,
-        )?;
+        body.check_request_rule(&self.receiver.credential, receiver)?;
         self.sign_request(&body, slot, certificates)
     }
 
@@ -3395,17 +3302,18 @@ impl MessageFixture {
     }
 }
 
-/// Each phone enforces only its own local list (owner decision 2026-10-17): the receiver
-/// before it issues a Request and again before it accepts a Payment, the payer before Send.
-/// With no list held nothing is refused, and no list is committed, proved or sent.
+/// Each phone enforces only its own local list (owner decision 2026-10-17): the payer before
+/// Send, the receiver before it accepts a Payment. The receiver issues its open Request before
+/// any payer is known, so no list judges a Request. With no list held nothing is refused, and no
+/// list is committed, proved or sent.
 #[test]
-fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
+fn kagemusha_wallet_v1_local_blacklist_blocks_at_send_and_receive() {
     let f = message_fixture();
     let payer_account = f.payer.credential.body.account_digest;
     let receiver_account = f.receiver.credential.body.account_digest;
     let other_account = kagemusha_wallet_account_digest_v1(&test_account(0x77)).expect("other");
     let scheme = f.payer.scheme;
-    let offer = f.offer();
+    let open = f.open_request(true);
     let baseline = f.request(true);
     assert_eq!(baseline.body.payer_account_digest, payer_account);
     assert_eq!(baseline.body.receiver_account_digest, receiver_account);
@@ -3415,72 +3323,51 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
     let lists_receiver = f.signed_blacklist(1, &[receiver_account, other_account]);
     let lists_other = f.signed_blacklist(1, &[other_account]);
 
-    // Request: the receiver refuses to quote for a payer its held list contains.
-    assert_blocked(
-        f.issue_request_at(&receiver_state, Some(&lists_payer)),
-        "request.payer_account_digest",
-    );
+    // Request: the receiver's rule binds its own credential and head and names no payer.
     assert_eq!(
-        f.issue_request_at(&receiver_state, None)
-            .expect("no held list"),
-        baseline
+        f.issue_request_at(&receiver_state).expect("open Request"),
+        open
     );
-    assert_eq!(
-        f.issue_request_at(&receiver_state, Some(&lists_other))
-            .expect("unlisted payer"),
-        baseline
-    );
-    // The receiver's list judges only the payer.
-    assert_eq!(
-        f.issue_request_at(&receiver_state, Some(&lists_receiver))
-            .expect("only the receiver's own account listed"),
-        baseline
-    );
-    let mutations: [(RequestBodyMutation, &str); 3] = [
+    let mutations: [(RequestBodyMutation, &str); 4] = [
         (
             |body| body.payer_account_digest = [0x45; 32],
-            "request.payer_account_digest",
-        ),
-        (
-            |body| body.receiver_account_digest = [0x46; 32],
-            "request.receiver_account_digest",
+            "request.payer_wallet_id",
         ),
         (
             |body| body.payer_wallet_id = [0x47; 32],
             "request.payer_wallet_id",
         ),
+        (|body| body.send_ordinal = 4, "request.payer_wallet_id"),
+        (
+            |body| body.receiver_account_digest = [0x46; 32],
+            "request.receiver_account_digest",
+        ),
     ];
     for (mutate, field) in mutations {
-        let mut body = baseline.body;
+        let mut body = open.body;
         mutate(&mut body);
         assert_invalid(
-            body.check_request_rule(&scheme, &offer, &receiver_credential, &receiver_state, None),
+            body.check_request_rule(&receiver_credential, &receiver_state),
             field,
         );
     }
-    // The account bindings are checked before the list: a body naming a listed account that
-    // is not the Offer's payer is invalid, not blocked.
-    let mut listed_stranger = baseline.body;
-    listed_stranger.payer_account_digest = other_account;
     assert_invalid(
-        listed_stranger.check_request_rule(
-            &scheme,
-            &offer,
-            &receiver_credential,
-            &receiver_state,
-            Some(&lists_other),
-        ),
-        "request.payer_account_digest",
+        baseline
+            .body
+            .check_request_rule(&receiver_credential, &receiver_state),
+        "request.payer_wallet_id",
     );
     assert_invalid(
-        baseline.body.check_request_rule(
-            &scheme,
-            &offer,
-            &receiver_credential,
-            &f.payer_state(&baseline),
-            None,
-        ),
+        open.body
+            .check_request_rule(&receiver_credential, &f.payer_state(&baseline)),
         "state.core.wallet_id",
+    );
+    // A renewed receiver credential is not the credential the body names.
+    let renewed = renewed_credential(&f.receiver);
+    assert_invalid(
+        open.body
+            .check_request_rule(&renewed, &receiver_head_state(&renewed)),
+        "request.receiver_credential_digest",
     );
 
     // Send: the payer refuses to pay a receiver account its held list contains, after the
@@ -3512,27 +3399,18 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
     );
     let interval =
         KagemushaWalletTimeIntervalV1::new(ACCEPTED_MS, ACCEPTED_MS + 4_000).expect("interval");
-    let (mut body, slot, certificates) = f.request_parts(true, 1_000);
-    body.payer_account_digest = other_account;
-    assert_invalid(
-        f.sign_request(&body, slot, certificates.clone()),
-        "request.payer_account_digest",
-    );
-    // A malicious receiver can still provide a signed wire object outside the constructor;
-    // Send must independently enforce the payer account binding.
+    // The payer fields are outside the receiver signature, so anyone can complete the open
+    // Request for another payer account; Send must independently enforce the payer account
+    // binding, and the payer's own completion refuses to replace it.
     let foreign = KagemushaWalletRequestV1 {
-        body,
-        receiver_credential: f.receiver.credential,
-        fee_schedule: slot,
-        certificates,
-        signature: kagemusha_wallet_freeze_signature_v1(
-            &f.receiver.credential.body.payment_key,
-            Domain::Request,
-            &body.signing_message(),
-            raw_output(&f.receiver.payment, &body.signing_message()),
-        )
-        .expect("adversarial receiver signature"),
+        body: open.body.completed(
+            f.payer.credential.body.wallet_id,
+            other_account,
+            SEND_ORDINAL,
+        ),
+        ..open.clone()
     };
+    foreign.validate().expect("receiver-signed terms");
     assert_invalid(
         foreign.check_send_rule(
             &f.payer.credential,
@@ -3545,6 +3423,10 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
         foreign.send_effect(&f.payer.credential, &interval),
         "request.payer_account_digest",
     );
+    assert_invalid(
+        foreign.complete(&f.payer.credential, SEND_ORDINAL),
+        "request.payer_wallet_id",
+    );
     let (mut body, slot, certificates) = f.request_parts(true, 1_000);
     body.receiver_account_digest = other_account;
     assert_invalid(
@@ -3553,7 +3435,7 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
     );
 
     // Receive: the receiver refuses a Payment whose payer its held list contains, after the
-    // full Payment verification and before any effect.
+    // full Payment verification against its held open Request and before any effect.
     let payment = f.payment(true, 64);
     let payer_set = KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
         .expect("payer set");
@@ -3565,7 +3447,7 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
             &scheme,
             &f.payer.credential,
             &payer_set,
-            &baseline,
+            &open,
             &receiver_credential,
             &receiver_state,
             list,
@@ -3576,8 +3458,23 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
     assert_eq!(
         prepared.effect,
         payment
-            .receive_effect(&baseline, &receiver_credential, &receiver_state)
+            .receive_effect(&open, &receiver_credential, &receiver_state)
             .expect("receive effect")
+    );
+    // The payer's completion of the same Request prepares the same Receive.
+    assert_eq!(
+        payment
+            .prepare_receive(
+                &scheme,
+                &f.payer.credential,
+                &payer_set,
+                &baseline,
+                &receiver_credential,
+                &receiver_state,
+                None,
+            )
+            .expect("completed Request"),
+        prepared
     );
     assert_eq!(
         prepare(Some(&lists_other)).expect("unlisted payer"),
@@ -3593,7 +3490,7 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
             &scheme,
             &renewed_credential(&f.payer),
             &payer_set,
-            &baseline,
+            &open,
             &receiver_credential,
             &receiver_state,
             Some(&lists_payer),
@@ -3613,11 +3510,11 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
         .issue(&other_body)
         .expect("other account credential");
     assert_invalid(
-        payment.verify(&scheme, &other_payer, &payer_set, &baseline),
+        payment.verify(&scheme, &other_payer, &payer_set, &open),
         "request.payer_account_digest",
     );
     payment
-        .verify(&scheme, &f.payer.credential, &payer_set, &baseline)
+        .verify(&scheme, &f.payer.credential, &payer_set, &open)
         .expect("payment");
     payment
         .signed_request()
@@ -3633,18 +3530,13 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
     };
     assert!(payment.signed_request().unwrap().verify(&renamed).is_err());
 
-    // Phones hold different lists and each enforces only its own: the receiver's list decides
-    // the Request and the Receive, the payer's list the Send.
+    // Phones hold different lists and each enforces only its own: the payer's list decides the
+    // Send, the receiver's list the Receive.
     for (payer_list, receiver_list, receiver_ok, send_ok) in [
         (&lists_receiver, &lists_other, true, false),
         (&lists_other, &lists_payer, false, true),
         (&lists_other, &lists_other, true, true),
     ] {
-        assert_eq!(
-            f.issue_request_at(&receiver_state, Some(receiver_list))
-                .is_ok(),
-            receiver_ok
-        );
         assert_eq!(
             f.checked_send_at(&baseline, &payer_state, Some(payer_list))
                 .is_ok(),
@@ -3655,8 +3547,8 @@ fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
 }
 
 /// A list installed later never invalidates a completed payment (owner decision 2026-10-17):
-/// it refuses new Request and Send attempts and the acceptance of a listed payer's Payment,
-/// while completed Credited evidence, `ArchiveSent` and the original Payment bytes still verify.
+/// it refuses new Send attempts and the acceptance of a listed payer's Payment, while completed
+/// Credited evidence, `ArchiveSent` and the original Payment bytes still verify.
 #[test]
 fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
     let f = message_fixture();
@@ -3664,18 +3556,12 @@ fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
     let receiver_account = f.receiver.credential.body.account_digest;
     let other_account = kagemusha_wallet_account_digest_v1(&test_account(0x77)).expect("other");
     let scheme = f.payer.scheme;
+    let open = f.open_request(true);
     let request = f.request(true);
     let receiver_credential = f.receiver.credential;
     let receiver_state = receiver_head_state(&receiver_credential);
-    request
-        .body
-        .check_request_rule(
-            &scheme,
-            &f.offer(),
-            &receiver_credential,
-            &receiver_state,
-            None,
-        )
+    open.body
+        .check_request_rule(&receiver_credential, &receiver_state)
         .expect("Request issued before any held list");
     let earlier = f.signed_blacklist(1, &[other_account]);
     let payer_state = f.payer_state(&request);
@@ -3689,7 +3575,7 @@ fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
             &scheme,
             &f.payer.credential,
             &payer_set,
-            &request,
+            &open,
             &receiver_credential,
             &receiver_state,
             Some(&earlier),
@@ -3702,10 +3588,9 @@ fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
     let credited_status = f.credited_status(&payment, PAYMENT_LINEAGE_LEN, OPENING_OTHER_CREDITS);
     let receiver_list = f.signed_blacklist(2, &[payer_account, other_account]);
     let payer_list = f.signed_blacklist(2, &[receiver_account, other_account]);
-    assert_blocked(
-        f.issue_request_at(&receiver_state, Some(&receiver_list)),
-        "request.payer_account_digest",
-    );
+    // The open Request names no payer, so the receiver still issues it.
+    f.issue_request_at(&receiver_state)
+        .expect("Request under the later list");
     assert_blocked(
         f.checked_send_at(&request, &payer_state, Some(&payer_list)),
         "request.receiver_account_digest",
@@ -3715,7 +3600,7 @@ fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
             &scheme,
             &f.payer.credential,
             &payer_set,
-            &request,
+            &open,
             &receiver_credential,
             &receiver_state,
             Some(&receiver_list),
@@ -3738,7 +3623,7 @@ fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
             .expect("ArchiveSent after later lists");
     }
     payment
-        .verify(&scheme, &f.payer.credential, &payer_set, &request)
+        .verify(&scheme, &f.payer.credential, &payer_set, &open)
         .expect("fee claim after later lists");
 }
 
@@ -3775,7 +3660,11 @@ fn kagemusha_wallet_v1_request_binds_both_credential_accounts() {
         mutation(&mut body);
         assert_invalid(body.validate(), field);
         assert_ne!(body.credit_id(), request.credit_id());
-        assert_ne!(body.signing_message(), request.body.signing_message());
+        // The receiver signs its own account; the payer's is completed after signing.
+        assert_eq!(
+            body.signing_message() == request.body.signing_message(),
+            field == "request.payer_account_digest"
+        );
     }
     let (mut receiver_body, slot, certificates) = f.request_parts(true, 1_000);
     receiver_body.receiver_account_digest = f.payer.credential.body.account_digest;
@@ -3783,28 +3672,18 @@ fn kagemusha_wallet_v1_request_binds_both_credential_accounts() {
         f.sign_request(&receiver_body, slot, certificates),
         "request.receiver_account_digest",
     );
-    // A valid receiver signature must not grant Send authority for another payer account.
-    let (mut payer_body, slot, certificates) = f.request_parts(true, 1_000);
-    payer_body.payer_account_digest = f.receiver.credential.body.account_digest;
-    assert_invalid(
-        f.sign_request(&payer_body, slot, certificates.clone()),
-        "request.payer_account_digest",
-    );
-    // Even a raw adversarial receiver-signed Request outside the canonical constructor must
-    // fail the retained Send and Payment account checks.
+    // The receiver signature covers no payer account: a completion for another payer account
+    // keeps the signature, so the retained Send and Payment account checks must refuse it.
+    let open = f.open_request(true);
     let wrong_payer = KagemushaWalletRequestV1 {
-        body: payer_body,
-        receiver_credential: f.receiver.credential,
-        fee_schedule: slot,
-        certificates,
-        signature: kagemusha_wallet_freeze_signature_v1(
-            &f.receiver.credential.body.payment_key,
-            Domain::Request,
-            &payer_body.signing_message(),
-            raw_output(&f.receiver.payment, &payer_body.signing_message()),
-        )
-        .expect("raw fixture signature"),
+        body: open.body.completed(
+            f.payer.credential.body.wallet_id,
+            f.receiver.credential.body.account_digest,
+            SEND_ORDINAL,
+        ),
+        ..open
     };
+    wrong_payer.validate().expect("receiver-signed terms");
     let interval =
         KagemushaWalletTimeIntervalV1::new(ACCEPTED_MS, ACCEPTED_MS + 1).expect("interval");
     assert_invalid(
@@ -3820,14 +3699,13 @@ fn kagemusha_wallet_v1_request_binds_both_credential_accounts() {
 }
 
 #[test]
-fn kagemusha_wallet_v1_request_signing_authenticates_offer_before_freezing() {
+fn kagemusha_wallet_v1_request_signing_freezes_only_open_terms() {
     let f = message_fixture();
     let (body, slot, certificates) = f.request_parts(true, 1_000);
-    let offer = f.offer();
-    let sign = |offer: &KagemushaWalletOfferV1, output| {
+    assert!(body.is_open());
+    let sign = |scheme: &KagemushaWalletSchemeV1, body: KagemushaWalletRequestBodyV1, output| {
         KagemushaWalletRequestV1::sign(
-            &f.payer.scheme,
-            offer,
+            scheme,
             body,
             f.receiver.credential,
             slot,
@@ -3835,50 +3713,357 @@ fn kagemusha_wallet_v1_request_signing_authenticates_offer_before_freezing() {
             output,
         )
     };
-    sign(
-        &offer,
-        raw_output(&f.receiver.payment, &body.signing_message()),
-    )
-    .expect("authenticated payer context");
-    let mut unauthenticated = offer.clone();
-    unauthenticated.body.session_nonce[0] ^= 1;
+    assert_eq!(
+        sign(
+            &f.payer.scheme,
+            body,
+            raw_output(&f.receiver.payment, &body.signing_message()),
+        )
+        .expect("open terms"),
+        f.open_request(true)
+    );
+    // The receiver signs before any payer is known: a body naming one is not signed, although
+    // its terms and therefore its signing message are the same.
+    let completed = f.completed_body(&body);
+    assert_eq!(completed.signing_message(), body.signing_message());
+    assert_invalid(
+        sign(
+            &f.payer.scheme,
+            completed,
+            raw_output(&f.receiver.payment, &completed.signing_message()),
+        ),
+        "request.payer_wallet_id",
+    );
+    // Another scheme, another key and an unbound output are refused before freezing.
+    let mut foreign = f.payer.scheme;
+    foreign.relation_id = [0x35; 32];
+    assert_mismatch(
+        sign(
+            &foreign,
+            body,
+            raw_output(&f.receiver.payment, &body.signing_message()),
+        ),
+        "request.scheme_id",
+    );
     assert_signature(
         sign(
-            &unauthenticated,
+            &f.payer.scheme,
+            body,
+            raw_output(&f.payer.payment, &body.signing_message()),
+        ),
+        Domain::Request,
+    );
+    assert_signature(
+        sign(
+            &f.payer.scheme,
+            body,
             KagemushaWalletSignerOutputV1::Raw([0; 64]),
         ),
-        Domain::Offer,
+        Domain::Request,
     );
-    // An issuer-authenticated Offer with the same payer key/wallet but another canonical
-    // account is still the wrong Request context.
-    let mut credential_body = f.payer.credential.body;
-    credential_body.account_digest = f.receiver.credential.body.account_digest;
-    let credential = KagemushaWalletCredentialV1::sign(
-        credential_body,
-        &f.payer.enrollment_certificate,
-        raw_output(
-            &f.payer.enrollment_signer,
-            &credential_body.signing_message(),
-        ),
-    )
-    .expect("issuer-signed context");
-    let altered_body = KagemushaWalletOfferBodyV1 {
-        payer_credential_digest: credential.credential_digest(),
-        ..offer.body
-    };
-    let other_account = KagemushaWalletOfferV1::sign(
-        altered_body,
-        credential,
-        &f.payer.enrollment_certificate,
-        raw_output(&f.payer.payment, &altered_body.signing_message()),
-    )
-    .expect("signed Offer");
-    other_account
-        .verify(&f.payer.scheme)
-        .expect("authenticated Offer");
+}
+
+#[test]
+fn kagemusha_wallet_v1_open_request_is_completed_by_each_payer() {
+    let f = message_fixture();
+    let scheme = f.payer.scheme;
+    let open = f.open_request(true);
+    assert!(open.body.is_open());
+    open.validate_open().expect("open wire form");
+    open.verify_open(&scheme)
+        .expect("the payer's check of a received Request");
+    // The open form is no completed Request.
+    assert_invalid(open.validate(), "request.payer_wallet_id");
+    assert_invalid(open.verify(&scheme), "request.payer_wallet_id");
+
+    let payer = f.payer.credential;
+    let completed = open.complete(&payer, SEND_ORDINAL).expect("completion");
+    assert_eq!(completed, f.request(true));
+    assert_eq!(
+        completed.body,
+        open.body.completed(
+            payer.body.wallet_id,
+            payer.body.account_digest,
+            SEND_ORDINAL
+        )
+    );
+    assert!(!completed.body.is_open());
+    assert_eq!(completed.body.open(), open.body);
+    // The receiver signature, originals and Request digest are unchanged, and the signature
+    // still verifies over the completed body.
+    assert_eq!(
+        KagemushaWalletRequestV1 {
+            body: open.body,
+            ..completed.clone()
+        },
+        open
+    );
+    assert_eq!(
+        completed.body.signing_message(),
+        open.body.signing_message()
+    );
+    completed
+        .validate()
+        .expect("the open signature covers the completion");
+    completed.verify(&scheme).expect("completed Request");
+    assert_invalid(completed.validate_open(), "request.payer_wallet_id");
+    assert_eq!(completed.request_digest(), open.request_digest());
+    assert_eq!(completed.signed().request_digest(), open.request_digest());
+
+    // `credit_id` binds the completion: one credit per payer and send ordinal.
+    let stranger =
+        identity_fixture(KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox, 0x5f).credential;
+    let other = open.complete(&stranger, 9).expect("another payer");
+    assert_eq!(other.request_digest(), open.request_digest());
+    assert_ne!(other.credit_id(), completed.credit_id());
+    assert_ne!(
+        open.complete(&payer, SEND_ORDINAL + 1)
+            .expect("next ordinal")
+            .credit_id(),
+        completed.credit_id()
+    );
+    assert_ne!(open.credit_id(), completed.credit_id());
+    // A completion is checked, never rewritten: the same payer and ordinal return it, another
+    // payer or ordinal is refused.
+    assert_eq!(
+        completed
+            .complete(&payer, SEND_ORDINAL)
+            .expect("same completion"),
+        completed
+    );
     assert_invalid(
-        sign(&other_account, KagemushaWalletSignerOutputV1::Raw([0; 64])),
-        "request.payer_account_digest",
+        completed.complete(&stranger, SEND_ORDINAL),
+        "request.payer_wallet_id",
+    );
+    assert_invalid(
+        completed.complete(&payer, SEND_ORDINAL + 1),
+        "request.payer_wallet_id",
+    );
+    // The receiver is not its own payer, and a payer of another asset cannot complete it.
+    assert_invalid(
+        open.complete(&f.receiver.credential, SEND_ORDINAL),
+        "request.payer_wallet_id",
+    );
+    let mut body = payer.body;
+    body.asset_digest = [0x77; 32];
+    body.wallet_id = kagemusha_wallet_id_v1(
+        &body.scheme_id,
+        &body.asset_digest,
+        &body.payment_key,
+        &body.enrollment_id,
+    );
+    let other_asset = f.payer.issue(&body).expect("other asset credential");
+    assert_invalid(
+        open.complete(&other_asset, SEND_ORDINAL),
+        "request.payer_credential.asset_digest",
+    );
+}
+
+#[test]
+fn kagemusha_wallet_v1_request_validation_splits_terms_open_and_completed() {
+    let f = message_fixture();
+    let (open, _, _) = f.request_parts(true, 1_000);
+    let completed = f.completed_body(&open);
+    for body in [open, completed] {
+        body.validate_terms().expect("receiver terms");
+    }
+    open.validate_open().expect("open");
+    completed.validate().expect("completed");
+    assert_invalid(open.validate(), "request.payer_wallet_id");
+    assert_invalid(completed.validate_open(), "request.payer_wallet_id");
+    // An open body names no payer field at all.
+    let payer_fields: [RequestBodyMutation; 3] = [
+        |body| body.payer_wallet_id = [0x0c; 32],
+        |body| body.payer_account_digest = [0x0d; 32],
+        |body| body.send_ordinal = 1,
+    ];
+    for mutate in payer_fields {
+        let mut body = open;
+        mutate(&mut body);
+        assert!(!body.is_open());
+        body.validate_terms().expect("the terms are unchanged");
+        assert_invalid(body.validate_open(), "request.payer_wallet_id");
+    }
+    // A completed body names a payer wallet and account, and a payer other than the receiver.
+    let completions: [(RequestBodyMutation, &str); 3] = [
+        (
+            |body| body.payer_wallet_id = [0; 32],
+            "request.payer_wallet_id",
+        ),
+        (
+            |body| body.payer_account_digest = [0; 32],
+            "request.payer_account_digest",
+        ),
+        (
+            |body| body.payer_wallet_id = body.receiver_wallet_id,
+            "request.payer_wallet_id",
+        ),
+    ];
+    for (mutate, field) in completions {
+        let mut body = completed;
+        mutate(&mut body);
+        assert_invalid(body.validate(), field);
+    }
+    // Both forms keep every terms rule.
+    for mut body in [open, completed] {
+        body.amount = 0;
+        assert_invalid(body.validate_terms(), "request.amount");
+    }
+}
+
+#[test]
+fn kagemusha_wallet_v1_complete_with_takes_only_the_issued_terms_and_signature() {
+    let f = message_fixture();
+    let open = f.open_request(true);
+    let completed = f.request(true);
+    // The receiver completes its issued open Request from the Request a Payment carries.
+    assert_eq!(
+        open.complete_with(&completed.signed()).expect("completion"),
+        completed
+    );
+    assert_eq!(
+        completed
+            .complete_with(&completed.signed())
+            .expect("same completion"),
+        completed
+    );
+    let stranger =
+        identity_fixture(KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox, 0x5f).credential;
+    let other = open.complete(&stranger, 9).expect("another payer");
+    assert_eq!(
+        open.complete_with(&other.signed())
+            .expect("another payer's completion"),
+        other
+    );
+    // A held completion is never replaced by another payer's.
+    assert_invalid(completed.complete_with(&other.signed()), "request.terms");
+    // Other terms or another signature are another Request.
+    let mut terms = completed.signed();
+    terms.body.amount += 1;
+    assert_invalid(open.complete_with(&terms), "request.terms");
+    let mut signature = completed.signed();
+    signature.signature = f.foreign_request_signature(&completed.body);
+    assert_invalid(open.complete_with(&signature), "request.terms");
+    // A carried Request that is no valid completion completes nothing.
+    assert_invalid(
+        open.complete_with(&open.signed()),
+        "request.payer_wallet_id",
+    );
+    let mut receiver = completed.signed();
+    receiver.body.payer_wallet_id = receiver.body.receiver_wallet_id;
+    assert_invalid(open.complete_with(&receiver), "request.payer_wallet_id");
+}
+
+#[test]
+fn kagemusha_wallet_v1_held_open_request_verifies_payment_and_evidence() {
+    let f = message_fixture();
+    let scheme = f.payer.scheme;
+    let open = f.open_request(true);
+    let completed = f.request(true);
+    let payment = f.payment(true, 64);
+    let payer_set =
+        KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate]).expect("set");
+    let receiver_state = receiver_head_state(&f.receiver.credential);
+    // Every function taking a held Request and a Payment completes the held Request from the
+    // Payment first: the receiver's open Request and the payer's completion agree.
+    assert_eq!(
+        payment
+            .verify(&scheme, &f.payer.credential, &payer_set, &open)
+            .expect("open"),
+        payment
+            .verify(&scheme, &f.payer.credential, &payer_set, &completed)
+            .expect("completed")
+    );
+    let prepare = |request: &KagemushaWalletRequestV1| {
+        payment.prepare_receive(
+            &scheme,
+            &f.payer.credential,
+            &payer_set,
+            request,
+            &f.receiver.credential,
+            &receiver_state,
+            None,
+        )
+    };
+    assert_eq!(
+        prepare(&open).expect("open"),
+        prepare(&completed).expect("completed")
+    );
+    let pending = payment.pending_outgoing_leaf().expect("pending");
+    for credited in [
+        f.credited_receive(&payment, 48),
+        f.credited_status(&payment, 40, OPENING_OTHER_CREDITS),
+    ] {
+        assert_eq!(
+            credited.verify_for(&scheme, &open, &payment).expect("open"),
+            credited
+                .verify_for(&scheme, &completed, &payment)
+                .expect("completed")
+        );
+        assert_eq!(
+            credited
+                .archive_sent_effect(&scheme, &open, &payment, &pending)
+                .expect("open"),
+            credited
+                .archive_sent_effect(&scheme, &completed, &payment, &pending)
+                .expect("completed")
+        );
+    }
+    // Another issued Request does not complete from this Payment.
+    let other = f.open_request(false);
+    assert_invalid(
+        payment.verify(&scheme, &f.payer.credential, &payer_set, &other),
+        "payment.request",
+    );
+    assert_invalid(
+        f.credited_receive(&payment, 48)
+            .verify_for(&scheme, &other, &payment),
+        "credited.payment.request",
+    );
+    // Assembly, the Send check and CreditStatus need the completed Request.
+    assert_invalid(
+        KagemushaWalletPaymentV1::assemble(&open, &f.payer.credential, payment.send.clone()),
+        "request.payer_wallet_id",
+    );
+    assert_invalid(
+        f.checked_send_at(&open, &f.payer_state(&completed), None),
+        "request.payer_wallet_id",
+    );
+    assert_invalid(
+        f.credit_status(&payment, 40, OPENING_OTHER_CREDITS, false)
+            .check_for(&open, &payment.payment_digest().expect("digest")),
+        "credit_status.credit_id",
+    );
+}
+
+#[test]
+fn kagemusha_wallet_v1_request_terms_are_the_credit_elements_without_the_payer() {
+    let f = message_fixture();
+    let open = f.open_request(true);
+    let completed = f.request(true);
+    let terms = kagemusha_wallet_request_terms_items_v1(&completed.body.transcript());
+    assert_eq!(terms.len(), KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1);
+    // Elements 5, 6 (payer wallet), 7, 8 (payer account) and 13 (send ordinal) are left out.
+    let expected: Vec<[u8; 32]> = completed
+        .body
+        .field_items()
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| ![5, 6, 7, 8, 13].contains(index))
+        .map(|(_, item)| item)
+        .collect();
+    assert_eq!(terms, expected);
+    assert_eq!(
+        kagemusha_wallet_request_terms_items_v1(&open.body.transcript()),
+        terms
+    );
+    assert_eq!(
+        kagemusha_wallet_poseidon_v1(Domain::Request.domain(), &terms).ok(),
+        Some(completed.body.signing_message())
+    );
+    assert_ne!(
+        completed.body.signing_message(),
+        kagemusha_wallet_poseidon_bytes_v1(Domain::Request.domain(), &completed.body.transcript())
     );
 }
 

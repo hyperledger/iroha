@@ -391,8 +391,22 @@ async fn signed_reserve_http_refuses_unprivileged_signer_missing_auth_and_route_
 async fn signed_reserve_http_source_quota_refusal_does_not_become_absence_or_poison_retry() {
     let _auth = app_auth_test_guard(crate::app_auth::CanonicalRequestAuthConfig::default());
     let f = Fixture::new();
-    // Valid limits admit only one canonical source byte; the genuine genesis frame exceeds it.
-    let narrow = router(f.app(8));
+    // Fund authentication, but leave the native block corridor one byte short
+    // of the original genesis frame. This exercises source refusal after auth.
+    let genesis_bytes = f.chain.committed(1).block().encode_wire().unwrap().len();
+    let narrow_app = f.app(
+        genesis_bytes
+            .checked_sub(1)
+            .unwrap()
+            .checked_mul(8)
+            .unwrap(),
+    );
+    let probe = f.manager_request(2);
+    assert_eq!(
+        super::manager(&narrow_app, probe.headers(), probe.method(), probe.uri()).unwrap(),
+        f.manager,
+    );
+    let narrow = router(narrow_app);
     let unsigned = narrow
         .clone()
         .oneshot(f.request("/v1/sorafs/reserve/policy/2", None))

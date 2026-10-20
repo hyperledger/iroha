@@ -163,6 +163,7 @@ def test_live_stream_signatures_expose_no_replay_controls() -> None:
         "http://torii.example",
         session=SequencedSession([]),
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(TypeError, match="unexpected keyword argument 'last_event_id'"):
         client.stream_events(last_event_id="stale")  # type: ignore[call-arg]
@@ -172,7 +173,7 @@ def test_live_stream_signatures_expose_no_replay_controls() -> None:
 
 def test_sse_stream_has_a_mandatory_event_bound_and_never_redirects() -> None:
     session = SequencedSession([SseStubResponse(["data: 123456", ""])])
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     stream = client._stream_sse(
         "/v1/events/sse",
@@ -199,6 +200,7 @@ def test_sse_stream_bounds_newline_free_chunks_and_normalizes_accept_header() ->
         session=session,
         default_headers={"accept": "application/json"},
         max_retries=0,
+        chain_discriminant=753,
     )
 
     stream = client._stream_sse(
@@ -224,7 +226,7 @@ def test_sse_mid_body_failures_exhaust_the_retry_budget() -> None:
             SseStubResponse(["data: should-not-be-read", ""]),
         ]
     )
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
     stream = client._stream_sse(
         "/v1/events/sse",
         max_retries=1,
@@ -238,7 +240,7 @@ def test_sse_mid_body_failures_exhaust_the_retry_budget() -> None:
 
 def test_sse_event_bound_counts_crlf_wire_bytes() -> None:
     session = SequencedSession([ChunkSseStubResponse([b":\r\n:\r\n\r\n"])])
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
     stream = client._stream_sse(
         "/v1/events/sse",
         maximum_event_bytes=7,
@@ -259,7 +261,7 @@ def test_sse_event_bound_counts_crlf_wire_bytes() -> None:
 )
 def test_sse_stream_accepts_all_standard_line_endings(chunks: list[bytes]) -> None:
     session = SequencedSession([ChunkSseStubResponse(chunks)])
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     event = next(client._stream_sse("/v1/events/sse", max_retries=0))
 
@@ -274,7 +276,7 @@ def test_sse_callback_request_errors_are_not_retried_or_checkpointed() -> None:
             SseStubResponse(["data: duplicate", ""]),
         ]
     )
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
     cursor = EventCursor()
 
     def fail_callback(_event: object) -> None:
@@ -360,6 +362,7 @@ def test_specialized_live_stream_filters_normally_and_surfaces_terminal_error() 
         session=session,
         default_headers={"lAsT-EvEnT-Id": "must-not-leak"},
         max_retries=0,
+        chain_discriminant=753,
     )
 
     events = client.stream_events(
@@ -412,6 +415,7 @@ def test_live_event_stream_optionally_signs_exact_final_uri() -> None:
         session=session,
         canonical_request_auth=auth,
         max_retries=3,
+        chain_discriminant=753,
     )
 
     assert next(client.stream_events(filter=F.tx_status == "Queued", max_retries=0)).raw == event_payload
@@ -451,6 +455,7 @@ def test_sumeragi_status_stream_uses_fresh_one_shot_operator_auth() -> None:
         operator_signing_context=operator_context(),
         default_headers={"Last-Event-ID": "stale-subscription"},
         max_retries=3,
+        chain_discriminant=753,
     )
 
     assert next(client.stream_sumeragi_status()) == payload
@@ -494,6 +499,7 @@ def test_sumeragi_status_stream_drops_ambient_resume_header_and_signs_once() -> 
         operator_signing_context=OperatorSigningContext(
             network_id, key_pair
         ),
+        chain_discriminant=753,
     )
 
     assert next(client.stream_sumeragi_status()) == {"view": 2}
@@ -519,7 +525,7 @@ def test_sumeragi_status_stream_drops_ambient_resume_header_and_signs_once() -> 
 def test_nonreplayable_stream_rejects_session_resume_header_before_dispatch() -> None:
     session = SequencedSession([])
     session.headers["Last-Event-ID"] = "ambient-cursor"
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="Session.headers Last-Event-ID"):
         next(client.stream_events(max_retries=0))
@@ -528,7 +534,7 @@ def test_nonreplayable_stream_rejects_session_resume_header_before_dispatch() ->
 
 def test_sumeragi_status_stream_rejects_missing_signer_and_retries_before_dispatch() -> None:
     session = SequencedSession([])
-    client = ToriiClient("https://torii.example", session=session, max_retries=3)
+    client = ToriiClient("https://torii.example", session=session, max_retries=3, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="operator_signing_context"):
         client.stream_sumeragi_status()
@@ -537,6 +543,7 @@ def test_sumeragi_status_stream_rejects_missing_signer_and_retries_before_dispat
             "https://torii.example",
             session=session,
             operator_signing_context=operator_context(),
+            chain_discriminant=753,
         ).stream_sumeragi_status(max_retries=1)
     assert session.calls == []
 
@@ -572,7 +579,7 @@ def test_malformed_terminal_stream_error_is_typed(data: str, reason: str) -> Non
     session = SequencedSession(
         [SseStubResponse(["event: stream_error", f"data: {data}", ""])]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(SseStreamError) as raised:
         next(client.stream_events(max_retries=0))
@@ -599,7 +606,7 @@ def test_stream_error_is_decoded_even_when_normal_payload_json_decode_is_disable
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(SseStreamError) as raised:
         next(client.stream_events(max_retries=0, decode_json=False))
@@ -740,7 +747,7 @@ def test_event_stream_yields_typed_events_and_never_fails_on_unknown_kinds() -> 
     for payload, _ in _EVENT_CASES:
         lines += [f"data: {json.dumps(payload)}", ""]
     session = SequencedSession([SseStubResponse(lines)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     events = list(client.stream_events(max_retries=0))
 
@@ -754,7 +761,7 @@ def test_event_stream_metadata_and_raw_text_modes() -> None:
             SseStubResponse([f"data: {json.dumps(_QUEUED)}", ""]),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     seen: list[Any] = []
 
     frame = next(client.stream_events(max_retries=0, with_metadata=True, on_event=seen.append))
@@ -778,7 +785,7 @@ def test_event_stream_metadata_and_raw_text_modes() -> None:
 )
 def test_malformed_event_payloads_fail_the_stream(data: str, needle: str) -> None:
     session = SequencedSession([SseStubResponse([f"data: {data}", ""])])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match=needle):
         next(client.stream_events(max_retries=0))
@@ -796,6 +803,7 @@ def test_closing_the_event_iterator_releases_the_stream() -> None:
         "http://torii.example",
         session=SequencedSession([response]),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     events = client.stream_events(max_retries=0)

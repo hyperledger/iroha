@@ -96,7 +96,7 @@ def boundary(monkeypatch):
         "_transaction_draft", "_submit_transaction_draft_result", "_sign_transaction_draft",
         "call_contract_batch_and_wait",
     }})
-    client = client_module.ToriiClient()
+    client = client_module.ToriiClient( chain_discriminant=753)
     network_id = object()
     client._native_transaction_account_id = lambda value, context: value
     client._require_local_signing_context = lambda context: types.SimpleNamespace(network_id=network_id)

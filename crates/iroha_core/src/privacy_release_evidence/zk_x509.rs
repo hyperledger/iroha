@@ -367,7 +367,7 @@ pub fn build_privacy_release_zk_x509_resource_certificate_v1(
     };
     let payload = private_resource_certificate_v1(&certificate)
         .ok_or(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    certificate.certificate_sha256 = validate_resource_certificate_payload_v1(payload)
+    certificate.certificate_sha256 = validate_resource_certificate_payload_v1(&payload)
         .ok_or(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
     Ok(certificate)
 }
@@ -392,6 +392,7 @@ pub fn validate_privacy_release_zk_x509_resource_capture_v1(
         return false;
     }
     private_resource_certificate_v1(certificate)
+        .as_ref()
         .and_then(validate_resource_certificate_payload_v1)
         .is_some_and(|digest| digest == certificate.certificate_sha256)
 }
@@ -402,7 +403,7 @@ pub fn privacy_release_zk_x509_resource_certificate_matches_source_v1(
 ) -> bool {
     validate_privacy_release_zk_x509_resource_capture_v1(certificate)
         && private_resource_certificate_v1(certificate).is_some_and(|payload| {
-            resource_certificate_matches_source_v1(payload, certificate.certificate_sha256)
+            resource_certificate_matches_source_v1(&payload, certificate.certificate_sha256)
         })
 }
 /// Whether the one-time native release capture corridor remains open.

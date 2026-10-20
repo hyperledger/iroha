@@ -127,61 +127,7 @@ impl NativeReplaySeed {
             ));
         }
         check_replay_deadline(deadline)?;
-        let kura = Kura::new_temporary_with_configured_lane_catalog(
-            &self.kura_config,
-            &self.nexus.lane_config,
-            &self.nexus.configured_lane_catalog,
-        )?;
-        let account = iroha_data_model::account::Account::new(self.genesis_account.clone())
-            .build(&self.genesis_account);
-        let domain =
-            iroha_data_model::domain::Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone())
-                .build(&self.genesis_account);
-        let mut world = World::try_with_execution_budget([domain], [account], [], &self.budget)?;
-        crate::sns::seed_genesis_alias_bootstrap(
-            &mut world,
-            &genesis,
-            &self.nexus.dataspace_catalog,
-        )?;
-        let query = crate::query::store::LiveQueryStore::from_config(
-            Default::default(),
-            iroha_futures::supervisor::ShutdownSignal::new(),
-        )
-        .into_inert_handle();
-        let mut state = State::try_new_for_isolated_replay(
-            self.budget.clone(),
-            world,
-            kura,
-            query,
-            self.chain.clone(),
-            self.network,
-            self.pipeline.clone(),
-        )?;
-        state.install_node_zk(self.zk.clone())?;
-        state.install_crypto_snapshot_for_isolated_replay((*self.crypto).clone());
-        state.set_oracle(self.oracle.clone());
-        state.install_node_fraud_monitoring(self.fraud.clone());
-        state.set_gov(self.governance.clone());
-        state.content = self.content.clone();
-        state.set_settlement(self.settlement);
-        state.install_materialized_lane_manifests_for_catalog(
-            &self.manifests,
-            &self.nexus.lane_catalog,
-            &self.nexus.governance,
-        )?;
-        state.install_lane_compliance_engine(self.compliance.clone());
-        state.prepare_configured_primary_geometry_anchor(&self.nexus.configured_lane_catalog)?;
-        state.restore_kura_lane_segments_before_startup_replay()?;
-        state.set_nexus_from_config(self.nexus.clone())?;
-        // Canonical H0 geometry must be authenticated and provisioned while this
-        // temporary destination still has no durable blocks. A stored H1 makes
-        // missing physical geometry a corruption error, just as on ordinary startup.
-        // Only now does the canonical store retain the exact pinned signed genesis;
-        // no original source destination is ever opened for writing.
-        state.kura().store_block(genesis.clone())?;
-        // The new State's tiered backend is disabled and has no configured external
-        // paths; no live tiered directory, signer, runtime or query route is attached.
-        let state = Arc::new(state);
+        let state = self.initialize_destination(&genesis)?;
         let (events, _) = tokio::sync::broadcast::channel(1);
         check_replay_deadline(deadline)?;
         let prepared = prepare_genesis(
@@ -226,6 +172,71 @@ impl NativeReplaySeed {
             scope,
             target: exact_target,
         })
+    }
+
+    // Release World and State construction temporaries before canonical genesis
+    // execution acquires another World block. Keeping both phases in begin stacks
+    // their large inline layouts on the ordinary FASTPQ blocking worker.
+    #[inline(never)]
+    fn initialize_destination(
+        &self,
+        genesis: &iroha_data_model::block::SharedSignedBlock,
+    ) -> Result<Arc<State>, IsolatedReplayError> {
+        let kura = Kura::new_temporary_with_configured_lane_catalog(
+            &self.kura_config,
+            &self.nexus.lane_config,
+            &self.nexus.configured_lane_catalog,
+        )?;
+        let account = iroha_data_model::account::Account::new(self.genesis_account.clone())
+            .build(&self.genesis_account);
+        let domain =
+            iroha_data_model::domain::Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone())
+                .build(&self.genesis_account);
+        let mut world = World::try_with_execution_budget([domain], [account], [], &self.budget)?;
+        crate::sns::seed_genesis_alias_bootstrap(
+            &mut world,
+            genesis,
+            &self.nexus.dataspace_catalog,
+        )?;
+        let query = crate::query::store::LiveQueryStore::from_config(
+            Default::default(),
+            iroha_futures::supervisor::ShutdownSignal::new(),
+        )
+        .into_inert_handle();
+        let mut state = State::try_new_for_isolated_replay(
+            self.budget.clone(),
+            world,
+            kura,
+            query,
+            self.chain.clone(),
+            self.network,
+            self.pipeline.clone(),
+        )?;
+        state.install_node_zk(self.zk.clone())?;
+        state.install_crypto_snapshot_for_isolated_replay((*self.crypto).clone());
+        state.set_oracle(self.oracle.clone());
+        state.install_node_fraud_monitoring(self.fraud.clone());
+        state.set_gov(self.governance.clone());
+        state.content = self.content.clone();
+        state.set_settlement(self.settlement);
+        state.install_materialized_lane_manifests_for_catalog(
+            &self.manifests,
+            &self.nexus.lane_catalog,
+            &self.nexus.governance,
+        )?;
+        state.install_lane_compliance_engine(self.compliance.clone());
+        state.prepare_configured_primary_geometry_anchor(&self.nexus.configured_lane_catalog)?;
+        state.restore_kura_lane_segments_before_startup_replay()?;
+        state.set_nexus_from_config(self.nexus.clone())?;
+        // Canonical H0 geometry must be authenticated and provisioned while this
+        // temporary destination still has no durable blocks. A stored H1 makes
+        // missing physical geometry a corruption error, just as on ordinary startup.
+        // Only now does the canonical store retain the exact pinned signed genesis;
+        // no original source destination is ever opened for writing.
+        state.kura().store_block(genesis.clone())?;
+        // The new State's tiered backend is disabled and has no configured external
+        // paths; no live tiered directory, signer, runtime or query route is attached.
+        Ok(Arc::new(state))
     }
 }
 

@@ -37,6 +37,7 @@ fn transaction_rejection_code(
         TransactionRejectionReason::Validation(_) => "validation",
         TransactionRejectionReason::InstructionExecution(_) => "instruction_execution",
         TransactionRejectionReason::TriggerExecution(_) => "trigger_execution",
+        TransactionRejectionReason::AnonymousBallot(_) => "anonymous_ballot",
     }
 }
 fn pipeline_rejection_summary(
@@ -52,5 +53,9 @@ fn pipeline_rejection_summary(
         TransactionRejectionReason::Validation(_) => "Transaction validation failed.",
         TransactionRejectionReason::InstructionExecution(_) => "Instruction execution failed.",
         TransactionRejectionReason::TriggerExecution(_) => "Trigger execution failed.",
+        TransactionRejectionReason::AnonymousBallot(reason) => match reason {
+            iroha_data_model::governance::anonymous_ballot::AnonymousBallotRejectionV1::OutsideCastingWindow => "Anonymous ballot is outside its casting window.",
+            iroha_data_model::governance::anonymous_ballot::AnonymousBallotRejectionV1::DuplicateNullifier => "Anonymous ballot nullifier was already accepted.",
+        },
     }
 }

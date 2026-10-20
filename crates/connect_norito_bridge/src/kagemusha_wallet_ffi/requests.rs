@@ -2,7 +2,7 @@
 
 use super::*;
 
-mod receive_offer;
+mod receive_companion;
 
 use iroha_data_model::isi::kagemusha_wallet::load_finality::KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1;
 
@@ -24,7 +24,7 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
         7 => [KAGEMUSHA_WALLET_QUOTA_SHARE_MAX_BYTES_V1, message, 0],
         8 => [KAGEMUSHA_WALLET_CHARGE_QUOTE_MAX_BYTES_V1, message, 0],
         9 => [0; 3],
-        10 => [message, message, 0],
+        10 => [message, KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1, 0],
         _ => return Err(Failure::code(INVALID)),
     })
 }
@@ -109,7 +109,7 @@ pub(crate) fn request(
             }
         }
         9 => A::Retire,
-        10 => receive_offer::action(first, second)?,
+        10 => receive_companion::action(first, second)?,
         _ => return Err(Failure::code(INVALID)),
     };
     Ok(Call::Operation(state::OperationRequestV1 {
@@ -167,9 +167,17 @@ mod tests {
                 assert!(request(&id, selector, 1, refs).is_err());
             }
         }
-        assert_eq!(bounds(10).unwrap(), [10_000, 10_000, 0]);
+        // Receive with a payer companion: both originals present, the companion within its
+        // 2,048-byte bound, no third original or amount.
+        assert_eq!(bounds(10).unwrap(), [10_000, 2_048, 0]);
         assert!(bounds(11).is_err());
         assert!(request(&[1; 32], 10, 0, [&[], &[], &[]]).is_err());
+        assert!(request(&[1; 32], 10, 0, [&[7], &[], &[]]).is_err());
+        assert!(request(&[1; 32], 10, 0, [&[], &[7], &[]]).is_err());
+        assert!(request(&[1; 32], 10, 0, [&[7], &vec![7; 2_049], &[]]).is_err());
+        assert!(request(&[1; 32], 10, 0, [&[7], &[7], &[7]]).is_err());
+        assert!(request(&[1; 32], 10, 1, [&[7], &[7], &[]]).is_err());
+        assert!(request(&[0; 32], 10, 0, [&[7], &[7], &[]]).is_err());
         assert!(request(&[1; 32], 8, 0, [&[]; 3]).is_err());
         assert!(request(&[1; 32], 8, 1, [&[1], &[], &[]]).is_err());
         assert!(request(&[1; 32], 8, 1, [&[], &[1], &[]]).is_err());

@@ -308,6 +308,11 @@ harness = false
 name = "kotodama_runtime_cache"
 harness = false
 
+[[bench]]
+name = "read_path_hotpaths"
+harness = false
+required-features = ["bench", "iroha-core-tests"]
+
 [[example]]
 name = "apply_blocks"
 harness = false

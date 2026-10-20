@@ -671,12 +671,11 @@ pub mod query {
                 }
                 NftQueryPlan::Owners(owners) => {
                     Box::new(owners.into_iter().flat_map(move |owner| {
-                        let nft_ids = world
-                            .nfts_by_owner()
-                            .get(&owner)
-                            .cloned()
-                            .into_iter()
-                            .flatten();
+                        let nft_ids = crate::state::range_bounds::index_members(
+                            world.nfts_by_owner(),
+                            &owner,
+                        )
+                        .cloned();
                         world.nft_entries_by_ids_iter(nft_ids).map(nft_from_entry)
                     }))
                 }
@@ -711,11 +710,9 @@ pub mod query {
             let account_id = self.account_id().clone();
             state_ro.world().account(&account_id)?;
             let world = state_ro.world();
-            let nft_ids = world
-                .nfts_by_owner()
-                .get(&account_id)
-                .cloned()
-                .unwrap_or_default();
+            let nft_ids =
+                crate::state::range_bounds::index_members(world.nfts_by_owner(), &account_id)
+                    .cloned();
             let nfts = world
                 .nft_entries_by_ids_iter(nft_ids)
                 .filter_map(move |entry| {
@@ -747,7 +744,6 @@ pub mod query {
         use iroha_model_base::name::Name;
         use iroha_primitives::json::Json;
         use iroha_test_samples::ALICE_ID;
-        use std::collections::BTreeSet;
         fn checked_keypair() -> KeyPair {
             KeyPair::try_random().expect("NFT query fixture key generation should succeed")
         }
@@ -877,11 +873,8 @@ pub mod query {
             state
                 .world
                 .nfts_by_owner
-                .insert(user1.clone(), BTreeSet::from([nft1_id.clone()]));
-            state
-                .world
-                .nfts_by_owner
-                .insert(user2, BTreeSet::from([nft2_id]));
+                .insert((user1.clone(), nft1_id.clone()), ());
+            state.world.nfts_by_owner.insert((user2, nft2_id), ());
             let view = state.view();
             assert_eq!(
                 view.world()
@@ -986,7 +979,6 @@ pub mod query {
             }
             let nft1_id: NftId = "ticket1$users.universal".parse().expect("nft id");
             let nft2_id: NftId = "ticket2$users.universal".parse().expect("nft id");
-            let user1_nfts = BTreeSet::from([nft1_id.clone()]);
             for nft in [
                 Nft {
                     id: nft1_id.clone(),
@@ -1002,11 +994,11 @@ pub mod query {
                 let (id, value) = nft.into_key_value();
                 state.world.nfts.insert(id, value);
             }
-            state.world.nfts_by_owner.insert(user1.clone(), user1_nfts);
             state
                 .world
                 .nfts_by_owner
-                .insert(user2, BTreeSet::from([nft2_id]));
+                .insert((user1.clone(), nft1_id.clone()), ());
+            state.world.nfts_by_owner.insert((user2, nft2_id), ());
             let view = state.view();
             let results: Vec<_> = FindNftsByAccountId::new(user1.clone())
                 .execute(CompoundPredicate::PASS, &view)

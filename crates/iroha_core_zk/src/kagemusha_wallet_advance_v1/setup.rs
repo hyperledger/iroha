@@ -104,10 +104,7 @@ impl<
         domain: KagemushaWalletSigningDomainV1,
         body: &[u8],
     ) -> Result<KagemushaDeviceSignatureV1, KagemushaWalletProviderErrorV1> {
-        if !matches!(
-            domain,
-            KagemushaWalletSigningDomainV1::Offer | KagemushaWalletSigningDomainV1::Request
-        ) {
+        if domain != KagemushaWalletSigningDomainV1::Request {
             return Err(KagemushaWalletProviderErrorV1::Invalid {
                 field: "setup.domain",
             });
@@ -276,7 +273,7 @@ mod tests {
             .head()
             .unwrap()
             .2;
-        let body = vec![0; KagemushaWalletSigningDomainV1::Offer.transcript_bytes()];
+        let body = vec![0; KagemushaWalletSigningDomainV1::Request.transcript_bytes()];
         let before = device.platform.with(|p| p.sign_calls);
         assert!(
             provider
@@ -284,7 +281,7 @@ mod tests {
                     &slot,
                     [99; 32],
                     &fixture.payment_key,
-                    KagemushaWalletSigningDomainV1::Offer,
+                    KagemushaWalletSigningDomainV1::Request,
                     &body
                 )
                 .is_err()
@@ -306,7 +303,7 @@ mod tests {
                 &slot,
                 source,
                 &fixture.payment_key,
-                KagemushaWalletSigningDomainV1::Offer,
+                KagemushaWalletSigningDomainV1::Request,
                 &body,
             )
             .unwrap();
@@ -319,7 +316,7 @@ mod tests {
                 &slot,
                 source,
                 &fixture.payment_key,
-                KagemushaWalletSigningDomainV1::Offer,
+                KagemushaWalletSigningDomainV1::Request,
                 &body
             ),
             Err(KagemushaWalletProviderErrorV1::Unavailable(

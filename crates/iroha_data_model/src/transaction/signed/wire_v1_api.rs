@@ -36,7 +36,10 @@ impl SignedTransaction {
 }
 
 impl TransactionEntrypoint {
-    /// Measure the exact V1 entrypoint, retaining its variant and complete signed authorization.
+    /// Measure the exact V1 entrypoint, retaining its variant and complete carrier.
+    ///
+    /// Signed variants retain every authorization proof; anonymous ballots retain
+    /// their canonical envelope bytes without asserting an account authority.
     ///
     /// This is the versioned entrypoint wire, distinct from both `SignedTransaction`'s wire and
     /// a header-framed native entrypoint. Its extent does not fund serializer scratch.

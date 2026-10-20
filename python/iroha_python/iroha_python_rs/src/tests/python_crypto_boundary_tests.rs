@@ -205,6 +205,7 @@ fn privacy_transaction_construction_requires_the_matching_network_manifest_tuple
             &python_test_network_id(),
             &authority,
             authority_fee_payment_json(),
+            753,
         )
         .expect("builder constructs")
     };
@@ -517,6 +518,7 @@ fn transaction_submission_native_boundary_pins_wire_hash_and_receipt_signer() {
         &python_test_network_id(),
         &authority,
         authority_fee_payment_json(),
+        753,
     )
     .expect("transaction builder");
     let envelope = builder
@@ -592,7 +594,7 @@ fn transaction_submission_native_boundary_pins_wire_hash_and_receipt_signer() {
 }
 #[test]
 fn privacy_bridge_abi_version_python_function_matches_first_release() {
-    assert_eq!(privacy_bridge_abi_version_py(), 29);
+    assert_eq!(privacy_bridge_abi_version_py(), 31);
 }
 #[test]
 fn privacy_compiled_profile_catalog_python_validator_calls_the_exact_local_boundary() {

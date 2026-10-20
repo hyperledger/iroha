@@ -89,16 +89,25 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
         }
     });
     chain.commit_at(now + 1, Vec::new());
-    let proposal = chain.proposal(Some(now + 1_001), Vec::new());
+    let mut proposal = chain.proposal(Some(now + 1_001), Vec::new());
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     let service = {
         let view = chain.state().view();
         crate::sumeragi::certified_chain::CertifiedChain::new_for_parent_service(&view)
             .expect("authenticated signed genesis")
-            .authenticate_parent_service(&proposal, |_, _| Ok(()))
+            .authenticate_parent_service(
+                &proposal,
+                &mut crate::sumeragi::certified_chain::ParentServicePreparation::default(),
+                |_, _| Ok(()),
+            )
             .expect("authenticate the genuine proposal's original parent CommitQC")
             .expect("non-genesis parent service")
     };
-    assert!(service.signers().contains(&peer));
+    assert!(service.contains_signer(&peer));
     let state = std::sync::Arc::clone(chain.state());
     {
         // Corrupt only the persisted parent fixture: a mutation in the current

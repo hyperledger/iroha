@@ -125,14 +125,6 @@ impl NextPublication {
         demand.add_layout(Identity::<Version>::layout())?;
         Ok(demand)
     }
-
-    pub(crate) fn from_admission(mut reservation: AllocationReservation) -> Self {
-        let charge = reservation
-            .try_split(Identity::<Version>::layout())
-            .expect("original successor identity admission");
-        debug_assert_eq!(reservation.remaining_bytes(), 0);
-        Self(Shared::new(Version, Some(charge)))
-    }
 }
 
 pub(crate) struct Publication {
@@ -306,23 +298,6 @@ impl Publication {
                 error
             })?;
         Ok(Self::with_initial_controls(owner, version, released))
-    }
-
-    pub(crate) fn from_admission(mut reservation: AllocationReservation) -> Self {
-        // The identity mutex's original notification belongs to the same finite
-        // admission. Observers may retain it after both identity owners drop.
-        let notification_charge = reservation
-            .try_split(ReleaseNotification::allocation_layout::<AllocationCharge>())
-            .expect("original publication notification admission");
-        let owner_charge = reservation
-            .try_split(Identity::<Owner>::layout())
-            .expect("original storage identity admission");
-        let next = NextPublication::from_admission(reservation);
-        Self::with_initial_controls(
-            Shared::new(Owner, Some(owner_charge)),
-            next.0,
-            ReleaseNotification::new_charged(notification_charge),
-        )
     }
 
     fn lock_version(&self) -> ReleaseGuard<'_, std::sync::MutexGuard<'_, Identity<Version>>> {

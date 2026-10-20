@@ -1,7 +1,8 @@
 //! The one native wallet implementation (design §3.1, §3.2 and §6, integration decision 8).
 //!
-//! The Rust SDK and the CLI call it directly; Kotlin and Swift reach it through their native
-//! bridges. It never transmits a secret and never proves remotely.
+//! Intended for direct Rust SDK and CLI use and for Kotlin and Swift through their native
+//! bridges; those integrations are pending. It never transmits a secret and never proves
+//! remotely.
 //!
 //! - [`CredentialHandleV1`] owns one credential secret (48 bytes, erased on drop) bound to one
 //!   binding body. A fresh secret is drawn from the operating system for every body; an

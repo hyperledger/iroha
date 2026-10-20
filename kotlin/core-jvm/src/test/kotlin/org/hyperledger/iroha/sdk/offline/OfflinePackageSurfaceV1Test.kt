@@ -123,6 +123,8 @@ class OfflinePackageSurfaceV1Test {
             "$WALLET/main/java/$WALLET_PACKAGE/KagemushaWalletSnapshotV1.kt",
             "$WALLET/main/res/xml/kagemusha_wallet_v1_data_extraction_rules.xml",
             "$WALLET/main/res/xml/kagemusha_wallet_v1_full_backup_content.xml",
+            "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaEnrollmentProbeStageTest.kt",
+            "$WALLET/testSupport/kotlin/$WALLET_PACKAGE/KagemushaEnrollmentProbeStage.kt",
             "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletAndroidBackupRulesV1Test.kt",
             "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletAndroidPaymentKeyV1Test.kt",
             "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletAndroidPlatformV1Test.kt",

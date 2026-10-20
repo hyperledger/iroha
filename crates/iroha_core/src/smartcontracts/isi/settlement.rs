@@ -3683,8 +3683,8 @@ mod tests {
             assert!(
                 stx.world
                     .asset_definition_assets
-                    .get(&delivery_def_id)
-                    .is_some_and(|assets| !assets.contains(&bob_delivery)),
+                    .get(&(delivery_def_id.clone(), bob_delivery.clone()))
+                    .is_none(),
                 "rollback must remove the created destination from holder indexes"
             );
             assert!(

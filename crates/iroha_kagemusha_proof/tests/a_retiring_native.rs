@@ -236,7 +236,7 @@ fn genuine_retiring_sources_reject_an_oversized_predecessor() {
     omega.extend(rooted.source.pallas.to_bytes());
     omega.extend(rooted.vesta.to_bytes());
     // The local receipt/signature-Q fixture uses the genuine two-carrier
-    // digest domain. Only A1 can bind this to an actually funded predecessor.
+    // digest domain. Only the terminal A can bind this to an actually funded predecessor.
     let proof_digest = p_bytes_native(
         u64::from_le_bytes(*b"kgwprf_1"),
         &[frame(&omega), frame(&leaf_output.proof)].concat(),

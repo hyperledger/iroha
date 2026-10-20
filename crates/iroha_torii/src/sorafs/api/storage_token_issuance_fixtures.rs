@@ -52,7 +52,11 @@ fn token_test_context_with_payload_and_signer_mode(
     payload: Vec<u8>,
     signer_mode: ApiTestStreamTokenSignerMode,
 ) -> TokenTestContext {
-    let mut app = Arc::try_unwrap(mk_app_state_for_tests())
+    let provider_id = [0xAB; 32];
+    let provider = make_signed_advert_with_host_and_provider("storage.example.test", provider_id);
+    // Range requests authenticate the provider's signed range capabilities before
+    // exercising token quotas, payload verification or manifest-envelope policy.
+    let mut app = Arc::try_unwrap(app_state_with_seeded_cache(&provider))
         .unwrap_or_else(|_| panic!("exclusive app state required"));
     #[cfg(feature = "telemetry")]
     {
@@ -66,7 +70,6 @@ fn token_test_context_with_payload_and_signer_mode(
         .ingest_manifest(&manifest, &plan, &mut reader)
         .expect("ingest manifest");
     app.sorafs_node = node;
-    let provider_id = [0xAB; 32];
     let provider_id_hex = hex::encode(provider_id);
     // Tests exercise manifest envelope gating explicitly; disable by default here
     // so individual cases can opt in to stricter enforcement.

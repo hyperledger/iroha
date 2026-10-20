@@ -32,3 +32,23 @@ rsvg-convert -w 512 -h 512 mochi/assets/mochi-stand.svg -o mochi/assets/mochi-st
 
 The desktop paints the face in `mochi-ui-egui/src/gui/brand.rs` using the same 512-unit
 coordinates as `mochi-mark.svg`; keep the two in step when the face changes.
+
+## macOS application icon
+
+`mochi-icon.icns` is the macOS Finder icon. `cargo xtask mochi-bundle` copies it unchanged
+to `Mochi.app/Contents/Resources/Mochi.icns`, so packaging needs no image tools. It packs
+direct renders of `mochi-icon.svg` at 16, 32, 128, 256 and 512 points, each at 1x and 2x;
+regenerate it whenever that SVG changes. The committed file was produced on macOS 27 with
+the stock `sips` and `iconutil` tools:
+
+```sh
+iconset="$(mktemp -d)/mochi-icon.iconset"
+mkdir "$iconset"
+for size in 16 32 128 256 512; do
+  sips -s format png -z "$size" "$size" mochi/assets/mochi-icon.svg \
+    --out "$iconset/icon_${size}x${size}.png"
+  sips -s format png -z "$((size * 2))" "$((size * 2))" mochi/assets/mochi-icon.svg \
+    --out "$iconset/icon_${size}x${size}@2x.png"
+done
+iconutil -c icns "$iconset" -o mochi/assets/mochi-icon.icns
+```

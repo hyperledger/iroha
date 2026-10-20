@@ -71,7 +71,7 @@ fn every_group_rejects_missing_members_in_both_native_images() {
                     world.$field = Storage::default();
                     if previous {
                         let mut block = world.$field.block();
-                        block.insert($key, BTreeSet::from([id()]));
+                        block.insert(($key, id()), ());
                         block.commit();
                     }
                 }};
@@ -100,19 +100,21 @@ fn every_group_rejects_missing_members_in_both_native_images() {
 }
 
 #[test]
-fn absent_buyers_cannot_have_empty_foreign_or_deleted_source_membership() {
+fn absent_buyers_cannot_have_foreign_or_deleted_source_membership() {
     for previous in [false, true] {
-        for case in 0..3 {
+        for case in 0..2 {
             let mut world = fixture(false);
-            let members = match case {
-                0 => BTreeSet::new(),
-                1 => BTreeSet::from([id()]),
-                _ => BTreeSet::from([EscrowId::new(Hash::new(b"absent escrow"))]),
+            let member = if case == 0 {
+                id()
+            } else {
+                EscrowId::new(Hash::new(b"absent escrow"))
             };
-            world.asset_escrows_by_buyer.insert(BOB_ID.clone(), members);
+            world
+                .asset_escrows_by_buyer
+                .insert((BOB_ID.clone(), member.clone()), ());
             if previous {
                 let mut block = world.asset_escrows_by_buyer.block();
-                block.remove(BOB_ID.clone());
+                block.remove((BOB_ID.clone(), member));
                 block.commit();
             }
             assert_eq!(
@@ -120,11 +122,7 @@ fn absent_buyers_cannot_have_empty_foreign_or_deleted_source_membership() {
                 Err(corrupt(
                     "world.asset_escrows_by_buyer",
                     previous,
-                    if case == 0 {
-                        GroupMismatch::EmptyGroup
-                    } else {
-                        GroupMismatch::ForeignMember
-                    },
+                    GroupMismatch::ForeignMember,
                 ))
             );
         }
@@ -133,8 +131,9 @@ fn absent_buyers_cannot_have_empty_foreign_or_deleted_source_membership() {
 
 #[test]
 fn local_work_counts_buyerless_sources_and_absent_undo_rows() {
-    for (buyer, exact, delta) in [(false, 824, 335), (true, 1366, 402)] {
+    for buyer in [false, true] {
         let world = fixture(buyer);
+        let exact = world_work(&world);
         assert_eq!(check(&world, exact), Ok(()));
         assert_eq!(
             check(&world, exact - 1),
@@ -146,10 +145,10 @@ fn local_work_counts_buyerless_sources_and_absent_undo_rows() {
             block.commit();
         }
         assert_eq!(
-            check(&world, exact + delta - 1),
+            check(&world, world_work(&world) - 1),
             Err(GroupedOwnershipError::WorkLimit)
         );
-        assert_eq!(check(&world, exact + delta), Ok(()));
+        assert_eq!(check(&world, world_work(&world)), Ok(()));
     }
 }
 
@@ -174,10 +173,10 @@ fn state_capture_checks_undo_indexes_before_encoding_and_preserves_pool_refusal(
     let mut world = fixture(false);
     world
         .asset_escrows_by_buyer
-        .insert(BOB_ID.clone(), BTreeSet::from([id()]));
+        .insert((BOB_ID.clone(), id()), ());
     {
         let mut block = world.asset_escrows_by_buyer.block();
-        block.remove(BOB_ID.clone());
+        block.remove((BOB_ID.clone(), id()));
         block.commit();
     }
     let mut state = State::new_for_testing(

@@ -54,7 +54,7 @@ fn stat_device_identity_matches_native_metadata() {
 /// MIME used in Torii for Norito encoding
 // note: no elegant way to associate it with generic `NoritoBody<T>`
 pub const NORITO_MIME_TYPE: &str = "application/x-norito";
-const JSON_MIME_TYPE: &str = "application/json";
+pub(crate) const JSON_MIME_TYPE: &str = "application/json";
 pub const MAX_ERROR_MESSAGE_CHARACTERS: usize = 1024;
 pub const MAX_ERROR_DETAIL_CHARACTERS: usize = 1024;
 pub const MAX_REJECT_CODE_BYTES: usize = 128;
@@ -1781,11 +1781,7 @@ pub mod extractors {
                 .map_err(typed_body_rejection)?;
             match <T as iroha_version::codec::DecodeVersioned>::decode_all_versioned(&body) {
                 Ok(val) => Ok(NoritoVersioned(val)),
-                Err(versioned_err) => Err((
-                    axum::http::StatusCode::BAD_REQUEST,
-                    format!("Could not decode versioned request: {versioned_err}"),
-                )
-                    .into_response()),
+                Err(versioned_err) => Err(versioned_decode_rejection::<T>(versioned_err)),
             }
         }
     }
@@ -1804,9 +1800,8 @@ pub mod extractors {
     where
         T: JsonDeserializeOwned + Version,
     {
-        let value = json::from_slice::<Value>(body.as_ref()).map_err(|e| {
-            (StatusCode::BAD_REQUEST, format!("invalid JSON body: {e}")).into_response()
-        })?;
+        let value = json::from_slice::<Value>(body.as_ref())
+            .map_err(|error| versioned_json_decode_rejection(error, expected))?;
         let object = value.as_object().ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
@@ -1848,13 +1843,62 @@ pub mod extractors {
             )
                 .into_response()
         })?;
-        json::from_value::<T>(content.clone()).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("invalid JSON {expected} content: {e}"),
-            )
-                .into_response()
-        })
+        json::from_value::<T>(content.clone())
+            .map_err(|error| versioned_json_decode_rejection(error, expected))
+    }
+    fn decode_allocation_unavailable() -> Response {
+        typed_request_rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "request_decode_unavailable",
+            "The request could not be decoded because local allocation is unavailable.",
+        )
+    }
+    fn is_decode_allocation_failure(error: &norito::Error) -> bool {
+        matches!(
+            error.decode_resource_error(),
+            Some(norito::core::DecodeResourceError::AllocationFailed { .. })
+        ) || matches!(error, norito::Error::Json(error) if is_json_decode_allocation_failure(error))
+    }
+    fn is_decode_resource_limit(error: &norito::Error) -> bool {
+        error.is_decode_resource_limit()
+            || matches!(error, norito::Error::Json(error) if error.is_decode_resource_limit())
+    }
+    fn is_json_decode_allocation_failure(error: &json::Error) -> bool {
+        match error {
+            json::Error::AllocationFailed
+            | json::Error::DecodeResource(norito::core::DecodeResourceError::AllocationFailed {
+                ..
+            }) => true,
+            // Cloning retains the original private scope owner; only its typed
+            // cause is inspected, without reconstructing or reclassifying it.
+            json::Error::ScopedDecodeResource(origin) => {
+                is_decode_allocation_failure(&norito::Error::ScopedDecodeResource(origin.clone()))
+            }
+            _ => false,
+        }
+    }
+    fn json_decode_resource_rejection(error: &json::Error) -> Option<Response> {
+        if is_json_decode_allocation_failure(error) {
+            Some(decode_allocation_unavailable())
+        } else if error.is_decode_resource_limit() {
+            Some(typed_request_rejection(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request_payload_too_large",
+                "The JSON body exceeded its admitted decode resource limit.",
+            ))
+        } else {
+            None
+        }
+    }
+    fn versioned_json_decode_rejection(error: json::Error, expected: &str) -> Response {
+        if let Some(response) = json_decode_resource_rejection(&error) {
+            return response;
+        }
+        (
+            StatusCode::BAD_REQUEST,
+            format!("invalid JSON {expected} content: {error}"),
+        )
+            .into_response()
     }
     /// Helper trait exposing versioned JSON decoding for selected Torii ingress payloads.
     pub trait SupportsVersionedJsonDecode: Sized {
@@ -1891,19 +1935,29 @@ pub mod extractors {
             body: &Bytes,
             _ingress_limits: Option<(usize, norito::DecodeLimits)>,
         ) -> Result<Self, Response> {
-            decode_versioned_json::<Self>(body, "SignedTransaction").map_err(|_| {
-                signed_transaction_decode_rejection(
-                    "invalid canonical JSON SignedTransaction representation",
-                )
+            decode_versioned_json::<Self>(body, "SignedTransaction").map_err(|response| {
+                if matches!(
+                    response.status(),
+                    StatusCode::PAYLOAD_TOO_LARGE | StatusCode::SERVICE_UNAVAILABLE
+                ) {
+                    response
+                } else {
+                    signed_transaction_decode_rejection(
+                        "invalid canonical JSON SignedTransaction representation",
+                    )
+                }
             })
         }
     }
     impl SupportsVersionedJsonDecode for TransactionEntrypoint {
         fn decode_versioned_json_body(
             body: &Bytes,
-            _ingress_limits: Option<(usize, norito::DecodeLimits)>,
+            ingress_limits: Option<(usize, norito::DecodeLimits)>,
         ) -> Result<Self, Response> {
-            decode_versioned_json::<Self>(body, "TransactionEntrypoint")
+            let decode = || decode_versioned_json::<Self>(body, "TransactionEntrypoint");
+            ingress_limits.map_or_else(decode, |(_, limits)| {
+                norito::with_decode_limits_scope(limits, decode)
+            })
         }
     }
     impl SupportsVersionedJsonDecode for SignedQuery {
@@ -1971,7 +2025,10 @@ pub mod extractors {
         let decoded = norito::with_decode_limits_scope(decode_limits, || {
             json::from_slice::<SignedQueryJson>(body.as_ref())
         })
-        .map_err(|error| signed_query_json_rejection(error.is_decode_resource_limit()))?;
+        .map_err(|error| {
+            json_decode_resource_rejection(&error)
+                .unwrap_or_else(|| signed_query_json_rejection(false))
+        })?;
         decoded.try_into().map_err(
             |error: iroha_data_model::query::SignedQueryValidationError| {
                 signed_query_json_rejection(error.is_decode_resource_limit())
@@ -1981,7 +2038,17 @@ pub mod extractors {
     fn versioned_decode_rejection<T: 'static>(
         versioned_err: iroha_version::error::Error,
     ) -> Response {
-        if versioned_err.is_decode_resource_limit() {
+        let codec_error = match &versioned_err {
+            iroha_version::error::Error::NoritoCodec(error) => Some(error),
+            iroha_version::error::Error::NoritoResourceLimit(attempt) => Some(attempt.error()),
+            _ => None,
+        };
+        if codec_error.is_some_and(is_decode_allocation_failure) {
+            return decode_allocation_unavailable();
+        }
+        if versioned_err.is_decode_resource_limit()
+            || codec_error.is_some_and(is_decode_resource_limit)
+        {
             return typed_request_rejection(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request_payload_too_large",
@@ -2107,6 +2174,9 @@ pub mod extractors {
             return decoded;
         }
         norito::json::from_slice::<T>(body.as_ref()).map_err(|e| {
+            if let Some(response) = json_decode_resource_rejection(&e) {
+                return response;
+            }
             typed_request_rejection(
                 StatusCode::BAD_REQUEST,
                 "request_json_invalid",
@@ -2128,7 +2198,10 @@ pub mod extractors {
     }
     fn norito_decode_rejection<T: 'static>(error: &norito::Error) -> Response {
         record_payload_decode_failure::<T>(error);
-        if error.is_decode_resource_limit() {
+        if is_decode_allocation_failure(error) {
+            return decode_allocation_unavailable();
+        }
+        if is_decode_resource_limit(error) {
             return typed_request_rejection(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request_payload_too_large",
@@ -2490,6 +2563,10 @@ pub mod extractors {
     fn canonical_negative_decimal(raw: &str) -> bool {
         raw.strip_prefix('-')
             .is_some_and(|magnitude| magnitude != "0" && canonical_unsigned_decimal(magnitude))
+    }
+    #[cfg(test)]
+    mod anonymous_ballot_tests {
+        include!("utils_anonymous_ballot_tests.rs");
     }
     #[cfg(test)]
     pub mod tests {

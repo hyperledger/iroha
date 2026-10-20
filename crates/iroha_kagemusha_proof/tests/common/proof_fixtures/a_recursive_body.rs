@@ -1290,13 +1290,11 @@ fn authenticated_bootstrap_for_schemes(
             akey.vk().to_bytes().to_vec(),
         ],
     };
-    let mut installed_native_source = None;
-    if adversarial
+    let installed_native_source = if adversarial
         && profile
             == (SourceProfile::Tagged {
                 buses: iroha_kagemusha_proof::a_relation::native::bootstrap::SOURCE_RANGE_BUSES,
-            })
-    {
+            }) {
         use iroha_kagemusha_proof::a_relation::native::bootstrap as native;
         let native_plan = native::Plan::new(
             operation.clone(),
@@ -1503,8 +1501,10 @@ fn authenticated_bootstrap_for_schemes(
                 "production source mutation{mutation}"
             );
         }
-        installed_native_source = Some((installed, input));
-    }
+        Some((installed, input))
+    } else {
+        None
+    };
     if adversarial {
         for mutation in 0..12 {
             let mut bad = terminal.clone();

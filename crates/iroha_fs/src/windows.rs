@@ -527,6 +527,40 @@ mod custody_io;
 #[path = "windows/private_files.rs"]
 mod private_files;
 
+/// Custody transactions on Windows (`crate::custody_transaction`). Leaf operations here reopen
+/// names by path, so every operation keeps its own complete ancestry walks and a transaction
+/// adds no observation of its own.
+pub(crate) mod custody_transaction {
+    use super::Directory;
+    use std::io;
+
+    /// Run `body`; every operation inside keeps its own walks.
+    pub fn run<T, E>(body: impl FnOnce() -> Result<T, E>) -> Result<T, E>
+    where
+        E: From<io::Error>,
+    {
+        body()
+    }
+
+    /// Nothing to observe: no walk was consolidated.
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the same signature as the Unix custody transaction"
+    )]
+    pub fn fence() -> io::Result<()> {
+        Ok(())
+    }
+
+    /// Nothing to join: no walk is consolidated.
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the same signature as the Unix custody transaction"
+    )]
+    pub fn join(_directory: &Directory) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 impl Directory {
     pub(super) fn open(path: &Path, create: bool) -> io::Result<Self> {
         Self::open_with_policy(path, create, true)
@@ -1651,6 +1685,17 @@ pub(super) struct RetainedFile<D = Directory, N = std::ffi::OsString> {
     writable: bool,
     read_only: bool,
     publishable: bool,
+    ancestry: AncestryCheck,
+}
+
+/// Which owner observes the complete retained directory ancestry around a file's leaf checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AncestryCheck {
+    /// Every revalidation walks the complete ancestry before and after its leaf checks.
+    EachCall,
+    /// A closed read transaction checked the complete ancestry at its entry and checks it
+    /// again before any ordinary result leaves. Leaf checks are unchanged.
+    EnclosingScope,
 }
 
 impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
@@ -1705,6 +1750,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             writable: create_new,
             read_only: false,
             publishable: create_new,
+            ancestry: AncestryCheck::EachCall,
         };
         retained.revalidate()?;
         Ok(retained)
@@ -1742,7 +1788,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
         Ok(self.before.id)
     }
     pub(super) fn revalidate(&self) -> io::Result<()> {
-        self.directory.borrow().revalidate()?;
+        self.revalidate_ancestry()?;
         let after = snapshot_with_links(&self.file, self.private, false, self.links)?;
         if self.read_only {
             private_files::validate_read_only(&self.file)?;
@@ -1762,7 +1808,13 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
         if !named_file_matches(named_snapshot, after, self.before.id, self.links) {
             return Err(changed());
         }
-        self.directory.borrow().revalidate()
+        self.revalidate_ancestry()
+    }
+    fn revalidate_ancestry(&self) -> io::Result<()> {
+        match self.ancestry {
+            AncestryCheck::EachCall => self.directory.borrow().revalidate(),
+            AncestryCheck::EnclosingScope => Ok(()),
+        }
     }
 }
 

@@ -12,12 +12,11 @@ use iroha_data_model::{
     escrow::{AssetEscrowRecord, AssetEscrowStatus, EscrowId},
 };
 use mv::storage::FrozenStorageImages;
-use std::collections::BTreeSet;
 struct Original<'frozen> {
     rows: FrozenStorageImages<'frozen, EscrowId, AssetEscrowRecord>,
-    sellers: FrozenStorageImages<'frozen, AccountId, BTreeSet<EscrowId>>,
-    buyers: FrozenStorageImages<'frozen, AccountId, BTreeSet<EscrowId>>,
-    statuses: FrozenStorageImages<'frozen, AssetEscrowStatus, BTreeSet<EscrowId>>,
+    sellers: FrozenStorageImages<'frozen, (AccountId, EscrowId), ()>,
+    buyers: FrozenStorageImages<'frozen, (AccountId, EscrowId), ()>,
+    statuses: FrozenStorageImages<'frozen, (AssetEscrowStatus, EscrowId), ()>,
     budget: &'frozen AllocationBudget,
 }
 impl<'frozen> Original<'frozen> {

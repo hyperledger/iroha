@@ -35,7 +35,7 @@ fn u128_at(original: &[u8], start: usize) -> Fp {
     Fp::from_u128(u128::from_le_bytes(view(original, start)))
 }
 
-/// Exact incoming_lineage.rs offsets and zero-selection of noncanonical Fp atoms.
+/// Exact `incoming_lineage.rs` offsets and zero-selection of noncanonical Fp atoms.
 fn public(original: &[u8], expected: usize, key: Fp) -> ([Fp; 18], bool) {
     let mut out = [Fp::ZERO; 18];
     out[0] = Fp::from(u64::from(u16::from_le_bytes(view(original, 0))));
@@ -273,7 +273,7 @@ pub(super) fn status_modes(
 }
 
 /// Archive Receive has one sigma obligation and no transported Omega claims.
-/// The actual Q_sigma producer derives and proves its same-challenge correction.
+/// The actual `Q_sigma` producer derives and proves its same-challenge correction.
 pub(super) fn sigma_mode(
     params: &PinnedParams<Eq>,
     soft: bool,

@@ -761,8 +761,11 @@ class IrohaPeerNearbyConnectionsConfigurationV1 @JvmOverloads constructor(
     val maximumPendingWorkerActions: Int = 64,
     val maximumPendingCallbacks: Int = 16,
     val maximumPendingReceiveCallbacks: Int = 4,
-    /** A payer receives five records: HELLO, AUTHENTICATION, the receiver's ask, Request and Credited. */
-    val maximumReceiveRecordsPerConnection: Int = 5,
+    /**
+     * The larger role's need: a payer receives four records (HELLO, AUTHENTICATION, the receiver's
+     * open Request and its Credited), a receiver three (HELLO, AUTHENTICATION and the Payment).
+     */
+    val maximumReceiveRecordsPerConnection: Int = 4,
 ) {
     init {
         require(operationTimeoutMillis in 1..300_000)
@@ -771,7 +774,7 @@ class IrohaPeerNearbyConnectionsConfigurationV1 @JvmOverloads constructor(
         require(maximumPendingWorkerActions in 1..256)
         require(maximumPendingCallbacks in 1..64)
         require(maximumPendingReceiveCallbacks in 1..4)
-        require(maximumReceiveRecordsPerConnection in maximumPendingReceiveCallbacks..5)
+        require(maximumReceiveRecordsPerConnection in maximumPendingReceiveCallbacks..4)
     }
 }
 

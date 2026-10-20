@@ -679,6 +679,21 @@ fn configure_nexus_fee_admission_for_test(
     nexus.fees.fee_sink_account_id = fee_sink_account_id.clone();
     let app_state = Arc::get_mut(app).expect("unique app state");
     let state = Arc::get_mut(&mut app_state.state).expect("unique state");
+    {
+        let mut world = state.world.block();
+        world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                nexus
+                    .fees
+                    .clone()
+                    .into_custom_parameter()
+                    .expect("native fee policy"),
+            ))
+            .expect("commit fixture native fees");
+        world.commit();
+    }
     state.set_nexus(nexus.clone()).expect("apply nexus config");
     let state_view = app_state.state.view();
     app_state.queue.reconfigure_nexus(&nexus, &state_view, None);
@@ -923,8 +938,20 @@ async fn configured_catalog_fixture_binds_initial_geometry_and_explicit_network(
     assert!(!pipeline.ready_queue_heap);
     assert_eq!(pipeline.workers, 1);
     let fees = app.state.nexus_snapshot().fees;
-    assert_eq!(fees.per_instruction_fee, nexus.fees.per_instruction_fee);
-    assert_eq!(fees.per_gas_unit_fee, nexus.fees.per_gas_unit_fee);
+    assert_eq!(
+        fees,
+        *app.state
+            .world_view()
+            .parameters()
+            .root_fees()
+            .expect("fixture committed root fee policy")
+    );
+    assert_eq!(
+        fees.per_instruction_fee,
+        Quantity::zero(),
+        "node-local configured fees cannot override the committed fixture policy"
+    );
+    assert_eq!(fees.per_gas_unit_fee, Quantity::zero());
 }
 pub fn configure_multiple_dataspace_routes_for_test(app: &mut SharedAppState) {
     let nexus = multiple_dataspace_nexus_for_test();

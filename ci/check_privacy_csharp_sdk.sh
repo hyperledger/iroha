@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="${PRIVACY_CSHARP_SDK_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DOTNET_BIN="${PRIVACY_CSHARP_DOTNET_BIN:-dotnet}"
 PYTHON_BIN="${PRIVACY_CSHARP_PYTHON_BIN:-python3}"
-ABI30_ARTIFACT_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
+ABI31_ARTIFACT_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
 
 if [[ "${IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE:-}" != "1" ]]; then
   echo "error: IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE=1 is required" >&2
@@ -24,8 +24,8 @@ fi
 if [[ "${PRIVACY_CSHARP_NATIVE_ARTIFACT}" != \
     "${NATIVE_DIRECTORY}/libconnect_norito_bridge.so" || \
   "${PRIVACY_CSHARP_NATIVE_MANIFEST}" != \
-    "${NATIVE_DIRECTORY}/native-sdk-abi29-csharp.json" ]]; then
-  echo "error: C# privacy native paths are not canonical Linux ABI-30 paths" >&2
+    "${NATIVE_DIRECTORY}/native-sdk-abi31-csharp.json" ]]; then
+  echo "error: C# privacy native paths are not canonical Linux ABI-31 paths" >&2
   exit 1
 fi
 if [[ "${LD_LIBRARY_PATH:-}" != "${NATIVE_DIRECTORY}" ]]; then
@@ -33,7 +33,7 @@ if [[ "${LD_LIBRARY_PATH:-}" != "${NATIVE_DIRECTORY}" ]]; then
   exit 1
 fi
 
-"${PYTHON_BIN}" -I -B "${ABI30_ARTIFACT_CHECKER}" verify \
+"${PYTHON_BIN}" -I -B "${ABI31_ARTIFACT_CHECKER}" verify \
   --artifact "${PRIVACY_CSHARP_NATIVE_ARTIFACT}" \
   --manifest "${PRIVACY_CSHARP_NATIVE_MANIFEST}" \
   --source-root "${ROOT_DIR}"

@@ -51,7 +51,7 @@ fn asset_encoding_refusal_keeps_all_native_and_state_fences() {
                 state.world.asset_definition_assets.block().commit();
             }
             5 => {
-                state.world.assets_by_account.block().commit();
+                state.world.asset_definition_asset_counts.block().commit();
             }
             6 => {
                 state.world.assets_by_domain.block().commit();

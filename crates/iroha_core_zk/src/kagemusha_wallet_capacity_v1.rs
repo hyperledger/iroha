@@ -126,8 +126,8 @@ impl KagemushaWalletRelationShapeV1 {
     /// Conservative peak proving memory of this relation, in bytes.
     ///
     /// The quotient phase is the peak (`specs/kagemusha_lambda_omega_v1.md` §6 RAM plan). It holds
-    /// `PK[2(F + m) + 6] + witness[2·n_a + 8·n_l + 2·n_z] + coset[n_a + F + m + n_z + 3·n_l + 4]
-    /// + 2(d − 1)` domain vectors of `32·2^k` bytes, with the owned-witness copy factor 2 and
+    /// `PK[2(F + m) + 6] + witness[2·n_a + 8·n_l + 2·n_z] + coset[n_a + F + m + n_z + 3·n_l + 4] + 2(d − 1)`
+    /// domain vectors of `32·2^k` bytes, with the owned-witness copy factor 2 and
     /// `n_z = ⌈m / (d − 2)⌉` permutation products. The bound adds 15% to those vectors, then the
     /// pinned `g` and `g_lagrange` parameters (`2·64·2^k` bytes), the process-wide 64 MiB MSM
     /// scratch cap and the 50 MiB wallet-core baseline. `None` for an inconsistent shape.

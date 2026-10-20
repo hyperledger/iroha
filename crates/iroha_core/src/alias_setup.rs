@@ -971,10 +971,11 @@ fn classify_account_state(
                 })
             })
             || required_domain.is_some_and(|domain| {
-                !world
-                    .account_scope_accounts()
-                    .get(&(alias.dataspace, domain.clone()))
-                    .is_some_and(|accounts| accounts.contains(&intent.target_account))
+                !crate::state::range_bounds::index_contains(
+                    world.account_scope_accounts(),
+                    &(alias.dataspace, domain.clone()),
+                    &intent.target_account,
+                )
             })
     });
     Ok(account_missing

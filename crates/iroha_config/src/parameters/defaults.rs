@@ -2400,7 +2400,7 @@ pub mod torii {
     /// Minimum aggregate V1 query-memory pool for four ingress slots plus one fanout.
     pub const QUERY_FANOUT_MIN_POOL_BYTES_V1: u64 = 20_000_000;
     /// Source-derived route/catalogue/key/candidate bytes in one V1 fanout.
-    pub const QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1: u64 = 9_562_690;
+    pub const QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1: u64 = 9_561_666;
     /// Variable-size units retained by the conservative V1 pre-body envelope.
     pub const QUERY_FANOUT_PREBODY_UNITS_V1: u64 = 15;
     /// Divisor reserving one quarter of aggregate query memory for ingress.
@@ -2430,9 +2430,14 @@ pub mod torii {
         max_working_set_bytes: u64,
         max_content_bytes: u64,
     ) -> Option<u64> {
+        if max_content_bytes == 0 {
+            return None;
+        }
         let ingress_pool = aggregate_bytes / QUERY_MEMORY_INGRESS_POOL_DIVISOR_V1;
         let fanout_pool = aggregate_bytes.checked_sub(ingress_pool)?;
+        // Retained request and one local clone share the request-decode phase.
         let desired = max_content_bytes
+            .max(2)
             .checked_mul(QUERY_FANOUT_PREBODY_UNITS_V1)?
             .checked_add(QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1)?;
         let working_set = desired.min(max_working_set_bytes).min(fanout_pool);
@@ -3709,28 +3714,27 @@ pub mod nexus {
         /// Complete default to be encoded into the signed genesis parameter by an author.
         /// Runtime execution never substitutes this for an absent committed policy.
         pub fn genesis_policy() -> iroha_data_model::block::consensus::RootFeePolicy {
-            let _default_chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
-                super::super::common::chain_discriminant(),
-            );
             iroha_data_model::block::consensus::RootFeePolicy {
                 fee_asset_id: fee_asset_id().parse().expect("canonical default fee asset"),
-                fee_sink_account_id: AccountId::parse_encoded(FEE_SINK_ACCOUNT_ID)
-                    .expect("canonical default fee sink"),
+                // Known protocol identities are constructed from their public keys.
+                // Decoding an address here would consume the caller's input quota
+                // and could panic while constructing an otherwise fallible World.
+                fee_sink_account_id: super::super::governance::bond_escrow_account_id(),
                 sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
-                successful_claim_fee_exempt_authorities: Default::default(),
+                successful_claim_fee_exempt_authorities: std::collections::BTreeSet::default(),
                 base_fee: base_fee(),
                 per_byte_fee: per_byte_fee(),
                 per_instruction_fee: per_instruction_fee(),
                 per_gas_unit_fee: per_gas_unit_fee(),
             }
         }
-        /// Sponsor vault custody account parsed under the default Sora chain discriminant.
+        /// Sponsor vault custody identity, independent of address-decoder quotas and chain context.
         pub fn sponsor_vault_custody_account_id() -> AccountId {
-            let _default_chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
-                super::super::common::chain_discriminant(),
-            );
-            AccountId::parse_encoded(SPONSOR_VAULT_CUSTODY_ACCOUNT_ID)
-                .expect("default sponsor vault custody account must be canonical I105")
+            AccountId::new(
+                "ed01204EF03FAD30428340344CC731852E08E4AC76ECE3AEE7D6BDCF4BB8784368A518"
+                    .parse()
+                    .expect("canonical sponsor vault custody public key"),
+            )
         }
         /// Fee asset definition identifier (string form).
         pub fn fee_asset_id() -> String {

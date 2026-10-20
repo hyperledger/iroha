@@ -4,6 +4,11 @@
 //! Publication binds opaque body custody to independently authenticated historical authority.
 //! Reads retain their original frame and funded decode/restoration work across local refusal;
 //! an unreadable committed slot is an error, never an absent entry.
+//! Metadata reads authenticate the historical QC, complete executed-result commitment, streamed
+//! proposal identity and original signed availability table without allocating a proposal body
+//! or regenerating RS16 rows. They return evidence, never available-payload custody. Body reads
+//! still verify the complete re-encoded codeword before granting that custody. Both projections
+//! retain the original read owner on refusal, including when callers switch projections.
 
 use super::{
     availability_schedule::{AvailabilitySchedule, resolve_source},
@@ -189,13 +194,22 @@ impl KuraBlockStore {
         &self,
         height: u64,
     ) -> Result<Option<(AvailableBody, Qc)>, Attempt<io::Error>> {
+        self.read_committed(height, CommittedRead::poll)
+    }
+
+    /// Resume the original read owner, including when callers switch read projections.
+    fn read_committed<T>(
+        &self,
+        height: u64,
+        poll: impl Fn(&mut CommittedRead) -> Result<T, Attempt<io::Error>>,
+    ) -> Result<Option<T>, Attempt<io::Error>> {
         let mut slot = self
             .read
             .try_lock()
             .ok_or_else(|| busy("committed read is busy"))?;
         if slot.as_ref().is_some_and(|read| read.height() != height) {
             // Finish the existing owner first; no partial backing is discarded by a new height.
-            match slot.as_mut().expect("existing original read").poll() {
+            match poll(slot.as_mut().expect("existing original read")) {
                 Ok(_) => *slot = None,
                 Err(error) => {
                     if error.io_kind() != io::ErrorKind::WouldBlock {
@@ -218,11 +232,7 @@ impl KuraBlockStore {
                 self.root_scope,
             ));
         }
-        match slot
-            .as_mut()
-            .expect("retained original committed read")
-            .poll()
-        {
+        match poll(slot.as_mut().expect("retained original committed read")) {
             Ok(value) => {
                 *slot = None;
                 Ok(Some(value))
@@ -248,14 +258,16 @@ impl KuraBlockStore {
             .retained_certificate_owners_for_test()
     }
 
-    /// Fully authenticate the stored header and QC, preserving all read failures.
+    /// Authenticate stored metadata against the historical authority and executed result.
+    /// Does not reconstruct payload custody or regenerate RS16 rows.
     ///
     /// # Errors
-    /// Same errors and retained refusal semantics as committed_body.
+    /// Metadata or stored-result corruption, I/O, invalid authority or local resource refusal.
+    /// Refusal retains the original read owner; complete codeword checks belong to body reads.
     pub fn certified(&self, height: u64) -> Result<Option<(BlockHeader, Qc)>, Attempt<io::Error>> {
         Ok(self
-            .committed_body(height)?
-            .map(|(body, qc)| (body.header().clone(), qc)))
+            .entry(height)?
+            .map(|entry| (entry.manifest.header, entry.commit_qc)))
     }
     /// The authenticated header, or genuine absence above tip or at genesis.
     ///
@@ -359,15 +371,7 @@ impl BlockStore for KuraBlockStore {
         resolve_source(&*self.schedule, self.schedule.instance(), height, hash)
     }
     fn entry(&self, height: u64) -> Result<Option<SyncEntry>, Attempt<io::Error>> {
-        Ok(self
-            .committed_body(height)?
-            .map(|(body, commit_qc)| SyncEntry {
-                manifest: PayloadManifest {
-                    header: body.header().clone(),
-                    availability: body.availability().clone(),
-                },
-                commit_qc,
-            }))
+        self.read_committed(height, CommittedRead::poll_metadata)
     }
     fn append(&self, body: &AvailableBody, qc: &Qc) -> Result<(), Attempt<io::Error>> {
         self.write(body, qc)

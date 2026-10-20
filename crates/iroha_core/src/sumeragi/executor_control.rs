@@ -26,10 +26,14 @@ pub(super) fn pulse_context(
 
 /// Only a transaction-specific validation failure can authorize removing a queued transaction.
 pub(super) fn transaction_rejection(error: &BlockValidationError) -> bool {
-    matches!(
-        error,
-        BlockValidationError::TransactionAccept(_) | BlockValidationError::TransactionInTheFuture
-    )
+    match error {
+        BlockValidationError::TransactionAccept(
+            crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable,
+        ) => false,
+        BlockValidationError::TransactionAccept(_)
+        | BlockValidationError::TransactionInTheFuture => true,
+        _ => false,
+    }
 }
 
 /// Keep the actual readiness admission through the serialized worker response.
@@ -222,6 +226,12 @@ mod tests {
     #[test]
     fn control_and_local_source_failures_never_authorize_transaction_quarantine() {
         for error in [
+            BlockValidationError::from(
+                crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable,
+            ),
+            BlockValidationError::TransactionAccept(
+                crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable,
+            ),
             BlockValidationError::ExecutionContextInvalid("missing or invalid pulse".into()),
             BlockValidationError::NposEffectsInvalid("wrong generation".into()),
             BlockValidationError::LocalStorageRecoveryRequired {

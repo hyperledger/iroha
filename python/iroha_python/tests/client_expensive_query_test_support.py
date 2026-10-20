@@ -31,4 +31,5 @@ def authenticated_query_client(session: Any) -> ToriiClient:
             timestamp_ms=4_102_444_801_000,
             nonce="python-ledger-query-tests",
         ),
+        chain_discriminant=753,
     )

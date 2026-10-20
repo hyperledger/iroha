@@ -161,6 +161,9 @@ fn event_fixture_block(
             TransactionEntrypoint::External(tx) => {
                 builder.push_transaction(tx);
             }
+            TransactionEntrypoint::AnonymousBallot(envelope) => {
+                builder.push_anonymous_ballot(envelope);
+            }
             TransactionEntrypoint::SealedCommitment(commitment) => {
                 builder.push_sealed_transaction_commitment(commitment);
             }

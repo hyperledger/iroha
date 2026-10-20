@@ -516,14 +516,16 @@ mod tests {
             QueryFanoutMemoryEnvelope::for_bodyless_finality(geometry.fanout_working_set_bytes)
                 .unwrap();
         let budget = ProducerBudget::from_admitted(envelope, 7).unwrap();
-        assert_eq!(budget.cold_frames.limit_bytes(), 12_162_487);
-        assert_eq!(budget.finality_graphs.limit_bytes(), 158_112_848);
+        // Fifteen prebody units partition the working set after the 9,561,666-byte fixed
+        // allowance. Bodyless finality keeps one unit each for response metadata and cold frames.
+        assert_eq!(budget.cold_frames.limit_bytes(), 12_162_555);
+        assert_eq!(budget.finality_graphs.limit_bytes(), 158_113_224);
         assert_eq!(
             budget.allocation_limits.max_total_allocated_bytes(),
-            170_275_335
+            170_275_779
         );
-        assert_eq!(budget.allocation_limits.max_field_bytes(), 12_162_487);
-        assert_eq!(budget.allocation_limits.max_sequence_elements(), 12_162_487);
+        assert_eq!(budget.allocation_limits.max_field_bytes(), 12_162_555);
+        assert_eq!(budget.allocation_limits.max_sequence_elements(), 12_162_555);
         // This is a new initial reservation. A smaller inherited request keeps
         // its exact original owner and cannot acquire these larger corridors.
         let smaller = owner(48_000_000);

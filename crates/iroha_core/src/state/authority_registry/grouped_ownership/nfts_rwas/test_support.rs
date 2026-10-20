@@ -72,6 +72,11 @@ pub(in crate::state) fn check(world: &World, rwa: bool) -> Result<(), GroupedOwn
 trait Geometry: mv::Key {
     fn units(&self) -> u64;
 }
+impl<G: Geometry, K: Geometry> Geometry for (G, K) {
+    fn units(&self) -> u64 {
+        self.0.units() + self.1.units()
+    }
+}
 impl Geometry for DomainId {
     fn units(&self) -> u64 {
         self.name().as_ref().len() as u64 + self.dataspace().as_ref().len() as u64
@@ -166,33 +171,37 @@ fn lookup_cost<'a, K: Geometry, V: mv::Value>(
             .map(|(_, value)| value),
     )
 }
+fn require_cost<G: Geometry, K: Geometry>(
+    groups: &impl RawStorageImages<(G, K), ()>,
+    image: GroupImage,
+    group: &G,
+    member: &K,
+) -> u64 {
+    visit_cost(groups, image)
+        + logical(groups, image)
+            .into_iter()
+            .map(|((candidate_group, candidate_member), ())| {
+                group.units() + candidate_group.units() + member.units() + candidate_member.units()
+            })
+            .sum::<u64>()
+}
 fn group_cost<K: Geometry, V: mv::Value, G: Geometry>(
     rows: &impl RawStorageImages<K, V>,
-    groups: &impl RawStorageImages<G, BTreeSet<K>>,
+    groups: &impl RawStorageImages<(G, K), ()>,
     project: impl for<'a> Fn(&'a K, &'a V) -> &'a G,
 ) -> u64 {
     let mut total = 0;
     for image in [GroupImage::Current, GroupImage::Predecessor] {
         total += visit_cost(rows, image);
         for (id, value) in logical(rows, image) {
-            let (work, members) = lookup_cost(groups, image, project(id, value));
-            total += work
-                + members.map_or(0, |members| {
-                    members
-                        .iter()
-                        .map(|candidate| 1 + id.units() + candidate.units())
-                        .sum::<u64>()
-                });
+            total += require_cost(groups, image, project(id, value), id);
         }
         total += visit_cost(groups, image);
-        for (group, members) in logical(groups, image) {
-            total += 1;
-            for id in members {
-                let (work, value) = lookup_cost(rows, image, id);
-                total += 1 + work;
-                if let Some(value) = value {
-                    total += project(id, value).units() + group.units();
-                }
+        for ((group, id), ()) in logical(groups, image) {
+            let (cost, value) = lookup_cost(rows, image, id);
+            total += cost;
+            if let Some(value) = value {
+                total += project(id, value).units() + group.units();
             }
         }
     }
@@ -201,8 +210,8 @@ fn group_cost<K: Geometry, V: mv::Value, G: Geometry>(
 /// Independent complete-cut NFT work, using original typed geometry and full tails.
 pub(in crate::state) fn full_nft_work(
     rows: &impl RawStorageImages<NftId, NftValue>,
-    owners: &impl RawStorageImages<AccountId, BTreeSet<NftId>>,
-    domains: &impl RawStorageImages<DomainId, BTreeSet<NftId>>,
+    owners: &impl RawStorageImages<(AccountId, NftId), ()>,
+    domains: &impl RawStorageImages<(DomainId, NftId), ()>,
 ) -> u64 {
     group_cost(rows, owners, |_, value| &value.owned_by)
         + group_cost(rows, domains, |id, _| id.domain())
@@ -210,9 +219,9 @@ pub(in crate::state) fn full_nft_work(
 /// Independent complete-cut RWA work, including real None/Some status and bool keys.
 pub(in crate::state) fn full_rwa_work(
     rows: &impl RawStorageImages<RwaId, RwaValue>,
-    owners: &impl RawStorageImages<AccountId, BTreeSet<RwaId>>,
-    statuses: &impl RawStorageImages<Option<Name>, BTreeSet<RwaId>>,
-    frozen: &impl RawStorageImages<bool, BTreeSet<RwaId>>,
+    owners: &impl RawStorageImages<(AccountId, RwaId), ()>,
+    statuses: &impl RawStorageImages<(Option<Name>, RwaId), ()>,
+    frozen: &impl RawStorageImages<(bool, RwaId), ()>,
 ) -> u64 {
     group_cost(rows, owners, |_, value| &value.owned_by)
         + group_cost(rows, statuses, |_, value| &value.status)

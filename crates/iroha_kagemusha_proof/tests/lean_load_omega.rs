@@ -1,5 +1,5 @@
-//! Genuine lean Load (A1/W0/A2, one own-receipt leaf, no own `Q_sigma`) proven from a genuine
-//! rooted Bootstrap predecessor and wrapped by the complete Omega predicate.
+//! Genuine lean Load (one terminal A, no W, one own-receipt leaf, no own `Q_sigma`) proven from
+//! a genuine rooted Bootstrap predecessor and wrapped by the complete Omega predicate.
 //!
 //! The ordinary receipt is synthetic component data bound to the predecessor's scheme, asset,
 //! wallet and next ordinal. The Load circuit binds the receipt's terms and never verifies BLS

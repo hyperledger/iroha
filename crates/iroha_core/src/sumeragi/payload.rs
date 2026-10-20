@@ -670,6 +670,7 @@ pub(crate) fn decode_prepared(
         BlockSignatureCustodyError, PreparedSignatureBlockError,
         commit_certificate::CertificateCustodyError,
     };
+    use iroha_data_model::consensus::{NposPenaltyActionsCustodyError, ParentServiceCustodyError};
     use iroha_data_model::da::commitment::{DaCommitmentCustodyError, DaProofPolicyCustodyError};
     use norito::core::{PreparedDecodeError, SequenceSpan};
     let block = decoder
@@ -685,9 +686,14 @@ pub(crate) fn decode_prepared(
             // Only actual canonical byte failures can become deterministic proposal rejection.
             let canonical = matches!(
                 &error,
-                PreparedSignatureBlockError::Frame(_)
+                PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Decode(_))
+                    | PreparedSignatureBlockError::Frame(_)
                     | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(_))
                     | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Decode(_))
+                    | PreparedSignatureBlockError::PenaltyActions(
+                        NposPenaltyActionsCustodyError::Decode(_)
+                            | NposPenaltyActionsCustodyError::Controller(_)
+                    )
                     | PreparedSignatureBlockError::Commitments(
                         DaCommitmentCustodyError::Decode(_)
                             | DaCommitmentCustodyError::Signature(

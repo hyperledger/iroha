@@ -218,7 +218,7 @@ fn real_publication_retires_sources_but_retains_canonical_nodes_after_late_refus
     assert!(!plan(&original).retired);
     assert!(plan(&original).admission.is_none());
     assert_free(&state);
-    let blocker = state.world.merge_global_state_root.block();
+    let blocker = state.world.governance_last_unlock_sweep_height.block();
     let mut late = false;
     for _ in 0..256 {
         match original.try_publish() {

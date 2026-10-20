@@ -100,7 +100,7 @@ class RecordingSession(requests.Session):
 
 def _client_with_session() -> tuple[ToriiClient, RecordingSession]:
     session = RecordingSession()
-    client = ToriiClient("http://localhost:8080", session=session)
+    client = ToriiClient("http://localhost:8080", session=session, chain_discriminant=753)
     return client, session
 
 
@@ -890,7 +890,7 @@ def test_asset_holders_list_rejects_removed_canonical_i105_arg() -> None:
 
 
 def test_generic_multisig_proposal_is_not_inherited_by_first_release_sdk() -> None:
-    client = ToriiClient("http://node.test", session=RecordingSession())
+    client = ToriiClient("http://node.test", session=RecordingSession(), chain_discriminant=753)
     assert not hasattr(ToriiClient, "propose_multisig")
     assert not hasattr(client, "propose_multisig")
     assert not hasattr(client, "multisig_instruction_b64")

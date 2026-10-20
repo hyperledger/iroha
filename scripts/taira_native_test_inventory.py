@@ -9,6 +9,16 @@ import re
 
 # (coverage, parent source, test source, registered module, full module path, exact test leaves)
 NATIVE_CORE_TEST_OWNERS = (
+    ('native execution prefix original physical construction', 'sumeragi/certified_chain/execution_read.rs', 'sumeragi/certified_chain/execution_read/prefix_construction_tests.rs', 'prefix_construction_tests', 'sumeragi::certified_chain::execution_read::prefix_construction_tests', ('prefix_physical_refusal_retains_original_charge_and_retries_without_credit', 'prefix_physical_abandonment_refunds_original_pool_after_storage_guards_retire', 'prefix_constructor_preserves_capacity_and_keeps_layout_invariants_terminal')),
+    ('native execution reader original acquisition continuation', 'sumeragi/certified_chain/execution_read.rs', 'sumeragi/certified_chain/execution_read/continuation_tests.rs', 'continuation_tests', 'sumeragi::certified_chain::execution_read::continuation_tests', ('execution_shell_physical_refusal_keeps_original_charge_and_single_wire_delivery', 'execution_late_certificate_refusal_retains_prepared_children_and_exact_cause', 'execution_retry_rejects_replacement_pool_backend_and_expected_hash', 'durable_execution_retry_preserves_original_genesis_wire_through_h2_authentication', 'durable_execution_prefix_refusal_keeps_completed_original_body_and_wire')),
+    ('native original raw frame construction continuation', 'kura/native_execution_reads.rs', 'kura/native_frame_continuation_tests.rs', 'native_frame_continuation_tests', 'kura::native_frame_continuation_tests', ('original_raw_frame_physical_refusal_retains_charge_and_retries_without_credit', 'original_raw_frame_retry_refuses_replaced_sidecar_before_backing_allocation', 'original_raw_frame_narrower_scope_replay_retains_physical_charge_and_source', 'original_raw_frame_partial_backing_survives_narrower_replay_and_abandonment', 'original_raw_frame_capacity_and_slot_refusal_preserve_fixed_pool_retry', 'original_raw_frame_abandonment_refunds_after_all_storage_guards_retire')),
+    ('native original canonical block acquisition continuation', 'sumeragi/certified_chain/native_acquisition.rs', 'sumeragi/certified_chain/native_acquisition/tests.rs', 'tests', 'sumeragi::certified_chain::native_acquisition::tests', ('original_prepaid_native_body_delivers_once_without_repeat_allocation_or_decode', 'native_storage_mapper_retains_actual_scoped_and_physical_causes_without_allocating', 'unavailable_native_source_remains_missing_instead_of_malformed_codec', 'native_shell_actual_physical_refusal_keeps_original_charge_source_and_retry', 'native_late_certificate_capacity_retains_same_decoder_children_and_original_retry', 'native_counter_actual_physical_refusal_retains_source_and_maps_original_typed_cause')),
+
+    ('native retained producer parent-QC destination and original source custody', 'sumeragi/certified_chain/state_certificate/parent_service_copy.rs', 'sumeragi/certified_chain/state_certificate/parent_service_copy/tests.rs', 'tests', 'sumeragi::certified_chain::state_certificate::parent_service_copy::tests', ('producer_copy_physical_byte_and_root_refusals_keep_original_charges_and_retry', 'producer_copy_lending_reauthenticates_native_cut_and_rejects_equal_wire_source', 'producer_copy_original_logical_refusal_precedes_destination_and_physical_retry_does_not_recharge')),
+
+    ('native retained parent-service signer output and original retry custody', 'sumeragi/certified_chain/state_certificate/parent_service_signers.rs', 'sumeragi/certified_chain/state_certificate/parent_service_signers/tests.rs', 'tests', 'sumeragi::certified_chain::state_certificate::parent_service_signers::tests', ('original_signer_late_capacity_retains_prefix_waiter_and_same_pool_retry', 'original_signer_physical_array_root_and_later_key_refusals_keep_exact_charges', 'original_signer_lend_refuses_same_wire_source_pool_cut_and_selection_substitution')),
+    ('native retained parent-service Worker source and semantic QC custody', 'sumeragi/executor.rs', 'sumeragi/executor_parent_service_custody_tests.rs', 'parent_service_custody_tests', 'sumeragi::executor::parent_service_custody_tests', ('parent_service_validation_retains_original_receipts_without_waking_its_own_retry', 'parent_service_assembly_retains_original_parent_and_queue_before_capacity_retry', 'parent_service_worker_cancellation_retires_the_same_original_partial_graph', 'parent_service_preparation_refuses_foreign_original_owner_without_replacing_receipts', 'parent_service_errors_keep_original_waiter_and_permanent_source_classification', 'parent_service_worker_replacement_retires_only_the_superseded_original_attempt', 'parent_service_busy_view_keeps_completed_payload_and_original_preparation', 'parent_service_completed_payload_rechecks_actual_predecessor_slot_before_lending', 'parent_service_missing_predecessor_retries_original_tip_and_refuses_nontip_preparation', 'parent_service_validation_busy_view_retains_original_receipts_before_parent_lookup', 'parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until_retry', 'parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_release', 'parent_service_producer_copy_refusal_precedes_queue_lease_and_retries_same_input')),
+    ('native retained parent-service semantic QC source and typed refusal', 'sumeragi/certified_chain/state_certificate/parent_service_qc.rs', 'sumeragi/certified_chain/state_certificate/parent_service_qc/tests.rs', 'tests', 'sumeragi::certified_chain::state_certificate::parent_service_qc::tests', ('semantic_qc_requires_original_admitted_source_and_rejects_same_wire_substitution', 'semantic_qc_error_transport_retains_exact_original_capacity_and_allocator_fields')),
     ('native AMX typed multisig semantic rejection', 'sumeragi/amx/native/tests.rs', 'sumeragi/amx/native/tests/multisig_semantic.rs', 'multisig_semantic', 'sumeragi::amx::native::tests::multisig_semantic', ('native_multisig_semantic_cause_is_terminal_and_preserves_exact_diagnostic',)),
     ('native original AMX Worker partial and completed retry custody', 'sumeragi/executor.rs', 'sumeragi/executor_amx_retry_tests.rs', 'amx_retry_tests', 'sumeragi::executor::amx_retry_tests', (
         'original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry',
@@ -58,7 +68,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'governance_locks_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys',
         'governance_slash_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys',
     )),
-    ('native KAGEMUSHA wallet State and verifier-pack routing', 'kagemusha_wallet_v1/tests.rs', 'kagemusha_wallet_v1/tests/wsv_tests.rs', 'wsv_tests', 'kagemusha_wallet_v1::tests::wsv_tests', ('registration_requires_dedicated_asset_permission_and_reserve_consent', 'registration_rejects_a_foreign_network_before_creating_reserve_rows', 'registered_reserve_rejects_ordinary_transfer_burn_and_teardown', 'native_rejection_and_missing_source_anchor_cannot_activate', 'real_asset_batch_loads_once_and_failed_debit_rolls_back_ordinal', 'committed_reader_requires_an_original_cut_and_finite_limits', 'routing_uses_permanent_scope_and_refuses_missing_wallet_records', 'verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope', 'verifier_install_routing_requires_the_registered_authorizing_asset_and_scheme', 'package_quota_charges_exact_native_calls_and_one_operation_at_the_boundary', 'package_quota_refusal_is_atomic_for_sigma_and_lineage_limits_and_overflow', 'lineage_call_quota_refuses_before_native_verifier_or_payout', 'unavailable_production_artifacts_retain_local_deferral_and_no_activation', 'verifier_install_requires_actual_reserve_owner_before_artifact_parsing', 'genuine_verifier_install_is_immutable_exact_retry_and_same_overlay_native_owner', 'verifier_install_rechecks_live_asset_permission_and_registered_scope', 'authorized_install_cannot_turn_missing_originals_into_a_verifier', 'package_quota_refuses_before_native_verifier_and_ledger_activation', 'real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it', 'real_fee_payout_requires_retained_history_and_never_requires_receive', 'corrupted_reserve_owner_and_mutated_registration_are_rejected', 'snapshot_requires_exact_reserve_indexes_and_reference_counts', 'private_root_load_rejects_before_debit_or_receipt_creation', 'ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss', 'compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope')),
+    ('native KAGEMUSHA wallet State and verifier-pack routing', 'kagemusha_wallet_v1/tests.rs', 'kagemusha_wallet_v1/tests/wsv_tests.rs', 'wsv_tests', 'kagemusha_wallet_v1::tests::wsv_tests', ('registration_requires_dedicated_asset_permission_and_reserve_consent', 'registration_rejects_a_foreign_network_before_creating_reserve_rows', 'registered_reserve_rejects_ordinary_transfer_burn_and_teardown', 'native_rejection_and_missing_source_anchor_cannot_activate', 'real_asset_batch_loads_once_and_failed_debit_rolls_back_ordinal', 'committed_reader_requires_an_original_cut_and_finite_limits', 'routing_uses_permanent_scope_and_refuses_missing_wallet_records', 'verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope', 'verifier_install_routing_requires_the_registered_authorizing_asset_and_scheme', 'package_quota_charges_exact_native_calls_and_one_operation_at_the_boundary', 'package_quota_refusal_is_atomic_for_sigma_and_lineage_limits_and_overflow', 'lineage_call_quota_refuses_before_native_verifier_or_payout', 'unavailable_production_artifacts_retain_local_deferral_and_no_activation', 'verifier_install_requires_actual_reserve_owner_before_artifact_parsing', 'genuine_verifier_install_is_immutable_exact_retry_and_same_overlay_native_owner', 'verifier_install_rechecks_live_asset_permission_and_registered_scope', 'authorized_install_cannot_turn_missing_originals_into_a_verifier', 'package_quota_refuses_before_native_verifier_and_ledger_activation', 'real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it', 'real_fee_payout_requires_retained_history_and_never_requires_receive', 'retained_request_normalizes_distinct_payer_completions_without_replacing_signed_terms', 'corrupted_reserve_owner_and_mutated_registration_are_rejected', 'snapshot_requires_exact_reserve_indexes_and_reference_counts', 'private_root_load_rejects_before_debit_or_receipt_creation', 'ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss', 'compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope')),
     ('native State preverify backend and key admission', 'state.rs', 'state/state_preverify_backend_admission_tests.rs', 'state_preverify_backend_admission_tests', 'state::state_preverify_backend_admission_tests', (
         'unsupported_retired_and_claimed_backends_fail_state_admission',
         'stark_fri_profile_labels_require_enveloped_state_preverify_metadata',
@@ -78,8 +88,8 @@ NATIVE_CORE_TEST_OWNERS = (
         'pending_payload_selection_keeps_original_rows_across_unrelated_admissions',
         'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions',
         'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry',
-        'pending_payload_admission_exhaustion_refuses_before_input_publication',
         'pending_payload_lease_accepts_shared_queue_handles_and_their_copies',
+        'pending_payload_admission_exhaustion_refuses_before_input_publication',
     )),
     ('native original Queue resident custody', 'queue.rs', 'queue/resident_owner_tests.rs', 'resident_owner_tests', 'queue::tests::resident_owner_tests', ('removed_pending_owner_retains_original_resident_credit_until_last_reader', 'original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries', 'first_queue_resident_ledger_refusal_keeps_original_input_and_retry_pool', 'every_queue_retirement_defers_original_refund_until_its_mutation_fence_releases', 'equal_limit_foreign_state_cannot_replace_original_queue_resident_pool', 'queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner', 'cold_queue_retirement_holds_original_fence_until_first_admission_can_publish')),
     ('native returned AMX context custody', 'sumeragi/amx/native/tests.rs', 'sumeragi/amx/native/tests/returned_context.rs', 'returned_context', 'sumeragi::amx::native::tests::returned_context', (
@@ -269,6 +279,8 @@ NATIVE_CORE_TEST_OWNERS = (
         'original_validation_return_cannot_rebind_changed_header_to_authenticated_wire',
         'explicit_completed_decoded_rejection_retires_only_original_height_view_hash',
         'same_source_same_pool_distinct_prepared_signature_owner_is_refused_at_both_boundaries',
+        'same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return',
+        'same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries',
     )),
     ('native validator return custody', 'sumeragi/executor.rs', 'sumeragi/executor_validation_refusal_tests.rs', 'validation_refusal_tests', 'sumeragi::executor::validation_refusal_tests', (
         'original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_execution',
@@ -310,6 +322,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories',
         'native_initializer_invariant_keeps_original_across_validation_and_producer_recovery',
         'original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader',
+        'anonymous_ballot_adapter_absence_stays_deferred_through_publication',
     )),
     ('native publication refusal identity', 'sumeragi/executor/publication.rs', 'sumeragi/executor/publication/tests.rs', 'tests', 'sumeragi::executor::publication::tests', (
         'state_publication_lock_refusals_reach_scheduler_with_original_execution_and_release',
@@ -342,6 +355,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_tip_snapshot_scope_is_mandatory_and_objects_are_closed',
     )),
     ('native certified history', 'sumeragi/certified_chain.rs', 'sumeragi/certified_chain/tests.rs', 'tests', 'sumeragi::certified_chain::tests', (
+        'certified_id_streams_exact_preimage_without_heap_allocation',
         'committed_and_certified_reads_of_a_real_chain',
         'uncommitted_heights_are_not_read',
         'frames_without_a_matching_header_preimage_or_certificate_are_refused',
@@ -364,7 +378,6 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_frame_requires_fixed_header_and_exact_block_binding',
         'authenticated_scope_rejects_active_non_global_without_redecoding_result',
         'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners',
-        'certified_id_streams_exact_preimage_without_heap_allocation',
     )),
     ('native certified history boundaries', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/boundary_tests.rs', 'boundaries', 'sumeragi::certified_chain::tests::boundaries', (
         'rotated_away_committee_verifies_from_authenticated_boundaries_with_bounded_authority',
@@ -395,6 +408,14 @@ NATIVE_CORE_TEST_OWNERS = (
         'admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_finish',
         'admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_order',
         'walk_parent_link_retains_original_body_and_exact_native_continuity_without_result_copy',
+        'admitted_frame_refusal_rejects_foreign_pool_and_replacement_source_before_retry',
+        'admitted_initialization_binds_original_pool_and_genesis_before_first_admission',
+        'admitted_parameter_change_retains_pending_authority_across_later_scratch_refusal',
+        'admitted_prefix_rebuilds_funded_configuration_for_same_epoch_parameter_change',
+        'admitted_prepared_prefix_refusal_retains_metadata_slots_and_original_release',
+        'funded_prefix_authority_rejects_invalid_frames_exactly_like_the_portable_authority',
+        'one_shot_admitted_push_admits_both_slots_before_a_refusal_can_release_itself',
+        'one_shot_admitted_push_funds_no_owner_that_could_release_its_own_wait',
     )),
     ('native pending original execution', 'sumeragi/test_chain.rs', 'sumeragi/test_chain/pending_execution_tests.rs', 'pending_execution_tests', 'sumeragi::test_chain::tests::pending_execution_tests', (
         'pending_execution_retains_one_source_and_publishes_once',

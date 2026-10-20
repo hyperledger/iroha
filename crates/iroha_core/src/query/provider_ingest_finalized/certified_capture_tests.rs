@@ -154,6 +154,9 @@ fn certified_capture_contention_preserves_exact_bytes_and_releases_for_retry() {
         pin::Pin,
         task::{Context, Poll, Waker},
     };
+    // Keep retired fixture cells fixed while checking the registration's
+    // exact synchronous refund from the same State allocation pool.
+    let _state_retirement = crossbeam_epoch::pin();
     let directory = physical_tempdir().unwrap();
     let chain = chain();
     let waiter_budget = chain.state().ivm_execution_budget();

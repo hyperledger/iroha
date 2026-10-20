@@ -4,11 +4,17 @@ use super::*;
 use record::Binding;
 use tokio::time::Instant;
 
+#[cfg(feature = "bench")]
+#[path = "benchmark.rs"]
+pub mod benchmark;
+
 struct Queued {
     header: Header,
-    /// The complete sealed Data record, built once at enqueue so the grant
-    /// only has to write it.
-    record: Vec<u8>,
+    /// Canonical encoded payload. It is sealed into its single wire buffer
+    /// only when the grant arrives, so encoding and sealing a large post never
+    /// block this peer task back to back: the Request record (and any due
+    /// Ping/Pong) leaves in between, keeping the remote idle timer fed.
+    plaintext: Vec<u8>,
     ownership: OutboundPostOwnership,
     bytes: SharedByteLease,
     requested: bool,
@@ -36,15 +42,25 @@ impl Writing {
             _bytes: None,
         })
     }
-    /// A granted, already sealed Data record.
-    fn data(queued: Queued, class: Class) -> Self {
-        Self {
-            record: queued.record,
+    /// A granted Data record, sealed now into one wire buffer. The send charge
+    /// covers the plaintext and this sealed copy while both briefly coexist.
+    fn data<E: Enc>(
+        crypto: &cryptographer::Cryptographer<E>,
+        queued: Queued,
+        class: Class,
+    ) -> Result<Self, Error> {
+        let record = record::seal_record(
+            crypto,
+            &queued.header.with_kind(Kind::Data),
+            &queued.plaintext,
+        )?;
+        Ok(Self {
+            record,
             offset: 0,
             class: Some(class),
             ownership: Some(queued.ownership),
             _bytes: Some(queued.bytes),
-        }
+        })
     }
     async fn advance(
         &mut self,
@@ -399,19 +415,13 @@ impl<E: Enc, T: Pload + ClassifyTopic> CreditStream<E, T> {
             Ok(h) => h,
             Err(e) => return Err((e, post)),
         };
-        // The Data header is fixed by this class sequence, so the record is
-        // sealed now; the grant only writes it. The send charge above covers
-        // the plaintext and the sealed copy while both briefly coexist.
-        let record =
-            match record::seal_record(&self.crypto, &header.with_kind(Kind::Data), &plaintext) {
-                Ok(record) => record,
-                Err(e) => return Err((e, post)),
-            };
-        drop(plaintext);
+        // Sealing waits for the grant (`Writing::data`): the Request leaves
+        // between the two CPU-heavy steps, so a large post never stalls the
+        // remote's liveness view for their combined duration.
         let (_, ownership) = post.into_parts();
         self.queued[i] = Some(Queued {
             header,
-            record,
+            plaintext,
             ownership,
             bytes,
             requested: false,
@@ -461,7 +471,7 @@ impl<E: Enc, T: Pload + ClassifyTopic> CreditStream<E, T> {
                         }
                         let post = self.queued[i].take().expect("checked granted post");
                         let class = post.header.class()?;
-                        Writing::data(post, class)
+                        Writing::data(&self.crypto, post, class)?
                     }
                     _ => {
                         let Some(header) = self.ledger.next_grant()? else {
@@ -718,6 +728,86 @@ async fn malformed_tag_fences_reader_without_delivery_or_unspent_grant_reuse() {
     drop(stream);
     let next = p.bind(remote.id()).unwrap();
     assert!(next.reserve(Class::Lane, 200).is_some());
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn data_record_is_sealed_when_granted_not_when_enqueued() {
+    use super::tests::{crypto, peer, pool};
+    use crate::network::admission_class_tests::AdmissionFixture as Fixture;
+    use iroha_crypto::encryption::ChaCha20Poly1305;
+    let p = pool(3);
+    let remote = peer(35);
+    let local = peer(36);
+    let cipher = crypto();
+    let binding = Binding::verified(
+        &test_network_id("grant-time data sealing"),
+        local.id(),
+        remote.id(),
+        cipher.session_binding,
+        [73; 32],
+        p.geometry,
+        p.geometry,
+    )
+    .unwrap();
+    let outgoing = binding.outgoing;
+    let (_raw, transport) = tokio::io::duplex(64);
+    let (read, write) = tokio::io::split(transport);
+    let mut stream = CreditStream::<ChaCha20Poly1305, Fixture>::new(
+        negotiation::OwnedTransport {
+            read: Box::new(read),
+            write: Box::new(write),
+            source: p.bind(remote.id()).unwrap(),
+        },
+        binding,
+        cipher.clone(),
+        remote.clone(),
+        102,
+        CreditStreamConfig {
+            caps: crate::network::TopicFrameCaps::uniform(1024),
+            maximum: [1024; CLASS_COUNT],
+            limits: OutboundFrameQueueLimits::new_with_progress_reserve(
+                256 * 1024,
+                128 * 1024,
+                256 * 1024,
+                32,
+                32,
+            ),
+            idle_timeout: Duration::from_secs(20),
+        },
+    )
+    .unwrap();
+    let mut expected = Vec::new();
+    run::receive_credit_encode(&Fixture::Payload(7), &mut expected).unwrap();
+    let (post, _flush_ack) = super::tests::post(Fixture::Payload(7));
+    assert!(stream.enqueue(post).is_ok());
+    let queued = stream.queued[Class::Payload.index()]
+        .as_mut()
+        .expect("enqueued post");
+    assert_eq!(
+        queued.plaintext, expected,
+        "enqueue keeps the canonical plaintext; sealing waits for the grant"
+    );
+    queued.requested = true;
+    queued.granted = true;
+    stream.schedule().unwrap();
+    let writing = stream.writing.as_ref().expect("granted data is scheduled");
+    assert_eq!(writing.class, Some(Class::Payload));
+    let record = &writing.record;
+    let header_len = u32::from_be_bytes(record[..4].try_into().unwrap()) as usize;
+    let header_bytes = &record[4..4 + header_len];
+    assert_eq!(
+        Header::decode(header_bytes).unwrap(),
+        Header::request(outgoing, Class::Payload, 1, expected.len())
+            .unwrap()
+            .with_kind(Kind::Data)
+    );
+    let mut sealed = record[4 + header_len..].to_vec();
+    assert_eq!(
+        &*record::open(&cipher, header_bytes, &mut sealed).unwrap(),
+        expected.as_slice(),
+        "the grant-time record carries exactly the enqueued plaintext"
+    );
 }
 
 #[cfg(test)]

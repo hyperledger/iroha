@@ -43,11 +43,11 @@ output returns the same still-live admitted handle; closing never resurrects it.
 retains an initialized owner until promotion succeeds. No foreign digest, proof
 verdict or replacement payment key can open a wallet.
 
-Typed setup and lifecycle calls cover Bootstrap, Offer/Request, Credited archival,
-direct time exchanges, Load, Send, Receive, policy refresh, Unload and Retiring.
-Offer/Request setup outputs are canonical object frames; peer transports carry
-`KagemushaWalletEnvelopeV1` frames. Typed native `envelope`/`original` helpers wrap or
-extract Offer, Request, Payment and Credited with exact scheme/kind and full-frame
+Typed setup and lifecycle calls cover Bootstrap, the open Request, the payer companion,
+Credited archival, direct time exchanges, Load, Send, Receive, policy refresh, Unload and
+Retiring. Request and payer-companion setup outputs are canonical object frames; peer
+transports carry `KagemushaWalletEnvelopeV1` frames. Typed native `envelope`/`original`
+helpers wrap or extract Request, Payment and Credited with exact scheme/kind and full-frame
 bounds; they return no monetary verdict. Direct-time cancel only discards an opaque token.
 Exact retained Payment bytes and durable completion remain native responsibilities.
 Exact-byte output retries, credit-status reads, Send/Unload reviews and discarded review

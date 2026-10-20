@@ -165,6 +165,7 @@ impl Directory {
             writable: false,
             read_only: false,
             publishable: false,
+            ancestry: AncestryCheck::EachCall,
         };
         retained.revalidate()?;
         retained.file.sync_all()?;

@@ -150,7 +150,7 @@ export const REQUIRED_NATIVE_EXPORTS = Object.freeze([
   "securePrivateFileRead",
   "securePrivateFileWriteAtomic",
 ]);
-export const REQUIRED_NATIVE_BRIDGE_ABI_VERSION = 30;
+export const REQUIRED_NATIVE_BRIDGE_ABI_VERSION = 31;
 export const REQUIRED_NATIVE_EXPORT_RESULTS = Object.freeze({
   connectNoritoBridgeAbiVersion: REQUIRED_NATIVE_BRIDGE_ABI_VERSION,
   securePrivateFileAbiVersion: 1,

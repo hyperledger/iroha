@@ -27,6 +27,10 @@ from .address import AccountAddress
 
 _crypto = load_crypto_extension()
 
+# This public exception is provided by the matching native extension. A stale
+# extension cannot supply this API; do not substitute a Python fallback class.
+PublicFinalityReadError = _crypto.PublicFinalityReadError
+
 # Exact genesis-derived transaction domain. Construction is closed in the
 # native boundary so ordinary signing APIs cannot reinterpret labels or bare
 # byte strings as a NetworkId.
@@ -60,7 +64,7 @@ GOST_3410_2012_512_PARAMSET_B_ALGORITHM: Final[str] = "gost3410-2012-512-paramse
 BLS_NORMAL_ALGORITHM: Final[str] = "bls_normal"
 BLS_SMALL_ALGORITHM: Final[str] = "bls_small"
 SM2_ALGORITHM: Final[str] = "sm2"
-PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: Final[int] = 30
+PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: Final[int] = 31
 PRIVACY_COMPILED_PROFILE_CATALOG_ARCHIVE_MAX_BYTES: Final[int] = 256 * 1024
 PRIVACY_EXACT12_CAPABILITY_MANIFEST_ARCHIVE_MAX_BYTES_V1: Final[int] = 256 * 1024
 PRIVACY_COMPILED_PROFILE_CATALOG_VALIDATION_STATUS_V1: Final[Mapping[str, int]] = MappingProxyType(
@@ -175,9 +179,15 @@ __all__ = [
     "build_find_asset_escrows_by_seller_query",
     "build_find_asset_escrows_by_buyer_query",
     "build_find_committed_transaction_query",
+    "build_find_transaction_details_query",
+    "transaction_details_carrier_block_hash",
+    "verify_transaction_details_inclusion",
     "build_find_block_by_hash_query",
     "committed_transaction_carrier_block_hash",
     "verify_committed_transaction_inclusion",
+    "authenticate_public_finality_checkpoint_v1",
+    "advance_public_finality_checkpoint_v1",
+    "PublicFinalityReadError",
     "hash_blake2b_32",
     "decode_zk_vk_transaction_payload",
     "public_key_multihash",
@@ -353,7 +363,10 @@ if TYPE_CHECKING:
         """Typed surface of the dynamically forwarded native instruction value."""
 
         @classmethod
-        def from_json(cls, payload: str) -> Instruction: ...
+        def from_json(cls, payload: str, *, chain_discriminant: int) -> Instruction: ...
+
+        @classmethod
+        def from_norito_bytes(cls, payload: bytes) -> Instruction: ...
 
         @staticmethod
         def update_plain_conviction(
@@ -623,6 +636,81 @@ def build_find_committed_transaction_query(
     )
 
 
+
+def build_find_transaction_details_query(
+    authority: str, private_key: bytes, network_id: NetworkId, transaction_hash: str,
+    *, chain_discriminant: int,
+) -> bytes:
+    """Build fresh native hash-only /v1/pipeline/transactions/details query bytes.
+
+    The selected prefix validates the reader's literal. Send once without
+    redirects/retries; a deferred read needs a fresh query nonce. Signing inputs
+    remain runtime-only. Torii still enforces self/participant/operator access.
+    """
+    network_id = _require_network_id(network_id)
+    chain_discriminant = _require_chain_discriminant(chain_discriminant)
+    if type(private_key) is not bytes or len(private_key) != 32:
+        raise ValueError("query private key must be exact 32-byte Ed25519 bytes")
+    if type(transaction_hash) is not str or re.fullmatch(r"[0-9a-f]{63}[13579bdf]", transaction_hash) is None:
+        raise ValueError("transaction hash must be exact lowercase marked hexadecimal")
+    return bytes(_crypto.build_find_transaction_details_query(authority, private_key, network_id,
+        transaction_hash, chain_discriminant=chain_discriminant))
+
+
+def transaction_details_carrier_block_hash(transaction_hash: str, details_response_bytes: bytes) -> str:
+    """Get an untrusted lookup hint from exact native details bytes bound to a hash.
+
+    This does not authenticate consensus, execution, intent or route. Keep the
+    original bytes and use verify_transaction_details_inclusion before adoption.
+    """
+    if type(details_response_bytes) is not bytes or not 0 < len(details_response_bytes) <= 32 * 1024 * 1024:
+        raise ValueError("details response must be exact immutable bytes within 32 MiB")
+    if type(transaction_hash) is not str or re.fullmatch(r"[0-9a-f]{63}[13579bdf]", transaction_hash) is None:
+        raise ValueError("transaction hash must be exact lowercase marked hexadecimal")
+    return str(_crypto.transaction_details_carrier_block_hash(transaction_hash, details_response_bytes))
+
+
+def verify_transaction_details_inclusion(
+    transaction_hash: str, details_response_bytes: bytes, *,
+    native_finality_proof_chain_json: str, expected_network_id: NetworkId,
+    expected_chain: str, trusted_checkpoint: bytes, expected_chain_discriminant: int,
+) -> Mapping[str, Any]:
+    """Authenticate exact PipelineTransactionDetailsResponse wire from selected trust.
+
+    No Python DTO-to-QueryResponse conversion occurs. The native verifier and
+    output projection are shared with committed-query inclusion. Public status
+    and the carrier hint are lookup data only. Apply original intent and result
+    policy, then archive exact response/proofs and promote checkpoint atomically.
+    Rejected and mixed batch results require their own application policy.
+    """
+    expected_network_id = _require_network_id(expected_network_id, "expected_network_id")
+    expected_chain_discriminant = _require_chain_discriminant(expected_chain_discriminant, "expected_chain_discriminant")
+    if type(transaction_hash) is not str or re.fullmatch(r"[0-9a-f]{63}[13579bdf]", transaction_hash) is None:
+        raise ValueError("transaction hash must be exact lowercase marked hexadecimal")
+    if type(details_response_bytes) is not bytes or not 0 < len(details_response_bytes) <= 32 * 1024 * 1024:
+        raise ValueError("details response must be exact immutable bytes within 32 MiB")
+    if type(trusted_checkpoint) is not bytes or not 0 < len(trusted_checkpoint) <= 68 * 1024 * 1024:
+        raise ValueError("trusted checkpoint must be exact immutable bytes within 68 MiB")
+    if type(expected_chain) is not str or not 0 < len(expected_chain.encode("utf-8")) <= 1024:
+        raise ValueError("expected chain must contain 1..1024 UTF-8 bytes")
+    if type(native_finality_proof_chain_json) is not str or not 0 < len(native_finality_proof_chain_json.encode("utf-8")) <= 16 * 1024 * 1024:
+        raise ValueError("native proof page must contain 1..16 MiB UTF-8")
+    result = _crypto.verify_transaction_details_inclusion(
+        transaction_hash, details_response_bytes, native_finality_proof_chain_json,
+        expected_network_id, expected_chain, trusted_checkpoint,
+        expected_chain_discriminant=expected_chain_discriminant,
+    )
+    if type(result) is not tuple or len(result) != 2:
+        raise RuntimeError("native details verifier returned malformed output")
+    projection, promoted = result
+    if type(projection) is not str or type(promoted) is not bytes or not 0 < len(promoted) <= 68 * 1024 * 1024:
+        raise RuntimeError("native details verifier returned malformed checkpoint")
+    payload = json.loads(projection)
+    if not isinstance(payload, Mapping) or "promoted_checkpoint" in payload:
+        raise RuntimeError("native details verifier returned malformed projection")
+    return {**payload, "promoted_checkpoint": promoted}
+
+
 def build_find_block_by_hash_query(
     authority: str,
     private_key: bytes,
@@ -655,6 +743,142 @@ def committed_transaction_carrier_block_hash(
     )
 
 
+def authenticate_public_finality_checkpoint_v1(
+    genesis: bytes,
+    proof_wires: tuple[bytes, ...],
+    *,
+    expected_network_id: NetworkId,
+    expected_chain: str,
+    expected_genesis_sha256: bytes,
+) -> Mapping[str, Any]:
+    """Authenticate historical public execution from independently selected pins.
+
+    Supply the exact retained genesis bytes (including any existing certificate),
+    genesis-derived NetworkId, chain label and raw SHA-256 selected independently
+    of responding proof data. Native code authenticates the signed genesis body
+    and its complete Global epoch/roster, then canonical contiguous proof frames
+    starting at height one and including at least one real successor. The
+    authoring-original/private installer authenticator is a separate contract.
+
+    This grants no current-cut freshness, World state, permissions or lane route.
+    Retain the returned immutable checkpoint atomically only after application
+    intent/result policy succeeds. The native-generated one-proof JSON page can
+    reauthenticate its tip with verify_committed_transaction_inclusion; that API
+    still requires the exact original canonical QueryResponse bytes. No state is
+    persisted here. PublicFinalityReadError exposes native kind/phase diagnostics and a signed-body
+    source_kind (invalid, json, or json_resource) where applicable;
+    a resource/genesis-read refusal must not be treated as cryptographic invalidity.
+    """
+    expected_network_id = _require_network_id(expected_network_id, "expected_network_id")
+    if type(genesis) is not bytes or not 0 < len(genesis) <= 8 * 1024 * 1024:
+        raise ValueError("genesis must be exact immutable bytes within 8 MiB")
+    if type(expected_genesis_sha256) is not bytes or len(expected_genesis_sha256) != 32 or expected_genesis_sha256 == bytes(32):
+        raise ValueError("expected_genesis_sha256 must be exact nonzero 32-byte independent pin")
+    if (type(expected_chain) is not str or not expected_chain or len(expected_chain.encode("utf-8")) > 512
+            or expected_chain.strip() != expected_chain
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in expected_chain)):
+        raise ValueError("expected_chain must be an exact bounded chain label")
+    if type(proof_wires) is not tuple or not 2 <= len(proof_wires) <= 4096:
+        raise ValueError("proof_wires must be an exact tuple of 2..4096 frames")
+    total = 0
+    for wire in proof_wires:
+        if type(wire) is not bytes or not wire:
+            raise ValueError("proof frames must be exact nonempty immutable bytes")
+        total += len(wire)
+        if total > 16 * 1024 * 1024:
+            raise ValueError("proof frames exceed 16 MiB aggregate")
+    output = _crypto.authenticate_public_finality_checkpoint_v1(
+        genesis, proof_wires, expected_network_id=expected_network_id,
+        expected_chain=expected_chain, expected_genesis_sha256=expected_genesis_sha256,
+    )
+    if type(output) is not tuple or len(output) != 3:
+        raise RuntimeError("native public finality returned an invalid result")
+    metadata_json, checkpoint, tip_json = output
+    if (type(metadata_json) is not str or len(metadata_json.encode("utf-8")) > 4096
+            or type(checkpoint) is not bytes or not 0 < len(checkpoint) <= 68 * 1024 * 1024
+            or type(tip_json) is not str or not 0 < len(tip_json.encode("utf-8")) <= 16 * 1024 * 1024):
+        raise RuntimeError("native public finality returned unbounded or mutable output")
+    metadata = json.loads(metadata_json)
+    fields = {"network_id", "chain_id", "genesis_sha256", "root_scope", "height", "proof_count", "block_hash", "context_id"}
+    if (type(metadata) is not dict or set(metadata) != fields
+            or metadata["network_id"] != expected_network_id.literal
+            or metadata["chain_id"] != expected_chain or metadata["genesis_sha256"] != expected_genesis_sha256.hex()
+            or metadata["root_scope"] != "Global" or type(metadata["height"]) is not int
+            or type(metadata["proof_count"]) is not int or metadata["height"] != len(proof_wires)
+            or metadata["proof_count"] != len(proof_wires)):
+        raise RuntimeError("native public finality differs from selected context")
+    for key in ("block_hash", "context_id"):
+        value = metadata[key]
+        if type(value) is not str or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise RuntimeError("native public finality returned malformed commitment identity")
+    return {"metadata": metadata, "checkpoint": checkpoint, "tip_proof_chain_json": tip_json}
+
+
+
+def advance_public_finality_checkpoint_v1(
+    trusted_checkpoint: bytes,
+    proof_wires: tuple[bytes, ...],
+    *,
+    expected_network_id: NetworkId,
+    expected_chain: str,
+) -> Mapping[str, Any]:
+    """Verify one bounded public history page from independently selected trust.
+
+    Begin with a checkpoint from authenticate_public_finality_checkpoint_v1 or
+    a previously authenticated page. Its exact tip must be the first frame;
+    successors must be consecutive. Never select a peer-supplied checkpoint as
+    trust. Keep original frames for native replay, and retain older checkpoints
+    when receipts can arrive out of order. Nothing is persisted here.
+
+    The returned tip_proof_chain_json can authenticate a receipt at the returned
+    checkpoint using verify_committed_transaction_inclusion. Apply independent
+    transaction intent and result policy before atomically publishing receipt
+    and checkpoint. This does not grant World state, freshness or lane authority.
+    """
+    expected_network_id = _require_network_id(expected_network_id, "expected_network_id")
+    if type(trusted_checkpoint) is not bytes or not 0 < len(trusted_checkpoint) <= 68 * 1024 * 1024:
+        raise ValueError("trusted_checkpoint must be exact immutable bytes within 68 MiB")
+    if (type(expected_chain) is not str or not expected_chain or len(expected_chain.encode("utf-8")) > 512
+            or expected_chain.strip() != expected_chain
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in expected_chain)):
+        raise ValueError("expected_chain must be an exact bounded chain label")
+    if type(proof_wires) is not tuple or not 1 <= len(proof_wires) <= 4096:
+        raise ValueError("proof_wires must be an exact tuple of 1..4096 frames")
+    total = 0
+    for wire in proof_wires:
+        if type(wire) is not bytes or not wire:
+            raise ValueError("proof frames must be exact nonempty immutable bytes")
+        total += len(wire)
+        if total > 16 * 1024 * 1024:
+            raise ValueError("proof frames exceed 16 MiB aggregate")
+    output = _crypto.advance_public_finality_checkpoint_v1(
+        trusted_checkpoint, proof_wires, expected_network_id=expected_network_id,
+        expected_chain=expected_chain,
+    )
+    if type(output) is not tuple or len(output) != 3:
+        raise RuntimeError("native public page returned an invalid result")
+    metadata_json, checkpoint, tip_json = output
+    if (type(metadata_json) is not str or len(metadata_json.encode("utf-8")) > 4096
+            or type(checkpoint) is not bytes or not 0 < len(checkpoint) <= 68 * 1024 * 1024
+            or type(tip_json) is not str or not 0 < len(tip_json.encode("utf-8")) <= 16 * 1024 * 1024):
+        raise RuntimeError("native public page returned unbounded or mutable output")
+    metadata = json.loads(metadata_json)
+    fields = {"network_id", "chain_id", "root_scope", "anchor_height", "height", "proof_count", "block_hash", "context_id"}
+    if (type(metadata) is not dict or set(metadata) != fields
+            or metadata["network_id"] != expected_network_id.literal
+            or metadata["chain_id"] != expected_chain or metadata["root_scope"] != "Global"
+            or type(metadata["anchor_height"]) is not int or not 2 <= metadata["anchor_height"] <= 2**64 - 1
+            or type(metadata["height"]) is not int or not 2 <= metadata["height"] <= 2**64 - 1
+            or type(metadata["proof_count"]) is not int or metadata["proof_count"] != len(proof_wires)
+            or metadata["height"] != metadata["anchor_height"] + len(proof_wires) - 1):
+        raise RuntimeError("native public page differs from selected context")
+    for key in ("block_hash", "context_id"):
+        value = metadata[key]
+        if type(value) is not str or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise RuntimeError("native public page returned malformed commitment identity")
+    return {"metadata": metadata, "checkpoint": checkpoint, "tip_proof_chain_json": tip_json}
+
+
 def verify_committed_transaction_inclusion(
     transaction_hash: str,
     transaction_response_bytes: bytes,
@@ -663,6 +887,7 @@ def verify_committed_transaction_inclusion(
     expected_network_id: NetworkId,
     expected_chain: str,
     trusted_checkpoint: bytes,
+    expected_chain_discriminant: int,
 ) -> Mapping[str, Any]:
     """Authenticate one exact output from an independently selected native checkpoint.
 
@@ -675,6 +900,7 @@ def verify_committed_transaction_inclusion(
     """
 
     expected_network_id = _require_network_id(expected_network_id, "expected_network_id")
+    expected_chain_discriminant = _require_chain_discriminant(expected_chain_discriminant, "expected_chain_discriminant")
     for name, value in (("transaction_response_bytes", transaction_response_bytes),
                         ("trusted_checkpoint", trusted_checkpoint)):
         if type(value) is not bytes:
@@ -694,6 +920,7 @@ def verify_committed_transaction_inclusion(
     native_result = _crypto.verify_committed_transaction_inclusion(
         transaction_hash, transaction_response_bytes, native_finality_proof_chain_json,
         expected_network_id, expected_chain, trusted_checkpoint,
+        expected_chain_discriminant=expected_chain_discriminant,
     )
     if type(native_result) is not tuple or len(native_result) != 2:
         raise RuntimeError("native committed verifier returned malformed output")
@@ -720,10 +947,21 @@ _VERIFY_SORAFS_ORDERBOOK_SUBMISSION_RECEIPT_V1 = getattr(
 )
 
 
-def signed_transaction_envelope_from_json(payload: str) -> SignedTransactionEnvelope:
+def _require_chain_discriminant(value: int, context: str = "chain_discriminant") -> int:
+    """Require independent, exact u16 presentation context; never infer it from text."""
+    if type(value) is not int:
+        raise TypeError(f"{context} must be an exact integer")
+    if not 0 <= value <= 65535:
+        raise ValueError(f"{context} must be in 0..65535")
+    return value
+
+
+def signed_transaction_envelope_from_json(payload: str, *, chain_discriminant: int) -> SignedTransactionEnvelope:
     """Reconstruct a `SignedTransactionEnvelope` from its JSON representation."""
 
-    return SignedTransactionEnvelope.from_json(payload)
+    return SignedTransactionEnvelope.from_json(
+        payload, chain_discriminant=_require_chain_discriminant(chain_discriminant)
+    )
 
 
 def decode_transaction_receipt_json(payload: bytes) -> str:
@@ -1710,6 +1948,7 @@ def build_signed_transaction(
     private_key: bytes,
     *,
     fee_payment: Mapping[str, Any],
+    chain_discriminant: int,
     instructions: Optional[Iterable[Instruction]] = None,
     entries: Optional[Iterable[TransactionExecutableEntry]] = None,
     creation_time_ms: Optional[int] = None,
@@ -1755,6 +1994,7 @@ def build_signed_transaction(
     """
 
     network_id = _require_network_id(network_id)
+    chain_discriminant = _require_chain_discriminant(chain_discriminant)
     authority = _require_exact_non_empty_string(authority, "authority")
     if type(private_key) is not bytes:
         raise TypeError("private_key must be exact immutable bytes")
@@ -1797,6 +2037,7 @@ def build_signed_transaction(
         network_id,
         authority,
         fee_payment_json,
+        chain_discriminant=chain_discriminant,
     )
     if normalized_creation_time_ms is not None:
         builder.set_creation_time_ms(normalized_creation_time_ms)
@@ -2444,6 +2685,8 @@ def canonical_signed_transaction_hash_v1(
 def signed_transaction_envelope_from_versioned_v1(
     signed_transaction_versioned: bytes | bytearray | memoryview,
     network_id: NetworkId,
+    *,
+    chain_discriminant: int,
 ) -> SignedTransactionEnvelope:
     """Reconstruct an authenticated envelope bound to one exact NetworkId."""
 
@@ -2453,10 +2696,12 @@ def signed_transaction_envelope_from_versioned_v1(
     ):
         raise TypeError("signed_transaction_versioned must be bytes-like")
     network_id = _require_network_id(network_id)
+    chain_discriminant = _require_chain_discriminant(chain_discriminant)
     try:
         result = _crypto.signed_transaction_envelope_from_versioned_v1(
             bytes(signed_transaction_versioned),
             network_id,
+            chain_discriminant=chain_discriminant,
         )
     except AttributeError as exc:
         raise RuntimeError(
@@ -2512,6 +2757,8 @@ def verify_prepared_transaction_context_v1(
     semantic_hash_hex: str,
     fee_payment_json: str,
     operation_context_json: str,
+    *,
+    chain_discriminant: int,
 ) -> SignedTransactionEnvelope:
     """Authenticate one prepared transaction's exact V1 public and semantic context."""
 
@@ -2521,6 +2768,7 @@ def verify_prepared_transaction_context_v1(
     ):
         raise TypeError("signed_transaction_versioned must be bytes-like")
     network_id = _require_network_id(network_id)
+    chain_discriminant = _require_chain_discriminant(chain_discriminant)
     try:
         result = _crypto.verify_prepared_transaction_context_v1(
             bytes(signed_transaction_versioned),
@@ -2531,6 +2779,7 @@ def verify_prepared_transaction_context_v1(
             semantic_hash_hex,
             fee_payment_json,
             operation_context_json,
+            chain_discriminant=chain_discriminant,
         )
     except AttributeError as exc:
         raise RuntimeError(
@@ -2551,12 +2800,15 @@ def verify_account_onboarding_receipt_v1(
     expected_account_id: str,
     expected_alias: str,
     expected_permissions_json: str,
+    *,
+    chain_discriminant: int,
 ) -> str:
     """Authenticate an exact canonical V1 onboarding receipt and complete request."""
 
     if not isinstance(receipt_json, str):
         raise TypeError("receipt_json must be a string")
     network_id = _require_network_id(network_id)
+    chain_discriminant = _require_chain_discriminant(chain_discriminant)
     try:
         result = _crypto.verify_account_onboarding_receipt_v1(
             receipt_json,
@@ -2565,6 +2817,7 @@ def verify_account_onboarding_receipt_v1(
             expected_account_id,
             expected_alias,
             expected_permissions_json,
+            chain_discriminant=chain_discriminant,
         )
     except AttributeError as exc:
         raise RuntimeError(

@@ -79,7 +79,7 @@ use sorafs_manifest::{
         RepairCauseV1, RepairEvidenceV1, RepairManualCauseV1,
     },
 };
-use std::{collections::BTreeSet, convert::TryInto};
+use std::convert::TryInto;
 fn canonical_profile(handle: &ChunkerProfileHandle) -> String {
     format!("{}.{}@{}", handle.namespace, handle.name, handle.semver)
 }
@@ -572,12 +572,12 @@ fn seed_public_pin_fee_accounts(state: &mut State) {
     state
         .world
         .domain_asset_definitions
-        .insert(domain_id, BTreeSet::from([fee_asset_id.clone()]));
+        .insert((domain_id, fee_asset_id.clone()), ());
     let owner = definition.owned_by().clone();
     state
         .world
         .asset_definitions_by_owner
-        .insert(owner, BTreeSet::from([fee_asset_id.clone()]));
+        .insert((owner, fee_asset_id.clone()), ());
     state
         .world
         .asset_definitions
@@ -586,18 +586,13 @@ fn seed_public_pin_fee_accounts(state: &mut State) {
     seed_pin_fee_balance(state, &bob(), 10_000_000_000_000);
     let alice_asset = AssetId::new(fee_asset_id.clone(), alice());
     let bob_asset = AssetId::new(fee_asset_id.clone(), bob());
-    state.world.asset_definition_holders.insert(
-        fee_asset_id.clone(),
-        BTreeSet::from([alice_asset.account().clone(), bob_asset.account().clone()]),
-    );
-    state.world.asset_definition_assets.insert(
-        fee_asset_id.clone(),
-        BTreeSet::from([alice_asset, bob_asset]),
-    );
-    state
-        .world
-        .asset_definition_nonzero_holders
-        .insert(fee_asset_id, BTreeSet::from([alice(), bob()]));
+    for asset in [alice_asset, bob_asset] {
+        state.world.asset_definition_holders.insert((fee_asset_id.clone(), asset.account().clone()), ());
+        state.world.asset_definition_nonzero_holders.insert((fee_asset_id.clone(), asset.account().clone()), ());
+        state.world.asset_definition_assets.insert((fee_asset_id.clone(), asset), ());
+    }
+    state.world.asset_definition_asset_counts.insert(fee_asset_id, 2);
+
 }
 fn seed_pin_fee_balance(state: &mut State, account: &AccountId, amount: u128) {
     let fee_asset_id = state.gov.sorafs_pin_fee_asset_id.clone();

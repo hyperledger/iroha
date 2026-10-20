@@ -1160,6 +1160,102 @@ mod tests {
         assert_eq!(ACTIVE_LIMITS.get(), Some(outer));
     }
     #[test]
+    fn dataspace_metadata_validation_retains_the_query_decode_scope() {
+        use crate::{sns, state::World};
+        use iroha_data_model::{
+            account::AccountAddress,
+            nexus::{DataSpaceCatalogRead, DataSpaceMetadata},
+            sns::{NameControllerV1, NameRecordV1},
+        };
+        use iroha_model_base::{metadata::Metadata, topology::DataSpaceId};
+        use iroha_primitives::json::Json;
+        use norito::codec::Encode as _;
+
+        struct ScopeCheckedCatalog {
+            metadata: DataSpaceMetadata,
+            alias_reads: Cell<usize>,
+        }
+        impl DataSpaceCatalogRead for ScopeCheckedCatalog {
+            fn by_alias(&self, alias: &str) -> Option<&DataSpaceMetadata> {
+                // This lookup follows parsing the explicit numeric SNS metadata.
+                assert!(norito::core::decode_limits_active());
+                self.alias_reads.set(self.alias_reads.get() + 1);
+                (alias == self.metadata.alias).then_some(&self.metadata)
+            }
+            fn by_id(&self, _: DataSpaceId) -> Option<&DataSpaceMetadata> {
+                // The fixture requires the stored dynamic record to provide the mapping.
+                None
+            }
+        }
+        let catalog = ScopeCheckedCatalog {
+            metadata: DataSpaceMetadata {
+                id: DataSpaceId::new(7),
+                alias: "banking".to_owned(),
+                description: None,
+                fault_tolerance: 1,
+            },
+            alias_reads: Cell::new(0),
+        };
+        let owner = iroha_test_samples::ALICE_ID.clone();
+        let address = AccountAddress::from_account_id(&owner).expect("account address");
+        let selector = sns::selector_for_dataspace_alias("banking").expect("selector");
+        let mut record = NameRecordV1::new(
+            selector.clone(),
+            owner,
+            vec![NameControllerV1::account(&address)],
+            0,
+            10,
+            110,
+            210,
+            310,
+            Metadata::default(),
+        );
+        let metadata_key = sns::SNS_DATASPACE_ID_METADATA_KEY
+            .parse()
+            .expect("dataspace id metadata key");
+        record.metadata.insert(metadata_key, Json::new(7_u64));
+        let mut world = World::default();
+        world
+            .smart_contract_state_mut_for_testing()
+            .insert(sns::record_storage_key(&selector), record.encode());
+        let _limits =
+            SingularOutputLimitGuard::enter(SingularQueryOutputLimits::new(1_048_576, 1_048_576));
+        assert!(!norito::core::decode_limits_active());
+        assert_eq!(
+            sns::resolve_active_dataspace_alias_by_id(
+                &world.view(),
+                &catalog,
+                catalog.metadata.id,
+                50,
+            )
+            .expect("explicit dynamic metadata resolves under the query scope"),
+            "banking"
+        );
+        assert_eq!(catalog.alias_reads.get(), 1);
+        assert!(!norito::core::decode_limits_active());
+
+        record.metadata.insert(
+            sns::SNS_DATASPACE_ID_METADATA_KEY
+                .parse()
+                .expect("metadata key"),
+            Json::new("not a numeric id"),
+        );
+        world
+            .smart_contract_state_mut_for_testing()
+            .insert(sns::record_storage_key(&selector), record.encode());
+        let error = sns::resolve_active_dataspace_alias_by_id(
+            &world.view(),
+            &catalog,
+            catalog.metadata.id,
+            50,
+        )
+        .expect_err("malformed numeric metadata must remain a semantic rejection");
+        assert!(matches!(error, sns::SnsError::Conflict(message)
+            if message.contains("stores an invalid numeric id")));
+        assert_eq!(catalog.alias_reads.get(), 1);
+        assert!(!norito::core::decode_limits_active());
+    }
+    #[test]
     fn builder_capacity_is_rejected_by_the_retained_limit() {
         let one_slot_bytes = core::mem::size_of::<u64>() + core::mem::size_of::<usize>();
         let _limits = SingularOutputLimitGuard::enter(SingularQueryOutputLimits::new(

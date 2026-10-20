@@ -876,3 +876,69 @@ fn certified_table_key_domain_refuses_omitted_newer_or_foreign_keys() {
         .verify_table_keys_within::<u32>(field, &[])
         .unwrap();
 }
+
+#[test]
+fn typed_direct_home_absence_requires_exact_native_key_at_complete_certified_cut() {
+    use crate::asset::AssetDefinitionDirectHomeV1;
+    use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
+    let (mut snapshot, asset, incarnation, _) = snapshot();
+    let row = AssetDefinitionDirectHomeV1 {
+        incarnation,
+        dataspace_id: DataSpaceId::new(7),
+    };
+    snapshot.entries.insert(
+        0,
+        WorldStateSnapshotEntryV1 {
+            field_id: "world.asset_definition_direct_homes".into(),
+            kind: WorldStateElementKindV1::Table,
+            key_hash: Some(world_state_value_hash_v1(&asset).unwrap()),
+            value_hash: world_state_value_hash_v1(&row).unwrap(),
+        },
+    );
+    let tip = certify(&snapshot);
+    let world = snapshot.authenticate(&tip).unwrap();
+    assert!(
+        world
+            .verify_asset_definition_direct_home_absent(&asset)
+            .is_err()
+    );
+    let other = AssetDefinitionId::derive_from_components(
+        DomainId::parse_fully_qualified("other.universal").unwrap(),
+        "other".parse().unwrap(),
+    );
+    assert_ne!(asset, other);
+    world
+        .verify_asset_definition_direct_home_absent(&other)
+        .unwrap();
+    let mut omitted = snapshot.clone();
+    omitted.entries.remove(0);
+    // Dropping the conflicting row cannot reuse the old certificate.
+    assert!(omitted.authenticate(&tip).is_err());
+    // A genuinely empty table at a newly certified cut proves absence.
+    omitted
+        .authenticate(&certify(&omitted))
+        .unwrap()
+        .verify_asset_definition_direct_home_absent(&asset)
+        .unwrap();
+}
+
+#[test]
+fn typed_direct_home_absence_rejects_incompatible_certified_field_kind() {
+    let (mut snapshot, asset, _, _) = snapshot();
+    snapshot.entries.insert(
+        0,
+        WorldStateSnapshotEntryV1 {
+            field_id: "world.asset_definition_direct_homes".into(),
+            kind: WorldStateElementKindV1::Cell,
+            key_hash: None,
+            value_hash: Hash::new(b"synthetic incompatible direct-home field"),
+        },
+    );
+    assert!(
+        snapshot
+            .authenticate(&certify(&snapshot))
+            .unwrap()
+            .verify_asset_definition_direct_home_absent(&asset)
+            .is_err()
+    );
+}

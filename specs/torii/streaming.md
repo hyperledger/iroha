@@ -38,7 +38,12 @@ retain the admitted principal and route scope, re-evaluate account existence and
 permissions while open, and close with a generic authorization-revoked terminal
 error when that authority is removed. Static API-token rotation remains an
 establishment policy; account and dataspace authorization is the live,
-re-evaluated boundary.
+re-evaluated boundary. Each stream caches its decision at the exact committed
+height that supplied it. A changed height, the periodic authorization tick or
+an expired authorization interval forces a fresh read before another payload.
+Explorer retains its fixed route scope under the original control owner;
+failed refreshes discard the cached decision and preserve authorization versus
+canonical-history failure classification.
 
 SSE clients send `Accept: text/event-stream`. Successful responses use
 `Content-Type: text/event-stream` and `Cache-Control: no-cache`. WebSocket

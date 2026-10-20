@@ -26,10 +26,13 @@
 //! committee root and applies [`key_validate`] to each.
 //!
 //! Custody: single-signature verification uses fixed stack storage with no heap allocation.
-//! Aggregate verification runs on one `blst` pairing context. Its free functions allocate
-//! an unfunded context per call; [`ConsensusAggregateScratch`] is the same relation on a
+//! Aggregate verification runs on one `blst` pairing context. Its free functions use
+//! bounded stack storage; [`ConsensusAggregateScratch`] is the same relation on a
 //! context whose exact backing the caller admits first (the consensus counterpart of
 //! [`crate::BlsNormalAggregateScratch`]), and its verification allocates nothing.
+//! A linked context that does not fit the stack bound would make every free aggregate
+//! function reject valid input, so node startup refuses such a build through
+//! [`check_pairing_geometry`]; the free functions still fail closed before entering C.
 //!
 //! `TODO:` unify every other BLS signature on RFC 9380 suites in a later release.
 //! The production Sumeragi `KeyPairSigner`, `BlsCrypto`, data-model `ProofCrypto` and
@@ -45,6 +48,10 @@ use blstrs::{G1Affine, G1Projective, G2Affine, G2Projective};
 use group::{Curve as _, Group as _, prime::PrimeCurveAffine as _};
 use sha2::{Digest as _, Sha256};
 
+pub use super::pairing::{
+    AggregateScratchError, UnsupportedPairingGeometry, check_pairing_geometry,
+};
+use super::pairing::{FalliblePairing, PairingContext, StackPairing};
 use crate::{BlsNormalPopVerifiedKey, Error, PrivateKey, PrivateKeyInner};
 
 /// IETF min-pk proof-of-possession ciphersuite tag, reserved to this module (43 bytes).
@@ -272,7 +279,7 @@ pub fn verify_fast_aggregate(
     digest: &ConsensusDigest,
     aggregate: &[u8; 96],
 ) -> bool {
-    unfunded_scratch().verify_fast_aggregate(keys.iter().copied(), digest, aggregate)
+    verify_fast_aggregate_iter(keys.iter().copied(), digest, aggregate)
 }
 
 /// `AggregateVerify` over groups: each group of PoP-admitted keys signed its own digest
@@ -287,7 +294,7 @@ pub fn verify_aggregate_multi(
     groups: &[(&[&BlsNormalPopVerifiedKey], ConsensusDigest)],
     aggregate: &[u8; 96],
 ) -> bool {
-    unfunded_scratch().verify_aggregate_multi(
+    verify_aggregate_multi_iter(
         groups
             .iter()
             .map(|(keys, digest)| (keys.iter().copied(), *digest)),
@@ -312,14 +319,21 @@ pub fn verify_fast_aggregate_committed(
     digest: &ConsensusDigest,
     aggregate: &[u8; 96],
 ) -> bool {
-    unfunded_scratch().verify_fast_aggregate_committed(keys, digest, aggregate)
+    // Fails closed only on a linked build that `check_pairing_geometry` refuses.
+    let Some(mut pairing) = StackPairing::new(DST_SIG) else {
+        return false;
+    };
+    ConsensusRelation {
+        pairing: pairing.context(),
+    }
+    .verify_fast_aggregate_committed(keys, digest, aggregate)
 }
 
 /// Reusable consensus-suite verifier with one explicitly admitted `blst` pairing context.
 ///
 /// The consensus counterpart of [`crate::BlsNormalAggregateScratch`], with the relations of
 /// [`verify_fast_aggregate`], [`verify_aggregate_multi`] and
-/// [`verify_fast_aggregate_committed`] (those functions run on an unfunded instance). The
+/// [`verify_fast_aggregate_committed`] (those functions use bounded stack storage). The
 /// caller admits the exact pairing backing before it is allocated and keeps the returned
 /// owner for the verifier's lifetime; the backing is released before that owner. Verification
 /// borrows the keys and allocates no heap memory, and each call resets the context, so a
@@ -328,29 +342,141 @@ pub fn verify_fast_aggregate_committed(
 #[must_use = "dropping the verifier releases its pairing backing and custody token"]
 pub struct ConsensusAggregateScratch<O = ()> {
     // Declaration order is intentional: release the backing before its funding.
-    pairing: Pairing,
+    pairing: FalliblePairing,
     _owner: O,
 }
 
 impl<O> ConsensusAggregateScratch<O> {
+    /// Exact checked heap layout of the upstream `blst` pairing context.
+    ///
+    /// Callers can partition an original reservation into a move-only charge
+    /// for this layout and return that charge from the admission callback.
+    #[must_use]
+    pub fn backing_layout() -> core::alloc::Layout {
+        FalliblePairing::layout()
+    }
+
     /// Exact heap backing bytes of the `blst` pairing context.
     #[must_use]
     pub fn backing_bytes() -> usize {
-        crate::BlsNormalAggregateScratch::<()>::backing_bytes()
+        Self::backing_layout().size()
     }
 
     /// Admit the exact backing before allocating it and retain the returned owner.
     ///
     /// # Errors
-    /// Returns the caller's unchanged refusal; nothing is allocated then.
-    pub fn new<E>(admit: impl FnOnce(usize) -> Result<O, E>) -> Result<Self, E> {
-        let owner = admit(Self::backing_bytes())?;
+    /// Returns the caller's unchanged admission refusal, or a typed physical
+    /// allocator failure after admission. Allocation failure carries no pool wait.
+    /// An empty linked context is refused as unsupported geometry before any backing
+    /// reservation or C call; the admitted owner is then retired.
+    pub fn new<E>(
+        admit: impl FnOnce(usize) -> Result<O, E>,
+    ) -> Result<Self, AggregateScratchError<E>> {
+        let bytes = Self::backing_bytes();
+        let owner = admit(bytes).map_err(AggregateScratchError::Admission)?;
+        let pairing = FalliblePairing::new(DST_SIG)?;
         Ok(Self {
-            pairing: Pairing::new(true, DST_SIG),
+            pairing,
             _owner: owner,
         })
     }
 
+    /// Verify the same-message relation using the original admitted context.
+    /// Keys must replay the same contents in the same order when cloned.
+    #[must_use]
+    pub fn verify_fast_aggregate<'a, K>(
+        &mut self,
+        keys: K,
+        digest: &ConsensusDigest,
+        aggregate: &[u8; 96],
+    ) -> bool
+    where
+        K: Iterator<Item = &'a BlsNormalPopVerifiedKey> + Clone,
+    {
+        ConsensusRelation {
+            pairing: self.pairing.context(),
+        }
+        .verify_fast_aggregate(keys, digest, aggregate)
+    }
+
+    /// Verify the grouped-message relation using the original admitted context.
+    /// Groups and key iterators must replay the same contents when cloned.
+    #[must_use]
+    pub fn verify_aggregate_multi<'a, G, K>(&mut self, groups: G, aggregate: &[u8; 96]) -> bool
+    where
+        G: Iterator<Item = (K, ConsensusDigest)> + Clone,
+        K: Iterator<Item = &'a BlsNormalPopVerifiedKey> + Clone,
+    {
+        ConsensusRelation {
+            pairing: self.pairing.context(),
+        }
+        .verify_aggregate_multi(groups, aggregate)
+    }
+
+    /// Verify the committed-key relation using the original admitted context.
+    #[must_use]
+    pub fn verify_fast_aggregate_committed(
+        &mut self,
+        keys: &[[u8; 48]],
+        digest: &ConsensusDigest,
+        aggregate: &[u8; 96],
+    ) -> bool {
+        ConsensusRelation {
+            pairing: self.pairing.context(),
+        }
+        .verify_fast_aggregate_committed(keys, digest, aggregate)
+    }
+}
+
+/// Iterator form of same-message verification using bounded stack pairing storage.
+///
+/// Iterators must replay the same keys in the same order when cloned. Verification
+/// allocates no heap memory, so there is no local allocator failure to project as false.
+#[must_use]
+pub fn verify_fast_aggregate_iter<'a, K>(
+    keys: K,
+    digest: &ConsensusDigest,
+    aggregate: &[u8; 96],
+) -> bool
+where
+    K: Iterator<Item = &'a BlsNormalPopVerifiedKey> + Clone,
+{
+    // Fails closed only on a linked build that `check_pairing_geometry` refuses.
+    let Some(mut pairing) = StackPairing::new(DST_SIG) else {
+        return false;
+    };
+    ConsensusRelation {
+        pairing: pairing.context(),
+    }
+    .verify_fast_aggregate(keys, digest, aggregate)
+}
+
+/// Iterator form of grouped-message verification using bounded stack pairing storage.
+///
+/// Groups and key iterators must replay the same contents when cloned. This is
+/// the same relation as the admitted scratch verifier and allocates no heap memory.
+#[must_use]
+pub fn verify_aggregate_multi_iter<'a, G, K>(groups: G, aggregate: &[u8; 96]) -> bool
+where
+    G: Iterator<Item = (K, ConsensusDigest)> + Clone,
+    K: Iterator<Item = &'a BlsNormalPopVerifiedKey> + Clone,
+{
+    // Fails closed only on a linked build that `check_pairing_geometry` refuses.
+    let Some(mut pairing) = StackPairing::new(DST_SIG) else {
+        return false;
+    };
+    ConsensusRelation {
+        pairing: pairing.context(),
+    }
+    .verify_aggregate_multi(groups, aggregate)
+}
+
+/// One verification implementation for checked heap and stack context ownership.
+struct ConsensusRelation<'a> {
+    pairing: PairingContext<'a>,
+}
+
+impl ConsensusRelation<'_> {
     /// [`verify_fast_aggregate`] on this context. `keys` must replay the same keys in the
     /// same order when cloned; it is rescanned for repeated keys.
     #[must_use]
@@ -450,12 +576,6 @@ impl<O> ConsensusAggregateScratch<O> {
         Pairing::aggregated(&mut signature_pairing, signature);
         self.pairing.finalverify(Some(&signature_pairing))
     }
-}
-
-/// A verifier on a pairing context whose backing nobody funds (the free functions).
-fn unfunded_scratch() -> ConsensusAggregateScratch {
-    ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-        .unwrap_or_else(|never| match never {})
 }
 
 /// Sum consensus signature shares into one aggregate signature.

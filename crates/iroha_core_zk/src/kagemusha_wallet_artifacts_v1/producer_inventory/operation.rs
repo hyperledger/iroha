@@ -175,9 +175,14 @@ impl Plan {
         w: Vec<KeyArtifact<Ep>>,
     ) -> Result<QualifiedOperationOwnerV1, OperationQualificationErrorV1> {
         Ok(match self {
-            Self::Load(p) => QualifiedOperationOwnerV1::Load(Box::new(source(
-                load::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
-            )?)),
+            // Lean Load, Unload and Retiring: one terminal A and no W.
+            Self::Load(p) => {
+                let [terminal] = source(<[_; 1]>::try_from(a))?;
+                source(if w.is_empty() { Ok(()) } else { Err(()) })?;
+                QualifiedOperationOwnerV1::Load(Box::new(source(load::Prover::from_artifacts(
+                    p, terminal,
+                ))?))
+            }
             Self::Send(p) => QualifiedOperationOwnerV1::Send(Box::new(source(
                 send::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
             )?)),
@@ -188,9 +193,13 @@ impl Plan {
             Self::Archive(p) => QualifiedOperationOwnerV1::Archive(Box::new(source(
                 archive::Prover::from_artifacts(p, a, w),
             )?)),
-            Self::Consuming(p) => QualifiedOperationOwnerV1::Consuming(Box::new(source(
-                consuming::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
-            )?)),
+            Self::Consuming(p) => {
+                let [terminal] = source(<[_; 1]>::try_from(a))?;
+                source(if w.is_empty() { Ok(()) } else { Err(()) })?;
+                QualifiedOperationOwnerV1::Consuming(Box::new(source(
+                    consuming::Prover::from_artifacts(p, terminal),
+                )?))
+            }
             Self::Refresh(p) => QualifiedOperationOwnerV1::Refresh(Box::new(source(
                 refresh::Prover::from_artifacts(p, a, w),
             )?)),
@@ -371,9 +380,12 @@ impl QualifiedOperationOwnerV1 {
                 _ => return Err(OperationQualificationErrorV1::A(stage)),
             }
             .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
-            Self::Load(p) => p
-                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            // One terminal A: stage 0 is its only stage.
+            Self::Load(p) => match stage {
+                0 => p.import_terminal_builtin_cancellable(original, config, member, cancellation),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
             Self::Send(p) => p
                 .import_a_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
@@ -383,9 +395,12 @@ impl QualifiedOperationOwnerV1 {
             Self::Archive(p) => p
                 .import_a_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
-            Self::Consuming(p) => p
-                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            // One terminal A: stage 0 is its only stage.
+            Self::Consuming(p) => match stage {
+                0 => p.import_terminal_builtin_cancellable(original, config, member, cancellation),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
             Self::Refresh(p) => p
                 .import_a_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
@@ -402,11 +417,10 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
-            // Bootstrap is one unsplit terminal A: it has no W stage.
-            Self::Bootstrap(_) => Err(OperationQualificationErrorV1::W(stage)),
-            Self::Load(p) => p
-                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            // Bootstrap, Load and consuming are one unsplit terminal A: no W stage.
+            Self::Bootstrap(_) | Self::Load(_) | Self::Consuming(_) => {
+                Err(OperationQualificationErrorV1::W(stage))
+            }
             Self::Send(p) => p
                 .import_w_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
@@ -414,9 +428,6 @@ impl QualifiedOperationOwnerV1 {
                 .import_w_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
             Self::Archive(p) => p
-                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
-            Self::Consuming(p) => p
                 .import_w_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
             Self::Refresh(p) => p
@@ -442,9 +453,11 @@ impl QualifiedOperationOwnerV1 {
                 _ => return Err(OperationQualificationErrorV1::A(stage)),
             }
             .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
-            Self::Load(p) => p
-                .import_a_cancellable(stage, original, config, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Load(p) => match stage {
+                0 => p.import_terminal_cancellable(original, config, cancellation),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
             Self::Send(p) => p
                 .import_a_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
@@ -454,9 +467,11 @@ impl QualifiedOperationOwnerV1 {
             Self::Archive(p) => p
                 .import_a_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
-            Self::Consuming(p) => p
-                .import_a_cancellable(stage, original, config, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Consuming(p) => match stage {
+                0 => p.import_terminal_cancellable(original, config, cancellation),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
             Self::Refresh(p) => p
                 .import_a_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
@@ -472,11 +487,10 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
-            // Bootstrap is one unsplit terminal A: it has no W stage.
-            Self::Bootstrap(_) => Err(OperationQualificationErrorV1::W(stage)),
-            Self::Load(p) => p
-                .import_w_cancellable(stage, original, config, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            // Bootstrap, Load and consuming are one unsplit terminal A: no W stage.
+            Self::Bootstrap(_) | Self::Load(_) | Self::Consuming(_) => {
+                Err(OperationQualificationErrorV1::W(stage))
+            }
             Self::Send(p) => p
                 .import_w_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
@@ -484,9 +498,6 @@ impl QualifiedOperationOwnerV1 {
                 .import_w_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
             Self::Archive(p) => p
-                .import_w_cancellable(stage, original, config, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
-            Self::Consuming(p) => p
                 .import_w_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
             Self::Refresh(p) => p
@@ -686,9 +697,12 @@ impl QualifiedOperationRouteV1 {
             .seal(expected_member)?;
         match &self.owner {
             QualifiedOperationOwnerV1::Bootstrap(_) => unreachable!("handled above"),
-            QualifiedOperationOwnerV1::Load(p) => p
-                .bind_a(stage, seal, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            // One terminal A: stage 0 is its only stage.
+            QualifiedOperationOwnerV1::Load(p) => match stage {
+                0 => p.bind_terminal(seal, cancellation),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
             QualifiedOperationOwnerV1::Send(p) => p
                 .bind_a(stage, seal, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
@@ -698,9 +712,12 @@ impl QualifiedOperationRouteV1 {
             QualifiedOperationOwnerV1::Archive(p) => p
                 .bind_a(stage, seal, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
-            QualifiedOperationOwnerV1::Consuming(p) => p
-                .bind_a(stage, seal, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            // One terminal A: stage 0 is its only stage.
+            QualifiedOperationOwnerV1::Consuming(p) => match stage {
+                0 => p.bind_terminal(seal, cancellation),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
             QualifiedOperationOwnerV1::Refresh(p) => p
                 .bind_a(stage, seal, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
@@ -714,8 +731,13 @@ impl QualifiedOperationRouteV1 {
     ) -> Result<iroha_plonk::keys::SourceBoundViewV2<'_, Ep>, OperationQualificationErrorV1> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
-        // Bootstrap is one unsplit terminal A: it has no W stage.
-        if let QualifiedOperationOwnerV1::Bootstrap(_) = &self.owner {
+        // Bootstrap, Load and consuming are one unsplit terminal A: no W stage.
+        if matches!(
+            &self.owner,
+            QualifiedOperationOwnerV1::Bootstrap(_)
+                | QualifiedOperationOwnerV1::Load(_)
+                | QualifiedOperationOwnerV1::Consuming(_)
+        ) {
             return Err(OperationQualificationErrorV1::W(stage));
         }
         let seal = self
@@ -724,10 +746,9 @@ impl QualifiedOperationRouteV1 {
             .ok_or(Error::Inventory)?
             .seal(expected_member)?;
         match &self.owner {
-            QualifiedOperationOwnerV1::Bootstrap(_) => unreachable!("handled above"),
-            QualifiedOperationOwnerV1::Load(p) => p
-                .bind_w(stage, seal, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            QualifiedOperationOwnerV1::Bootstrap(_)
+            | QualifiedOperationOwnerV1::Load(_)
+            | QualifiedOperationOwnerV1::Consuming(_) => unreachable!("handled above"),
             QualifiedOperationOwnerV1::Send(p) => p
                 .bind_w(stage, seal, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
@@ -735,9 +756,6 @@ impl QualifiedOperationRouteV1 {
                 .bind_w(stage, seal, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
             QualifiedOperationOwnerV1::Archive(p) => p
-                .bind_w(stage, seal, cancellation)
-                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
-            QualifiedOperationOwnerV1::Consuming(p) => p
                 .bind_w(stage, seal, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
             QualifiedOperationOwnerV1::Refresh(p) => p

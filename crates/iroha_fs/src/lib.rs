@@ -21,12 +21,17 @@ use zeroize::Zeroizing;
 mod custody_io;
 pub use custody_io::CustodyEntryKind;
 
+mod custody_transaction;
+pub use custody_transaction::{custody_transaction, fence_custody_transaction};
+
 mod custody_work;
 pub use custody_work::CustodyWorkV1;
 
 mod private_files;
 pub use private_files::{BorrowedPendingPrivateFile, BorrowedSealedPrivateFile};
-pub use private_files::{PendingPrivateFile, PrivateFileMetadata, SealedPrivateFile};
+pub use private_files::{
+    PendingPrivateFile, PrivateFileMetadata, ScopedSealedPrivateFile, SealedPrivateFile,
+};
 
 #[cfg(unix)]
 #[path = "unix.rs"]
@@ -236,7 +241,8 @@ enum NativeChildOutcome<T> {
 
 /// A borrowed read-only view inside one private-directory read transaction.
 ///
-/// This view exposes no pathname, descriptor, retention or mutation operation. [`Self::read`]
+/// This view exposes no pathname, descriptor or mutation operation; its one retained capability,
+/// [`Self::open_sealed_optional`], borrows the scope and cannot leave it. [`Self::read`]
 /// and [`Self::read_optional`] consume borrowed bytes before their original native owners
 /// and zeroized buffer drop.
 /// [`Self::read_optional_owned`] moves the original zeroized native allocation;
@@ -605,6 +611,10 @@ impl PrivateDirectory {
     }
 
     /// Recheck custody and identity of the directory and its retained ancestors.
+    ///
+    /// Inside a custody transaction that this directory's retained chain joined, the
+    /// transaction's entry, fence and exit observations replace this check
+    /// ([`custody_transaction()`], [`fence_custody_transaction`]).
     ///
     /// # Errors
     /// Returns an error if custody changed or a native check fails.
@@ -2187,3 +2197,6 @@ mod private_remove_tests;
 
 #[cfg(test)]
 mod owner_atomic_tests;
+
+#[cfg(all(test, unix))]
+mod custody_transaction_tests;

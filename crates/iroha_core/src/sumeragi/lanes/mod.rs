@@ -440,11 +440,15 @@ pub enum LaneError {
 /// Intrinsic checks of one transaction (chain id, signature, limits), supplied by the caller so
 /// admission stays independent of node configuration plumbing.
 pub trait TransactionCheck {
-    /// Check `tx` as of `anchor_time_ms`; `Err(reason)` if it is not admissible.
+    /// Check `tx` as of `anchor_time_ms`, preserving unfinished local verification.
     ///
     /// # Errors
-    /// The transaction fails an intrinsic check.
-    fn check(&self, tx: &TransactionEntrypoint, anchor_time_ms: u64) -> Result<(), String>;
+    /// The transaction fails an intrinsic check or its verifier is locally unavailable.
+    fn check(
+        &self,
+        tx: &TransactionEntrypoint,
+        anchor_time_ms: u64,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>>;
 }
 
 /// Lane admission (§3.2): the result of a lane block with `payload`, or why it is invalid.
@@ -540,7 +544,14 @@ fn admit_decoded(
     for (index, tx) in batch.transactions.iter().enumerate() {
         checks
             .check(tx, anchor_time_ms)
-            .map_err(|reason| AdmissionError::Transaction { index, reason })?;
+            .map_err(|error| match error {
+                crate::execution_attempt::ExecutionAttemptError::Rejected(reason) => {
+                    AdmissionAttemptError::Rejected(AdmissionError::Transaction { index, reason })
+                }
+                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                    AdmissionAttemptError::ResourceDeferred(reason)
+                }
+            })?;
         let hash = tx.hash();
         if chain.repeats(&hash, batch.anchor_height, record.anchor_freshness) || !seen.insert(hash)
         {
@@ -601,7 +612,11 @@ mod tests {
 
     struct AcceptAll;
     impl TransactionCheck for AcceptAll {
-        fn check(&self, _tx: &TransactionEntrypoint, _anchor_time_ms: u64) -> Result<(), String> {
+        fn check(
+            &self,
+            _tx: &TransactionEntrypoint,
+            _anchor_time_ms: u64,
+        ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
             Ok(())
         }
     }
@@ -867,6 +882,28 @@ mod tests {
             ..record(None)
         };
         assert!(lane_height_config(&empty).is_err());
+    }
+
+    #[test]
+    fn anonymous_ballot_lane_admission_retains_unavailable_without_a_verdict() {
+        let record = record(Some(9));
+        let config = lane_height_config(&record).expect("configuration");
+        let chain = LaneChainView::default();
+        let batch = LaneBatch {
+            anchor_height: 8,
+            anchor_hash: block_hash(8),
+            transactions: vec![crate::tx::anonymous_ballot_tests::entrypoint()],
+        };
+        let bytes = batch.to_payload();
+        let checks = global::StatelessChecks::new(crate::unit_test_support::synthetic_network_id(
+            "anonymous representation",
+        ));
+        assert!(
+            matches!(admit(&record, &anchors(), &chain, &checks, &config, &bytes),
+            Err(AdmissionAttemptError::ResourceDeferred(reason))
+                if reason.reason() == ivm::error::ExecutionDeferral::VerifierInitializationUnavailable)
+        );
+        assert!(chain.recent.is_empty());
     }
 
     #[test]

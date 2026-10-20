@@ -6,6 +6,11 @@ wallet/native builds and is not an admission verifier. Missing providers and
 failed attestation are recorded; there is no imported-key or software fallback.
 No network, storage or device-identifier permissions are requested.
 
+Generation requests signing-only EC secp256r1 with SHA-256 and the 32-byte
+challenge. As with the canonical payment-key specification in
+`kotlin/kagemusha-wallet-android`, it leaves authentication-related key-generation
+setters unset. This diagnostic does not exercise payment confirmation or custody.
+
 Build from the canonical checkout using the existing Gradle wrapper:
 
 ```sh

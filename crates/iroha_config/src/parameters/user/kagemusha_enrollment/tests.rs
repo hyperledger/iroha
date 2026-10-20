@@ -21,16 +21,16 @@ fn fixture() -> KagemushaEnrollmentIssuer {
         .as_array()
         .unwrap()
         .iter()
-        .find(|v| v["variant"].as_str() == Some("Offer"))
+        .find(|v| v["variant"].as_str() == Some("Request"))
         .unwrap();
     let envelope: KagemushaWalletEnvelopeV1 = norito::decode_canonical(
         &hex::decode(original["canonical_hex"].as_str().unwrap()).unwrap(),
     )
     .unwrap();
-    let KagemushaWalletMessageV1::Offer { offer } = envelope.message else {
-        panic!("Offer fixture")
+    let KagemushaWalletMessageV1::Request { request } = envelope.message else {
+        panic!("Request fixture")
     };
-    let certificate = offer
+    let certificate = request
         .certificates
         .certificates
         .into_iter()

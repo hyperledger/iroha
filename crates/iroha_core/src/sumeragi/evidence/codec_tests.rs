@@ -2,6 +2,24 @@
 use super::*;
 use norito::core::{DecodeLimits, with_decode_limits_scope};
 
+/// The smallest per-field ceiling admitting the signed NPoS policy read, which every
+/// admission performs before decoding a proof. The proof must still exceed it.
+pub(super) fn policy_field_ceiling(state: &State, proof: &Evidence) -> DecodeLimits {
+    let field = |bytes| DecodeLimits::new(usize::MAX, bytes, usize::MAX, usize::MAX, usize::MAX);
+    let view = state.view();
+    let ceiling = (1..=4096)
+        .find(|bytes| {
+            with_decode_limits_scope(field(*bytes), || horizon(view.world()))
+                .is_ok_and(|horizon| horizon.is_some())
+        })
+        .expect("the signed policy has a bounded field length");
+    assert!(
+        with_decode_limits_scope(field(ceiling), || proof.decode_native()).is_err(),
+        "the native proof has a field longer than every policy field"
+    );
+    field(ceiling)
+}
+
 #[test]
 fn native_decode_refusal_refunds_capture_without_blaming_original_proof() {
     let _guard = crossbeam_epoch::pin();
@@ -14,7 +32,7 @@ fn native_decode_refusal_refunds_capture_without_blaming_original_proof() {
     let tip = state.view().native_execution_tip();
     let budget = state.evidence_preparation_budget();
     let baseline = budget.reserved_bytes();
-    let limits = DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX);
+    let limits = policy_field_ceiling(state, &proof);
     let refusal = with_decode_limits_scope(limits, || {
         admission::prepare_admissions(state, generation, 3, std::slice::from_ref(&proof))
     })
@@ -62,7 +80,27 @@ fn persisted_root_decode_refusal_retains_original_validation_cut_for_retry() {
     let generation = state.state_view_generation();
     let tip = state.view().native_execution_tip();
     let baseline = state.evidence_preparation_budget().reserved_bytes();
-    let limits = DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX);
+    let history_budget = state.ivm_execution_budget();
+    let history_baseline = history_budget.reserved_bytes();
+    assert_eq!(
+        original.attribution.scope,
+        iroha_data_model::block::consensus::EvidenceScope::Root
+    );
+    // Authenticate mandatory SCCP/lane history first. The narrower caller scope
+    // below targets the persisted root proof, retaining this same original cut.
+    let prepared = restoration::RestorationRead::prepare_for_testing(state).unwrap();
+    {
+        let mut cache = state.native_evidence_admission.lock();
+        assert!(cache.restore.is_none());
+        cache.restore = Some(prepared);
+    }
+    let captured = state.evidence_preparation_budget().reserved_bytes();
+    let captured_history = history_budget.reserved_bytes();
+    assert!(
+        captured_history > history_baseline,
+        "the original authenticated history remains funded by its execution pool"
+    );
+    let limits = policy_field_ceiling(state, &proof);
     for _ in 0..2 {
         let refusal = with_decode_limits_scope(limits, || validate_persisted_records(state))
             .expect_err("persisted proof exceeds the active field ceiling");
@@ -72,6 +110,11 @@ fn persisted_root_decode_refusal_retains_original_validation_cut_for_retry() {
         );
         assert!(admission::retryable(&refusal));
         assert!(state.native_evidence_admission.lock().restore.is_some());
+        assert_eq!(
+            state.evidence_preparation_budget().reserved_bytes(),
+            captured
+        );
+        assert_eq!(history_budget.reserved_bytes(), captured_history);
         assert_eq!(state.state_view_generation(), generation);
         assert_eq!(state.view().native_execution_tip(), tip);
         assert_eq!(

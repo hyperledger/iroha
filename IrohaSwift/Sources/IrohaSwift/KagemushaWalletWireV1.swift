@@ -90,14 +90,17 @@ public enum KagemushaWalletDigestRoleV1: String, CaseIterable, Sendable {
 
 /// Signing domain of one signed KAGEMUSHA wallet V1 body (wire record §1, owner answer A1).
 ///
-/// The 17 cases and their order mirror the Rust `KagemushaWalletSigningDomainV1::ALL`; the raw
+/// The 15 cases and their order mirror the Rust `KagemushaWalletSigningDomainV1::ALL`; the raw
 /// value is the 8-byte ASCII Poseidon domain word. Every P-256 signature of the protocol signs, as
 /// its message, the 32-byte canonical encoding `m` of `P_bytes(d, transcript)` with standard
 /// ECDSA-P256-SHA256 (the ECDSA hash is `SHA-256(m)`): the Secure Enclave through
 /// `kSecKeyAlgorithmECDSASignatureMessageX962SHA256`, Android KeyMint through a `DIGEST_SHA256`
 /// key and `SHA256withECDSA`, and issuer, policy, ledger and artifact signers with the same
-/// algorithm. No-digest modes are never used. The native core computes `m`; Swift treats it as an
-/// opaque canonical σ-field value.
+/// algorithm. No-digest modes are never used. The Request alone signs `m = P(kgwrqst2, terms)`
+/// over the 19 receiver terms elements of its transcript: payer wallet, payer account and send
+/// ordinal stay outside the signature, so the open Request and every payer's completion of it
+/// share one message, signature and Request digest. The native core computes `m`; Swift treats
+/// it as an opaque canonical σ-field value.
 public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
   /// Signer certificate body, signed by the scheme root.
   case certificate = "kgwcert1"
@@ -123,12 +126,10 @@ public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
   case timeAnchor = "kgwtanc1"
   /// Charge quote body, signed by a RegulatoryPolicy-role key.
   case chargeQuote = "kgwchgq1"
-  /// Offer body, signed by the payer payment key.
-  case offer = "kgwoffr1"
   /// Session control body, signed by the session payment key.
   case sessionControl = "kgwsctl1"
-  /// Request body, signed by the receiver payment key.
-  case request = "kgwrqst1"
+  /// Request terms, signed by the receiver payment key.
+  case request = "kgwrqst2"
   /// Ledger control body, signed by the payment key.
   case ledgerControl = "kgwlctl1"
 
@@ -147,7 +148,6 @@ public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
     case .quotaShare: 190
     case .timeAnchor: 138
     case .chargeQuote: 219
-    case .offer: 194
     case .sessionControl: 197
     case .request: 418
     case .ledgerControl: 211
@@ -157,9 +157,7 @@ public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
 
 /// Peer message kind carried by the canonical envelope; the raw value is the Norito wire tag.
 public enum KagemushaWalletMessageKindV1: UInt32, CaseIterable, Sendable {
-  /// Payer session hint.
-  case offer = 1
-  /// Receiver setup quote.
+  /// Receiver's open setup quote.
   case request = 2
   /// Complete committed Payment.
   case payment = 3
@@ -169,15 +167,13 @@ public enum KagemushaWalletMessageKindV1: UInt32, CaseIterable, Sendable {
   case sessionControl = 5
   /// Nonmonetary policy data.
   case policyData = 6
-  /// Ω of the payer's folded head, sent only after an authenticated Offer.
-  case lineage = 7
 
   /// Maximum complete canonical envelope frame of this kind, header and padding included.
   public var maximumFrameBytes: Int {
     switch self {
-    case .offer, .sessionControl:
+    case .sessionControl:
       KagemushaWalletWireV1.sessionMaximumBytes
-    case .request, .payment, .credited, .policyData, .lineage:
+    case .request, .payment, .credited, .policyData:
       KagemushaWalletWireV1.messageMaximumBytes
     }
   }
@@ -185,34 +181,31 @@ public enum KagemushaWalletMessageKindV1: UInt32, CaseIterable, Sendable {
   /// Maximum complete `kgm1:` text of this kind.
   public var maximumTextBytes: Int {
     switch self {
-    case .offer, .sessionControl:
+    case .sessionControl:
       KagemushaWalletWireV1.sessionTextMaximumBytes
-    case .request, .payment, .credited, .policyData, .lineage:
+    case .request, .payment, .credited, .policyData:
       KagemushaWalletWireV1.messageTextMaximumBytes
     }
   }
 
   /// Field path, from the variant fields, to the message's top-level `version: u16`.
   ///
-  /// Offer and Request carry it in their signed body; the other kinds carry it first.
+  /// The Request carries it in its signed body; the other kinds carry it first.
   var versionFieldPath: [Int] {
     switch self {
-    case .offer, .request: [0, 0, 0]
-    case .payment, .credited, .sessionControl, .policyData, .lineage: [0, 0]
+    case .request: [0, 0, 0]
+    case .payment, .credited, .sessionControl, .policyData: [0, 0]
     }
   }
 
   /// Field path, from the variant fields, to the scheme checked at decode (wire record §3.4):
-  /// the body scheme of Offer and Request, the Send statement scheme of Payment
-  /// (`{version, request: PaymentRequest, send}`), Ω's public scheme of Lineage
-  /// (`{version, lineage: {public: {version, scheme_id, …}, proof}}`), and the message's own
-  /// scheme field otherwise (Credited `{version, scheme_id, evidence}`, SessionControl and
-  /// PolicyData).
+  /// the body scheme of Request, the Send statement scheme of Payment
+  /// (`{version, request: PaymentRequest, send}`), and the message's own scheme field otherwise
+  /// (Credited `{version, scheme_id, evidence}`, SessionControl and PolicyData).
   var schemeFieldPath: [Int] {
     switch self {
-    case .offer, .request: [0, 0, 1]
+    case .request: [0, 0, 1]
     case .payment: [0, 2, 1, 1]
-    case .lineage: [0, 1, 0, 1]
     case .credited, .sessionControl, .policyData: [0, 1]
     }
   }
@@ -241,11 +234,14 @@ public enum KagemushaWalletWireV1 {
   public static let digestPrefix = Data("iroha:kagemusha:wallet:v1:".utf8)
   /// Text transport discriminator.
   public static let textPrefix = "kgm1:"
-  /// Maximum complete canonical envelope frame for Offer and SessionControl.
+  /// Maximum complete canonical envelope frame for SessionControl.
   public static let sessionMaximumBytes = 2_048
-  /// Maximum complete canonical envelope frame for Request, Payment, Credited, PolicyData and
-  /// Lineage.
+  /// Maximum complete canonical envelope frame for Request, Payment, Credited and PolicyData.
   public static let messageMaximumBytes = 10_000
+  /// Maximum canonical payer companion (`KagemushaWalletPayerCompanionV1`: the payer credential
+  /// and its issuer certificate set) that travels beside a Payment, mirroring the Rust
+  /// `KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1`. Native decodes and checks it at Receive.
+  public static let payerCompanionMaximumBytes = 2_048
   /// `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs.
   public static let paymentFixedBytes = 1_394
   /// Joint budget of the Ω transport proof and σ_send: `10,000 − F_payment`.
@@ -567,8 +563,7 @@ public enum KagemushaWalletWireV1 {
   /// Validate one canonical envelope frame without the expected-scheme check.
   ///
   /// This is the structural check a carrier applies before handing a complete bounded message
-  /// to the wallet, and the check a receiver applies to an Offer of an unknown scheme before
-  /// answering UnsupportedScheme (wire record §3.4). It rejects, in order: a frame above the
+  /// to the wallet. It rejects, in order: a frame above the
   /// largest bound (before any parsing); a Norito header that is malformed, has nonzero padding
   /// or a CRC64 mismatch (`frame.header`); another schema hash than the envelope frame name's
   /// (`frame.schema`); flags other than `COMPACT_LEN` (`frame.flags`); padding other than the
@@ -686,10 +681,18 @@ public enum KagemushaWalletWireV1 {
     return bytes.count - 8
   }
 
+  /// Body fields a payer completes and the receiver signature leaves out: payer wallet, payer
+  /// account and send ordinal.
+  private static let requestPayerFields = [3, 4, 7]
+
   /// Require exact structural correspondence for one Request/Payment/Credited exchange.
   /// Request has five fields and a 17-field body; Payment has three fields. Its unique
-  /// Request fields and Send package reconstruct the exact quoted body and signature.
-  /// Credited, when supplied, has three fields and must name that Request's scheme.
+  /// Request fields and Send package reconstruct the payer's completed body and the signature.
+  /// The Request is the receiver's open one (payer wallet, payer account and send ordinal zero)
+  /// or one completion of it: the reconstructed body must equal it in every other field and
+  /// carry its signature, and a completed Request must equal it in the payer fields too (the
+  /// Rust `complete_with` rule). Credited, when supplied, has three fields and must name that
+  /// Request's scheme.
   /// These comparisons grant no signature, proof, recipient or monetary authority; Native
   /// still authenticates the complete messages and the evidence's payment/credit binding.
   public static func requireExchangeBinding(
@@ -699,7 +702,13 @@ public enum KagemushaWalletWireV1 {
     let body = try exchangeRecordFields(requestFields[0], count: 17, label: "request.body")
     let paymentFields = try exchangeMessageFields(payment, kind: .payment, count: 3)
     let (reconstructed, signature) = try paymentSignedRequestFields(paymentFields)
-    guard reconstructed == body, signature == requestFields[4] else {
+    let open = requestPayerFields.allSatisfy { field in
+      body[field].count == (field == 7 ? 16 : 32) && body[field].allSatisfy { $0 == 0 }
+    }
+    let bound = body.indices.allSatisfy {
+      reconstructed[$0] == body[$0] || (open && requestPayerFields.contains($0))
+    }
+    guard bound, signature == requestFields[4] else {
       throw KagemushaWalletWireErrorV1.invalidField("payment.request.binding")
     }
     if let credited { try requireCreditedScheme(request: request, credited: credited) }
@@ -732,25 +741,6 @@ public enum KagemushaWalletWireV1 {
     let amount = [UInt8](body[9])
     guard amount.count == 16, amount.contains(where: { $0 != 0 }) else {
       throw KagemushaWalletWireErrorV1.invalidField("request.amount")
-    }
-    func u64(_ offset: Int) -> UInt64 {
-      (0..<8).reduce(UInt64(0)) { $0 | (UInt64(amount[offset + $1]) << (8 * $1)) }
-    }
-    return KagemushaWalletUInt128V1(low: u64(0), high: u64(8))
-  }
-
-  /// Exact unsigned amount proposed in an Offer's signed body, for display and the receiver's
-  /// ask guard only: a receiver that asked for an amount (``IrohaPeerAskV1``) declines an Offer
-  /// for any other amount before it issues a Request. The Offer has four fields and an 8-field
-  /// body `{version, scheme_id, asset_digest, payer_wallet_id, payer_credential_digest,
-  /// next_send, amount, session_nonce}`. This bounded structural parser authenticates nothing;
-  /// Native verifies the Offer and requires the Request amount to equal it.
-  public static func offerAmountData(_ offer: Data) throws -> KagemushaWalletUInt128V1 {
-    let fields = try exchangeMessageFields(offer, kind: .offer, count: 4)
-    let body = try exchangeRecordFields(fields[0], count: 8, label: "offer.body")
-    let amount = [UInt8](body[6])
-    guard amount.count == 16, amount.contains(where: { $0 != 0 }) else {
-      throw KagemushaWalletWireErrorV1.invalidField("offer.amount")
     }
     func u64(_ offset: Int) -> UInt64 {
       (0..<8).reduce(UInt64(0)) { $0 | (UInt64(amount[offset + $1]) << (8 * $1)) }

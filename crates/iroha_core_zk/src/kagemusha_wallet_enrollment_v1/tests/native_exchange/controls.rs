@@ -324,25 +324,17 @@ fn send_blocked(
 
 #[allow(clippy::too_many_arguments)]
 fn request(
-    a: &mut Wallet,
+    _payer: &mut Wallet,
     b: &mut Wallet,
     amount: u128,
     id: &mut u8,
     output: &Path,
     label: &str,
     records: &mut Vec<norito::json::Value>,
-) -> (Vec<u8>, Vec<u8>, [u8; 32]) {
-    let offer = a.offer([next(id); 32], amount).unwrap();
-    records.push(message_census::record(
-        output,
-        &format!("{label}-offer"),
-        KagemushaWalletMessageV1::Offer {
-            offer: decode(&offer),
-        },
-    ));
+) -> (Vec<u8>, [u8; 32]) {
     let setup_id = [next(id); 32];
-    let bytes = b.request(setup_id, &offer, None).unwrap();
-    assert_eq!(b.request(setup_id, &offer, None).unwrap(), bytes);
+    let bytes = b.request(setup_id, amount, None).unwrap();
+    assert_eq!(b.request(setup_id, amount, None).unwrap(), bytes);
     let request: KagemushaWalletRequestV1 = decode(&bytes);
     assert_eq!((request.body.amount, request.body.fee), (amount, 0));
     records.push(message_census::record(
@@ -350,7 +342,7 @@ fn request(
         &format!("{label}-request"),
         KagemushaWalletMessageV1::Request { request },
     ));
-    (offer, bytes, setup_id)
+    (bytes, setup_id)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -416,7 +408,7 @@ fn receive_and_check(
     b: &mut Wallet,
     device: &HostDevice,
     sources: &Sources,
-    frames_a: &[Vec<u8>; 4],
+    payer_companion: &[u8],
     credential_b: &KagemushaWalletCredentialV1,
     request: &[u8],
     payment: &[u8],
@@ -426,8 +418,15 @@ fn receive_and_check(
     records: &mut Vec<norito::json::Value>,
 ) -> Vec<u8> {
     let request: KagemushaWalletRequestV1 = decode(request);
+    // Keep the exact companion passed to Receive for the SDK carrier census.
+    // It pairs with the retained Payment envelope; no wallet reconstruction is needed.
+    records.push(original(
+        output,
+        &format!("{label}-companion.norito"),
+        payer_companion,
+    ));
     let before = b.snapshot().unwrap();
-    let intent = receive(payment, frames_a, next(id));
+    let intent = receive(payment, payer_companion, next(id));
     let bytes = complete(b.execute(intent.clone()).unwrap());
     let package: KagemushaWalletPackageV1 = decode(&bytes);
     package.verify(credential_b).unwrap();
@@ -452,7 +451,7 @@ fn receive_and_check(
     assert_eq!(complete(b.execute(intent).unwrap()), bytes);
     // Permanent credit identity, even when the foreign lifecycle request identity changes.
     let consumed = b.snapshot().unwrap();
-    assert!(b.execute(receive(payment, frames_a, next(id))).is_err());
+    assert!(b.execute(receive(payment, payer_companion, next(id))).is_err());
     assert_eq!(b.snapshot().unwrap(), consumed);
     assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
     fold(b);
@@ -698,7 +697,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "anchor-1",
         &mut records,
     );
-    let (offer40, request40, setup40) =
+    let (request40, setup40) =
         request(&mut a, &mut b, 40, &mut id, &output, "mask-3", &mut records);
     a.review_send(&request40, &frames_b[2]).unwrap();
     let (send40, payment40) = send(
@@ -720,14 +719,11 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         100
     );
 
-    // The next Request must be issued AFTER the first Send, so it binds ordinal1.
-    let (_, request7, _) = request(&mut a, &mut b, 7, &mut id, &output, "mask-0", &mut records);
-    assert_eq!(
-        decode::<KagemushaWalletRequestV1>(&request7)
-            .body
-            .send_ordinal,
-        1
-    );
+    // A Request stays open; Native binds the next payer ordinal only when sending.
+    let (request7, _) = request(&mut a, &mut b, 7, &mut id, &output, "mask-0", &mut records);
+    decode::<KagemushaWalletRequestV1>(&request7)
+        .validate_open()
+        .unwrap();
     install_list(
         &mut b,
         &device_b,
@@ -738,31 +734,26 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "b-list-2-blocks-a",
         &mut records,
     );
-    let blocked_offer = a.offer([next(&mut id); 32], 7).unwrap();
-    records.push(message_census::record(
-        &output,
-        "blocked-new-request-offer",
-        KagemushaWalletMessageV1::Offer {
-            offer: decode(&blocked_offer),
-        },
-    ));
+    // A receiver can issue an open Request without admitting any payer. Its local
+    // blacklist is applied when a concrete Payment supplies the authenticated payer.
+    let fresh_setup = [next(&mut id); 32];
+    let fresh_request = b.request(fresh_setup, 7, None).unwrap();
+    decode::<KagemushaWalletRequestV1>(&fresh_request)
+        .validate_open()
+        .unwrap();
     let before = b.snapshot().unwrap();
     let signatures = device_b.platform.with(|state| state.sign_calls);
-    assert!(matches!(
-        b.request([next(&mut id); 32], &blocked_offer, None),
-        Err(state::Error::Blocked("request.payer_account_digest"))
-    ));
+    assert_eq!(b.request(fresh_setup, 7, None).unwrap(), fresh_request);
+    assert_eq!(b.request(setup40, 40, None).unwrap(), request40);
     assert_eq!(b.snapshot().unwrap(), before);
     assert_eq!(device_b.platform.with(|state| state.sign_calls), signatures);
-    assert_eq!(b.request(setup40, &offer40, None).unwrap(), request40);
-    assert_eq!(b.snapshot().unwrap(), before);
-    assert_eq!(device_b.platform.with(|state| state.sign_calls), signatures);
+    let companion40 = companion(&mut a, &payment40);
     // The receiver's current local list refuses a listed payer's Payment before any mutation,
     // even under a Request it issued before the list. The payer keeps the exact Payment bytes,
     // and the same Payment is accepted once the receiver's list no longer lists the payer.
     for _ in 0..2 {
         assert!(matches!(
-            b.execute(receive(&payment40, &frames_a, next(&mut id))),
+            b.execute(receive(&payment40, &companion40, next(&mut id))),
             Err(state::Error::Blocked("request.payer_account_digest"))
         ));
         assert_eq!(b.snapshot().unwrap(), before);
@@ -783,7 +774,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &mut b,
         &device_b,
         &sources,
-        &frames_a,
+        &companion40,
         &credential_b,
         &request40,
         &payment40,
@@ -873,7 +864,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         let request = if mask == 0 {
             request7.clone()
         } else {
-            request(&mut a, &mut b, 7, &mut id, &output, &label, &mut records).1
+            request(&mut a, &mut b, 7, &mut id, &output, &label, &mut records).0
         };
         a.review_send(&request, &frames_b[2]).unwrap();
         let (intent, payment) = send(
@@ -892,7 +883,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
             &mut b,
             &device_b,
             &sources,
-            &frames_a,
+            &companion(&mut a, &payment),
             &credential_b,
             &request,
             &payment,
@@ -930,7 +921,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "a-policy-5",
         &mut records,
     );
-    let (_, request39, _) = request(
+    let (request39, _) = request(
         &mut a,
         &mut b,
         39,
@@ -999,7 +990,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &mut b,
         &device_b,
         &sources,
-        &frames_a,
+        &companion(&mut a, &payment),
         &credential_b,
         &request39,
         &payment,
@@ -1031,7 +1022,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
     assert_eq!(a.snapshot().unwrap(), final_a);
     assert_eq!(b.snapshot().unwrap(), final_b);
     let b_signatures = device_b.platform.with(|state| state.sign_calls);
-    assert_eq!(b.request(setup40, &offer40, None).unwrap(), request40);
+    assert_eq!(b.request(setup40, 40, None).unwrap(), request40);
     assert_eq!(b.snapshot().unwrap(), final_b);
     assert_eq!(
         device_b.platform.with(|state| state.sign_calls),

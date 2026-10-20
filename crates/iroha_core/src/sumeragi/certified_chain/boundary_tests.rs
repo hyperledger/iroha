@@ -184,7 +184,11 @@ fn transcript_proposal(
         assert!(!original.is_empty());
         assert!(original.len() <= iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES);
         iroha_data_model::consensus::NposConsensusEffects {
-            parent_service_commit_qc: Some(original.to_vec()),
+            parent_service_commit_qc: Some(
+                iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(
+                    original.to_vec(),
+                ),
+            ),
             ..Default::default()
         }
     });
@@ -1149,25 +1153,38 @@ fn npos_epoch_schedule_uses_committed_epoch_length() {
     let prefix_bytes = std::mem::size_of::<CertifiedPrefix>();
     let frame_bytes = std::mem::size_of::<CommittedBlock>();
     let result_bytes = std::mem::size_of::<CertifiedResultV1>();
-    let budget = iroha_allocation::AllocationBudget::new(prefix_bytes + frame_bytes + result_bytes);
+    let authority_bytes = funded_authority::FundedPrefixAuthority::allocation_bytes(
+        &reader.committed(1).unwrap().commitment().schedule.current,
+    )
+    .unwrap();
+    // A boundary constructs its complete replacement before retiring the incumbent.
+    let budget = iroha_allocation::AllocationBudget::new(
+        prefix_bytes + frame_bytes + result_bytes + 2 * authority_bytes,
+    );
     let mut slot =
         CertifiedPrefix::new_admitted(&chain_id, network, history[0].clone(), &budget).unwrap();
-    assert_eq!(budget.reserved_bytes(), prefix_bytes);
+    assert_eq!(budget.reserved_bytes(), prefix_bytes + authority_bytes);
     let admitted = &mut slot.as_mut_slice()[0];
     assert_eq!(admitted.current_epoch_context().authorization.epoch, 0);
     assert_eq!(
         admitted.current_epoch_context().authorization.last_height,
         7
     );
+    // Only the retained push funds a boundary's replacement authority in the original pool.
+    let mut push = AdmittedPrefixPush::default();
     for height in 2..=15 {
         let (id, result, epoch, verification) = certified_epoch_projection(&reader, height);
         let expected = (id, result, epoch, verification, height == 2);
-        let actual = admitted
-            .push_admitted_with_finish(
+        let actual = push
+            .complete_with_finish(
+                admitted,
                 history[usize::try_from(height - 1).unwrap()].clone(),
                 &budget,
                 |step| {
-                    assert_eq!(budget.reserved_bytes(), prefix_bytes + frame_bytes);
+                    assert_eq!(
+                        budget.reserved_bytes(),
+                        prefix_bytes + authority_bytes + frame_bytes
+                    );
                     let (current, genesis) = step.into_parts();
                     assert_eq!(current.verification(), QcVerification::Verified);
                     if let Some(anchor) = &genesis {
@@ -1196,7 +1213,7 @@ fn npos_epoch_schedule_uses_committed_epoch_length() {
             )
             .unwrap();
         assert_eq!(actual, expected);
-        assert_eq!(budget.reserved_bytes(), prefix_bytes);
+        assert_eq!(budget.reserved_bytes(), prefix_bytes + authority_bytes);
     }
     drop(slot);
     assert_eq!(budget.reserved_bytes(), 0);

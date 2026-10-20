@@ -341,11 +341,22 @@ fn current_attestation_refuses_coherent_genesis_and_h2_replacement_under_unchang
 
 #[inline(never)]
 fn check_coherent_replacement(chain: &CertifiedTestChain) {
+    let view = chain.state().view();
+    let original = capture(&view, chain, [66; 32], status(chain)).unwrap();
+    check_coherent_source_replacement(chain, &view);
+    same_body_except_fresh_clock(
+        &capture(&view, chain, [66; 32], status(chain)).unwrap(),
+        &original,
+    );
+}
+
+// The separate forged-source constructors retire before successful captures perform
+// their independent full body decodes. Every negative source check stays in this phase.
+#[inline(never)]
+fn check_coherent_source_replacement(chain: &CertifiedTestChain, view: &impl StateReadOnly) {
     use crate::sumeragi::{block_store::commit_certificate, crypto::BlsCrypto};
     use iroha_data_model::block::CommitCertificate;
     use iroha_sumeragi::types::Hash32;
-    let view = chain.state().view();
-    let original = capture(&view, chain, [66; 32], status(chain)).unwrap();
     let genesis = chain.committed(1).block().clone();
     let second = chain.committed(2).block().clone();
     let certificate = genesis.commit_certificate().unwrap();
@@ -414,7 +425,7 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
         core_hash: alternate_genesis.core_hash(),
         result: alternate_genesis.result(),
     };
-    let current_source = CertifiedChain::new(&view).unwrap();
+    let current_source = CertifiedChain::new(view).unwrap();
     assert!(matches!(
         current_execution_proof(&current_source, chain.height(), different_genesis),
         Err(ProofError::Chain(ChainReadError::Discontinuous {
@@ -439,25 +450,21 @@ fn check_coherent_replacement(chain: &CertifiedTestChain) {
         &changed_second.encode_wire().unwrap(),
     );
     std::fs::write(&restore.path, &changed_file).unwrap();
-    let independent = CertifiedChain::new(&view).unwrap();
+    let independent = CertifiedChain::new(view).unwrap();
     independent
         .certified(2)
         .expect("genesis and H2 alone cannot detect the original State mismatch");
     independent
         .certified_from_execution(NonZeroUsize::new(5).unwrap(), |_, _| Ok(()))
         .expect("a disconnected current-tip check alone also accepts its separate original root");
-    assert!(build_proof(&view, 5).is_err());
+    assert!(build_proof(view, 5).is_err());
     assert!(matches!(
-        capture(&view, chain, [66; 32], status(chain)),
+        capture(view, chain, [66; 32], status(chain)),
         Err(AttestationBuildError::FinalityProof(
             ProofError::NativeExecution(_)
         ))
     ));
     drop(restore);
-    same_body_except_fresh_clock(
-        &capture(&view, chain, [66; 32], status(chain)).unwrap(),
-        &original,
-    );
 }
 
 #[cfg(unix)]

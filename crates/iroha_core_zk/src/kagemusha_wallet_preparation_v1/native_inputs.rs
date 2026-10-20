@@ -259,8 +259,8 @@ impl PreparationV1<'_> {
     /// Reconstruct Unload or Retiring's source before its independent Q proof exists,
     /// from the exact released source and fully verified predecessor. The recovery
     /// path is decoded from the capsule, never supplied separately. The installed
-    /// native `consuming::Plan::prepare` and complete A/W chain remain mandatory
-    /// before accepting any result; this method grants no open authority.
+    /// native `consuming::Plan::prepare` and its terminal A remain mandatory before
+    /// accepting any result; this method grants no open authority.
     ///
     /// # Errors
     /// Rejects another operation, changed source/lineage/credential, wrong path

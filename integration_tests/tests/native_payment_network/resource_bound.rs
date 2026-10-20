@@ -204,6 +204,7 @@ fn native_payment_exact_fixed_frame_and_first_excess_byte_use_real_signed_terms(
             &iroha_config::parameters::actual::Crypto::default(),
         );
         if allowed {
+            // `ensure!` may evaluate its condition twice; consume the result first.
             let accepted = accepted?;
             ensure!(accepted.encoded_len() == SIGNED_FRAME_CAP);
         } else {

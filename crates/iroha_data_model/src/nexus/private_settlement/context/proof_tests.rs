@@ -19,7 +19,7 @@ fn row<K: norito::codec::Encode, V: norito::codec::Encode>(
         value_hash: world_state_value_hash_v1(value).unwrap(),
     }
 }
-pub(crate) fn fixture() -> (PrivateSettlementPoolKeyV1, PrivateSettlementPoolCutProofV1) {
+pub fn fixture() -> (PrivateSettlementPoolKeyV1, PrivateSettlementPoolCutProofV1) {
     let key = PrivateSettlementPoolKeyV1 {
         route: PrivateSettlementRouteV1 {
             dataspace_id: DataSpaceId::new(17),
@@ -216,7 +216,7 @@ fn private_pool_cut_refuses_an_independently_authenticated_private_root() {
 #[test]
 fn private_pool_public_keys_roundtrip_once_with_exact_canonical_json_spelling() {
     use norito::json::JsonKeyCodec;
-    fn check<T>(value: T)
+    fn check<T>(value: &T)
     where
         T: norito::NoritoSerialize
             + for<'a> norito::NoritoDeserialize<'a>
@@ -227,21 +227,18 @@ fn private_pool_public_keys_roundtrip_once_with_exact_canonical_json_spelling() 
         let mut json = String::new();
         value.encode_json_key(&mut json);
         let literal: String = norito::json::from_str(&json).unwrap();
-        assert_eq!(T::decode_json_key(&literal).unwrap(), value);
-        assert_eq!(
-            literal,
-            hex::encode_upper(norito::to_bytes(&value).unwrap())
-        );
+        assert_eq!(T::decode_json_key(&literal).unwrap(), *value);
+        assert_eq!(literal, hex::encode_upper(norito::to_bytes(value).unwrap()));
         assert!(T::decode_json_key(&literal.to_ascii_lowercase()).is_err());
         assert!(T::decode_json_key(&format!("{literal}00")).is_err());
     }
     let (key, _) = fixture();
-    check(key);
-    check(PrivateSettlementNullifierKeyV1 {
+    check(&key);
+    check(&PrivateSettlementNullifierKeyV1 {
         pool: key,
         nullifier: PrivacyNullifierV1::new([41; 32]),
     });
-    check(PrivateSettlementOutputKeyV1 {
+    check(&PrivateSettlementOutputKeyV1 {
         pool: key,
         commitment: PrivacyCommitmentV1::new([42; 32]),
     });

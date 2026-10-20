@@ -53,15 +53,19 @@ final class IrohaPeerWalletRequestV1Tests: XCTestCase {
         XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded), account)
     }
 
-    func testOnlyRequestGetsExpandedTransportBound() throws {
+    func testEachCompanionCarrierGetsOnlyItsOwnExpandedTransportBound() throws {
         XCTAssertEqual(IrohaPeerWireKindV1.request.maximumWalletFrameBytes, 14_112)
-        XCTAssertEqual(IrohaPeerWireKindV1.payment.maximumWalletFrameBytes, 10_000)
+        XCTAssertEqual(IrohaPeerWireKindV1.payment.maximumWalletFrameBytes, 12_064)
+        XCTAssertEqual(IrohaPeerWireKindV1.credited.maximumWalletFrameBytes, 10_000)
         let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .request, frameBytes: 10_000)
         let message = try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope,
             destinationAccountOriginal: Data(repeating: 1, count: 4_096))
         XCTAssertEqual(message.canonicalPayload.count, 14_112)
         XCTAssertEqual(try IrohaPeerWireMessageV1.decode(message.encoded), message)
         XCTAssertThrowsError(try IrohaPeerWireMessageV1(profile: .kagemushaWalletV1,
-            kind: .payment, schemaVersion: 1, canonicalPayload: message.canonicalPayload))
+            kind: .payment, schemaVersion: 1, canonicalPayload: message.canonicalPayload)) {
+            XCTAssertEqual($0 as? IrohaPeerWireMessageErrorV1,
+                           .canonicalLengthOutOfRange(actual: 14_112, maximum: 12_064))
+        }
     }
 }

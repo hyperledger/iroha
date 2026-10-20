@@ -642,8 +642,7 @@ fn prepare_refresh(rooted: &bootstrap_outer::RootedBootstrapOmega, variant: Vari
         vec![OperationTask::RefreshUpdateAuthorization],
         vec![OperationTask::RefreshCurrentAuthorization],
     ];
-    let mut partition = vec![vec![], vec![0], vec![1], vec![2]];
-    if variant == Variant::RefreshQuotaShare {
+    let partition = if variant == Variant::RefreshQuotaShare {
         // Root hashing must precede long continuation histories. The first
         // stage has room for Effects and the old usage root alongside the hard
         // predecessor; the other roots then retain only exact object proposals.
@@ -659,8 +658,10 @@ fn prepare_refresh(rooted: &bootstrap_outer::RootedBootstrapOmega, variant: Vari
             vec![OperationTask::RefreshCurrentAuthorization],
             vec![OperationTask::RefreshQuotaMerge],
         ];
-        partition = vec![vec![], vec![], vec![], vec![0], vec![1], vec![2], vec![]];
-    }
+        vec![vec![], vec![], vec![], vec![0], vec![1], vec![2], vec![]]
+    } else {
+        vec![vec![], vec![0], vec![1], vec![2]]
+    };
     let context = ContextPlan::with_schedule(
         source.plan.context().operation().clone(),
         partition,

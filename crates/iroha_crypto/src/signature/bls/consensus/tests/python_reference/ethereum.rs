@@ -64,7 +64,10 @@ fn imported_suite_has_every_pinned_row() {
         assert_eq!(labels.len(), expected, "duplicate labels in {name}");
         assert!(!labels.contains(""), "missing label in {name}");
         for row in cases {
-            assert!(string(row, "source_file").ends_with(".json"));
+            assert_eq!(
+                std::path::Path::new(string(row, "source_file")).extension(),
+                Some(std::ffi::OsStr::new("json"))
+            );
             field(row, "input");
             field(row, "output");
         }
@@ -139,6 +142,7 @@ fn reproduces_imported_sign() {
 #[test]
 fn reproduces_imported_verify() {
     let reference = reference();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
     for row in group(&reference, "verify") {
         let input = field(row, "input");
         let public = fixed::<48>(string(input, "pubkey"));
@@ -158,6 +162,12 @@ fn reproduces_imported_verify() {
             "{}",
             label(row)
         );
+        assert_eq!(
+            scratch.verify_fast_aggregate_committed(&[public], &digest, &signature),
+            expected,
+            "{} admitted scratch",
+            label(row)
+        );
     }
 }
 
@@ -165,6 +175,7 @@ fn reproduces_imported_verify() {
 fn reproduces_imported_fast_aggregate_verify() {
     let reference = reference();
     let keys = ethereum_keys();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
     for row in group(&reference, "fast_aggregate_verify") {
         let input = field(row, "input");
         let public = fixed_list::<48>(input, "pubkeys");
@@ -178,6 +189,12 @@ fn reproduces_imported_fast_aggregate_verify() {
             "{}",
             label(row)
         );
+        assert_eq!(
+            scratch.verify_fast_aggregate_committed(&public, &digest, &signature),
+            expected,
+            "{} admitted scratch",
+            label(row)
+        );
         // The admitted-key API rejects duplicate membership; the committed-key API above
         // relies on the authenticated committee's ordering to exclude it.
         let admitted: Option<Vec<_>> = public
@@ -189,6 +206,12 @@ fn reproduces_imported_fast_aggregate_verify() {
             })
             .collect();
         if let Some(admitted) = admitted {
+            assert_eq!(
+                scratch.verify_fast_aggregate(admitted.iter().copied(), &digest, &signature),
+                expected,
+                "{} admitted scratch",
+                label(row)
+            );
             assert_eq!(
                 verify_fast_aggregate(&admitted, &digest, &signature),
                 expected,
@@ -236,6 +259,7 @@ fn reproduces_imported_aggregate_with_consensus_identity_refusal() {
 fn reproduces_imported_aggregate_verify() {
     let reference = reference();
     let keys = ethereum_keys();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
     for row in group(&reference, "aggregate_verify") {
         let input = field(row, "input");
         let public = fixed_list::<48>(input, "pubkeys");
@@ -243,7 +267,7 @@ fn reproduces_imported_aggregate_verify() {
         assert_eq!(public.len(), messages.len(), "{}", label(row));
         let expected = boolean(row, "output");
         assert_eq!(boolean(row, "consensus_output"), expected, "{}", label(row));
-        let valid_keys: Vec<bool> = public.iter().map(key_validate).collect();
+        let all_keys_valid = public.iter().all(key_validate);
         let Some(signature) = upstream_fixed::<96>(string(input, "signature")) else {
             assert!(
                 !expected,
@@ -252,7 +276,7 @@ fn reproduces_imported_aggregate_verify() {
             );
             continue;
         };
-        if valid_keys.contains(&false) {
+        if !all_keys_valid {
             assert!(
                 !expected,
                 "{}: key fails KeyValidate before PoP admission",
@@ -273,6 +297,17 @@ fn reproduces_imported_aggregate_verify() {
             verify_aggregate_multi(&paired, &signature),
             expected,
             "{}",
+            label(row)
+        );
+        assert_eq!(
+            scratch.verify_aggregate_multi(
+                paired
+                    .iter()
+                    .map(|(keys, digest)| (keys.iter().copied(), *digest)),
+                &signature
+            ),
+            expected,
+            "{} admitted scratch",
             label(row)
         );
     }
@@ -323,7 +358,7 @@ fn reproduces_imported_hash_to_g2_coordinates() {
             &[],
         )
         .to_affine();
-        let components: Vec<[u8; 48]> = ["x", "y"]
+        let expected: Vec<u8> = ["x", "y"]
             .into_iter()
             .flat_map(|coordinate| {
                 let components: Vec<_> = string(output, coordinate)
@@ -335,8 +370,8 @@ fn reproduces_imported_hash_to_g2_coordinates() {
                 // upstream coordinate pairs are real, imaginary.
                 components.into_iter().rev()
             })
+            .flatten()
             .collect();
-        let expected: Vec<u8> = components.into_iter().flatten().collect();
         assert_eq!(
             point.to_uncompressed().as_slice(),
             expected,

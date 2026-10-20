@@ -59,6 +59,11 @@ pub(in crate::state) fn world(context: bool, height: Option<u64>) -> World {
 trait Geometry: mv::Key {
     fn units(&self) -> u64;
 }
+impl<G: Geometry, K: Geometry> Geometry for (G, K) {
+    fn units(&self) -> u64 {
+        self.0.units() + self.1.units()
+    }
+}
 impl Geometry for AssetDefinitionId {
     fn units(&self) -> u64 {
         16
@@ -87,11 +92,6 @@ impl Geometry for AccountId {
 impl Geometry for u64 {
     fn units(&self) -> u64 {
         8
-    }
-}
-impl Geometry for (u64, AssetDefinitionId) {
-    fn units(&self) -> u64 {
-        24
     }
 }
 fn logical<K: mv::Key, V: mv::Value>(
@@ -146,11 +146,19 @@ fn lookup_cost<'a, K: Geometry, V: mv::Value>(
         .map(|(_, value)| value);
     (cost, found)
 }
-fn membership_cost(members: &BTreeSet<AssetDefinitionId>, id: &AssetDefinitionId) -> u64 {
-    members
-        .iter()
-        .map(|candidate| 1 + id.units() + candidate.units())
-        .sum()
+fn require_cost<G: Geometry, K: Geometry>(
+    groups: &impl RawStorageImages<(G, K), ()>,
+    image: GroupImage,
+    group: &G,
+    member: &K,
+) -> u64 {
+    visit_cost(groups, image)
+        + logical(groups, image)
+            .into_iter()
+            .map(|((candidate_group, candidate_member), ())| {
+                group.units() + candidate_group.units() + member.units() + candidate_member.units()
+            })
+            .sum::<u64>()
 }
 fn optional_cost(left: Option<&DomainId>, right: Option<&DomainId>) -> u64 {
     2 + match (left, right) {
@@ -227,8 +235,8 @@ pub(in crate::state) fn full_work(
     rows: &impl RawStorageImages<AssetDefinitionId, AssetDefinition>,
     domains: &impl RawStorageImages<DomainId, Domain>,
     contexts: &impl RawStorageImages<AssetDefinitionId, DomainId>,
-    by_domain: &impl RawStorageImages<DomainId, BTreeSet<AssetDefinitionId>>,
-    by_owner: &impl RawStorageImages<AccountId, BTreeSet<AssetDefinitionId>>,
+    by_domain: &impl RawStorageImages<(DomainId, AssetDefinitionId), ()>,
+    by_owner: &impl RawStorageImages<(AccountId, AssetDefinitionId), ()>,
     transitions: &impl RawStorageImages<(u64, AssetDefinitionId), ()>,
     counts: &impl RawStorageImages<u64, u32>,
 ) -> u64 {
@@ -256,22 +264,14 @@ pub(in crate::state) fn full_work(
     for image in [GroupImage::Current, GroupImage::Predecessor] {
         total += visit_cost(rows, image);
         for (id, definition) in logical(rows, image) {
-            let (cost, members) = lookup_cost(by_owner, image, definition.owned_by());
-            total += cost;
-            if let Some(members) = members {
-                total += membership_cost(members, id);
-            }
+            total += require_cost(by_owner, image, definition.owned_by(), id);
         }
         total += visit_cost(by_owner, image);
-        for (owner, members) in logical(by_owner, image) {
-            total += 1;
-            for id in members {
-                total += 1;
-                let (cost, definition) = lookup_cost(rows, image, id);
-                total += cost;
-                if let Some(definition) = definition {
-                    total += definition.owned_by().units() + owner.units();
-                }
+        for ((owner, id), ()) in logical(by_owner, image) {
+            let (cost, definition) = lookup_cost(rows, image, id);
+            total += cost;
+            if let Some(definition) = definition {
+                total += definition.owned_by().units() + owner.units();
             }
         }
     }
@@ -280,23 +280,15 @@ pub(in crate::state) fn full_work(
         for (id, definition) in logical(rows, image) {
             total += 1;
             if let Some(domain) = definition.owning_domain().as_ref() {
-                let (cost, members) = lookup_cost(by_domain, image, domain);
-                total += cost;
-                if let Some(members) = members {
-                    total += membership_cost(members, id);
-                }
+                total += require_cost(by_domain, image, domain, id);
             }
         }
         total += visit_cost(by_domain, image);
-        for (domain, members) in logical(by_domain, image) {
-            total += 1;
-            for id in members {
-                total += 1;
-                let (cost, definition) = lookup_cost(rows, image, id);
-                total += cost;
-                if let Some(definition) = definition {
-                    total += optional_cost(definition.owning_domain().as_ref(), Some(domain));
-                }
+        for ((domain, id), ()) in logical(by_domain, image) {
+            let (cost, definition) = lookup_cost(rows, image, id);
+            total += cost;
+            if let Some(definition) = definition {
+                total += optional_cost(definition.owning_domain().as_ref(), Some(domain));
             }
         }
     }

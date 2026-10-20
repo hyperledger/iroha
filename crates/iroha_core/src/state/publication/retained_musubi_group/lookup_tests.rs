@@ -66,6 +66,9 @@ fn expected<K: mv::Key, V: mv::Value>(
 
 #[test]
 fn original_group_all_fourteen_lookup_pairs_reuse_funded_descriptors_and_revision() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     for replacement in [false, true] {
         let (state, proposal) = fixture();
         staged_block(&state, proposal.header(), false, true)
@@ -278,6 +281,9 @@ fn original_group_all_fourteen_lookup_pairs_reuse_funded_descriptors_and_revisio
 
 #[test]
 fn original_group_lookup_refusal_keeps_original_work_and_stale_source_never_enters_callback() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     let budget = state.ivm_execution_budget();
@@ -334,6 +340,9 @@ fn original_group_lookup_refusal_keeps_original_work_and_stale_source_never_ente
 
 #[test]
 fn original_group_lookup_result_is_dropped_when_state_publishes_during_callback() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     struct Returned<'a>(&'a Cell<usize>);
     impl Drop for Returned<'_> {
         fn drop(&mut self) {

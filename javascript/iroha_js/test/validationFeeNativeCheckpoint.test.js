@@ -28,7 +28,7 @@ function projection(changes = {}) {
 }
 function api(verify, encode = () => Buffer.of(8)) {
   return createValidationFeeConsensusApi(createNativeRuntime({
-    connectNoritoBridgeAbiVersion: () => 30,
+    connectNoritoBridgeAbiVersion: () => 31,
     validationFeeCurrentPolicyProofRequestV1: encode,
     validationFeeVerifyCurrentPolicyProofV1: verify,
   }));

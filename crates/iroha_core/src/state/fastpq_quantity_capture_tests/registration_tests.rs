@@ -141,7 +141,7 @@ fn original_registration_refuses_an_existing_incarnation_and_preserves_rollback(
 
 #[test]
 fn original_registration_refuses_foreign_balance_indexes_and_direct_home() {
-    for mutation in 0..4 {
+    for mutation in 0..5 {
         with_signed_quantity_block(|block, alice, _, call| {
             let original_incarnation = *block
                 .world
@@ -154,25 +154,28 @@ fn original_registration_refuses_foreign_balance_indexes_and_direct_home() {
                 transaction.tx_call_hash = Some(call);
                 match mutation {
                     0 => {
-                        transaction.world.asset_definition_assets.insert(
-                            id.clone(),
-                            std::collections::BTreeSet::from([AssetId::of(
-                                id.clone(),
-                                BOB_ID.clone(),
-                            )]),
-                        );
+                        transaction
+                            .world
+                            .asset_definition_assets
+                            .insert((id.clone(), AssetId::of(id.clone(), BOB_ID.clone())), ());
                     }
                     1 => {
-                        transaction.world.asset_definition_holders.insert(
-                            id.clone(),
-                            std::collections::BTreeSet::from([BOB_ID.clone()]),
-                        );
+                        transaction
+                            .world
+                            .asset_definition_holders
+                            .insert((id.clone(), BOB_ID.clone()), ());
                     }
                     2 => {
-                        transaction.world.asset_definition_nonzero_holders.insert(
-                            id.clone(),
-                            std::collections::BTreeSet::from([BOB_ID.clone()]),
-                        );
+                        transaction
+                            .world
+                            .asset_definition_nonzero_holders
+                            .insert((id.clone(), BOB_ID.clone()), ());
+                    }
+                    3 => {
+                        transaction
+                            .world
+                            .asset_definition_asset_counts
+                            .insert(id.clone(), 1);
                     }
                     _ => {
                         transaction.world.asset_definition_direct_homes.insert(
@@ -191,20 +194,24 @@ fn original_registration_refuses_foreign_balance_indexes_and_direct_home() {
                 assert!(transaction.world.asset_definitions.get(&id).is_none());
                 assert!(transaction.world.axt_asset_incarnations.get(&id).is_none());
                 match mutation {
-                    0 => assert!(transaction.world.asset_definition_assets.get(&id).is_some()),
+                    0 => assert!(
+                        index_members(&transaction.world.asset_definition_assets, &id)
+                            .next()
+                            .is_some()
+                    ),
                     1 => assert!(
-                        transaction
-                            .world
-                            .asset_definition_holders
-                            .get(&id)
+                        index_members(&transaction.world.asset_definition_holders, &id)
+                            .next()
                             .is_some()
                     ),
                     2 => assert!(
-                        transaction
-                            .world
-                            .asset_definition_nonzero_holders
-                            .get(&id)
+                        index_members(&transaction.world.asset_definition_nonzero_holders, &id)
+                            .next()
                             .is_some()
+                    ),
+                    3 => assert_eq!(
+                        transaction.world.asset_definition_asset_counts.get(&id),
+                        Some(&1)
                     ),
                     _ => assert_eq!(
                         transaction
@@ -219,16 +226,23 @@ fn original_registration_refuses_foreign_balance_indexes_and_direct_home() {
             }
             assert!(block.world.asset_definitions.get(&id).is_none());
             assert!(block.world.axt_asset_incarnations.get(&id).is_none());
-            assert!(block.world.asset_definition_assets.get(&id).is_none());
-            assert!(block.world.asset_definition_holders.get(&id).is_none());
             assert!(
-                block
-                    .world
-                    .asset_definition_nonzero_holders
-                    .get(&id)
+                index_members(&block.world.asset_definition_assets, &id)
+                    .next()
+                    .is_none()
+            );
+            assert!(
+                index_members(&block.world.asset_definition_holders, &id)
+                    .next()
+                    .is_none()
+            );
+            assert!(
+                index_members(&block.world.asset_definition_nonzero_holders, &id)
+                    .next()
                     .is_none()
             );
             assert!(block.world.asset_definition_direct_homes.get(&id).is_none());
+            assert!(block.world.asset_definition_asset_counts.get(&id).is_none());
             block.observe_quantity_block_journals();
             assert_eq!(block.fastpq_quantity_candidate.issue, None);
             assert_eq!(

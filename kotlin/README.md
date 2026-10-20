@@ -10,7 +10,7 @@ APIs using the JDK 21 toolchain. Run the Norito consumer suite with:
 ./gradlew :core-jvm:test --tests 'org.hyperledger.iroha.sdk.norito.*' --console=plain
 ```
 
-Account and public-key admission requires the ABI-30 `connect_norito_bridge`
+Account and public-key admission requires the ABI-31 `connect_norito_bridge`
 native library, including `nativeValidateAccountAddressCanonical`. Address
 construction and parsing use Rust to validate every key and complete multisig
 policy, then require identical canonical bytes. The V1 identity catalog includes
@@ -41,7 +41,7 @@ choice-free conviction update to Kotlin and Java callers. It emits the registere
 transaction encoding reject direction fields, noncanonical selectors, account
 addresses, quantities, durations, and malformed frames. The focused
 `UpdatePlainConviction*` Kotlin/Java-source tests compiled on 2026-09-24, but
-execution still requires a same-source ABI-30 native bridge for account
+execution still requires a same-source ABI-31 native bridge for account
 admission. This SDK slice does not establish Rust fixture parity or complete
 private standalone elections.
 
@@ -377,7 +377,7 @@ installation still verifies the product's genuine signed originals and complete
 proof inventory through the same wallet engine.
 
 Typed setup and lifecycle APIs retain exact native bytes and expose durable status
-separately from fold backlog. Offer/Request setup bytes are canonical object
+separately from fold backlog. Request setup bytes are canonical object
 frames; peer transports use Envelope frames. Native `envelope`/`original` conversion
 checks the expected kind, native scheme and full-frame bound without monetary
 admission. `cancelTimeExchange` discards only the
@@ -505,7 +505,7 @@ its owned keys. Radio/device lifecycle qualification is separate from the host p
 Nexus app requests and results are immutable values. Constructors snapshot keys, payloads,
 metadata and scopes; byte accessors return owned copies and collections reject mutation.
 `NexusSignableTransaction(payloadBytes, authority, signingPublicKey)` derives `payloadHashHex`
-from its exact owned payload. Nexus uses only the canonical `ed25519` algorithm. Create a new
+from its exact owned payload. SORA Nexus uses only the canonical `ed25519` algorithm. Create a new
 value to change authority or signing context. Transfer receipts snapshot nested JSON status
 and bind their hash to the exact signed transaction; admission alone does not establish Applied.
 
@@ -599,17 +599,19 @@ Lane observations do not confer finality.
 ### KAGEMUSHA wallet peer transports
 
 `KagemushaWalletWireV1` carries the KAGEMUSHA wallet V1 bounds, domain-separated
-20 SHA-256 digest roles, including the NEW unsigned app/enrollment policy identities,
-16 signing domains, the unsigned ordinary Load receipt, envelope header validation and strict `kgm1:` text,
+21 SHA-256 digest roles, including the NEW unsigned app/enrollment policy identities,
+15 signing domains, the unsigned ordinary Load receipt, envelope header validation and strict `kgm1:` text,
 matching the Rust owner `iroha_data_model::kagemusha::kagemusha_wallet_v1`. Every
-signature is ECDSA-P256-SHA256 over the 32-byte Poseidon message of its body, which
-the native core computes; the SDK checks it only as a canonical σ-field value.
+signature is ECDSA-P256-SHA256 over its 32-byte Poseidon signing message. Native
+computes the Request message from its 19 receiver terms under `kgwrqst2`; the other
+signing domains pack the full transcript. The SDK checks the result only as a canonical
+σ-field value.
 Only `artifactManifestDigest` hashes a signed object with SHA-256. Circuit-visible
 object, package, statement, operation and nullifier digests use the canonical
-59-domain Poseidon table. Quota usage is a depth-6 array. A signed blacklist is
+58-domain Poseidon table. Quota usage is a depth-6 array. A signed blacklist is
 local-only: `KagemushaWalletV1.installBlacklist` stores it on the phone (a replacement's
-version must increase), and Native then refuses to pay a listed receiver and to request or
-accept money from a listed payer with `KagemushaWalletExceptionV1.BLOCKED` (-15). No proof,
+version must increase), and Native then refuses to pay a listed receiver or
+accept a Payment from a listed payer with `KagemushaWalletExceptionV1.BLOCKED` (-15). No proof,
 wallet state or peer message carries it.
 `KagemushaP256Codec` is the P-256 device-key boundary: uncompressed SEC1 public keys
 and fixed-width low-S `r || s` signatures. The Android payment key
@@ -629,30 +631,41 @@ application without its own uses `PROTOCOL` (`F0504B45504B524E464301`, the aid-f
 `client-android` template `res/xml/iroha_peer_nfc_v1_aids.xml`). The receiver's phone is the
 card: an `IrohaPeerAsyncHostApduServiceV1` subclass, whose `applicationIdentifier` matches its
 aid-filter, routes commands to an `IrohaPeerNfcCardApduBridgeV1` around
-`IrohaPeerNfcCardEndpointV1.intake`. Its callbacks sign the Request for the payer's Offer,
-durably admit the Payment header and, at COMMIT, ingest the Payment and persist the Credited
-acknowledgement. The payer's phone keeps one `IrohaPeerIsoDepTransceiverV1` connected for
-`IrohaPeerNfcOfferExchangeV1.run` (Offer in, Request out), exact transaction review and
-hardware confirmation. It then persists
-`IrohaPeerNfcRequestReadV1.senderCheckpoint(payment).encode()` (`ISC1`) and continues with
-`IrohaPeerNfcReaderExchangeV1.run` with that checkpoint (Payment in, Credited out, resumable
-after any lost response) before closing the connection. The normal flow completes in one
-hold; reconnecting is only recovery after interrupted contact. A Nearby receiver that
-advertises before it holds a Request uses
-`IrohaPeerNearbyDiscoveryContextV1.freshReceiver`.
+`IrohaPeerNfcCardEndpointV1.direct`, initialized with the receiver's native open Request.
+The receiver chooses the amount and calls `KagemushaWalletV1.request(setupId, amount)` (or
+`requestWithFeePolicy`) before presenting the Request. The payer reads it with
+`IrohaPeerNfcReaderExchangeV1.readRequest`, reviews the exact destination, amount and fee
+with `reviewSend`, and approves through hardware confirmation while the same
+`IrohaPeerIsoDepTransceiverV1` connection remains active. Send returns the Payment;
+`paymentCompanion(payment)` (setup selector 55) obtains the retained Send's historical payer
+credential and exact issuer certificate set after verifying ownership of the exact Payment;
+recovery remains available after credential renewal. Retain both exact originals before delivery, wrap them with
+`IrohaPeerKagemushaWalletAdapterV1.wrap(paymentEnvelope, payerCompanion = companion)`, and
+persist `IrohaPeerNfcRequestReadV1.senderCheckpoint(payment).encode()` (`ISC1`). Continue on
+the same connection with `IrohaPeerNfcReaderExchangeV1.run` (Payment in, Credited out).
+The receiver durably admits the header and calls `receiveWithCompanion(requestId, payment, companion)`
+(execute selector 10) at COMMIT, persisting the Credited acknowledgement before exposing it.
+Reconnect only to recover interrupted contact; an exact retry never creates another Send.
 
-The receiver sets the amount. Its ask (`IrohaPeerAskV1`: the amount and the receiver's account
-digest, display DATA that authorizes nothing) reaches the payer before the Offer, because Native
-requires the Request amount to equal the Offer amount: a card built with
-`IrohaPeerNfcCardEndpointV1.intake(aid, policy, limits, ask)` answers GET_ASK, and the payer's
-`IrohaPeerNfcOfferExchangeV1.runFromAsk(offerFactory, ...)` reads it and calls the factory once to
-build the Offer in the same hold (resume an interrupted contact with `run(offer)`, never a second
-factory call). Nearby carries the ask as the receiver's first sealed record
-(`IrohaPeerNearbySessionV1.sealAsk`/`openAsk`), QR as `IrohaPeerAskV1.toText`/`fromText`. The
-receiver declines an Offer for any other amount, read with `KagemushaWalletWireV1.offerAmountData`,
-before it issues a Request. Nearby pairing derives a picture with
-`IrohaPeerNearbyPictureCodeV1.targetIndex` from the transport's authentication digits; never show the
-digits.
+There are three user-visible codes: receiver Request, payer Payment, receiver Credited.
+The Request carrier is `KWRQAC1` (envelope plus canonical destination account original,
+maximum 14,112 bytes); the Payment carrier is `KWPYPC1` (envelope plus payer companion,
+maximum 12,064 bytes). The envelope bound remains 10,000 bytes. IPM1 hashes bind both
+originals and the NFC bounds include its 84-byte header: 14,196 overall and 12,148 for
+Payment. `IrohaPeerKagemushaWalletAdapterV1.decode` returns the bare envelope;
+`destinationAccountOriginal` and `payerCompanion` return the respective exact companions.
+Only Native authenticates monetary and credential bindings.
+
+Nearby authenticates both devices, then its receiver sends Request as the first encrypted
+IPM1 record, the payer sends Payment and the receiver sends Credited. A receiver may
+advertise with `IrohaPeerNearbyDiscoveryContextV1.freshReceiver` while preparing its Request;
+that random discovery context does not authorize payment. The per-direction record budgets
+are four on the payer (HELLO, AUTH, Request, Credited) and three on the receiver (HELLO, AUTH,
+Payment). Pairing derives a picture with `IrohaPeerNearbyPictureCodeV1.targetIndex` from the
+transport's authentication digits; never show the digits. The shared picture fixture is
+`fixtures/kagemusha/nearby_picture_v1.json`. Retired Offer/Ask/Lineage message kinds and
+NFC Offer/Ask commands have no fallback; GET_INTAKE remains the direct card's
+REQUEST_READY session record.
 
 `KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete
 canonical Norito `AccountId` frame used by `KagemushaWalletV1.reviewSend`.
@@ -744,6 +757,16 @@ line up, and reported as `PetalDecodedFrame.inferredCorner` (canonical index).
 `PetalScanSession` reads the frames after a decoded one by `PetalDecoder.track`,
 which follows the last pose (at most 500 ms old) instead of searching the whole
 image, and counts both in `stats().tracked` and `stats().inferred`.
+When a capture loses a tile lane, the session holds up to four captures of each
+of six shown frames. It averages patches under their decoded canonical poses,
+first using each capture's finder levels, then the normalised mean raw patches
+for any lane still missing. Only captures whose decoded lane headers agree on
+the stream tag and frame counter share evidence; a recovered lane must name that
+same shown frame. `outcome.merged` names newly recovered tile lanes, while
+`stats().merges`, `stats().mergedP` and `stats().mergedK` count averaging and its
+recoveries. A frame only gains missing lanes. Reset and accepted stream metadata
+replacement drop held evidence; learning the first beacon preserves pre-beacon
+captures.
 The tile lanes `P` and `K` are read in two ways: the *level read* judges every
 8×8 tile patch against the light and dark levels measured at the finders, and a
 lane it cannot decode is retried with the *normalised read*, which rescales each
@@ -763,7 +786,8 @@ NV21 previews); they use API 19 or older platform calls.
 The tests check every section of `../fixtures/petal/petal_stream_v1.json`,
 decode the golden camera captures of `../fixtures/petal/petal_captures_v1.json`
 with exactly the lanes and inferred corners the reference reads, and track its
-golden frame pairs:
+golden frame pairs, recover the missing lanes of its noisy and banded merge
+sets, and refuse lanes from mixed-frame captures:
 
 ```bash
 ./gradlew :core-jvm:test --tests '*Petal*' --console=plain

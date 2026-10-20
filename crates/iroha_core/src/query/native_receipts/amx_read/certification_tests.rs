@@ -58,6 +58,9 @@ fn is_capacity(error: &Error) -> bool {
 
 #[test]
 fn terminal_amx_target_survives_original_later_gap_capacity_and_proof_retry() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (mut chain, tx, _) = committed_source(1);
     chain.commit_at(3_000, Vec::new());
     chain.commit_at(4_000, Vec::new());
@@ -168,6 +171,9 @@ fn terminal_amx_target_survives_original_later_gap_capacity_and_proof_retry() {
 
 #[test]
 fn terminal_amx_raw_frame_survives_original_shared_shell_refusal() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, _) = committed_source(1);
     let budget = chain.state().ivm_execution_budget();
     let decoder = counter(&budget);

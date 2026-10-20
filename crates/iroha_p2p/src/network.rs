@@ -4949,27 +4949,24 @@ impl NetworkActorProgressBudget {
         let bytes = item.bytes;
         let class_index = source.class.index();
         let per_source_max_bytes = self.per_class_max_bytes.for_class(source.class);
-        let is_new_source = match state.retained_by_source.get(source) {
-            Some(retained) => {
-                if retained.items.len() >= self.max_items_per_source
-                    || retained
-                        .bytes
-                        .checked_add(bytes)
-                        .is_none_or(|retained| retained > per_source_max_bytes)
-                {
-                    return None;
-                }
-                false
+        let is_new_source = if let Some(retained) = state.retained_by_source.get(source) {
+            if retained.items.len() >= self.max_items_per_source
+                || retained
+                    .bytes
+                    .checked_add(bytes)
+                    .is_none_or(|retained| retained > per_source_max_bytes)
+            {
+                return None;
             }
-            None => {
-                if bytes > per_source_max_bytes
-                    || state.retained_by_source.len() >= self.max_sources
-                    || state.retained_sources_by_class[class_index] >= self.max_sources_per_class
-                {
-                    return None;
-                }
-                true
+            false
+        } else {
+            if bytes > per_source_max_bytes
+                || state.retained_by_source.len() >= self.max_sources
+                || state.retained_sources_by_class[class_index] >= self.max_sources_per_class
+            {
+                return None;
             }
+            true
         };
         let retained_items = state
             .retained_items

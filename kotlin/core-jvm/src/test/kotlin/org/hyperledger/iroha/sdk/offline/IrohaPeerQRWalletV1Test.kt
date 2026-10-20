@@ -22,7 +22,7 @@ import org.hyperledger.iroha.sdk.norito.CRC64
 import org.hyperledger.iroha.sdk.norito.NoritoHeader
 import org.hyperledger.iroha.sdk.norito.Varint
 
-/** QR carries exact wallet envelopes and the mandatory Request account companion. */
+/** QR carries exact wallet envelopes, the mandatory Request account companion and the mandatory Payment payer companion. */
 class IrohaPeerQRWalletV1Test {
     @Test
     fun `every wallet envelope vector round trips through QR under its own kind`() {
@@ -34,6 +34,7 @@ class IrohaPeerQRWalletV1Test {
                 frame,
                 IrohaPeerWireCompressionPolicyV1.PEER_OPTIMIZED,
                 destinationAccountOriginal = if (kind == IrohaPeerPayloadKind.REQUEST) IrohaPeerRequestFixtureV1.account() else null,
+                payerCompanion = if (kind == IrohaPeerPayloadKind.PAYMENT) IrohaPeerRequestFixtureV1.companion() else null,
             )
             assertEquals(kind, message.canonicalPayload.kind)
             val session = IrohaPeerQRScanSessionV1(
@@ -46,12 +47,40 @@ class IrohaPeerQRWalletV1Test {
                 .first { it.isComplete }
             val decoded = assertNotNull(result.message)
             assertContentEquals(frame, IrohaPeerKagemushaWalletAdapterV1.decode(decoded))
+            if (kind == IrohaPeerPayloadKind.PAYMENT) {
+                assertContentEquals(IrohaPeerRequestFixtureV1.companion(), IrohaPeerKagemushaWalletAdapterV1.payerCompanion(decoded))
+            }
         }
     }
 
     @Test
-    fun `a maximum wallet message uses forty data shards and recovers one lost shard`() {
+    fun `a maximum Payment carrier uses forty eight data shards and survives one lost shard`() {
         val frame = envelope(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
+        val companion = ByteArray(IrohaPeerWalletPaymentV1.MAXIMUM_COMPANION_BYTES) { (it % 239).toByte() } // Bounded transport DATA.
+        val message = IrohaPeerKagemushaWalletAdapterV1.wrap(frame, payerCompanion = companion)
+        assertEquals(12_064, message.encodedBody.size)
+        assertNull(IrohaPeerQRCodecV1.staticCompleteTextCandidate(message))
+        val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
+        val frames = texts.map { IrohaPeerQRCodecV1.decodeFrame(it) }
+        assertEquals(79, texts.size)
+        assertEquals(7, frames.count { it.frameKind == IrohaPeerQRFrameKindV1.HEADER })
+        assertEquals(48, frames.count { it.frameKind == IrohaPeerQRFrameKindV1.DATA })
+        assertEquals(24, frames.count { it.frameKind == IrohaPeerQRFrameKindV1.PARITY })
+        assertEquals(setOf(48), frames.map { it.total }.toSet())
+        val lost = frames.indexOfFirst { it.frameKind == IrohaPeerQRFrameKindV1.DATA && it.index == 45 }
+        val session = IrohaPeerQRScanSessionV1(IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1, IrohaPeerPayloadKind.PAYMENT, 1)
+        val result = texts.filterIndexed { index, _ -> index != lost }.asSequence()
+            .map { session.ingestAt(it, 0) }.first { it.isComplete }
+        // Any 48 of the 72 shards complete it: 32 data and 16 parity, two thirds into the loop.
+        assertEquals(16, result.recoveredDataFrames)
+        val decoded = assertNotNull(result.message)
+        assertContentEquals(frame, IrohaPeerKagemushaWalletAdapterV1.decode(decoded))
+        assertContentEquals(companion, IrohaPeerKagemushaWalletAdapterV1.payerCompanion(decoded))
+    }
+
+    @Test
+    fun `a maximum envelope-only message uses forty data shards and recovers one lost shard`() {
+        val frame = envelope(KagemushaWalletMessageKindV1.CREDITED, KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
         val message = IrohaPeerKagemushaWalletAdapterV1.wrap(frame)
         assertEquals(10_000, message.encodedBody.size)
         assertNull(IrohaPeerQRCodecV1.staticCompleteTextCandidate(message))
@@ -68,8 +97,141 @@ class IrohaPeerQRWalletV1Test {
         val result = texts.filterIndexed { index, _ -> index != lost }.asSequence()
             .map { session.ingestAt(it, 0) }
             .first { it.isComplete }
-        assertEquals(1, result.recoveredDataFrames)
+        // Any 40 of the 60 shards complete it: 27 data and 13 parity, before the loop ends.
+        assertEquals(13, result.recoveredDataFrames)
         assertContentEquals(frame, IrohaPeerKagemushaWalletAdapterV1.decode(assertNotNull(result.message)))
+    }
+
+    @Test
+    fun `any forty of the sixty data and parity frames recover a maximum message`() {
+        val frame = envelope(KagemushaWalletMessageKindV1.CREDITED, KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
+        val texts = IrohaPeerQRCodecV1.animatedFrameTexts(IrohaPeerKagemushaWalletAdapterV1.wrap(frame))
+        val frames = texts.map { IrohaPeerQRCodecV1.decodeFrame(it) }
+        val shardFrames = frames.indices.filter { frames[it].frameKind != IrohaPeerQRFrameKindV1.HEADER }
+        assertEquals(60, shardFrames.size)
+        fun scan(lost: Set<Int>): IrohaPeerQRScanResultV1? {
+            val session = IrohaPeerQRScanSessionV1(IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1)
+            // One pass of the loop only: completion may not wait for a repeat of a lost frame.
+            return texts.indices.filter { it !in lost }.asSequence()
+                .map { session.ingestAt(texts[it], 0) }
+                .firstOrNull { it.isComplete }
+        }
+        val dataFrames = shardFrames.filter { frames[it].frameKind == IrohaPeerQRFrameKindV1.DATA }
+        val patterns = listOf(
+            dataFrames.take(20).toSet(), // Half the data: every parity row is needed.
+            dataFrames.take(2).toSet(), // Both shards of one pair, which pair parity could not recover.
+        ) + (1..3).map { seed -> shardFrames.shuffled(kotlin.random.Random(seed)).take(20).toSet() }
+        for (lost in patterns) {
+            val result = assertNotNull(scan(lost), "lost frames $lost")
+            // Completion needs only forty distinct shards, so frames still to come are solved for too.
+            val lostData = lost.count { frames[it].frameKind == IrohaPeerQRFrameKindV1.DATA }
+            assertTrue(result.recoveredDataFrames in lostData..20, "recovered ${result.recoveredDataFrames}")
+            assertContentEquals(frame, IrohaPeerKagemushaWalletAdapterV1.decode(assertNotNull(result.message)))
+        }
+        // Twenty-one lost leaves thirty-nine shards, one too few: the scan waits for the next loop.
+        assertNull(scan(shardFrames.take(21).toSet()))
+    }
+
+    @Test
+    fun `Reed-Solomon parity rows match the shared cross-platform vector`() {
+        // Shard i byte b = (73 i + 31 b + 7) mod 256; Swift pins the same digests.
+        fun digest(count: Int): String {
+            val shards = List(count) { i -> ByteArray(IrohaPeerQRCodecV1.SHARD_BYTES) { b -> (73 * i + 31 * b + 7).toByte() } }
+            val sha = java.security.MessageDigest.getInstance("SHA-256")
+            repeat((count + 1) / 2) { row -> sha.update(IrohaPeerQRParityV1.parity(shards, row)) }
+            return sha.digest().joinToString("") { "%02x".format(it) }
+        }
+        assertEquals("d218dc10e7482f1afb8753f100542879651bc6e2f0641a94bb2d33a11e433dd8", digest(3))
+        assertEquals("85f3a1490a000f345272c2fb1b4dc449bafd07e95a1c694d58c5a341f07f375c", digest(40))
+    }
+
+    @Test
+    fun `a scan that misses the first header it meets still completes`() {
+        // Unchanged Rust vectors share a checked payer binding; this tests transport, not proof admission.
+        val source = vectors()
+        val paymentVector = source.getValue("envelopes").jsonArray.map { it.jsonObject }
+            .single { it.getValue("tag").jsonPrimitive.int == KagemushaWalletMessageKindV1.PAYMENT.wireTag }
+        val frame = hex(paymentVector.getValue("canonical_hex").jsonPrimitive.content)
+        val companionVector = source.getValue("objects").jsonArray.map { it.jsonObject }
+            .single { it.getValue("type").jsonPrimitive.content == "KagemushaWalletPayerCompanionV1" }
+        val companion = hex(companionVector.getValue("canonical_hex").jsonPrimitive.content)
+        val message = IrohaPeerKagemushaWalletAdapterV1.wrap(frame, payerCompanion = companion)
+        val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
+        val kinds = texts.map { IrohaPeerQRCodecV1.decodeFrame(it).frameKind }
+        val missed = kinds.indices.first { it > 0 && kinds[it] == IrohaPeerQRFrameKindV1.HEADER }
+        assertEquals(13, missed)
+        val session = IrohaPeerQRScanSessionV1(IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1, IrohaPeerPayloadKind.PAYMENT, 1)
+        // The camera opens just after the first header and misses the next one, so the twelve
+        // frames between them and one more arrive before any header.
+        (1 until missed).forEach { assertNull(session.ingestAt(texts[it], 0).message) }
+        val beyondBound = session.ingestAt(texts[missed + 1], 0)
+        assertNull(beyondBound.message)
+        assertEquals(0, beyondBound.totalDataFrames)
+        assertEquals(1, session.activeStreamCount)
+        // Frames beyond the bound are dropped unbuffered, not refused: the next loop supplies them.
+        val result = ((missed + 2 until texts.size) + texts.indices).asSequence()
+            .map { session.ingestAt(texts[it], 0) }
+            .first { it.isComplete }
+        val decoded = assertNotNull(result.message)
+        assertContentEquals(frame, IrohaPeerKagemushaWalletAdapterV1.decode(decoded))
+        assertContentEquals(companion, IrohaPeerKagemushaWalletAdapterV1.payerCompanion(decoded))
+    }
+
+    @Test
+    fun `dropped preheader retains total for data and header conflicts`() {
+        val message = IrohaPeerKagemushaWalletAdapterV1.wrap(envelope(KagemushaWalletMessageKindV1.CREDITED, 1_024))
+        val frames = IrohaPeerQRCodecV1.animatedFrameTexts(message).map { IrohaPeerQRCodecV1.decodeFrame(it) }
+        val data = frames.first { it.frameKind == IrohaPeerQRFrameKindV1.DATA }
+        val header = frames.first { it.frameKind == IrohaPeerQRFrameKindV1.HEADER }
+        val changedTotal = IrohaPeerQRFrameV1(
+            data.frameKind, data.profile, data.payloadKind, data.streamId,
+            data.index, data.total + 1, data.payload,
+        )
+        val limits = IrohaPeerQRScanLimitsV1(
+            maximumPreheaderPayloadBytesPerStream = 1, idleTimeoutMillis = 2_000, absoluteTimeoutMillis = 3_000,
+        )
+        for ((first, conflicting) in listOf(data to changedTotal, changedTotal to header)) {
+            val session = IrohaPeerQRScanSessionV1(scanLimits = limits)
+            val dropped = session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(first), 100_000)
+            assertNull(dropped.message)
+            assertEquals(0, dropped.receivedDataFrames)
+            assertEquals(1, session.activeStreamCount)
+            val conflict = assertFailsWith<IllegalArgumentException> {
+                session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(conflicting), 100_000)
+            }
+            assertEquals("Conflicting IRQR frame total", conflict.message)
+            assertEquals(0, session.activeStreamCount)
+            val quarantined = assertFailsWith<IllegalArgumentException> {
+                session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 102_999)
+            }
+            assertEquals("IRQR stream is quarantined", quarantined.message)
+            assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 103_000).message)
+            assertEquals(1, session.activeStreamCount)
+        }
+    }
+
+    @Test
+    fun `dropped preheaders do not refresh idle and stream completes after expiry`() {
+        val frame = envelope(KagemushaWalletMessageKindV1.CREDITED, 1_024)
+        val message = IrohaPeerKagemushaWalletAdapterV1.wrap(frame)
+        val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
+        val data = texts.filter { IrohaPeerQRCodecV1.decodeFrame(it).frameKind == IrohaPeerQRFrameKindV1.DATA }
+        val limits = IrohaPeerQRScanLimitsV1(
+            maximumPreheaderPayloadBytesPerStream = 1, idleTimeoutMillis = 2_000, absoluteTimeoutMillis = 3_000,
+        )
+        val session = IrohaPeerQRScanSessionV1(scanLimits = limits)
+        for ((index, now) in listOf(0 to 100_000L, 1 to 101_500L)) {
+            val dropped = session.ingestAt(data[index], now)
+            assertNull(dropped.message)
+            assertEquals(0, dropped.receivedDataFrames)
+            assertEquals(0, dropped.totalDataFrames)
+        }
+        val expired = session.expire(102_000)
+        assertEquals(1, expired.size)
+        assertContentEquals(message.streamId, expired.single())
+        assertEquals(0, session.activeStreamCount)
+        val completed = texts.asSequence().map { session.ingestAt(it, 102_000) }.first { it.isComplete }
+        assertContentEquals(frame, IrohaPeerKagemushaWalletAdapterV1.decode(assertNotNull(completed.message)))
     }
 
     @Test
@@ -86,7 +248,8 @@ class IrohaPeerQRWalletV1Test {
         val session = IrohaPeerQRScanSessionV1(IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1, IrohaPeerPayloadKind.REQUEST, 1)
         val result = texts.filterIndexed { index, _ -> index != lost }.asSequence()
             .map { session.ingestAt(it, 0) }.first { it.isComplete }
-        assertEquals(1, result.recoveredDataFrames)
+        // Any 56 of the 84 shards complete it: 38 data and 18 parity.
+        assertEquals(18, result.recoveredDataFrames)
         val decoded = assertNotNull(result.message)
         assertContentEquals(envelope, IrohaPeerKagemushaWalletAdapterV1.decode(decoded))
         assertContentEquals(account, IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded))
@@ -97,21 +260,22 @@ class IrohaPeerQRWalletV1Test {
         assertFailsWith<IllegalArgumentException> {
             IrohaPeerKagemushaWalletAdapterV1.wrap(
                 envelope(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.MESSAGE_MAX_BYTES + 1),
+                payerCompanion = byteArrayOf(1),
             )
         }
         assertFailsWith<IllegalArgumentException> {
             IrohaPeerKagemushaWalletAdapterV1.wrap(
-                envelope(KagemushaWalletMessageKindV1.OFFER, KagemushaWalletWireV1.SESSION_MAX_BYTES + 1),
+                envelope(KagemushaWalletMessageKindV1.SESSION_CONTROL, KagemushaWalletWireV1.SESSION_MAX_BYTES + 1),
             )
         }
-        val offer = envelope(KagemushaWalletMessageKindV1.OFFER, KagemushaWalletWireV1.SESSION_MAX_BYTES)
-        assertEquals(IrohaPeerPayloadKind.OFFER, IrohaPeerKagemushaWalletAdapterV1.wrap(offer).canonicalPayload.kind)
+        val control = envelope(KagemushaWalletMessageKindV1.SESSION_CONTROL, KagemushaWalletWireV1.SESSION_MAX_BYTES)
+        assertEquals(IrohaPeerPayloadKind.SESSION_CONTROL, IrohaPeerKagemushaWalletAdapterV1.wrap(control).canonicalPayload.kind)
         assertFailsWith<IllegalArgumentException> {
             IrohaPeerCanonicalPayload(
                 IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1,
                 IrohaPeerPayloadKind.REQUEST,
                 1,
-                offer,
+                control,
             )
         }
     }
@@ -124,13 +288,12 @@ class IrohaPeerQRWalletV1Test {
             val kind = requireNotNull(KagemushaWalletMessageKindV1.fromWireTag(vector.getValue("tag").jsonPrimitive.int))
             covered.add(kind)
             val versionPath = when (kind) {
-                KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> listOf(0, 0)
+                KagemushaWalletMessageKindV1.REQUEST -> listOf(0, 0)
                 else -> listOf(0)
             }
             val schemePath = when (kind) {
-                KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> listOf(0, 1)
+                KagemushaWalletMessageKindV1.REQUEST -> listOf(0, 1)
                 KagemushaWalletMessageKindV1.PAYMENT -> listOf(2, 1, 1)
-                KagemushaWalletMessageKindV1.LINEAGE -> listOf(1, 0, 1)
                 else -> listOf(1)
             }
             for ((label, path, bytes) in listOf(

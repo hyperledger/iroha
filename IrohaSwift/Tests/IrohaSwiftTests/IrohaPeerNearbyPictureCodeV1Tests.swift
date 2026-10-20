@@ -5,12 +5,12 @@ import XCTest
 /// Nearby picture pairing: the shared target vectors, strict ASCII digits and the random grid.
 final class IrohaPeerNearbyPictureCodeV1Tests: XCTestCase {
     func testSharedVectorsPinTheTargetPicture() throws {
-        let pictures = try XCTUnwrap(irohaPeerAskFixtureV1()["nearby_picture"] as? [String: Any])
+        let pictures = try irohaPeerNearbyPictureFixtureV1()
         XCTAssertEqual(pictures["picture_count"] as? Int, IrohaPeerNearbyPictureCodeV1.pictureCount)
         XCTAssertEqual(pictures["grid_size"] as? Int, IrohaPeerNearbyPictureCodeV1.gridSize)
         XCTAssertEqual(IrohaPeerNearbyPictureCodeV1.pictureCount, 16)
         XCTAssertEqual(IrohaPeerNearbyPictureCodeV1.gridSize, 6)
-        let vectors = try irohaPeerAskVectorsV1("vectors", in: pictures)
+        let vectors = try XCTUnwrap(pictures["vectors"] as? [[String: Any]])
         XCTAssertEqual(vectors.count, 10)
         for vector in vectors {
             let digits = try XCTUnwrap(vector["digits"] as? String)
@@ -20,7 +20,7 @@ final class IrohaPeerNearbyPictureCodeV1Tests: XCTestCase {
     }
 
     func testOnlyFourToTwelveASCIIDigitsMakeAPicture() throws {
-        let pictures = try XCTUnwrap(irohaPeerAskFixtureV1()["nearby_picture"] as? [String: Any])
+        let pictures = try irohaPeerNearbyPictureFixtureV1()
         let invalid = try XCTUnwrap(pictures["invalid_digits"] as? [String])
         XCTAssertTrue(invalid.contains("\u{0661}\u{0662}\u{0663}\u{0664}"), "Arabic-Indic digits vector")
         let extra = ["１２３４", "１234", "+1234", "-1234", "1234 ", " 1234", "12\u{0}34", "123456789012\u{0}",
@@ -89,6 +89,25 @@ final class IrohaPeerNearbyPictureCodeV1Tests: XCTestCase {
             XCTAssertTrue((1_800...2_200).contains(count), "picture \(picture) count \(count)")
         }
     }
+}
+
+/// The picture-pairing vectors of `fixtures/kagemusha/nearby_picture_v1.json` that the Kotlin SDK
+/// asserts byte for byte too, found by walking up from the calling test file. The vectors are the
+/// file's `nearby_picture` object, or the file itself when it holds them at its root.
+private func irohaPeerNearbyPictureFixtureV1(filePath: String = #filePath) throws -> [String: Any] {
+    var directory = URL(fileURLWithPath: filePath).deletingLastPathComponent()
+    for _ in 0..<8 {
+        let file = directory.appendingPathComponent("fixtures/kagemusha/nearby_picture_v1.json")
+        if FileManager.default.fileExists(atPath: file.path) {
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+            )
+            if let version = object["fixture_version"] { XCTAssertEqual(version as? Int, 1) }
+            return object["nearby_picture"] as? [String: Any] ?? object
+        }
+        directory.deleteLastPathComponent()
+    }
+    throw CocoaError(.fileNoSuchFile)
 }
 
 /// SplitMix64: a deterministic test source, never used for real grids.

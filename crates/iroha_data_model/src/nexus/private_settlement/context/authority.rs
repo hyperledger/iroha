@@ -57,7 +57,7 @@ pub fn private_settlement_native_route_v1(
         .ok_or(PrivateSettlementValidationError::InvalidCommitteeAuthority)
 }
 
-/// Compare the complete ordered roster and PoPs against one committed lane record.
+/// Compare the complete ordered roster and proofs of possession against one committed lane record.
 ///
 /// Lifecycle of each Committee-role registry key must also be checked at the same height.
 /// # Errors

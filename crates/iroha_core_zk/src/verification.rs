@@ -1,4 +1,4 @@
-//! Purpose-bound verification of the actual compiled OpenVerify relations.
+//! Purpose-bound verification of the actual compiled `OpenVerify` relations.
 //!
 //! Backend names identify arithmetic engines, not application guarantees. The
 //! caller supplies the required relation; it is checked before cryptographic

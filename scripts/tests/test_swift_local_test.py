@@ -63,7 +63,7 @@ def test_full_suite_uses_only_fresh_admitted_artifact_and_rechecks_same_pin(monk
     assert swift == ["/xcode/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift", "test",
         "--package-path", str(root / "IrohaSwift"), "--configuration", "debug",
         "--disable-automatic-resolution", "--manifest-cache", "none",
-        "--scratch-path", str(root / "IrohaSwift/.build")]
+        "--scratch-path", str(run / "swift-build")]
     environment = calls[3][2]
     assert environment["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR"] == str(run / "artifact")
     assert environment["MOBILE_SDK_PYTHON_BINARY"] == config["python"]
@@ -112,7 +112,7 @@ def test_post_test_verification_does_not_repin_mutated_record(monkeypatch, recip
     assert after[-1] != runner.unit.digest(run / "artifact/producer-record.json")
 
 
-def test_repeated_runs_keep_dist_and_warm_swift_and_cargo_outputs(monkeypatch, recipe):
+def test_repeated_runs_preserve_old_outputs_but_use_fresh_swift_scratch(monkeypatch, recipe):
     root, target, config = recipe
     markers = [root / "dist/unchanged", root / "IrohaSwift/.build/unchanged", target / "unchanged"]
     for marker in markers:
@@ -123,8 +123,45 @@ def test_repeated_runs_keep_dist_and_warm_swift_and_cargo_outputs(monkeypatch, r
     second = runner.run_suite(root, target, None, config, {})
     assert first != second and first.exists() and second.exists()
     assert all(marker.read_bytes() == b"retained original" for marker in markers)
-    assert calls[3][1] == calls[8][1]
+    first_command, second_command = calls[3][1], calls[8][1]
+    first_scratch = Path(first_command[first_command.index("--scratch-path") + 1])
+    second_scratch = Path(second_command[second_command.index("--scratch-path") + 1])
+    assert first_scratch == first / "swift-build"
+    assert second_scratch == second / "swift-build"
+    assert first_scratch != second_scratch
+    assert first_scratch.stat().st_mode & 0o777 == 0o700
+    assert second_scratch.stat().st_mode & 0o777 == 0o700
+    assert first_command[:-1] == second_command[:-1]
     assert calls[3][2]["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR"] != calls[8][2]["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR"]
+
+
+def test_stale_embedded_resource_bundle_cannot_enter_current_swift_run(monkeypatch, recipe):
+    root, target, config = recipe
+    cached = root / "IrohaSwift/.build"
+    embedded = cached / "out/Products/Debug/IrohaSwiftTests.xctest/Contents/Resources"
+    old = embedded / "IrohaSwift_IrohaSwiftTests.bundle/Contents/Resources"
+    sibling = cached / "out/Products/Debug/IrohaSwift_IrohaSwiftTests.bundle/Contents/Resources"
+    old.mkdir(parents=True)
+    sibling.mkdir(parents=True)
+    (old / "existing-fixture.json").write_bytes(b"old embedded resource")
+    # Reproduce the observed divergent products: the current sibling has the
+    # checkpoint, but Bundle.module first selects the older embedded bundle.
+    checkpoint = "kagemusha-public-checkpoint49.norito"
+    (sibling / checkpoint).write_bytes(b"current sibling checkpoint")
+
+    def check_current_run(command, environment):
+        scratch = Path(command[command.index("--scratch-path") + 1])
+        assert scratch != cached, "old embedded bundle cannot enter current Swift run"
+        assert scratch.is_dir() and not any(scratch.iterdir())
+        assert scratch.parent == Path(environment["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR"]).parent
+        assert (old / "existing-fixture.json").read_bytes() == b"old embedded resource"
+        assert not (old / checkpoint).exists()
+        assert (sibling / checkpoint).read_bytes() == b"current sibling checkpoint"
+
+    calls = intercept_steps(monkeypatch, during_swift=check_current_run)
+    run = runner.run_suite(root, target, None, config, {})
+    assert calls[-1][0] == "verify-after.log"
+    assert (run / "swift-build").is_dir()
 
 
 def test_selected_sdk_and_deployment_target_replace_inherited_values_for_every_child(monkeypatch, recipe):

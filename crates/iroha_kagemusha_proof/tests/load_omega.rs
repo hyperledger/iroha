@@ -1,4 +1,4 @@
-//! Genuine four-stage native Load wrapped by the complete Omega predicate.
+//! Genuine single-terminal native Load wrapped by the complete Omega predicate.
 //! Bootstrap-only or two-terminal catalogs remain explicit component scopes;
 //! neither establishes the complete operation catalog or production byte gate.
 //! Run each ignored test separately with a fresh `KAGEMUSHA_LOAD_OUTPUT` directory.
@@ -21,7 +21,7 @@ mod load_objects;
 #[path = "common/ordinary_load_receipt.rs"]
 mod ordinary_load_receipt;
 
-/// Shared genuine Bootstrap predecessor and four-stage Load continuation fixtures.
+/// Shared genuine Bootstrap predecessor and single-terminal Load continuation fixtures.
 #[path = "common/proof_fixtures/a_load_recursive.rs"]
 pub mod load_chain;
 

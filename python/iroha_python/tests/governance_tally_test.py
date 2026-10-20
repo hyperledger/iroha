@@ -114,6 +114,7 @@ def client_for(response: TallyResponse, auth: ToriiCanonicalRequestAuth):
             successor_grace_secs=0,
             governance_grace_secs=0,
         ),
+        chain_discriminant=753,
     )
     return client, session
 

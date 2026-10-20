@@ -1,4 +1,4 @@
-//! Exact balance partitions and their five derived lookup indexes.
+//! Exact balance partitions, four derived membership indexes and asset counts.
 //!
 //! Holder membership is existential over the canonical account/definition
 //! partitions across the complete original images. A zero partition never removes another nonzero partition.
@@ -28,11 +28,11 @@ pub(in super::super) struct CheckedAssets<'world> {
     rows: CommittedStorageView<'world, AssetId, AssetValue>,
     definitions: CommittedStorageView<'world, AssetDefinitionId, AssetDefinition>,
     domains: CommittedStorageView<'world, DomainId, Domain>,
-    by_definition: CommittedStorageView<'world, AssetDefinitionId, BTreeSet<AssetId>>,
-    by_account: CommittedStorageView<'world, AccountId, BTreeSet<AssetId>>,
-    by_domain: CommittedStorageView<'world, DomainId, BTreeSet<AssetId>>,
-    holders: CommittedStorageView<'world, AssetDefinitionId, BTreeSet<AccountId>>,
-    nonzero: CommittedStorageView<'world, AssetDefinitionId, BTreeSet<AccountId>>,
+    by_definition: CommittedStorageView<'world, (AssetDefinitionId, AssetId), ()>,
+    by_domain: CommittedStorageView<'world, (DomainId, AssetId), ()>,
+    holders: CommittedStorageView<'world, (AssetDefinitionId, AccountId), ()>,
+    nonzero: CommittedStorageView<'world, (AssetDefinitionId, AccountId), ()>,
+    asset_counts: CommittedStorageView<'world, AssetDefinitionId, u64>,
 }
 
 impl<'world> CheckedAssets<'world> {
@@ -55,7 +55,6 @@ impl<'world> CheckedAssets<'world> {
             by_definition: world
                 .asset_definition_assets
                 .try_committed_view_nonblocking()?,
-            by_account: world.assets_by_account.try_committed_view_nonblocking()?,
             by_domain: world.assets_by_domain.try_committed_view_nonblocking()?,
             holders: world
                 .asset_definition_holders
@@ -63,16 +62,19 @@ impl<'world> CheckedAssets<'world> {
             nonzero: world
                 .asset_definition_nonzero_holders
                 .try_committed_view_nonblocking()?,
+            asset_counts: world
+                .asset_definition_asset_counts
+                .try_committed_view_nonblocking()?,
         };
         let result = validate_original_assets(
             &checked.rows,
             &checked.definitions,
             &checked.domains,
             &checked.by_definition,
-            &checked.by_account,
             &checked.by_domain,
             &checked.holders,
             &checked.nonzero,
+            &checked.asset_counts,
             &checked.homes,
             &checked.incarnations,
             max_work,
@@ -91,7 +93,7 @@ impl<'world> CheckedAssets<'world> {
         Ok(self)
     }
 
-    /// Borrow precisely the rows validated against all eight original sources.
+    /// Borrow precisely the rows validated against every original source.
     pub(in super::super) fn rows(&self) -> &CommittedStorageView<'world, AssetId, AssetValue> {
         &self.rows
     }
@@ -105,9 +107,6 @@ impl<'world> CheckedAssets<'world> {
         let by_definition = self
             .by_definition
             .try_matches_current(&self.world.asset_definition_assets);
-        let by_account = self
-            .by_account
-            .try_matches_current(&self.world.assets_by_account);
         let by_domain = self
             .by_domain
             .try_matches_current(&self.world.assets_by_domain);
@@ -117,6 +116,9 @@ impl<'world> CheckedAssets<'world> {
         let nonzero = self
             .nonzero
             .try_matches_current(&self.world.asset_definition_nonzero_holders);
+        let asset_counts = self
+            .asset_counts
+            .try_matches_current(&self.world.asset_definition_asset_counts);
         let homes = self
             .homes
             .try_matches_current(&self.world.asset_definition_direct_homes);
@@ -129,26 +131,26 @@ impl<'world> CheckedAssets<'world> {
         let definitions = definitions?;
         let domains = domains?;
         let by_definition = by_definition?;
-        let by_account = by_account?;
         let by_domain = by_domain?;
         let holders = holders?;
         let nonzero = nonzero?;
+        let asset_counts = asset_counts?;
         Ok(homes
             && incarnations
             && rows
             && definitions
             && domains
             && by_definition
-            && by_account
             && by_domain
             && holders
-            && nonzero)
+            && nonzero
+            && asset_counts)
     }
 }
 
-/// One Global/Single Ed25519/domain126 row and its five singleton indexes over
+/// One Global/Single Ed25519/domain126 row and its four singleton indexes and one count over
 /// both images. This local scheduling reference is not a validity/gas/row limit.
-pub(in crate::state) const ASSET_BALANCE_WORK_PER_ROW: u64 = 4146;
+pub(in crate::state) const ASSET_BALANCE_WORK_PER_ROW: u64 = 3566;
 
 struct AssetBalanceWork(u64);
 impl AssetBalanceWork {
@@ -166,6 +168,12 @@ impl AssetBalanceWork {
 }
 trait BalanceKey: mv::Key {
     fn prepay(&self, work: &mut AssetBalanceWork) -> Result<(), GroupedOwnershipError>;
+}
+impl<G: BalanceKey, K: BalanceKey> BalanceKey for (G, K) {
+    fn prepay(&self, work: &mut AssetBalanceWork) -> Result<(), GroupedOwnershipError> {
+        self.0.prepay(work)?;
+        self.1.prepay(work)
+    }
 }
 impl BalanceKey for AssetDefinitionId {
     fn prepay(&self, work: &mut AssetBalanceWork) -> Result<(), GroupedOwnershipError> {
@@ -258,52 +266,44 @@ fn lookup<'a, K: BalanceKey, V: mv::Value>(
     })?;
     Ok(found)
 }
-fn contains<K: BalanceKey>(
-    members: &BTreeSet<K>,
-    key: &K,
+fn contains<G: BalanceKey, K: BalanceKey>(
+    groups: &impl RawStorageImages<(G, K), ()>,
+    image: GroupImage,
+    group: &G,
+    member: &K,
     work: &mut AssetBalanceWork,
 ) -> Result<bool, GroupedOwnershipError> {
-    let mut members = members.iter();
     let mut found = false;
-    while let Some(candidate) = next_physical(&mut members, work)? {
-        found |= equal(key, candidate, work)?;
-    }
+    visit_original(
+        groups,
+        image,
+        work,
+        |(candidate_group, candidate_member), (), work| {
+            let group_matches = equal(group, candidate_group, work)?;
+            let member_matches = equal(member, candidate_member, work)?;
+            found |= group_matches && member_matches;
+            Ok(())
+        },
+    )?;
     Ok(found)
 }
+
 fn require_member<G: BalanceKey, K: BalanceKey>(
-    groups: &impl RawStorageImages<G, BTreeSet<K>>,
+    groups: &impl RawStorageImages<(G, K), ()>,
     image: GroupImage,
     group: &G,
     member: &K,
     index: &'static str,
     work: &mut AssetBalanceWork,
 ) -> Result<(), GroupedOwnershipError> {
-    if let Some(members) = lookup(groups, image, group, work)? {
-        if contains(members, member, work)? {
-            return Ok(());
-        }
+    if contains(groups, image, group, member, work)? {
+        return Ok(());
     }
     Err(GroupedOwnershipError::Corrupt {
         index,
         image,
         mismatch: GroupMismatch::MissingMember,
     })
-}
-fn nonempty<K>(
-    members: &BTreeSet<K>,
-    index: &'static str,
-    image: GroupImage,
-    work: &mut AssetBalanceWork,
-) -> Result<(), GroupedOwnershipError> {
-    work.prepay(1)?;
-    if members.is_empty() {
-        return Err(GroupedOwnershipError::Corrupt {
-            index,
-            image,
-            mismatch: GroupMismatch::EmptyGroup,
-        });
-    }
-    Ok(())
 }
 fn foreign(index: &'static str, image: GroupImage) -> GroupedOwnershipError {
     GroupedOwnershipError::Corrupt {
@@ -314,7 +314,7 @@ fn foreign(index: &'static str, image: GroupImage) -> GroupedOwnershipError {
 }
 fn validate_asset_group<G: BalanceKey>(
     rows: &impl RawStorageImages<AssetId, AssetValue>,
-    groups: &impl RawStorageImages<G, BTreeSet<AssetId>>,
+    groups: &impl RawStorageImages<(G, AssetId), ()>,
     index: &'static str,
     projection: impl Fn(&AssetId) -> &G,
     work: &mut AssetBalanceWork,
@@ -323,16 +323,9 @@ fn validate_asset_group<G: BalanceKey>(
         visit_original(rows, image, work, |id, _, work| {
             require_member(groups, image, projection(id), id, index, work)
         })?;
-        visit_original(groups, image, work, |group, members, work| {
-            nonempty(members, index, image, work)?;
-            let mut members = members.iter();
-            while let Some(id) = next_physical(&mut members, work)? {
-                let Some(_) = lookup(rows, image, id, work)? else {
-                    return Err(foreign(index, image));
-                };
-                if !equal(projection(id), group, work)? {
-                    return Err(foreign(index, image));
-                }
+        visit_original(groups, image, work, |(group, id), (), work| {
+            if lookup(rows, image, id, work)?.is_none() || !equal(projection(id), group, work)? {
+                return Err(foreign(index, image));
             }
             Ok(())
         })?;
@@ -366,35 +359,67 @@ fn has_partition(
 }
 fn validate_holder_group(
     rows: &impl RawStorageImages<AssetId, AssetValue>,
-    groups: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AccountId>>,
+    groups: &impl RawStorageImages<(AssetDefinitionId, AccountId), ()>,
     image: GroupImage,
     require_nonzero: bool,
     index: &'static str,
     work: &mut AssetBalanceWork,
 ) -> Result<(), GroupedOwnershipError> {
-    visit_original(groups, image, work, |definition, members, work| {
-        nonempty(members, index, image, work)?;
-        let mut members = members.iter();
-        while let Some(account) = next_physical(&mut members, work)? {
-            if !has_partition(rows, image, account, definition, require_nonzero, work)? {
-                return Err(foreign(index, image));
-            }
+    visit_original(groups, image, work, |(definition, account), (), work| {
+        if !has_partition(rows, image, account, definition, require_nonzero, work)? {
+            return Err(foreign(index, image));
         }
         Ok(())
     })
 }
-/// The sole balance/reference/five-index relation over sealed original images.
+/// Match every stored count against the original membership rows in both images.
+fn validate_asset_counts(
+    members: &impl RawStorageImages<(AssetDefinitionId, AssetId), ()>,
+    counts: &impl RawStorageImages<AssetDefinitionId, u64>,
+    image: GroupImage,
+    index: &'static str,
+    work: &mut AssetBalanceWork,
+) -> Result<(), GroupedOwnershipError> {
+    visit_original(members, image, work, |(definition, _), (), work| {
+        if lookup(counts, image, definition, work)?.is_none() {
+            return Err(GroupedOwnershipError::Corrupt {
+                index,
+                image,
+                mismatch: GroupMismatch::MissingMember,
+            });
+        }
+        Ok(())
+    })?;
+    visit_original(counts, image, work, |definition, count, work| {
+        let mut expected = 0_u64;
+        visit_original(members, image, work, |(candidate, _), (), work| {
+            if equal(candidate, definition, work)? {
+                expected = expected
+                    .checked_add(1)
+                    .ok_or(GroupedOwnershipError::WorkLimit)?;
+            }
+            Ok(())
+        })?;
+        work.prepay(1)?;
+        if expected == 0 || *count != expected {
+            return Err(foreign(index, image));
+        }
+        Ok(())
+    })
+}
+
+/// The sole balance/reference/index/count relation over sealed original images.
 /// Retain original phased precedence and every semantic source/index predicate.
 /// No account, embedded definition ID, quantity, permission or scope rule is added.
 pub(in crate::state) fn validate_original_assets(
     rows: &impl RawStorageImages<AssetId, AssetValue>,
     definitions: &impl RawStorageImages<AssetDefinitionId, AssetDefinition>,
     domains: &impl RawStorageImages<DomainId, Domain>,
-    by_definition: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AssetId>>,
-    by_account: &impl RawStorageImages<AccountId, BTreeSet<AssetId>>,
-    by_domain: &impl RawStorageImages<DomainId, BTreeSet<AssetId>>,
-    holders: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AccountId>>,
-    nonzero: &impl RawStorageImages<AssetDefinitionId, BTreeSet<AccountId>>,
+    by_definition: &impl RawStorageImages<(AssetDefinitionId, AssetId), ()>,
+    by_domain: &impl RawStorageImages<(DomainId, AssetId), ()>,
+    holders: &impl RawStorageImages<(AssetDefinitionId, AccountId), ()>,
+    nonzero: &impl RawStorageImages<(AssetDefinitionId, AccountId), ()>,
+    asset_counts: &impl RawStorageImages<AssetDefinitionId, u64>,
     homes: &impl RawStorageImages<AssetDefinitionId, AssetDefinitionDirectHomeV1>,
     incarnations: &impl RawStorageImages<AssetDefinitionId, AxtAssetIncarnationV1>,
     max_work: u64,
@@ -405,13 +430,6 @@ pub(in crate::state) fn validate_original_assets(
         by_definition,
         "world.asset_definition_assets",
         AssetId::definition,
-        &mut work,
-    )?;
-    validate_asset_group(
-        rows,
-        by_account,
-        "world.assets_by_account",
-        AssetId::account,
         &mut work,
     )?;
     {
@@ -483,24 +501,20 @@ pub(in crate::state) fn validate_original_assets(
             }
             Ok(())
         })?;
-        visit_original(by_domain, image, &mut work, |domain, members, work| {
-            nonempty(members, "world.assets_by_domain", image, work)?;
-            let mut members = members.iter();
-            while let Some(id) = next_physical(&mut members, work)? {
-                if lookup(rows, image, id, work)?.is_none() {
-                    return Err(foreign("world.assets_by_domain", image));
-                }
-                let Some(definition) = lookup(definitions, image, id.definition(), work)? else {
-                    return Err(foreign("world.assets_by_domain", image));
-                };
-                work.prepay(1)?;
-                let matching = match definition.owning_domain() {
-                    Some(actual) => equal(actual, domain, work)?,
-                    None => false,
-                };
-                if !matching {
-                    return Err(foreign("world.assets_by_domain", image));
-                }
+        visit_original(by_domain, image, &mut work, |(domain, id), (), work| {
+            if lookup(rows, image, id, work)?.is_none() {
+                return Err(foreign("world.assets_by_domain", image));
+            }
+            let Some(definition) = lookup(definitions, image, id.definition(), work)? else {
+                return Err(foreign("world.assets_by_domain", image));
+            };
+            work.prepay(1)?;
+            let matching = match definition.owning_domain() {
+                Some(actual) => equal(actual, domain, work)?,
+                None => false,
+            };
+            if !matching {
+                return Err(foreign("world.assets_by_domain", image));
             }
             Ok(())
         })?;
@@ -518,6 +532,13 @@ pub(in crate::state) fn validate_original_assets(
             image,
             true,
             "world.asset_definition_nonzero_holders",
+            &mut work,
+        )?;
+        validate_asset_counts(
+            by_definition,
+            asset_counts,
+            image,
+            "world.asset_definition_asset_counts",
             &mut work,
         )?;
     }

@@ -58,6 +58,9 @@ fn network_index_block_at(height: u64, inputs: Vec<TransactionEntrypoint>) -> Si
             TransactionEntrypoint::SealedReveal(reveal) => {
                 builder.push_sealed_transaction_reveal(reveal)
             }
+            TransactionEntrypoint::AnonymousBallot(envelope) => {
+                builder.push_anonymous_ballot(envelope)
+            }
             TransactionEntrypoint::SealedCommitment(commitment) => {
                 builder.push_sealed_transaction_commitment(commitment)
             }

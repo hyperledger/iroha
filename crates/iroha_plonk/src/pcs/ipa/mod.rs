@@ -30,7 +30,7 @@
 //! never rejects a valid proof (S10).
 
 use core::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use ff::Field;
 use iroha_pasta::{
@@ -221,10 +221,14 @@ pub struct PinnedParams<C: PastaCurve> {
     public_columns: Arc<Mutex<public_column_cache::PublicColumnCache<C>>>,
     generator_prefix_sums: Arc<generator_prefix::GeneratorPrefixSums<C>>,
     verification_memo: verification_memo::SharedVerificationMemo<C>,
+    // SHA-256 of `params.to_bytes()`, computed on first use and shared with clones. The
+    // parameters never change after construction, so the value is exactly what every call
+    // would recompute; it is a pure function of `params`, not an identity input.
+    digest: Arc<OnceLock<[u8; 32]>>,
 }
 
-// Runtime memos of already computed public points and accepted verifications
-// are not parameter identity.
+// Runtime memos of already computed public points, accepted verifications and the
+// parameter digest are not parameter identity.
 impl<C: PastaCurve> PartialEq for PinnedParams<C> {
     fn eq(&self, other: &Self) -> bool {
         self.params == other.params && self.curve == other.curve
@@ -249,6 +253,7 @@ impl<C: PastaCurve> PinnedParams<C> {
             public_columns: Arc::default(),
             generator_prefix_sums: Arc::default(),
             verification_memo: Arc::default(),
+            digest: Arc::default(),
         })
     }
 
@@ -280,6 +285,7 @@ impl<C: PastaCurve> PinnedParams<C> {
             public_columns: Arc::default(),
             generator_prefix_sums: Arc::default(),
             verification_memo: Arc::default(),
+            digest: Arc::default(),
         })
     }
 
@@ -302,9 +308,14 @@ impl<C: PastaCurve> PinnedParams<C> {
     }
 
     /// SHA-256 of the parameter bytes (the `params_digest` of spec section 3).
+    ///
+    /// Encoding all `2^k` generators dominates this call, and fold plans, transcripts and
+    /// prefix tables ask for it repeatedly. It is computed once per owner and its clones.
     #[must_use]
     pub fn digest(&self) -> [u8; 32] {
-        Sha256::digest(self.params.to_bytes()).into()
+        *self
+            .digest
+            .get_or_init(|| Sha256::digest(self.params.to_bytes()).into())
     }
 
     /// Requires at least `2^k` generators.
@@ -415,6 +426,28 @@ mod tests {
     fn polynomial_evaluation_tree_matches_horner_on_both_fields() {
         check_polynomial_evaluation::<Fp>();
         check_polynomial_evaluation::<Fq>();
+    }
+
+    #[test]
+    fn parameter_digest_is_computed_once_and_equals_the_encoding_hash() {
+        fn check<C: PastaCurve>() {
+            let params = PinnedParams::<C>::derive(4).unwrap();
+            let encoded: [u8; 32] = Sha256::digest(params.params().to_bytes()).into();
+            assert!(params.digest.get().is_none());
+            assert_eq!(params.digest(), encoded);
+            assert_eq!(params.digest(), encoded);
+            // Clones share the one computed value with the other runtime memos.
+            let clone = params.clone();
+            assert!(Arc::ptr_eq(&params.digest, &clone.digest));
+            assert_eq!(clone.digest.get(), Some(&encoded));
+            // An independently derived owner computes its own equal value.
+            let independent = PinnedParams::<C>::derive(4).unwrap();
+            assert!(!Arc::ptr_eq(&params.digest, &independent.digest));
+            assert_eq!(independent.digest(), encoded);
+            assert_ne!(PinnedParams::<C>::derive(5).unwrap().digest(), encoded);
+        }
+        check::<Ep>();
+        check::<Eq>();
     }
 
     #[test]

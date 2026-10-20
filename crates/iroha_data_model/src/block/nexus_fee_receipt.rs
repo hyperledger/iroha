@@ -27,7 +27,8 @@ impl NexusFeeReceipt {
         let transaction = match input {
             TransactionEntrypoint::External(transaction) => transaction,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => {
                 return Err("Nexus receipt source has no executed signed payload".into());
             }
         };

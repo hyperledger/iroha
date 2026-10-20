@@ -1607,11 +1607,7 @@ impl Execute for Unregister<Account> {
                 )
                 .into());
         }
-        if let Some(owned_definition_id) = state_transaction
-            .world
-            .asset_definitions_by_owner
-            .get(&account_id)
-            .and_then(|definitions| definitions.iter().next())
+        if let Some(owned_definition_id) = crate::state::range_bounds::index_members(&state_transaction.world.asset_definitions_by_owner, &account_id).next()
         {
             return Err(InstructionExecutionError::InvariantViolation(
                     format!(

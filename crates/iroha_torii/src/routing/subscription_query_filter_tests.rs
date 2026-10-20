@@ -106,7 +106,11 @@ fn state_with_asset_definitions_and_nfts(
         Account::new(provider_account.account().clone()).build(&provider),
         Account::new(subscriber_account.account().clone()).build(&subscriber),
     ];
-    let world = World::with_assets([domain], accounts, asset_definitions, [], nfts);
+    let mut world = World::with_assets([domain], accounts, asset_definitions, [], nfts);
+    crate::test_utils::bind_fixture_root(
+        &mut world,
+        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+    );
     Arc::new(CoreState::new_for_testing(
         world,
         Kura::blank_kura_for_testing(),

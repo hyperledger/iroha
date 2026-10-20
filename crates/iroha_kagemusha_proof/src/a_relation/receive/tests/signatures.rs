@@ -375,7 +375,7 @@ fn actual_renewed_merged_leaf_preserves_every_signature() {
         let signature = decode(row["signature_hex"].as_str().unwrap());
         let key = point(signer);
         SignatureWitness {
-            digest: p_bytes_native(kind.signing_domain(), &body),
+            digest: signed_message_native(kind, &body),
             key: [key.x, key.y],
             signature: [
                 scalar_words(&signature[..32]),

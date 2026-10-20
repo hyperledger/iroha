@@ -7,10 +7,11 @@
 //! Ed25519 signature that release validation verifies against the owner's separately
 //! pinned qualification key. No environment variable, Cargo feature, node-local setting
 //! or governance instruction asserts qualification, and engineering completion, local
-//! tests or this module never constitute it. While the constant is `None`, Core must
-//! refuse binding attempt creation, binding registration and sealing, anonymous-ballot
-//! admission and inclusion, and binding certification and enactment; that enforcement is
-//! wired by the Core integration.
+//! tests or this module never constitute it. The constant records production
+//! qualification; it does not prohibit engineering testing of the actual candidate.
+//! Core integration is pending, including production enforcement at binding attempt
+//! creation, registration, sealing, admission, inclusion, certification and enactment.
+//! The local protocol tests run without claiming this record exists.
 
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
@@ -435,7 +436,7 @@ mod tests {
 
     #[test]
     fn every_tuple_field_and_the_service_latency_must_match_the_candidate() {
-        let changes: [TupleChange; 9] = [
+        let mutations: [TupleChange; 9] = [
             ("queries_log2", |t| t.queries_log2 = 65),
             ("attack_gates_log2", |t| t.attack_gates_log2 = 127),
             ("archive_years", |t| t.archive_years = 101),
@@ -450,10 +451,10 @@ mod tests {
                 t.statistical_budget_neg_log2 = 127;
             }),
         ];
-        for (field, change) in changes {
-            let mut changed = record();
-            change(&mut changed.security_contract.tuple);
-            assert!(!changed.matches_compiled_candidate(), "{field}");
+        for (field, mutate) in mutations {
+            let mut mutated = record();
+            mutate(&mut mutated.security_contract.tuple);
+            assert!(!mutated.matches_compiled_candidate(), "{field}");
         }
         for (latency, accepted) in [
             (0, false),
@@ -461,14 +462,14 @@ mod tests {
             (30 * 86_400_000, true),
             (u64::MAX, false),
         ] {
-            let mut changed = record();
-            changed.service_contract = Some(BallotServiceContractV1 {
+            let mut serviced = record();
+            serviced.service_contract = Some(BallotServiceContractV1 {
                 statement_digest: Digest512::new([5; 64]),
                 attempt_latency_ms: latency,
             });
-            assert_eq!(changed.matches_compiled_candidate(), accepted, "{latency}");
+            assert_eq!(serviced.matches_compiled_candidate(), accepted, "{latency}");
             assert_eq!(
-                changed
+                serviced
                     .service_contract
                     .is_some_and(|service| service.has_finite_positive_latency()),
                 accepted

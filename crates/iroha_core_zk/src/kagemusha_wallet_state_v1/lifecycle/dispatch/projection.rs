@@ -17,9 +17,10 @@ pub struct CreditProjectionV1 {
 }
 impl CreditProjectionV1 {
     /// Fixed foreign projection: LE16 version, evidence (1 unfolded/2 credited/3 burned),
-    /// Archive (0 receiver/1 awaiting fold/2 removed/3 retained), core-pending byte,
-    /// three zero bytes, credit, Payment digest, LE128 amount, LE32 original length and
-    /// exact native Credited original (receiver only). This is not a wallet wire message.
+    /// Archive (0 receiver/1 awaiting fold/2 removed/3 retained/4 verified, not archived),
+    /// core-pending byte, three zero bytes, credit, Payment digest, LE128 amount, LE32
+    /// original length and exact native Credited original (receiver only). This is not a
+    /// wallet wire message.
     #[must_use]
     pub fn bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(92 + self.credited.len());
@@ -81,7 +82,33 @@ fn pending_member(
     }
 }
 
+fn outgoing_descriptor(
+    credit_id: [u8; 32],
+    request: &KagemushaWalletRequestV1,
+) -> KagemushaWalletPendingOutgoingLeafV1 {
+    KagemushaWalletPendingOutgoingLeafV1 {
+        credit_id,
+        receiver_wallet_id: request.body.receiver_wallet_id,
+        send_ordinal: request.body.send_ordinal,
+        amount: request.body.amount,
+        fee: request.body.fee,
+        request_digest: request.request_digest(),
+    }
+}
+
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    /// Membership of the Send's descriptor in the current head's core pending-outgoing map.
+    fn core_pending(
+        &mut self,
+        manifest: &manifest::Manifest,
+        sequence: u128,
+        descriptor: &KagemushaWalletPendingOutgoingLeafV1,
+    ) -> Result<bool, Error> {
+        let current = self.indexed_step(manifest, sequence)?;
+        let source = self.source_custody(manifest, &current)?;
+        pending_member(source.maps.pending(), &mut self.archive, descriptor)
+    }
+
     fn projection_unchanged(
         &mut self,
         snapshot: &Snapshot,
@@ -267,17 +294,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         let evidence: KagemushaWalletCreditedV1 = archive::decode(original)?;
         self.proofs.verify_credited(&evidence, &request, &payment)?;
-        let descriptor = KagemushaWalletPendingOutgoingLeafV1 {
-            credit_id: identity.credit_id,
-            receiver_wallet_id: request.body.receiver_wallet_id,
-            send_ordinal: request.body.send_ordinal,
-            amount: request.body.amount,
-            fee: request.body.fee,
-            request_digest: request.request_digest(),
-        };
-        let current = self.indexed_step(&manifest, before.sequence)?;
-        let source = self.source_custody(&manifest, &current)?;
-        let core_pending = pending_member(source.maps.pending(), &mut self.archive, &descriptor)?;
+        let descriptor = outgoing_descriptor(identity.credit_id, &request);
+        let core_pending = self.core_pending(&manifest, before.sequence, &descriptor)?;
         let archive = if let Some(folded) = manifest
             .folded
             .filter(|folded| *folded >= package.statement.sequence)
@@ -310,6 +328,65 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         Ok(CreditProjectionV1 {
             evidence: evidence_state(&evidence),
             archive,
+            core_pending,
+            credit: identity.credit_id,
+            payment: identity.payment,
+            amount: request.body.amount,
+            credited: Vec::new(),
+            credited_len: 0,
+        })
+    }
+
+    /// Verify exact Credited evidence for one committed local Send before any Archive, with
+    /// the same Send binding and installed verifier as Archive and the anchored projection.
+    /// It selects, proves and signs nothing and prepares no Archive, so the Send's fold keeps
+    /// running and the Archive can follow later with the same original. Like every
+    /// projection, its reads may finish an interrupted tail index or restore a redundant
+    /// archive copy. A completed Archive of this original is projected through its anchor.
+    /// # Errors
+    /// Pending custody or Archive, foreign or incomplete Send, invalid evidence or proofs,
+    /// unavailable maps, a pruned or lost Archive outcome and changed source never become a
+    /// positive delivery verdict.
+    pub fn verified_delivery_projection(
+        &mut self,
+        send: &[u8; 32],
+        credited: &[u8],
+    ) -> Result<CreditProjectionV1, Error> {
+        let before = self.snapshot()?;
+        let intent = self.bound_archive_intent(send, credited)?;
+        match self.retry_request(&intent.request_id())? {
+            RequestStatusV1::Outcome(Completion::Complete(_)) => {
+                return self.delivery_credit_projection(send, credited, &[]);
+            }
+            // An Archive Advance in flight is reconciled by its own retry, never projected.
+            RequestStatusV1::Outcome(Completion::Pending) => return Err(Error::Pending),
+            RequestStatusV1::Unknown
+            | RequestStatusV1::Preparing
+            | RequestStatusV1::Outcome(Completion::NotPerformed(_)) => {}
+            RequestStatusV1::Outcome(_) => {
+                return Err(Error::Invalid("delivery Archive outcome is not retained"));
+            }
+        }
+        let (selected, manifest) = self.manifest()?;
+        let held = intent
+            .archive_request()
+            .ok_or(Error::WitnessLost("delivery intent"))?;
+        let (scheme, _) = self.proofs.ledger_scope()?;
+        intent.validate(&scheme)?;
+        let request: KagemushaWalletRequestV1 = archive::decode(&held.request)?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(&held.payment, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
+        let identity = valid(payment.digests())?;
+        let evidence: KagemushaWalletCreditedV1 = archive::decode(credited)?;
+        self.proofs.verify_credited(&evidence, &request, &payment)?;
+        let descriptor = outgoing_descriptor(identity.credit_id, &request);
+        let core_pending = self.core_pending(&manifest, before.sequence, &descriptor)?;
+        self.projection_unchanged(&before, selected)?;
+        Ok(CreditProjectionV1 {
+            evidence: evidence_state(&evidence),
+            archive: 4,
             core_pending,
             credit: identity.credit_id,
             payment: identity.payment,

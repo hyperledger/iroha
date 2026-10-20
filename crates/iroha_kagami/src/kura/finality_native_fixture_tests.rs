@@ -12,7 +12,7 @@ use iroha_core::state::WorldReadOnly;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     account::AccountId,
-    asset::{AssetDefinitionId, AssetId},
+    asset::AssetId,
     block::proofs::TrustedBlockProofAnchor,
     isi::Log,
     sumeragi_finality::{

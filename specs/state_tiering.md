@@ -56,6 +56,27 @@ fast transaction validation.
   pruning only targets those canonical snapshot directories so auxiliary folders
   such as `lanes/` and `retired/` remain intact.
 
+## Derived membership indexes
+
+The first-release World uses `(key, member) -> ()` rows for proof status and
+tag membership, account scope membership, asset definition domain/owner and
+holder indexes, asset definition/domain membership, NFT owner/domain,
+RWA owner/status/frozen state, and escrow seller/buyer/status. The redundant
+`assets_by_account` table is removed; the canonical `assets` account range
+owns that lookup. `asset_definition_asset_counts` and
+`account_scope_account_counts` retain only the small counts used by query
+planning and telemetry.
+
+Membership insertion/removal changes a B+tree path and bounded leaves instead
+of cloning a group-sized collection on each transaction's first write.
+Iteration seeks the prefix and streams members in canonical order. Restore
+reconstructs both current and predecessor membership images and counts from
+their authoritative source histories. The authority registry checks these
+derivations; the World accumulator excludes them from canonical state roots.
+Proof-tag cold-tier entries use the tuple key and unit value. The derived
+proof-tag index is omitted from World JSON snapshots and rebuilt from
+`proof_tags`; the old grouped snapshot field is rejected.
+
 ## Snapshot authenticity & recovery
 
 - Every state snapshot now ships with two sidecar files in the snapshot directory:

@@ -201,7 +201,7 @@ fn original_native_frame_body_success_notifies_after_storage_fences() {
         let chain = fixture(evicted);
         let original = chain.committed(2);
         let wire = original.block().encode_wire().unwrap();
-        let source = chain
+        let mut source = chain
             .kura()
             .native_frame_read(2, original.block_hash())
             .unwrap()
@@ -226,7 +226,7 @@ fn original_native_frame_body_refusal_notifies_after_storage_fences() {
         let chain = fixture(evicted);
         let original = chain.committed(2);
         let wire = original.block().encode_wire().unwrap();
-        let source = chain
+        let mut source = chain
             .kura()
             .native_frame_read(2, original.block_hash())
             .unwrap()
@@ -261,7 +261,7 @@ fn original_native_frame_partial_refusals_retain_exact_storage_errors() {
         for stage in 1..=2 {
             let chain = fixture(false);
             let original = chain.committed(2);
-            let source = chain
+            let mut source = chain
                 .kura()
                 .native_frame_read(2, original.block_hash())
                 .unwrap()
@@ -304,7 +304,7 @@ fn original_native_frame_unwind_notifies_after_each_acquired_prefix() {
         for stage in 1..=2 {
             let chain = fixture(false);
             let original = chain.committed(2);
-            let source = chain
+            let mut source = chain
                 .kura()
                 .native_frame_read(2, original.block_hash())
                 .unwrap()

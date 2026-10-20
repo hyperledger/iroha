@@ -7,7 +7,9 @@ use crate::{
     },
     network_profiles, workspace_root,
 };
-use iroha_deploy::managed::{NativeBundleLayout, admit_native_build_input, macos_info_plist};
+use iroha_deploy::managed::{
+    MOCHI_ICON_FILENAME, NativeBundleLayout, admit_native_build_input, macos_info_plist,
+};
 use iroha_fs::{
     FileSnapshot, OwnerDirectory, PrivateDirectory, PublishMode, ReaderDirectory,
     RetainedBuildInput, RetainedFile, SealedPrivateFile,
@@ -34,6 +36,7 @@ mod network_profile_tests;
 use iroha_deploy::bootstrap::InstalledNetworkProfiles;
 pub(crate) mod latency;
 const MOCHI_UI_MANIFEST_REL: &str = "mochi/mochi-ui-egui/Cargo.toml";
+const MOCHI_ICON_SOURCE_REL: &str = "mochi/assets/mochi-icon.icns";
 const MOCHI_BIN_NAME: &str = "mochi";
 const MOCHI_HELP_HEADER: &str = "Usage: mochi [--workspace <DIRECTORY>]";
 const RUNTIME_BINARIES: [&str; 3] = ["mochi", "kagami", "iroha3d"];
@@ -252,11 +255,9 @@ fn publish_bundle(
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
     ))?;
     let mut custody = copy_runtime_binaries(programs, staging.path())?;
-    if let Some((input, output)) = stage_application_metadata(staging.path())? {
+    for (input, relative, output) in stage_application_metadata(staging.path())? {
         custody.inputs.push(input);
-        custody
-            .outputs
-            .push((PathBuf::from("Mochi.app/Contents/Info.plist"), output));
+        custody.outputs.push((relative, output));
     }
     if let Some(profiles) = profiles {
         custody.outputs.push((
@@ -425,6 +426,7 @@ fn sync_tree(root: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// Bounds every packaged non-program file, including the plist and the committed macOS icon.
 const MAX_BUNDLE_TEXT_BYTES: u64 = 1024 * 1024;
 
 fn read_bundle_source(path: &Path) -> Result<(Vec<u8>, RetainedImage), Box<dyn Error>> {
@@ -469,11 +471,13 @@ fn load_network_profiles(
     network_profiles::select(&workspace_root(), "debug", source)
 }
 
+// The macOS plist and the committed icon it names, each as (source, relative path, output).
+// Linux and Windows packages carry no application metadata.
 fn stage_application_metadata(
     bundle_root: &Path,
-) -> Result<Option<(RetainedImage, RetainedImage)>, Box<dyn Error>> {
+) -> Result<Vec<(RetainedImage, PathBuf, RetainedImage)>, Box<dyn Error>> {
     if NativeBundleLayout::current() != NativeBundleLayout::MacOs {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let (source, input) = read_bundle_source(&mochi_ui_manifest_path())?;
     let manifest: toml::Value = toml::from_str(std::str::from_utf8(&source)?)?;
@@ -483,11 +487,20 @@ fn stage_application_metadata(
         .and_then(toml::Value::as_str)
         .ok_or("Mochi package has no explicit release version")?;
     OwnerDirectory::open_or_create(NativeBundleLayout::MacOs.resources_directory(bundle_root))?;
+    let plist = PathBuf::from("Mochi.app/Contents/Info.plist");
     let output = write_bundle_file(
-        &bundle_root.join("Mochi.app/Contents/Info.plist"),
+        &bundle_root.join(&plist),
         macos_info_plist(version)?.as_bytes(),
     )?;
-    Ok(Some((input, output)))
+    let icon = NativeBundleLayout::MacOs
+        .resources_directory(Path::new(""))
+        .join(MOCHI_ICON_FILENAME);
+    let (icon_input, icon_output) =
+        copy_into_bundle(MOCHI_ICON_SOURCE_REL, &bundle_root.join(&icon))?;
+    Ok(vec![
+        (input, plist, output),
+        (icon_input, icon, icon_output),
+    ])
 }
 
 #[cfg(test)]
@@ -1285,9 +1298,10 @@ fn create_archive(
 #[cfg(test)]
 mod tests {
     use super::{
-        MOCHI_BIN_NAME, MOCHI_HELP_HEADER, MOCHI_UI_MANIFEST_REL, RUNTIME_BINARIES,
-        copy_runtime_binaries, create_archive, generate_manifest_json, mochi_ui_manifest_path,
-        runtime_build_args, sha256_hex, stage_application_metadata, validate_mochi_help_output,
+        MAX_BUNDLE_TEXT_BYTES, MOCHI_BIN_NAME, MOCHI_HELP_HEADER, MOCHI_ICON_SOURCE_REL,
+        MOCHI_UI_MANIFEST_REL, RUNTIME_BINARIES, copy_runtime_binaries, create_archive,
+        generate_manifest_json, mochi_ui_manifest_path, runtime_build_args, sha256_hex,
+        stage_application_metadata, validate_mochi_help_output,
     };
     use iroha_deploy::{
         bootstrap::InstalledNetworkProfiles,
@@ -1722,6 +1736,32 @@ mod tests {
         assert!(!candidate.exists());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn changed_staged_mochi_icon_refuses_final_publication() {
+        let root = tempdir().unwrap();
+        let root_path = fs::canonicalize(root.path()).unwrap();
+        let programs = native_sources(&root_path.join("source"));
+        let candidate = root_path.join("changed-icon");
+        let mut changed = false;
+        assert!(
+            super::publish_bundle(&programs, &candidate, "debug", None, &mut |staging| {
+                fs::write(
+                    staging.join("Mochi.app/Contents/Resources/Mochi.icns"),
+                    b"changed after copy",
+                )?;
+                changed = true;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert!(
+            changed,
+            "the staged icon must be replaceable to exercise custody"
+        );
+        assert!(!candidate.exists());
+    }
+
     #[cfg(unix)]
     #[test]
     fn published_mochi_custody_refuses_equal_byte_replacement_before_result() {
@@ -1925,7 +1965,13 @@ mod tests {
                 fs::read_to_string(root.path().join("Mochi.app/Contents/Info.plist")).unwrap(),
                 expected
             );
-            assert_eq!(files.len(), 1);
+            assert!(expected.contains("<key>CFBundleIconFile</key><string>Mochi.icns</string>"));
+            let icon = fs::read(crate::workspace_root().join(MOCHI_ICON_SOURCE_REL)).unwrap();
+            assert_eq!(
+                fs::read(root.path().join("Mochi.app/Contents/Resources/Mochi.icns")).unwrap(),
+                icon
+            );
+            assert_eq!(files.len(), 2);
             assert_eq!(
                 files[0]["path"].as_str(),
                 Some("Mochi.app/Contents/Info.plist")
@@ -1933,6 +1979,14 @@ mod tests {
             assert_eq!(
                 files[0]["sha256"].as_str(),
                 Some(sha256_hex(expected.as_bytes()).as_str())
+            );
+            assert_eq!(
+                files[1]["path"].as_str(),
+                Some("Mochi.app/Contents/Resources/Mochi.icns")
+            );
+            assert_eq!(
+                files[1]["sha256"].as_str(),
+                Some(sha256_hex(&icon).as_str())
             );
             assert!(
                 NativeBundleLayout::MacOs
@@ -1942,7 +1996,39 @@ mod tests {
             assert!(!root.path().join("bin").exists());
         } else {
             assert!(files.is_empty());
+            assert!(!root.path().join("Mochi.app").exists());
         }
+    }
+
+    #[test]
+    fn committed_mochi_icon_is_a_complete_icns_within_the_packaging_bound() {
+        let icon = fs::read(crate::workspace_root().join(MOCHI_ICON_SOURCE_REL)).unwrap();
+        assert!(icon.len() as u64 <= MAX_BUNDLE_TEXT_BYTES);
+        assert_eq!(&icon[..4], b"icns");
+        assert_eq!(
+            usize::try_from(u32::from_be_bytes(icon[4..8].try_into().unwrap())).unwrap(),
+            icon.len()
+        );
+        let mut kinds = Vec::new();
+        let mut offset = 8;
+        while offset < icon.len() {
+            let length = usize::try_from(u32::from_be_bytes(
+                icon[offset + 4..offset + 8].try_into().unwrap(),
+            ))
+            .unwrap();
+            assert!(length > 8 && offset + length <= icon.len());
+            kinds.push(<[u8; 4]>::try_from(&icon[offset..offset + 4]).unwrap());
+            offset += length;
+        }
+        // 16, 32, 128, 256 and 512 points at 1x and 2x; `iconutil` may store 16 and 32 pixel
+        // images as ARGB (`ic04`, `ic05`) or PNG (`icp4`, `icp5`).
+        for kind in [
+            b"ic07", b"ic08", b"ic09", b"ic10", b"ic11", b"ic12", b"ic13", b"ic14",
+        ] {
+            assert!(kinds.contains(kind), "{}", String::from_utf8_lossy(kind));
+        }
+        assert!(kinds.contains(b"ic04") || kinds.contains(b"icp4"));
+        assert!(kinds.contains(b"ic05") || kinds.contains(b"icp5"));
     }
 
     #[test]
@@ -2007,7 +2093,10 @@ mod tests {
             .map(|entry| entry["path"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(names.len(), if cfg!(target_os = "macos") { 7 } else { 6 });
+        assert_eq!(names.len(), if cfg!(target_os = "macos") { 8 } else { 6 });
+        if cfg!(target_os = "macos") {
+            assert!(names.contains(&"Mochi.app/Contents/Resources/Mochi.icns"));
+        }
         let runtime = iroha_deploy::managed::InstalledRuntime::from_directory(
             &NativeBundleLayout::current().runtime_directory(&moved),
         )

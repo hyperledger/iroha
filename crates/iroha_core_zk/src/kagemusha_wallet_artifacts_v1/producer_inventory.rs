@@ -185,7 +185,7 @@ pub struct OperationV1 {
     pub own_class: Vec<u8>,
     /// Ordered incoming class selectors, empty exactly when no incoming sigma exists.
     pub incoming_class: Vec<u8>,
-    /// Exact canonical Fp words of the reconstructed native ContextPlan schema.
+    /// Exact canonical Fp words of the reconstructed native `ContextPlan` schema.
     /// The source importer must compare the whole schema, not only its length.
     pub context: Vec<[u8; 32]>,
     /// Q originals, in the operation's exact Q order.

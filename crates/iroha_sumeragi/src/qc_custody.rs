@@ -10,13 +10,13 @@ use crate::{
 };
 use iroha_allocation::{
     AllocationBudget, AllocationCharge, AllocationRefusal, ChargedBuffer, ChargedBufferError,
-    ChargedBufferFromChargeError, ChargedShared, PrepaidBufferError, PrepaidSharedError,
-    ReservedChargedShared, RetainedPayload, RetainedPayloadError,
+    ChargedBufferFromChargeError, ChargedShared, ReservedChargedShared, RetainedPayload,
+    RetainedPayloadError, SharedFromChargeError,
 };
 use norito::core::{
     CanonicalField, DecodeField, DecodeFromSlice, DecodeIntoError, DecodeLimits,
-    DecodeRecordFields, PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace,
-    PreparedRecordDestination, SequenceSpan, SerializePayload,
+    DecodeRecordFields, PreparedDecodeError, PreparedDecodeWorkspace,
+    PreparedDecodeWorkspaceConstruction, PreparedRecordDestination, SequenceSpan, SerializePayload,
 };
 use std::{alloc::Layout, fmt};
 mod inline;
@@ -26,12 +26,10 @@ mod inline;
 pub enum QcCustodyError {
     /// The same actual finite pool refused fixed control prepayment.
     Admission(AllocationRefusal),
-    /// Physical construction of original decoder controls failed.
-    Scope(PreparedDecodeScopeError),
-    /// Physical prepaid source-independent control or ledger construction failed.
-    Control(PrepaidSharedError),
-    /// Physical prepaid ledger construction failed.
-    Ledger(PrepaidBufferError),
+    /// Physical construction refused an original retained ledger charge.
+    LedgerBacking(ChargedBufferFromChargeError),
+    /// Physical construction refused an original retained root or counter charge.
+    ControlBacking(SharedFromChargeError),
     /// The original codec, logical scope or bitmap backing refused the full field walk.
     Decode(PreparedDecodeError<QcFieldError>),
     /// Complete canonical framing succeeded, then the original structural validator rejected.
@@ -47,9 +45,8 @@ impl fmt::Display for QcCustodyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Admission(e) => e.fmt(f),
-            Self::Scope(e) => e.fmt(f),
-            Self::Control(e) => e.fmt(f),
-            Self::Ledger(e) => e.fmt(f),
+            Self::LedgerBacking(e) => e.fmt(f),
+            Self::ControlBacking(e) => e.fmt(f),
             Self::Decode(e) => e.fmt(f),
             Self::Structural(e) => e.fmt(f),
             Self::Source => f.write_str("QC custody source or original finite pool changed"),
@@ -64,9 +61,8 @@ impl std::error::Error for QcCustodyError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Admission(original) => Some(original),
-            Self::Scope(original) => Some(original),
-            Self::Control(original) => Some(original),
-            Self::Ledger(original) => Some(original),
+            Self::LedgerBacking(original) => Some(original),
+            Self::ControlBacking(original) => Some(original),
             Self::Decode(original) => Some(original),
             Self::Structural(original) => Some(original),
             Self::Retention(original) => Some(original),
@@ -108,7 +104,7 @@ impl std::error::Error for QcFieldError {
 // Bitmap Vec before refunding its backing or original ledger control.
 pub(crate) struct QcFields {
     payload: Qc,
-    ledger: ChargedBuffer<AllocationCharge>,
+    ledger: Option<ChargedBuffer<AllocationCharge>>,
     bitmap: QcBitmapAllocation,
     pool: AllocationBudget,
 }
@@ -138,10 +134,10 @@ pub(crate) fn empty_qc() -> Qc {
     }
 }
 impl QcFields {
-    pub(crate) fn new(pool: &AllocationBudget, ledger: ChargedBuffer<AllocationCharge>) -> Self {
+    pub(crate) fn new(pool: &AllocationBudget) -> Self {
         Self {
             payload: empty_qc(),
-            ledger,
+            ledger: None,
             bitmap: QcBitmapAllocation::default(),
             pool: pool.clone(),
         }
@@ -149,7 +145,7 @@ impl QcFields {
     fn destination(&mut self) -> QcFieldDestination<'_> {
         QcFieldDestination {
             payload: &mut self.payload,
-            ledger: &mut self.ledger,
+            ledger: self.ledger.as_mut().expect("completed original QC ledger"),
             bitmap: &mut self.bitmap,
             pool: &self.pool,
         }
@@ -364,9 +360,40 @@ impl PreparedRecordDestination<Qc> for QcFields {
     fn reset(&mut self) {}
 }
 
+/// The original source is either borrowed for a scoped caller or retained through
+/// an already funded immutable owner. Both forms use the same canonical field kernel.
+enum QcSource<'source> {
+    Borrowed(&'source ChargedBuffer<u8>),
+    Shared(ChargedShared<ChargedBuffer<u8>>),
+}
+impl QcSource<'_> {
+    fn buffer(&self) -> &ChargedBuffer<u8> {
+        match self {
+            Self::Borrowed(source) => source,
+            Self::Shared(source) => source,
+        }
+    }
+    fn belongs_to(&self, pool: &AllocationBudget) -> bool {
+        self.buffer().belongs_to(pool)
+            && match self {
+                Self::Borrowed(_) => true,
+                Self::Shared(source) => cfg!(sumeragi_mutation = "MS83") || source.belongs_to(pool),
+            }
+    }
+    fn same_owner(&self, other: &QcSource<'_>) -> bool {
+        match (self, other) {
+            (Self::Borrowed(left), QcSource::Borrowed(right)) => std::ptr::eq(*left, *right),
+            (Self::Shared(left), QcSource::Shared(right)) => {
+                cfg!(sumeragi_mutation = "MS82") || ChargedShared::ptr_eq(left, right)
+            }
+            _ => false,
+        }
+    }
+}
+
 struct QcOwner<'source> {
     payload: RetainedPayload<Qc>,
-    source: &'source ChargedBuffer<u8>,
+    source: QcSource<'source>,
     range: SequenceSpan,
     // Keep the originally allocated protocol counters through every QC reader.
     _workspace: PreparedDecodeWorkspace,
@@ -406,7 +433,7 @@ impl NativeQc<'_> {
     pub fn source_bytes(&self) -> &[u8] {
         self.0
             .range
-            .get(self.0.source.as_slice())
+            .get(self.0.source.buffer().as_slice())
             .expect("retained original range")
     }
     /// Exact original shared root identity, independent of value equality.
@@ -442,14 +469,20 @@ impl fmt::Debug for NativeQc<'_> {
 /// drop(prepared);
 /// ```
 ///
-/// TODO: compose this private field kernel into real TC/Proposal/Evidence/complete
-/// field5 owners and production validation/publication/apply/recovery; this leaf
-/// alone does not fund or qualify those enclosing graphs or caller heap placement.
+/// TODO: compose this private field kernel into remaining TC/Proposal/Evidence
+/// and complete field5 owners. Core retains the offered parent-service QC through
+/// validation; this leaf does not fund enclosing graphs, producer pre-assembly,
+/// participation outputs or caller heap placement.
+/// Shared sources retain their existing immutable owner; no self-reference or source copy
+/// is used to extend a borrowed lifetime.
 pub struct PreparedQc<'source> {
     fields: QcFields,
-    workspace: PreparedDecodeWorkspace,
-    root: ReservedChargedShared<QcOwner<'source>>,
-    source: &'source ChargedBuffer<u8>,
+    workspace: Option<PreparedDecodeWorkspace>,
+    root: Option<ReservedChargedShared<QcOwner<'source>>>,
+    ledger_charge: Option<AllocationCharge>,
+    root_charge: Option<AllocationCharge>,
+    workspace_construction: Option<PreparedDecodeWorkspaceConstruction>,
+    source: QcSource<'source>,
     range: SequenceSpan,
     authenticated: bool,
 }
@@ -475,33 +508,121 @@ impl<'source> PreparedQc<'source> {
     /// Bind the exact original initialized input/range and prepay controls before decoding.
     ///
     /// # Errors
-    /// Returns original finite-pool or physical control refusal, without consuming input.
+    /// Returns original finite-pool refusal without consuming input. Physical construction
+    /// is deferred to preparation, so a refused allocation always leaves a retained owner.
     pub fn new(
         source: &'source ChargedBuffer<u8>,
         range: SequenceSpan,
         pool: &AllocationBudget,
     ) -> Result<Self, QcCustodyError> {
-        if !source.belongs_to(pool) || range.get(source.as_slice()).is_err() {
+        Self::new_source(QcSource::Borrowed(source), range, pool)
+    }
+    /// Bind an existing immutable shared byte owner without copying any source bytes.
+    /// Both its source leaf and shared control must retain the exact finite pool.
+    ///
+    /// # Errors
+    /// Returns the same source or finite-pool refusal as [`Self::new`].
+    pub fn new_shared(
+        source: ChargedShared<ChargedBuffer<u8>>,
+        range: SequenceSpan,
+        pool: &AllocationBudget,
+    ) -> Result<Self, QcCustodyError> {
+        Self::new_source(QcSource::Shared(source), range, pool)
+    }
+    fn new_source(
+        source: QcSource<'source>,
+        range: SequenceSpan,
+        pool: &AllocationBudget,
+    ) -> Result<Self, QcCustodyError> {
+        if !source.belongs_to(pool) || range.get(source.buffer().as_slice()).is_err() {
             return Err(QcCustodyError::Source);
         }
         let mut reservation = pool
             .try_reserve_layouts(Self::control_layouts())
             .map_err(QcCustodyError::Admission)?;
-        let ledger =
-            ChargedBuffer::from_reservation(1, &mut reservation).map_err(QcCustodyError::Ledger)?;
-        let root =
-            ChargedShared::reserve_from(&mut reservation).map_err(QcCustodyError::Control)?;
-        let workspace = PreparedDecodeWorkspace::from_reservation(pool, &mut reservation)
-            .map_err(QcCustodyError::Scope)?;
+        let [ledger_layout, root_layout, derived_layout, explicit_layout] = Self::control_layouts();
+        let ledger_charge = reservation
+            .try_split(ledger_layout)
+            .expect("original ledger layout");
+        let root_charge = reservation
+            .try_split(root_layout)
+            .expect("original root layout");
+        let controls = [
+            reservation
+                .try_split(derived_layout)
+                .expect("original derived layout"),
+            reservation
+                .try_split(explicit_layout)
+                .expect("original explicit layout"),
+        ];
+        let workspace_construction =
+            PreparedDecodeWorkspaceConstruction::from_charges(pool, controls)
+                .unwrap_or_else(|_| unreachable!("original aggregate reserved this pool"));
         debug_assert_eq!(reservation.remaining_bytes(), 0);
+        // Publish the attempt before any physical constructor can fail. All future
+        // refusals borrow this owner and retain its completed prefix and charges.
         Ok(Self {
-            fields: QcFields::new(pool, ledger),
-            workspace,
-            root,
+            fields: QcFields::new(pool),
+            workspace: None,
+            root: None,
+            ledger_charge: Some(ledger_charge),
+            root_charge: Some(root_charge),
+            workspace_construction: Some(workspace_construction),
             source,
             range,
             authenticated: false,
         })
+    }
+    fn prepare_controls(&mut self) -> Result<(), QcCustodyError> {
+        if self.fields.ledger.is_none() {
+            let charge = self.ledger_charge.take().expect("original ledger charge");
+            match ChargedBuffer::try_from_charge(1, charge) {
+                Ok(ledger) => self.fields.ledger = Some(ledger),
+                Err((charge, error)) => {
+                    #[cfg(not(sumeragi_mutation = "MS84"))]
+                    {
+                        self.ledger_charge = Some(charge);
+                    }
+                    #[cfg(sumeragi_mutation = "MS84")]
+                    drop(charge);
+                    return Err(QcCustodyError::LedgerBacking(error));
+                }
+            }
+        }
+        if self.root.is_none() {
+            let charge = self.root_charge.take().expect("original root charge");
+            match ChargedShared::reserve_from_charge(charge) {
+                Ok(root) => self.root = Some(root),
+                Err((charge, error)) => {
+                    #[cfg(not(sumeragi_mutation = "MS84"))]
+                    {
+                        self.root_charge = Some(charge);
+                    }
+                    #[cfg(sumeragi_mutation = "MS84")]
+                    drop(charge);
+                    return Err(QcCustodyError::ControlBacking(error));
+                }
+            }
+        }
+        if self.workspace.is_none() {
+            let pending = self
+                .workspace_construction
+                .take()
+                .expect("original counter construction");
+            match pending.try_finish() {
+                Ok(workspace) => self.workspace = Some(workspace),
+                Err((pending, error)) => {
+                    #[cfg(not(sumeragi_mutation = "MS84"))]
+                    {
+                        self.workspace_construction = Some(pending);
+                    }
+                    #[cfg(sumeragi_mutation = "MS84")]
+                    drop(pending);
+                    return Err(QcCustodyError::ControlBacking(error));
+                }
+            }
+        }
+        Ok(())
     }
     /// Authenticate the complete original frame, then run the unchanged structural validator.
     ///
@@ -513,17 +634,41 @@ impl<'source> PreparedQc<'source> {
         range: SequenceSpan,
         limits: DecodeLimits,
     ) -> Result<(), QcCustodyError> {
+        self.prepare_source(QcSource::Borrowed(source), range, limits)
+    }
+    /// Resume the sole field kernel using the same immutable source control and range.
+    /// Cloning this shared handle retains existing custody and allocates no bytes.
+    ///
+    /// # Errors
+    /// Refuses a substituted owner, range, pool, canonical input or original resource limit.
+    pub fn prepare_shared(
+        &mut self,
+        source: &ChargedShared<ChargedBuffer<u8>>,
+        range: SequenceSpan,
+        limits: DecodeLimits,
+    ) -> Result<(), QcCustodyError> {
+        self.prepare_source(QcSource::Shared(source.clone()), range, limits)
+    }
+    fn prepare_source(
+        &mut self,
+        source: QcSource<'_>,
+        range: SequenceSpan,
+        limits: DecodeLimits,
+    ) -> Result<(), QcCustodyError> {
         self.authenticated = false;
-        if !std::ptr::eq(source, self.source)
+        if !source.same_owner(&self.source)
             || range != self.range
             || !source.belongs_to(&self.fields.pool)
         {
             return Err(QcCustodyError::Source);
         }
+        self.prepare_controls()?;
         let frame = range
-            .get(source.as_slice())
+            .get(source.buffer().as_slice())
             .map_err(|_| QcCustodyError::Source)?;
         self.workspace
+            .as_mut()
+            .expect("completed original counters")
             .decode_canonical_into::<Qc, _>(frame, limits, &mut self.fields)
             .map_err(QcCustodyError::Decode)?;
         // Full header, checksum, schema, padding, consumed length and exact
@@ -552,6 +697,9 @@ impl<'source> PreparedQc<'source> {
             source,
             range,
             authenticated,
+            ledger_charge,
+            root_charge,
+            workspace_construction,
         } = self;
         let QcFields {
             payload,
@@ -561,21 +709,28 @@ impl<'source> PreparedQc<'source> {
         } = fields;
         debug_assert!(bitmap.pending_charge.is_none());
         debug_assert!(bitmap.initialized);
+        debug_assert!(ledger_charge.is_none());
+        debug_assert!(root_charge.is_none());
+        debug_assert!(workspace_construction.is_none());
+        let ledger = ledger.expect("authenticated original ledger");
         // SAFETY: the sole heap field is the original exact fixed Bitmap Vec,
         // paired with one original ledger charge; both remain private and no
         // mutation/extraction can separate them after sharing.
         match unsafe { RetainedPayload::try_new(payload, ledger, &pool) } {
-            Ok(payload) => Ok(NativeQc(root.initialize(QcOwner {
-                payload,
-                source,
-                range,
-                _workspace: workspace,
-            }))),
+            Ok(payload) => Ok(NativeQc(
+                root.expect("authenticated original root")
+                    .initialize(QcOwner {
+                        payload,
+                        source,
+                        range,
+                        _workspace: workspace.expect("authenticated original counters"),
+                    }),
+            )),
             Err((payload, ledger, error)) => Err((
                 Self {
                     fields: QcFields {
                         payload,
-                        ledger,
+                        ledger: Some(ledger),
                         bitmap,
                         pool,
                     },
@@ -584,6 +739,9 @@ impl<'source> PreparedQc<'source> {
                     source,
                     range,
                     authenticated,
+                    ledger_charge,
+                    root_charge,
+                    workspace_construction,
                 },
                 QcCustodyError::Retention(error),
             )),
@@ -593,3 +751,6 @@ impl<'source> PreparedQc<'source> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod physical_tests;

@@ -1504,6 +1504,23 @@ impl CertifiedTestChain {
         proposal: SignedBlock,
         control_witness: iroha_sumeragi::types::ControlWitness,
     ) -> Result<PendingTestExecution<'_>, String> {
+        let block = self.author_proposal(proposal, control_witness);
+        self.begin_available_proposal(block)
+    }
+
+    /// Author the charged availability source for one original proposal once.
+    /// Retry fixtures retain this owner and pass shared clones to
+    /// [`Self::begin_available_proposal`], preserving the physical payload and
+    /// availability graph required by the worker's retained preparation.
+    ///
+    /// # Panics
+    /// The proposal is not the next height, has no authorized schedule, or its
+    /// original payload and availability cannot be admitted.
+    pub fn author_proposal(
+        &self,
+        proposal: SignedBlock,
+        control_witness: iroha_sumeragi::types::ControlWitness,
+    ) -> AvailableBody {
         self.set_execution_time(proposal.header().creation_time());
         let height = self.tip.0 + 1;
         assert_eq!(
@@ -1538,7 +1555,25 @@ impl CertifiedTestChain {
             skipped_leaders: Vec::new(),
             // Match the production application rule at every height, including boundaries.
         };
-        let block = self.author_payload(header, payload_bytes);
+        self.author_payload(header, payload_bytes)
+    }
+
+    /// Execute or retry the same original charged availability source.
+    /// A local refusal retains the worker's original decoded graph; callers must
+    /// reuse this physical source rather than author equal replacement bytes.
+    ///
+    /// # Errors
+    /// Returns the original production execution verdict without weakening
+    /// source, pool, schedule or authority checks.
+    ///
+    /// # Panics
+    /// The original source is not for the next height.
+    pub fn begin_available_proposal(
+        &mut self,
+        block: AvailableBody,
+    ) -> Result<PendingTestExecution<'_>, String> {
+        let height = self.tip.0 + 1;
+        assert_eq!(block.header().height, height, "original next height");
         let block_hash = block.hash(&*self.crypto);
         let mut diagnostic_events = self.events.resubscribe();
         let result = match self.executor.execute(&block, &block_hash, false) {
@@ -2918,12 +2953,18 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
+        // This unfunded fixture authors zero rates in its original signed genesis.
+        let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        fees.base_fee = Quantity::zero();
+        fees.per_byte_fee = Quantity::zero();
+        fees.per_instruction_fee = Quantity::zero();
+        fees.per_gas_unit_fee = Quantity::zero();
         let (genesis, manifest) = build_genesis(
             &chain_id,
             &genesis_key,
             &validators,
             Vec::new(),
-            Vec::new(),
+            vec![Parameter::Custom(fees.into_custom_parameter().unwrap())],
             SumeragiConsensusMode::Permissioned,
             iroha_data_model::block::consensus::SumeragiRootScope::Global,
             10_000,

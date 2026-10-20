@@ -441,7 +441,7 @@ fn step_fixture(variant: Variant) -> receive_objects::ReceiveFixture {
     )
 }
 
-/// A1's inline relation proves exactly the statement σ_recv certifies, for
+/// A1's inline relation proves exactly the statement `σ_recv` certifies, for
 /// genuine ordinary and renewed witnesses; it lays out the same cells without
 /// a witness, and refuses another honest step, an overflowing step and a Send step.
 #[test]
@@ -678,13 +678,13 @@ fn merged_signature_leaf_circuit_constrains_the_own_slot_hard_and_incoming_slots
 /// Real own Receive step and incoming-only Send sigma Q source; its global mode
 /// remains subject to A's complete four-result rule, not selected by this
 /// constructor. A proves the own step inline (`ReceiveTransition`); the own
-/// σ_recv is still produced from the same step, because the own receipt signs
-/// its digest and the payer's ArchiveReceive verifies it.
+/// `σ_recv` is still produced from the same step, because the own receipt signs
+/// its digest and the payer's `ArchiveReceive` verifies it.
 #[allow(dead_code)]
 pub(crate) struct ReceiveQ {
     pub(crate) witness: receive_objects::ReceiveFixture,
     pub(crate) send: send_objects::SendFixture,
-    /// Actual own σ_recv, retained but never verified by the Receive A.
+    /// Actual own `σ_recv`, retained but never verified by the Receive A.
     pub(crate) sigma: Vec<u8>,
     pub(crate) incoming_sigma: Vec<u8>,
     /// Incoming-only `Q_sigma`: one soft Send slot folded with the pinned trivial claim.

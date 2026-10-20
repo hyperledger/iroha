@@ -4397,6 +4397,8 @@ const CERTIFIED_RESULT_MODEL: &str =
 const EPOCH_GRAPH_MODEL: &str = "crates/iroha_data_model/src/sumeragi_finality/epoch_graph.rs";
 const EPOCH_MODEL: &str = "crates/iroha_data_model/src/sumeragi/epoch.rs";
 const BEACON_MODEL: &str = "crates/iroha_data_model/src/consensus.rs";
+const PARENT_SERVICE_MODEL: &str = "crates/iroha_data_model/src/consensus/parent_service.rs";
+const PENALTY_ACTION_MODEL: &str = "crates/iroha_data_model/src/consensus/penalty_actions.rs";
 const CORE_MESSAGES: &str = "crates/iroha_sumeragi/src/message.rs";
 const HANDSHAKE_CAPS: &str = "crates/iroha_p2p/src/lib.rs";
 const HANDSHAKE_WIRE: &str = "crates/iroha_p2p/src/peer.rs";
@@ -4763,8 +4765,12 @@ const CARRIERS: &[Carrier] = &[
                 "consensus evidence as admitted: the signed messages of the offence. Proposal input",
             ),
             (
-                "NposPenaltyAction",
-                "penalty or marker action that the block applies: proposal input, validated by execution",
+                "NposParentServiceCommitQc",
+                "the original opaque parent-QC byte leaf and its exact allocation custody are walked under npos_parent_service; native QC signatures and historical authority are independently verified",
+            ),
+            (
+                "NposPenaltyActions",
+                "the immutable ordered actions and exact allocation custody are walked under npos_penalty_actions; proposal inputs validated by execution",
             ),
             (
                 "ExternalExecutionRouteRole",
@@ -5949,6 +5955,160 @@ const CARRIERS: &[Carrier] = &[
             ("Signature", "signature"),
         ],
     },
+    Carrier {
+        id: "npos_parent_service",
+        object: "the unchanged opaque Vec<u8> parent-service QC frame in NposConsensusEffects.parent_service_commit_qc, committed by BlockHeader.npos_effects_hash. Byte custody grants no decoded QC or State authority",
+        types: &[
+            (
+                PARENT_SERVICE_MODEL,
+                "pub struct NposParentServiceCommitQc {",
+            ),
+            (PARENT_SERVICE_MODEL, "enum Storage {"),
+        ],
+        hashes: &[],
+        embeds: &[],
+        reviewed: &[],
+        content: &[
+            (
+                "NposParentServiceCommitQc.storage",
+                "original opaque native QC bytes under untrusted transport or immutable original-pool ownership: walked as Storage",
+            ),
+            (
+                "Storage.Untrusted",
+                "untrusted native QC frame bytes, requiring independent canonical decoding and historical native verification",
+            ),
+            (
+                "Storage.Admitted",
+                "the exact same native QC bytes retained with their physical allocation and control; runtime ownership adds no wire or authority field",
+            ),
+        ],
+        exhaustive: &["NposParentServiceCommitQc", "Storage"],
+        opaque: &[
+            (
+                "ChargedShared",
+                "immutable control retaining its original physical charge",
+            ),
+            (
+                "ChargedBuffer",
+                "physical allocation of the opaque canonical byte leaf, retaining its original pool",
+            ),
+        ],
+    },
+    Carrier {
+        id: "npos_penalty_actions",
+        object: "the sole ordered native penalty sequence in NposConsensusEffects.penalty_actions, committed by BlockHeader.npos_effects_hash. Untrusted transport and admitted immutable custody serialize identical actions; no storage variant or allocation charge confers State authority",
+        types: &[
+            (PENALTY_ACTION_MODEL, "pub struct NposPenaltyActions {"),
+            (PENALTY_ACTION_MODEL, "enum Storage {"),
+            (PENALTY_ACTION_MODEL, "struct Funded {"),
+            (BEACON_MODEL, "pub enum NposPenaltyAction {"),
+            (BEACON_MODEL, "pub struct NposConsensusSlashAction {"),
+            (
+                BEACON_MODEL,
+                "pub struct NposMarkConsensusEvidenceAppliedAction {",
+            ),
+        ],
+        hashes: &[
+            (
+                "NposConsensusSlashAction.evidence_key",
+                HashUse::Block(
+                    "identifier of original authenticated consensus evidence, validated against parent State",
+                ),
+            ),
+            (
+                "NposConsensusSlashAction.slash_id",
+                HashUse::Block("deterministic identifier of this original penalty action"),
+            ),
+            (
+                "NposMarkConsensusEvidenceAppliedAction.evidence_key",
+                HashUse::Block(
+                    "identifier of original evidence whose applied marker the transition installs",
+                ),
+            ),
+        ],
+        embeds: &[],
+        reviewed: &[],
+        content: &[
+            (
+                "NposPenaltyActions.storage",
+                "the same immutable ordered sequence under transport or original physical custody: walked as Storage",
+            ),
+            (
+                "Storage.Untrusted",
+                "ordinary untrusted ordered action inputs: walked as NposPenaltyAction",
+            ),
+            (
+                "Storage.Admitted",
+                "the same original ordered action graph under shared exact custody: walked as Funded",
+            ),
+            (
+                "Funded.values",
+                "original canonical actions, including retained peer keys, account controllers and amounts: walked as NposPenaltyAction",
+            ),
+            (
+                "Funded.custody",
+                "local allocation ledger and temporary retry parsers; no canonical field or State authority",
+            ),
+            (
+                "NposPenaltyAction.ConsensusSlash",
+                "original consensus slash proposal input: walked as NposConsensusSlashAction",
+            ),
+            (
+                "NposPenaltyAction.MarkConsensusEvidenceApplied",
+                "original applied-marker proposal input: walked as NposMarkConsensusEvidenceAppliedAction",
+            ),
+            (
+                "NposConsensusSlashAction.signer",
+                "signer index in the independently authenticated offence roster",
+            ),
+            (
+                "NposConsensusSlashAction.peer_id",
+                "original peer identity resolved from that offence roster",
+            ),
+            (
+                "NposConsensusSlashAction.lane_id",
+                "public lane owning the original validator registration",
+            ),
+            (
+                "NposConsensusSlashAction.validator",
+                "original registered validator account targeted by this slash",
+            ),
+            (
+                "NposConsensusSlashAction.amount",
+                "derived slash quantity validated against parent State custody",
+            ),
+            (
+                "NposMarkConsensusEvidenceAppliedAction.height",
+                "global carrier height at which the original marker applies",
+            ),
+        ],
+        exhaustive: &[
+            "NposPenaltyActions",
+            "Storage",
+            "Funded",
+            "NposPenaltyAction",
+            "NposConsensusSlashAction",
+            "NposMarkConsensusEvidenceAppliedAction",
+        ],
+        opaque: &[
+            (
+                "ChargedShared",
+                "immutable shared control retaining its exact original physical charge",
+            ),
+            (
+                "ChargedBuffer",
+                "exact typed allocation backing retaining its original pool; canonical children are walked",
+            ),
+            (
+                "ActionCustody",
+                "private physical peer/controller/amount charges and partial leaf parsers; no hashes, canonical fields or State authority",
+            ),
+            ("PeerId", "original validator peer identity"),
+            ("AccountId", "canonical original validator account identity"),
+            ("LaneId", "public lane identifier"),
+            ("Quantity", "exact nonnegative slash amount"),
+        ],
+    },
 ];
 
 /// The types of one carrier, read from their sources.
@@ -6430,23 +6590,6 @@ const DEFECTS: &[Defect] = &[
         ],
     },
     Defect {
-        id: "G1-D8",
-        title: "Root-valued canonical World cells have no writer",
-        assigned: "G.3",
-        related: &[],
-        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. Their unused writer was removed; without a committed writer they remain permanently default root-named values in the keyed schema.",
-        evidence: &[
-            (
-                "crates/iroha_core/src/state/authority_registry/world.rs",
-                "merge_global_state_root: Cell<Option<Hash>> => (\"world.merge_global_state_root\",",
-            ),
-            (
-                "crates/iroha_core/src/state/authority_registry/world.rs",
-                "merge_hint_roots: Cell<Vec<Hash>> => (\"world.merge_hint_roots\",",
-            ),
-        ],
-    },
-    Defect {
         id: "G1-D9",
         title: "A certified per-table root authenticates the retail fee receipt heads",
         assigned: "G.3",
@@ -6545,7 +6688,6 @@ fn defect_fields(id: &str, rows: &[Row]) -> Vec<String> {
         "G1-D5" => named(&["world.state_accumulator"]),
         "G1-D6" => with(Commitment::History),
         "G1-D7" => named(&["world.smart_contract_state"]),
-        "G1-D8" => named(&["world.merge_hint_roots", "world.merge_global_state_root"]),
         "G1-D9" => named(&["world.smart_contract_state"]),
         "G1-D10" => named(&[
             "world.verifying_keys",
@@ -7942,10 +8084,27 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         BTreeSet::from([domain()])
     );
     typed_derived!(sccp_destination_pending_generations, 7_u64, ());
-    typed_derived!(rwas_by_frozen, true, BTreeSet::new());
+    typed_derived!(
+        rwas_by_frozen,
+        (
+            true,
+            iroha_data_model::rwa::RwaId::generated(domain(), Hash::new("typed-rwa"))
+        ),
+        ()
+    );
     typed_derived!(confidential_policy_transition_counts, 7_u64, 1_u32);
     typed_derived!(validation_fee_proposal_index, (7_u64, [2_u8; 32]), ());
-    typed_derived!(proofs_by_tag, [1_u8; 4], Vec::new());
+    typed_derived!(
+        proofs_by_tag,
+        (
+            [1_u8; 4],
+            iroha_data_model::proof::ProofId {
+                backend: "typed-proof".to_owned(),
+                proof_hash: [2_u8; 32]
+            }
+        ),
+        ()
+    );
 
     // Each typed field is inventoried in the class the typed mutation observed.
     let rows = rows();
@@ -9181,6 +9340,136 @@ fn state_hash_scan_cfg_boundary_helpers_preserve_existing_rules() {
             returns_hash: true
         }]
     );
+}
+
+/// Current anonymous-ballot producers bind supplied records, with exact source counts.
+#[test]
+fn anonymous_ballot_domains_keep_record_roles_and_exact_source_occurrences() {
+    let digests = "crates/iroha_data_model/src/governance/anonymous_ballot/digests.rs";
+    let ballot = "crates/iroha_data_model/src/governance/anonymous_ballot/ballot.rs";
+    let qualification = "crates/iroha_data_model/src/governance/anonymous_ballot/qualification.rs";
+    let texts = [digests, ballot, qualification].map(|path| (path, source(path)));
+    let scan = scan_sources(texts.iter().map(|(path, text)| (*path, text.as_str())));
+    assert!(scan.unlisted_domains.is_empty());
+    let owners = domain_owners();
+    for literal in [
+        "PARL/AUTHORITY/v1",
+        "PARL/CORPUS-APPEND/v1",
+        "PARL/CORPUS-EMPTY/v1",
+        "PARL/CORPUS-ENTRY/v1",
+        "PARL/ENVELOPE/v1",
+        "PARL/PROPOSAL/v1",
+        "PARL/QUALIFICATION/v1",
+        "PARL/REGMAP/v1",
+        "PARL/RESULT/v1",
+        "PARL/ROSTER/v1",
+        "PARL/STAMP-PAYLOAD/v1",
+        "PARL/STAMP-WORK/v1",
+    ] {
+        assert_eq!(owners.get(literal), Some(&DomainOwner::Other(Use::Record)));
+        // Production tags and independent inline formula controls are both scanned.
+        let mut expected = BTreeMap::from([(
+            digests.to_owned(),
+            if literal == "PARL/QUALIFICATION/v1" {
+                1
+            } else {
+                2
+            },
+        )]);
+        match literal {
+            "PARL/ENVELOPE/v1" => {
+                expected.insert(ballot.to_owned(), 1);
+            }
+            "PARL/QUALIFICATION/v1" => {
+                expected.insert(qualification.to_owned(), 1);
+            }
+            _ => {}
+        }
+        assert_eq!(scan.literal_uses.get(literal), Some(&expected), "{literal}");
+    }
+    let shadow = "PARL/CORPUS-APPEND/v2";
+    let changed = format!("{}\nconst SHADOW: &[u8] = b\"{shadow}\";\n", texts[0].1);
+    assert_eq!(
+        scan_sources([(digests, changed.as_str())])
+            .unlisted_domains
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{shadow} in {digests}")],
+        "a reviewed corpus transcript must not exempt another domain or version"
+    );
+}
+
+/// Test/schema tags stay visible, and the deferred local queue grants no State authority.
+#[test]
+fn fixture_and_slash_publication_domains_keep_exact_non_state_roles() {
+    let owners = domain_owners();
+    for (path, literal, usage, count, shadow) in [
+        (
+            "crates/iroha_data_model/src/governance/anonymous_ballot/framing.rs",
+            "PARL/TEST/v1",
+            Use::Test,
+            4,
+            "PARL/TEST/v3",
+        ),
+        (
+            "crates/iroha_data_model/src/governance/anonymous_ballot/framing.rs",
+            "PARL/TEST/v2",
+            Use::Test,
+            1,
+            "PARL/TEST/v3",
+        ),
+        (
+            "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/reference_fixtures.rs",
+            "iroha.sccp.forgery_evidence.v1",
+            Use::Name,
+            1,
+            "iroha.sccp.forgery_evidence.v2",
+        ),
+        (
+            "crates/iroha_core/src/smartcontracts/isi/sccp/governance/reference_fixtures.rs",
+            "iroha.sccp.governance.v1",
+            Use::Name,
+            1,
+            "iroha.sccp.governance.v2",
+        ),
+        (
+            "crates/iroha_core/src/smartcontracts/isi/sccp/liability/reference_fixtures.rs",
+            "iroha.sccp.liability.v1",
+            Use::Name,
+            1,
+            "iroha.sccp.liability.v2",
+        ),
+        (
+            "crates/iroha_core/src/state/output_publication.rs",
+            "iroha:local-slash-publication:v1",
+            Use::LocalArtifact,
+            1,
+            "iroha:local-slash-publication:v2",
+        ),
+    ] {
+        assert!(
+            !is_test_source(path),
+            "the existing scan must still inspect {path}"
+        );
+        let text = source(path);
+        let scan = scan_sources([(path, text.as_str())]);
+        assert!(scan.unlisted_domains.is_empty(), "{path}");
+        assert_eq!(owners.get(literal), Some(&DomainOwner::Other(usage)));
+        assert_eq!(
+            scan.literal_uses.get(literal),
+            Some(&BTreeMap::from([(path.to_owned(), count)])),
+            "{literal} must retain its exact source and occurrences"
+        );
+        let changed = format!("{text}\nconst SHADOW: &str = \"{shadow}\";\n");
+        assert_eq!(
+            scan_sources([(path, changed.as_str())])
+                .unlisted_domains
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [format!("{shadow} in {path}")],
+            "fixture and local-artifact classifications cannot exempt new domains"
+        );
+    }
 }
 
 /// Expiry-proof schema names and the issuer statement preimage retain exact record roles.
@@ -11510,8 +11799,10 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
          committee-member, authorization, beacon-binding and frozen-election-policy records, \
          the lane batch and the lane result, the genesis context parameters, the epoch identity, \
          every walked record of the peer handshake, the network envelope with its Sumeragi \
-         frame, and the DA commitment bundle with its storage variants, canonical parts and \
-         commitment records. In the other walked types a new field fails only when its type is hash-bearing \
+         frame, the DA commitment bundle with its storage variants, canonical parts and \
+         commitment records, the NPoS parent-service CommitQC with its storage variants, and \
+         the NPoS penalty actions with their storage/funded variants and individual slash and \
+         evidence-applied actions. In the other walked types a new field fails only when its type is hash-bearing \
          or names an unclassified nested type.",
         "It also matches a function that reads State and returns a walked record of the peer \
          handshake or of a lane block (`source_scan.carried_records`), whatever the name of \
@@ -11601,6 +11892,21 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
                     "Storage",
                     "CanonicalParts",
                     "DaCommitmentRecord"
+                ][..]
+            ),
+            (
+                "npos_parent_service",
+                &["NposParentServiceCommitQc", "Storage"][..]
+            ),
+            (
+                "npos_penalty_actions",
+                &[
+                    "NposPenaltyActions",
+                    "Storage",
+                    "Funded",
+                    "NposPenaltyAction",
+                    "NposConsensusSlashAction",
+                    "NposMarkConsensusEvidenceAppliedAction",
                 ][..]
             ),
         ]
@@ -11791,5 +12097,65 @@ fn telemetry_counter_corruption_fixture_has_exact_test_construction_custody() {
             .unlisted_uses
             .iter()
             .all(|report| report.starts_with(path))
+    );
+}
+
+#[test]
+fn penalty_action_custody_inventory_walks_canonical_graph_without_hiding_new_hashes() {
+    let actions = CARRIERS
+        .iter()
+        .find(|carrier| carrier.id == "npos_penalty_actions")
+        .expect("npos_penalty_actions is a listed carrier");
+    let mut types = carrier_types(actions);
+    assert!(unclassified_value_fields(&types, actions.hashes, actions.opaque).is_empty());
+    assert_eq!(
+        declared_fields(&source(PENALTY_ACTION_MODEL), "struct Funded {"),
+        [
+            (
+                "values".to_owned(),
+                "ChargedBuffer<NposPenaltyAction>".to_owned()
+            ),
+            (
+                "custody".to_owned(),
+                "ChargedBuffer<ActionCustody>".to_owned()
+            ),
+        ]
+    );
+    let funded = types
+        .iter_mut()
+        .find(|(name, _)| *name == "Funded")
+        .unwrap();
+    funded.1.push(("shadow_root".to_owned(), "Hash".to_owned()));
+    assert_eq!(
+        unclassified_value_fields(&types, actions.hashes, actions.opaque),
+        ["unclassified hash field Funded.shadow_root: Hash",]
+    );
+}
+
+#[test]
+fn parent_service_byte_custody_inventory_preserves_exact_leaf_and_rejects_hidden_roots() {
+    let parent = CARRIERS
+        .iter()
+        .find(|carrier| carrier.id == "npos_parent_service")
+        .expect("npos_parent_service is a listed carrier");
+    let mut types = carrier_types(parent);
+    assert!(unclassified_value_fields(&types, parent.hashes, parent.opaque).is_empty());
+    assert_eq!(
+        declared_fields(
+            &source(PARENT_SERVICE_MODEL),
+            "pub struct NposParentServiceCommitQc {"
+        ),
+        [("storage".to_owned(), "Storage".to_owned())]
+    );
+    let storage = types
+        .iter_mut()
+        .find(|(name, _)| *name == "Storage")
+        .unwrap();
+    storage
+        .1
+        .push(("shadow_root".to_owned(), "Hash".to_owned()));
+    assert_eq!(
+        unclassified_value_fields(&types, parent.hashes, parent.opaque),
+        ["unclassified hash field Storage.shadow_root: Hash"]
     );
 }

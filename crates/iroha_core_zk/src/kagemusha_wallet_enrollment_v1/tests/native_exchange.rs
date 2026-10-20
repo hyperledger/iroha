@@ -684,15 +684,65 @@ fn require_target(
     }
 }
 
-fn receive(payment: &[u8], payer: &[Vec<u8>; 4], id: u8) -> OperationRequestV1 {
+/// Receive one Payment with the payer companion that travels beside it: the companion's
+/// credential and issuer certificate set are the exact Receive originals.
+fn receive(payment: &[u8], companion: &[u8], id: u8) -> OperationRequestV1 {
+    let companion = KagemushaWalletPayerCompanionV1::decode_canonical(companion).unwrap();
     action(
         id,
         OperationActionV1::Receive {
             payment: payment.to_vec(),
-            payer_credential: payer[0].clone(),
-            certificates: payer[1].clone(),
+            payer_credential: companion.payer_credential.to_canonical_bytes().unwrap(),
+            certificates: norito::encode_canonical(&companion.certificates).unwrap(),
         },
     )
+}
+/// The payer's companion of its own Payment. Native derives the same bytes again, and the
+/// companion binds exactly that Payment's Omega(pred) credential and Request payer.
+fn companion(wallet: &mut Wallet, payment: &[u8]) -> Vec<u8> {
+    let bytes = wallet.payment_companion(payment).unwrap();
+    assert!(bytes.len() <= KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1);
+    assert_eq!(wallet.payment_companion(payment).unwrap(), bytes);
+    KagemushaWalletPayerCompanionV1::decode_canonical(&bytes)
+        .unwrap()
+        .check_payment(&decode(payment))
+        .unwrap();
+    bytes
+}
+/// The released Send capsule of `payment` retains this payer's completion of the receiver's
+/// open Request: same terms, signature and Request digest; payer fields set.
+fn require_completed_send(wallet: &mut Wallet, open: &[u8], payment: &[u8]) {
+    let open: KagemushaWalletRequestV1 = decode(open);
+    let signed = decode::<KagemushaWalletPaymentV1>(payment)
+        .signed_request()
+        .unwrap();
+    let step = wallet
+        .released_steps()
+        .unwrap()
+        .into_iter()
+        .find(|step| step.retained.record.output == payment)
+        .expect("released Send of this Payment");
+    assert_eq!(
+        step.frozen.capsule.body().kind,
+        KagemushaWalletOperationKindV1::Send
+    );
+    let retained: KagemushaWalletRequestV1 = decode(
+        &step
+            .frozen
+            .capsule
+            .body()
+            .retained_inputs
+            .iter()
+            .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
+            .unwrap()
+            .bytes,
+    );
+    assert!(open.body.is_open());
+    assert!(!retained.body.is_open());
+    assert_eq!(retained.body.open(), open.body);
+    assert_eq!(retained.signed(), signed);
+    assert_eq!(retained.request_digest(), open.request_digest());
+    assert_eq!(open.complete_with(&signed).unwrap(), retained);
 }
 fn credited(original: &[u8]) -> Vec<u8> {
     let package: KagemushaWalletPackageV1 = decode(original);
@@ -842,8 +892,15 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         c.snapshot().unwrap().wallet_id
     );
 
-    let offer_ab = a.offer([210; 32], 100).unwrap();
-    let request_ab = b.request([211; 32], &offer_ab, None).unwrap();
+    // The receiver issues an open Request before any payer is known; exact retries return its
+    // retained bytes without another signature.
+    let request_ab = b.request([211; 32], LOAD_AMOUNT, None).unwrap();
+    assert!(
+        decode::<KagemushaWalletRequestV1>(&request_ab)
+            .body
+            .is_open()
+    );
+    assert_eq!(b.request([211; 32], LOAD_AMOUNT, None).unwrap(), request_ab);
     let send_ab = action(
         212,
         OperationActionV1::Send {
@@ -896,16 +953,8 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
             },
         ],
         send_ab,
-        SendOriginals {
-            offer: offer_ab,
-            payment: payment_ab,
-        },
+        payment_ab,
     );
-}
-
-struct SendOriginals {
-    offer: Vec<u8>,
-    payment: Vec<u8>,
 }
 
 struct Participant {
@@ -928,12 +977,8 @@ fn finish_exchange(
     target_bytes: Vec<u8>,
     participants: [Participant; 3],
     send_ab: OperationRequestV1,
-    originals_ab: SendOriginals,
+    payment_ab: Vec<u8>,
 ) {
-    let SendOriginals {
-        offer: offer_ab,
-        payment: payment_ab,
-    } = originals_ab;
     let OperationActionV1::Send {
         request: request_ab,
     } = &send_ab.action
@@ -970,16 +1015,29 @@ fn finish_exchange(
     let signs = device_a.platform.with(|state| state.sign_calls);
     drop(a); // lost delivery response / process restart after durable Send
     let mut a = sources.open(&device_a, &f, &frames_a);
+    // The same Send identity with the same open Request replays the exact Payment.
     assert_eq!(complete(a.execute(send_ab.clone()).unwrap()), payment_ab);
     assert_eq!(device_a.platform.with(|state| state.sign_calls), signs);
     assert_eq!(a.snapshot().unwrap().owned_balance, 0);
+    require_completed_send(&mut a, &request_ab, &payment_ab);
+    // The payer's companion travels beside the Payment; deriving it signs nothing.
+    let companion_ab = companion(&mut a, &payment_ab);
+    assert_eq!(device_a.platform.with(|state| state.sign_calls), signs);
+    // C never issued B's Request: its exact Payment and genuine companion are refused there.
+    let before_foreign = c.snapshot().unwrap();
+    let c_signs = device_c.platform.with(|state| state.sign_calls);
+    for _ in 0..2 {
+        assert!(c.execute(receive(&payment_ab, &companion_ab, 215)).is_err());
+        assert_eq!(c.snapshot().unwrap(), before_foreign);
+    }
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), c_signs);
     let before_invalid = b.snapshot().unwrap();
     let mut forged: KagemushaWalletPaymentV1 = decode(&payment_ab);
     forged.send.step_proof.bytes[0] ^= 1;
     assert!(
         b.execute(receive(
             &norito::encode_canonical(&forged).unwrap(),
-            &frames_a,
+            &companion_ab,
             209
         ))
         .is_err()
@@ -989,7 +1047,7 @@ fn finish_exchange(
         before_invalid,
         "invalid incoming proof cannot credit"
     );
-    let incoming_ab = receive(&payment_ab, &frames_a, 213);
+    let incoming_ab = receive(&payment_ab, &companion_ab, 213);
     let (received_ab, derivations) = derived(|| complete(b.execute(incoming_ab.clone()).unwrap()));
     assert_eq!(derivations, 2, "fresh Receive");
     assert_eq!(
@@ -1011,8 +1069,12 @@ fn finish_exchange(
     assert_eq!(before_duplicate.owned_balance, 100);
     assert!(before_duplicate.fold_backlog > 0);
     assert_eq!(before_duplicate.folded_balance, None);
-    let offer_bc = b.offer([220; 32], 100).unwrap();
-    let request_bc = c.request([221; 32], &offer_bc, None).unwrap();
+    let request_bc = c.request([221; 32], LOAD_AMOUNT, None).unwrap();
+    assert!(
+        decode::<KagemushaWalletRequestV1>(&request_bc)
+            .body
+            .is_open()
+    );
     let send_bc = action(
         222,
         OperationActionV1::Send {
@@ -1055,7 +1117,17 @@ fn finish_exchange(
     assert_eq!(derivations, 2, "Send after a refused attempt");
     require_payment_bound(&payment_bc, &f.config.scheme.scheme_id());
     assert_eq!(complete(b.execute(send_bc).unwrap()), payment_bc);
-    let receive_bc = receive(&payment_bc, &frames_b, 223);
+    require_completed_send(&mut b, &request_bc, &payment_bc);
+    let companion_bc = companion(&mut b, &payment_bc);
+    // A companion is only ever the wallet's own: another wallet's Payment is refused.
+    assert!(a.payment_companion(&payment_bc).is_err());
+    assert!(b.payment_companion(&payment_ab).is_err());
+    assert!(c.payment_companion(&payment_bc).is_err());
+    // The receiver binds the companion to the Payment: another payer's is refused.
+    let before_mismatch = c.snapshot().unwrap();
+    assert!(c.execute(receive(&payment_bc, &companion_ab, 225)).is_err());
+    assert_eq!(c.snapshot().unwrap(), before_mismatch);
+    let receive_bc = receive(&payment_bc, &companion_bc, 223);
     let received_bc = complete(c.execute(receive_bc.clone()).unwrap());
     let signed = device_c.platform.with(|state| state.sign_calls);
     drop(c);
@@ -1166,7 +1238,7 @@ fn finish_exchange(
             },
         ],
         ExchangeOriginals {
-            sessions: [[offer_ab, request_ab], [offer_bc, request_bc]],
+            sessions: [[request_ab, companion_ab], [request_bc, companion_bc]],
             payment_ab,
             payment_bc,
             received_ab,
@@ -1222,7 +1294,7 @@ fn finish_unload(
         },
     ] = participants;
     let ExchangeOriginals {
-        sessions: [[offer_ab, request_ab], [offer_bc, request_bc]],
+        sessions: [[request_ab, companion_ab], [request_bc, companion_bc]],
         payment_ab,
         payment_bc,
         received_ab,
@@ -1392,7 +1464,7 @@ fn finish_unload(
     let message_envelopes = message_census::retain(
         &output,
         &sources,
-        [(&offer_ab, &request_ab), (&offer_bc, &request_bc)],
+        [(&request_ab, &companion_ab), (&request_bc, &companion_bc)],
         [&payment_ab, &payment_bc],
         [&credited_ab, &credited_bc],
     );

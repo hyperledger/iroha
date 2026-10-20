@@ -734,6 +734,9 @@ where
             }
             self.require_storage()?;
             check(self)?;
+            // Generation only follows custody observed just now (custody transaction fence).
+            super::store::kagemusha_wallet_custody_fence_v1()
+                .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
             self.retain_generation_dispatch(&slot, &intent, request, request_id)?;
             let grant = KagemushaWalletFreshGenerationV1::new(&self.platform, slot, request);
             let generated = self.platform.key_generate_fresh(grant);
@@ -897,6 +900,9 @@ where
         // Phase adoption may perform filesystem work; recheck the live deadline after it,
         // before retaining a dispatch or reaching the hardware key-generation effect.
         check(self)?;
+        // Generation only follows custody observed just now (custody transaction fence).
+        super::store::kagemusha_wallet_custody_fence_v1()
+            .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
         self.retain_generation_dispatch(slot, intent, request, request_id)?;
         let generated = self.platform.key_generate(slot, &request);
         self.finish_enrollment(slot, intent, request, generated, request_id)

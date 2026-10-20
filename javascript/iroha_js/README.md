@@ -370,7 +370,14 @@ inferred from the other three and refined against the rings
 count both cases). Apps with their own camera pipeline can call
 `session.push(luma, nowMs)` directly with a `PetalLuma` built by
 `PetalLuma.fromStrided` (a camera Y plane), `PetalLuma.fromRgba` or
-`PetalLuma.fromImageData`. Lower-level pieces are exported as well:
+`PetalLuma.fromImageData`. When a tile lane is missing, the session averages
+repeated captures keyed by the tag and frame counter in independently decoded
+lane headers. It holds at most six shown frames and four captures each, levels
+each capture by its own finders, and accepts a recovered lane only if its header
+matches that frame. `outcome.merged` lists newly recovered tile lanes;
+`stats().merges`, `mergedP` and `mergedK` count attempts and recovery. Reset and
+receive timeouts clear held evidence. The wire format is unchanged.
+Lower-level pieces are exported as well:
 `decodePetalFrame`, `decodePetalFrameAt` and `trackPetalFrame`, the finder
 search (`locate`, `locateCandidates`, `selectTriple`, `followFinder`), the
 software `renderPetalFrame` (RGBA output, ready for `ImageData`), the vector

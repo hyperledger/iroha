@@ -1542,6 +1542,13 @@ impl Queue {
         self.sync_nexus_routing_with_view(&view);
         let mut accepted = 0;
         for (tx, plan) in txs {
+            if matches!(tx.entrypoint(), TransactionEntrypoint::AnonymousBallot(_)) {
+                return Err(Failure {
+                    tx: Box::new(tx),
+                    err: Error::Deferred(crate::tx::anonymous_ballot_unavailable()),
+                });
+            }
+
             let plan = match self.resolve_precomputed_routing_plan_with_view(&tx, &view, plan) {
                 Ok(plan) => plan,
                 Err(error) => {
@@ -1597,7 +1604,8 @@ impl Queue {
         match entrypoint {
             TransactionEntrypoint::External(transaction) => Some(transaction),
             TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
 
@@ -1769,6 +1777,11 @@ impl Queue {
         zk_gas: &ConfidentialGas,
     ) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>> {
         match tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => {
+                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ))
+            }
             iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
                 Self::signed_executable_proposal_gas_cost(signed, zk_gas)
             }
@@ -2922,7 +2935,8 @@ impl Queue {
                 .checked_add(1)
                 .map(Duration::from_millis);
         }
-        tx.creation_time()
+        tx.external()?
+            .creation_time()
             .checked_add(self.effective_tx_time_to_live(tx))?
             .checked_add(Duration::from_nanos(1))
     }
@@ -3173,7 +3187,7 @@ impl Queue {
     }
     /// Resident inputs still pending at `state_view`, as shared queue handles.
     ///
-    /// Every DashMap shard guard is released before consulting the durability-transition
+    /// Every `DashMap` shard guard is released before consulting the durability-transition
     /// index. A terminal transition keeps its per-hash marker live while removing the
     /// transaction; taking the locks in the opposite order here could otherwise make
     /// enumeration wait on that marker while the remover waits for a shard read guard.
@@ -3757,6 +3771,12 @@ impl Queue {
         tx: AcceptedTransaction<'static>,
         state_view: &StateView<'_>,
     ) -> Result<RoutingDecision, Failure> {
+        if matches!(tx.entrypoint(), TransactionEntrypoint::AnonymousBallot(_)) {
+            return Err(Failure {
+                tx: Box::new(tx),
+                err: Error::Deferred(crate::tx::anonymous_ballot_unavailable()),
+            });
+        }
         if let Err(err) = self.check_startup_admission() {
             return Err(Failure {
                 tx: Box::new(tx),
@@ -3786,6 +3806,12 @@ impl Queue {
         state: &State,
         routing_plan: Option<RoutingPlan>,
     ) -> Result<RoutingDecision, Failure> {
+        if matches!(tx.entrypoint(), TransactionEntrypoint::AnonymousBallot(_)) {
+            return Err(Failure {
+                tx: Box::new(tx),
+                err: Error::Deferred(crate::tx::anonymous_ballot_unavailable()),
+            });
+        }
         let _lifecycle = state.lock_lane_lifecycle_work_admission();
         let view = state.view();
         if let Err(err) = self.check_startup_admission() {
@@ -3823,6 +3849,12 @@ impl Queue {
         // Preacceptance belongs to the original signed security domain. It cannot
         // authorize another State's queue, fee reservations, indexes or gossip.
         let actual = match tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => {
+                return Err(Failure {
+                    tx: Box::new(tx),
+                    err: Error::Deferred(crate::tx::anonymous_ballot_unavailable()),
+                });
+            }
             TransactionEntrypoint::External(signed) => *signed.domain(),
             TransactionEntrypoint::SealedCommitment(commitment) => {
                 TransactionDomain::Network(commitment.payload().network_id)
@@ -8797,11 +8829,41 @@ pub mod tests {
             time_source,
         )
     }
+    #[test]
+    fn anonymous_ballot_cannot_enter_account_queue_without_the_state_adapter() {
+        let state = State::new(
+            world_with_test_domains(),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        let (_, time_source) = TimeSource::new_mock(Duration::default());
+        let queue = Queue::test(config_factory(), &time_source);
+        let entry = crate::tx::anonymous_ballot_tests::entrypoint();
+        let accepted =
+            AcceptedTransaction::new_unchecked_entrypoint(std::borrow::Cow::Owned(entry.clone()));
+        assert!(
+            queue
+                .expiry_deadline_with_enqueue_timestamp(&accepted, None)
+                .is_none()
+        );
+        let failure = queue
+            .push(accepted, state.view())
+            .expect_err("the State adapter is locally unavailable");
+        assert!(matches!(failure.err, Error::Deferred(reason)
+            if reason.reason() == ivm::error::ExecutionDeferral::VerifierInitializationUnavailable));
+        assert_eq!(failure.tx.entrypoint(), &entry);
+        assert_eq!(queue.active_len(), 0);
+        assert!(queue.txs_per_user.is_empty());
+    }
+
     fn register_accepted_tx_authority_for_queue_test(
         state: &mut State,
         transaction: &AcceptedTransaction<'_>,
     ) {
-        register_test_authority(state, transaction.authority());
+        register_test_authority(
+            state,
+            transaction.authority_opt().expect("signed queue fixture"),
+        );
     }
     fn accepted_unique_entrypoint_tx_by_someone(
         time_source: &TimeSource,
@@ -8856,7 +8918,7 @@ pub mod tests {
             assert!(
                 view.world()
                     .accounts()
-                    .get(transaction.authority())
+                    .get(transaction.authority_opt().expect("signed queue fixture"))
                     .is_some()
             );
             assert!(hashes.insert(transaction.hash_as_entrypoint()));

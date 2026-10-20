@@ -1032,8 +1032,8 @@ fn multi_year_dormancy_rejects_before_mutation_and_bounded_sweeps_preserve_waive
             assert!(
                 stx.world
                     .asset_definition_nonzero_holders
-                    .get(&policy.ds_asset_id)
-                    .is_none_or(|holders| !holders.contains(&owner))
+                    .get(&(policy.ds_asset_id.clone(), owner.clone()))
+                    .is_none()
             );
             assert_eq!(
                 receipts(&stx.world, &owner, None, 100).unwrap().len(),
@@ -1454,7 +1454,12 @@ fn seed_due_native_renewals(
     policy.fund_splitter_account = collector;
     transaction.world.smart_contract_state.insert(
         crate::sns::policy_storage_key(DOMAIN_NAME_SUFFIX_ID),
-        norito::to_bytes(&policy).unwrap(),
+        norito::codec::Encode::encode(&policy),
+    );
+    assert_eq!(
+        crate::sns::policy_by_id(&transaction.world, DOMAIN_NAME_SUFFIX_ID)
+            .expect("fixture uses the production SNS policy codec"),
+        Some(policy.clone())
     );
     **transaction
         .world
@@ -1487,7 +1492,12 @@ fn seed_due_native_renewals(
         );
         transaction.world.smart_contract_state.insert(
             crate::sns::record_storage_key(&selector),
-            norito::to_bytes(&record).unwrap(),
+            norito::codec::Encode::encode(&record),
+        );
+        assert_eq!(
+            crate::sns::record_by_selector(&transaction.world, &selector)
+                .expect("fixture uses the production SNS record codec"),
+            Some(record)
         );
         let target = AliasTargetV1::Domain(ResolvedDomainV1::new(
             domain,

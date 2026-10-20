@@ -353,6 +353,12 @@ charges a compressed frame's declared uncompressed length before reserving or
 decompressing it, so a tiny frame cannot request an allocation up to the global
 archive ceiling.
 
+The exact-slice helpers isolate their fixed-layout decoder state and restore
+the caller's flags, payload context, schema and root span on both success and
+failure. This isolation does not reset enclosing resource counters: nested or
+repeated decodes continue charging the original caller's budget, and a refusal
+retains its original scope identity.
+
 `ArchiveView::decode_exact_with<T, R, F>` keeps `T` as the original wire
 schema and padding owner while permitting a callback to return a different
 result `R`, such as a borrowed payload view with prepaid field allocations.
@@ -1017,6 +1023,21 @@ only; merged lane blocks are bound by `execution_context_hash` through
 are independent. A SealedReveal's outer entrypoint owns its network input proof,
 while the actual transcript key and each `TransferTranscript.batch_hash` retain
 the inner execution-call hash.
+
+`TransactionEntrypoint` uses explicit tags 0 (`External`), 1
+(`SealedCommitment`), 2 (`SealedReveal`) and 4 (`AnonymousBallot`). Retired tag
+3 is rejected. The anonymous variant carries the checked
+`CanonicalAnonymousBallotEnvelopeV1` with its exact envelope frame; it does not
+introduce an authority or an alternate signed-transaction decoder. Its outer
+entrypoint hash is also its execution-call hash. The corresponding Network
+output permits only an empty success or rejection tag 5
+(`AnonymousBallotRejectionV1`: 0 for outside the casting window, 1 for duplicate
+nullifier), with no triggers, completions, fees, batch receipts or emissions.
+Repeated identical anonymous envelopes may have separate Network outputs under
+their distinct ordered input indices; their common execution-call hash is retained.
+Every other execution-call hash remains unique, including cross-kind collisions.
+Ordinary and internal outputs cannot carry those ballot rejections. These are
+encoding and result-shape rules, not proof verification or production activation.
 
 `BlockResult` contains, in order, `outputs`, `output_merkle`,
 `committed_fragment_count`, `fastpq_transcripts`, `axt_envelopes`,

@@ -1,0 +1,3 @@
+Expected exit status: 2
+Observed exit status: 2
+Not qualified: conditional premises, AES advantages, full resources and independent acceptance remain unresolved.

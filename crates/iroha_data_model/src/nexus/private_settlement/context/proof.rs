@@ -237,4 +237,4 @@ impl VerifiedPrivateSettlementPoolCutV1<'_> {
 
 #[cfg(test)]
 #[path = "proof_tests.rs"]
-pub(crate) mod tests;
+pub mod tests;

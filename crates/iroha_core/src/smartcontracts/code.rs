@@ -1058,14 +1058,23 @@ pub fn with_code_bytes<T>(
         .get(artifact_id)
         .map(|bytes| use_bytes(bytes.as_ref())))
 }
-/// Resolve the fully bound contract instance record for `contract_address`.
-///
-/// # Errors
-/// Returns a scope rejection or the original local decode refusal without treating it as absence.
-pub fn fetch_bound_contract_record(
-    state: &impl StateReadOnly,
-    contract_address: &ContractAddress,
-) -> Result<Option<BoundContractRecord>, ExecutionAttemptError<ValidationFail>> {
+/// Borrowed projection used by both live-host validation and owned snapshots.
+/// Keeping one ordered lookup prevents the validation path from changing either
+/// absence handling or the first scope/decode error observed during host setup.
+struct BorrowedBoundContractRecord<'a> {
+    lifecycle_revision: u64,
+    contract_address: &'a ContractAddress,
+    contract_subject: &'a AccountId,
+    contract_alias_binding: Option<&'a crate::state::ContractAliasBindingRecord>,
+    code_hash: Hash,
+    manifest: &'a ContractManifest,
+    code_bytes: &'a [u8],
+}
+
+fn borrow_bound_contract_record<'a>(
+    state: &'a impl StateReadOnly,
+    contract_address: &'a ContractAddress,
+) -> Result<Option<BorrowedBoundContractRecord<'a>>, ExecutionAttemptError<ValidationFail>> {
     let Some(code_hash) = fetch_instance_binding(state, contract_address)? else {
         return Ok(None);
     };
@@ -1077,26 +1086,26 @@ pub fn fetch_bound_contract_record(
     let Ok(artifact_id) = ContractArtifactId::for_address(contract_address, code_hash) else {
         return Ok(None);
     };
-    let Some(manifest) = fetch_manifest(state, &artifact_id)? else {
+    // Preserve the independently checked manifest and bytecode read order used
+    // by fetch_manifest/fetch_code_bytes, without materializing either value.
+    crate::executor::root_scope::ensure_committed_artifact_scope(state.world(), &artifact_id)?;
+    let Some(manifest) = state.world().contract_manifests().get(&artifact_id) else {
         return Ok(None);
     };
-    let Some(code_bytes) = fetch_code_bytes(state, &artifact_id)? else {
+    crate::executor::root_scope::ensure_committed_artifact_scope(state.world(), &artifact_id)?;
+    let Some(code_bytes) = state.world().contract_code().get(&artifact_id) else {
         return Ok(None);
     };
     let contract_alias_binding = state
         .world()
         .contract_alias_bindings()
-        .get(contract_address)
-        .cloned();
-    let contract_alias = contract_alias_binding
-        .as_ref()
-        .map(|binding| binding.alias.clone());
-    if let Some(alias) = contract_alias.as_ref()
-        && state.world().contract_aliases().get(alias) != Some(contract_address)
+        .get(contract_address);
+    if let Some(binding) = contract_alias_binding
+        && state.world().contract_aliases().get(&binding.alias) != Some(contract_address)
     {
         return Ok(None);
     }
-    Ok(Some(BoundContractRecord {
+    Ok(Some(BorrowedBoundContractRecord {
         lifecycle_revision: state
             .world()
             .contract_subject_bindings()
@@ -1104,14 +1113,37 @@ pub fn fetch_bound_contract_record(
             .expect("validated binding")
             .lifecycle
             .revision,
-        contract_address: contract_address.clone(),
-        contract_subject: contract_subject.clone(),
-        contract_alias,
+        contract_address,
+        contract_subject,
         contract_alias_binding,
         code_hash,
         manifest,
         code_bytes,
     }))
+}
+
+/// Resolve the fully bound contract instance record for `contract_address`.
+///
+/// # Errors
+/// Returns a scope rejection or the original local decode refusal without treating it as absence.
+pub fn fetch_bound_contract_record(
+    state: &impl StateReadOnly,
+    contract_address: &ContractAddress,
+) -> Result<Option<BoundContractRecord>, ExecutionAttemptError<ValidationFail>> {
+    Ok(
+        borrow_bound_contract_record(state, contract_address)?.map(|record| BoundContractRecord {
+            lifecycle_revision: record.lifecycle_revision,
+            contract_address: record.contract_address.clone(),
+            contract_subject: record.contract_subject.clone(),
+            contract_alias: record
+                .contract_alias_binding
+                .map(|binding| binding.alias.clone()),
+            contract_alias_binding: record.contract_alias_binding.cloned(),
+            code_hash: record.code_hash,
+            manifest: record.manifest.clone(),
+            code_bytes: record.code_bytes.to_vec(),
+        }),
+    )
 }
 /// Resolve the fully bound contract instance record for a deterministic contract subject.
 ///
@@ -1146,6 +1178,30 @@ pub fn snapshot_bound_contract_records_by_subject(
     }
     Ok(records)
 }
+
+/// Validate the ordered registry reads required by an owned contract snapshot.
+///
+/// Hosts with a live query state resolve called contracts from that state and do
+/// not consume an eager snapshot. This retains the snapshot's setup-time scope
+/// checks and incomplete-read behavior without cloning any deployed bytecode,
+/// manifests, subjects or alias records. Incomplete bindings remain absent just
+/// as they do in [`snapshot_bound_contract_records_by_subject`].
+///
+/// # Errors
+/// Returns the first scope rejection or original local decode refusal in the
+/// same contract-address order as the owned snapshot.
+pub fn validate_bound_contract_records_by_subject(
+    state: &impl StateReadOnly,
+) -> Result<(), ExecutionAttemptError<ValidationFail>> {
+    for (contract_address, _) in state.world().contract_instances().iter() {
+        let _ = borrow_bound_contract_record(state, contract_address)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "code/bound_contract_validation_tests.rs"]
+mod bound_contract_validation_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1235,7 +1291,7 @@ mod tests {
             );
         }
     }
-    fn minimal_contract_artifact(
+    pub(super) fn minimal_contract_artifact(
         abi_version: u8,
     ) -> (
         Vec<u8>,
@@ -1328,7 +1384,7 @@ mod tests {
             .compile_source_with_manifest(source)
             .expect("compile lifecycle contract")
     }
-    fn test_state() -> (State, AccountId, KeyPair) {
+    pub(super) fn test_state() -> (State, AccountId, KeyPair) {
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let kp = checked_keypair();
@@ -1358,7 +1414,7 @@ mod tests {
         let state = State::new_for_testing(world, kura, query);
         (state, auth, kp)
     }
-    fn default_header(height: u64) -> iroha_data_model::block::BlockHeader {
+    pub(super) fn default_header(height: u64) -> iroha_data_model::block::BlockHeader {
         iroha_data_model::block::BlockHeader::new(
             core::num::NonZeroU64::new(height).expect("block height must be non-zero"),
             None,
@@ -2425,13 +2481,21 @@ seiyaku LifecycleAba { permission CanRunLifecycleAba;
         );
     }
     #[test]
-    fn register_code_rejects_cycle_ceiling_above_node_policy() {
-        let (mut state, authority, _kp) = test_state();
-        let mut pipeline = state.installed_pipeline().clone();
-        pipeline.ivm_max_cycles_upper_bound =
-            core::num::NonZeroU64::new(1).expect("test ceiling is non-zero");
-        state.set_pipeline(pipeline);
+    fn register_code_rejects_cycle_ceiling_above_committed_policy() {
+        let (state, authority, _kp) = test_state();
+        let mut policy =
+            iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default(
+            );
+        policy.ivm_max_cycles_upper_bound = 1;
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter(),
+            ))
+            .expect("valid committed admission ceiling");
+        parameters.commit();
         let mut block = state.block(default_header(1));
+        assert_eq!(block.pipeline.ivm_max_cycles_upper_bound.get(), 1);
         let mut stx = block.transaction();
         let (mut code, _) = minimal_contract_artifact(1);
         code[8..16].copy_from_slice(&2_u64.to_le_bytes());

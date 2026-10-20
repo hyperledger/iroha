@@ -1086,9 +1086,10 @@ fn setup_c_layout_and_bounds_preserve_exact_identity_amount_and_unused_slots() {
         state::Scheduler::new(),
     )
     .unwrap();
+    // An open Request: nonzero retry identity, full u128 amount, no originals.
     let mut request = WalletSetupRequest {
         setup_id: id.as_ptr(),
-        selector: 1,
+        selector: 2,
         amount: WalletU128 {
             low: u64::MAX,
             high: u64::MAX,

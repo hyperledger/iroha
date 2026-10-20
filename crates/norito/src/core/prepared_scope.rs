@@ -1,8 +1,8 @@
 //! Physically prepaid counter controls for one synchronous canonical decode.
 
 use iroha_allocation::{
-    AllocationBudget, AllocationReservation, ChargedShared, InsufficientReservation,
-    PrepaidSharedError,
+    AllocationBudget, AllocationCharge, AllocationReservation, ChargedShared,
+    InsufficientReservation, PrepaidSharedError, SharedFromChargeError,
 };
 
 use super::*;
@@ -36,6 +36,85 @@ pub struct PreparedDecodeWorkspace {
     derived: ChargedShared<DecodeBudgetCounters>,
     explicit: ChargedShared<DecodeBudgetCounters>,
     attempt: u64,
+}
+
+/// Retained construction of the two prepaid canonical decode counter controls.
+///
+/// The original charges exist before the first physical allocation. A later refusal
+/// returns this same attempt, including every completed control and unused charge.
+/// It grants no decoding scope until both controls have been constructed.
+pub struct PreparedDecodeWorkspaceConstruction {
+    controls: [Option<ChargedShared<DecodeBudgetCounters>>; 2],
+    charges: [Option<AllocationCharge>; 2],
+}
+impl PreparedDecodeWorkspaceConstruction {
+    /// Whether every original control and unfinished charge retains this exact pool.
+    #[must_use]
+    pub fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.controls
+            .iter()
+            .flatten()
+            .all(|control| control.belongs_to(budget))
+            && self
+                .charges
+                .iter()
+                .flatten()
+                .all(|charge| charge.belongs_to(budget))
+    }
+
+    /// Retain the two original charges without allocating or reacquiring credit.
+    ///
+    /// # Errors
+    /// A foreign charge returns both originals before any physical allocation.
+    #[allow(
+        clippy::result_large_err,
+        reason = "return both original charges on refusal"
+    )]
+    pub fn from_charges(
+        budget: &AllocationBudget,
+        charges: [AllocationCharge; 2],
+    ) -> Result<Self, ([AllocationCharge; 2], PreparedDecodeScopeError)> {
+        if !charges.iter().all(|charge| charge.belongs_to(budget)) {
+            return Err((charges, PreparedDecodeScopeError::ForeignPool));
+        }
+        Ok(Self {
+            charges: charges.map(Some),
+            controls: [None, None],
+        })
+    }
+
+    /// Complete the original controls, retaining the same partial attempt on refusal.
+    ///
+    /// # Errors
+    /// Returns the exact refused layout and unchanged charge together with every
+    /// earlier control. Retrying never performs another pool admission.
+    #[allow(
+        clippy::result_large_err,
+        reason = "return the exact partial controls and charges"
+    )]
+    pub fn try_finish(mut self) -> Result<PreparedDecodeWorkspace, (Self, SharedFromChargeError)> {
+        for index in 0..self.controls.len() {
+            if self.controls[index].is_some() {
+                continue;
+            }
+            let charge = self.charges[index].take().expect("original counter charge");
+            match ChargedShared::reserve_from_charge(charge) {
+                Ok(control) => {
+                    self.controls[index] =
+                        Some(control.initialize(DecodeBudgetCounters::default()));
+                }
+                Err((charge, error)) => {
+                    self.charges[index] = Some(charge);
+                    return Err((self, error));
+                }
+            }
+        }
+        Ok(PreparedDecodeWorkspace {
+            derived: self.controls[0].take().expect("completed derived counter"),
+            explicit: self.controls[1].take().expect("completed explicit counter"),
+            attempt: 0,
+        })
+    }
 }
 
 impl PreparedDecodeWorkspace {

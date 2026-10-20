@@ -1217,7 +1217,7 @@ fn holder_schedule_every_phase_can_exhaust_the_last_admissible_millisecond() {
         holder_budget([1, 2, 4, 8, 16, 32]),
     )
     .expect("original intervals admit this public window");
-    assert!(std::ptr::eq(schedule.original(), &original));
+    assert!(std::ptr::eq(schedule.original(), &raw const original));
     assert_eq!(
         schedule.assess(&original.clone(), schedule_start),
         Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
@@ -1430,7 +1430,7 @@ fn holder_schedule_supersession_compares_exact_identities_not_epoch_order_or_tim
             schedule.assess(&current, u64::MAX),
             Ok(PrivacyZkX509HolderScheduleOutcomeV1::Superseded)
         );
-        assert!(std::ptr::eq(schedule.original(), &original));
+        assert!(std::ptr::eq(schedule.original(), &raw const original));
     }
     let mut changed_window = original.clone();
     changed_window.presentation_not_after_unix_seconds += 1;
@@ -1528,7 +1528,7 @@ fn holder_schedule_copy_preserves_the_original_borrow_and_budget() {
     let copied = schedule;
     let deadline = (T + 201) * 1_000 - 1;
     for value in [schedule, copied] {
-        assert!(std::ptr::eq(value.original(), &original));
+        assert!(std::ptr::eq(value.original(), &raw const original));
         assert_eq!(
             value.assess(&original, deadline - 21),
             Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)

@@ -254,7 +254,7 @@ fn atomic_observable_state(stx: &StateTransaction<'_, '_>) -> (Vec<Vec<u8>>, Vec
             norito::encode_canonical(&accounts).expect("account controls"),
             capture!(settlement_receipts),
             capture!(asset_definition_assets),
-            capture!(assets_by_account),
+            capture!(asset_definition_asset_counts),
             capture!(assets_by_domain),
             capture!(asset_definition_nonzero_holders),
         ],

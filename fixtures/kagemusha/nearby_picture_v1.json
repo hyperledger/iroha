@@ -1,0 +1,59 @@
+{
+  "fixture_version": 1,
+  "nearby_picture": {
+    "domain": "IROHA-PEER-NEARBY-PICTURE-V1\\u0000",
+    "picture_count": 16,
+    "grid_size": 6,
+    "rule": "index = SHA-256(domain || ASCII digits)[0] & 0x0f; digits must satisfy 4..12 ASCII digits",
+    "vectors": [
+      {
+        "digits": "0000",
+        "index": 5
+      },
+      {
+        "digits": "0001",
+        "index": 1
+      },
+      {
+        "digits": "0002",
+        "index": 8
+      },
+      {
+        "digits": "0451",
+        "index": 9
+      },
+      {
+        "digits": "1234",
+        "index": 12
+      },
+      {
+        "digits": "4321",
+        "index": 12
+      },
+      {
+        "digits": "7777",
+        "index": 3
+      },
+      {
+        "digits": "9999",
+        "index": 1
+      },
+      {
+        "digits": "00000000",
+        "index": 8
+      },
+      {
+        "digits": "123456789012",
+        "index": 4
+      }
+    ],
+    "invalid_digits": [
+      "",
+      "123",
+      "1234567890123",
+      "12a4",
+      "12 34",
+      "١٢٣٤"
+    ]
+  }
+}

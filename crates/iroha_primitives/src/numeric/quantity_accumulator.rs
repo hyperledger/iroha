@@ -305,6 +305,35 @@ mod tests {
                 assert_eq!(rhs, QuantityAccumulator::from_quantity(right));
             }
         }
+        // 0.2 - (2^511 + 2) / 10 normalizes to mantissa -2^511 at scale 1. That signed
+        // minimum is representable, so the refusal is underflow, not mantissa overflow.
+        let minimum_magnitude = Quantity::try_from_numeric(Numeric::new(
+            BigInt::from_inner(
+                ((super::super::UnboundedBigInt::from(1_u64) << 511_usize) + 2_u8) / 10_u8,
+            )
+            .unwrap(),
+            0,
+        ))
+        .unwrap();
+        let fifth = Quantity::from_str("0.2").unwrap();
+        assert_eq!(
+            fifth.checked_sub(&minimum_magnitude),
+            Err(NumericOperationError::QuantityUnderflow)
+        );
+        let mut result = QuantityAccumulator::from_quantity(&fifth);
+        let original = result;
+        assert_eq!(
+            result.try_sub(&minimum_magnitude),
+            Err(NumericOperationError::QuantityUnderflow)
+        );
+        assert_eq!(result, original);
+        let rhs = QuantityAccumulator::from_quantity(&minimum_magnitude);
+        assert_eq!(
+            result.try_sub_accumulator(&rhs),
+            Err(NumericOperationError::QuantityUnderflow)
+        );
+        assert_eq!(result, original);
+        assert_eq!(rhs, QuantityAccumulator::from_quantity(&minimum_magnitude));
     }
 
     #[test]

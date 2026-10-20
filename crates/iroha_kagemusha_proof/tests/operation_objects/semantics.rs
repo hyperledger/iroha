@@ -659,11 +659,7 @@ pub fn request_credit(c: &ObjectCircuit) -> Fp {
 }
 #[test]
 fn request_body_overflow_pairs_and_identity_checks_are_total() {
-    let mut c = cases()
-        .into_iter()
-        .find(|(c, ..)| c.kind == ObjectKind::Request)
-        .expect("request")
-        .0;
+    let mut c = completed_request();
     c.soft = true;
     c.body_check = BodyCheck::Semantic;
     assert!(c.accepts(request_credit(&c)));

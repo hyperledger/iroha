@@ -38,7 +38,7 @@ class TimeoutRecordingSession(requests.Session):
 def test_get_transaction_status_returns_none_on_404() -> None:
     response = StubResponse(status_code=404, payload=None)
     session = RecordingSession(response)
-    client = ToriiClient("http://localhost:8080", session=session)
+    client = ToriiClient("http://localhost:8080", session=session, chain_discriminant=753)
 
     result = client.get_transaction_status(TRANSACTION_HASH)
 
@@ -48,7 +48,7 @@ def test_get_transaction_status_returns_none_on_404() -> None:
 
 def test_get_transaction_status_forwards_request_timeout() -> None:
     session = TimeoutRecordingSession(StubResponse(payload=APPLIED_STATUS))
-    client = ToriiClient("http://localhost:8080", session=session)
+    client = ToriiClient("http://localhost:8080", session=session, chain_discriminant=753)
 
     result = client.get_transaction_status(TRANSACTION_HASH, timeout=7.5)
 
@@ -58,7 +58,7 @@ def test_get_transaction_status_forwards_request_timeout() -> None:
 
 def test_wait_for_transaction_status_caps_poll_timeout_to_deadline() -> None:
     session = TimeoutRecordingSession(StubResponse(payload=APPLIED_STATUS))
-    client = ToriiClient("http://localhost:8080", session=session, timeout=30)
+    client = ToriiClient("http://localhost:8080", session=session, timeout=30, chain_discriminant=753)
 
     result = client.wait_for_transaction_status(
         TRANSACTION_HASH,

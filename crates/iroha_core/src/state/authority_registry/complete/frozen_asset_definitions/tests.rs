@@ -133,22 +133,37 @@ fn stage(block: &mut StateBlock<'_>) {
         .insert(fixture::id(1), fixture::domain());
     block.world.asset_definition_domains.remove(fixture::id(3));
     block.world.asset_definition_domains.remove(fixture::id(99));
-    block
-        .world
-        .domain_asset_definitions
-        .insert(fixture::domain(), BTreeSet::from([fixture::id(1)]));
-    block
-        .world
-        .domain_asset_definitions
-        .insert(other_domain(), BTreeSet::from([fixture::id(0)]));
-    block.world.asset_definitions_by_owner.insert(
-        ALICE_ID.clone(),
-        BTreeSet::from([fixture::id(1), fixture::id(2)]),
+    macro_rules! reset_members {
+        ($field:ident, $rows:expr) => {{
+            let old: Vec<_> = block
+                .world
+                .$field
+                .iter()
+                .map(|(key, ())| key.clone())
+                .collect();
+            for key in old {
+                block.world.$field.remove(key);
+            }
+            for key in $rows {
+                block.world.$field.insert(key, ());
+            }
+        }};
+    }
+    reset_members!(
+        domain_asset_definitions,
+        [
+            (fixture::domain(), fixture::id(1)),
+            (other_domain(), fixture::id(0)),
+        ]
     );
-    block
-        .world
-        .asset_definitions_by_owner
-        .insert(BOB_ID.clone(), BTreeSet::from([fixture::id(0)]));
+    reset_members!(
+        asset_definitions_by_owner,
+        [
+            (ALICE_ID.clone(), fixture::id(1)),
+            (ALICE_ID.clone(), fixture::id(2)),
+            (BOB_ID.clone(), fixture::id(0)),
+        ]
+    );
     block
         .world
         .confidential_policy_transition_index
@@ -347,37 +362,29 @@ macro_rules! defect {
                 $target,
                 $kind,
                 asset_definitions_by_owner,
-                ALICE_ID.clone(),
-                restore.then(|| BTreeSet::from([fixture::id(0), fixture::id(2), fixture::id(3)]))
+                (ALICE_ID.clone(), fixture::id(0)),
+                restore.then_some(())
             ),
             5 | 6 => alter!(
                 $target,
                 $kind,
                 asset_definitions_by_owner,
-                BOB_ID.clone(),
-                (!restore).then(|| if case == 5 {
-                    BTreeSet::new()
-                } else {
-                    BTreeSet::from([fixture::id(0)])
-                })
+                (BOB_ID.clone(), fixture::id(if case == 5 { 99 } else { 0 })),
+                (!restore).then_some(())
             ),
             7 => alter!(
                 $target,
                 $kind,
                 domain_asset_definitions,
-                fixture::domain(),
-                restore.then(|| BTreeSet::from([fixture::id(0), fixture::id(3)]))
+                (fixture::domain(), fixture::id(0)),
+                restore.then_some(())
             ),
             8 | 9 => alter!(
                 $target,
                 $kind,
                 domain_asset_definitions,
-                unused_domain(),
-                (!restore).then(|| if case == 8 {
-                    BTreeSet::new()
-                } else {
-                    BTreeSet::from([fixture::id(0)])
-                })
+                (unused_domain(), fixture::id(if case == 8 { 99 } else { 0 })),
+                (!restore).then_some(())
             ),
             11 => alter!(
                 $target,
@@ -454,7 +461,7 @@ fn error(case: usize, previous: bool) -> GroupedOwnershipError {
     };
     let mismatch = match case {
         2 | 4 | 7 | 11 | 13 | 15 => GroupMismatch::MissingMember,
-        5 | 8 | 14 => GroupMismatch::EmptyGroup,
+        14 => GroupMismatch::EmptyGroup,
         _ => GroupMismatch::ForeignMember,
     };
     GroupedOwnershipError::Corrupt {
@@ -509,17 +516,14 @@ fn replace_preserves_actual_rewound_seven_owner_modes_and_predecessors() {
     }
     {
         let mut tip = state.world.domain_asset_definitions.block();
-        tip.insert(fixture::domain(), BTreeSet::from([fixture::id(3)]));
-        tip.insert(other_domain(), BTreeSet::from([fixture::id(0)]));
+        tip.remove((fixture::domain(), fixture::id(0)));
+        tip.insert((other_domain(), fixture::id(0)), ());
         tip.commit();
     }
     {
         let mut tip = state.world.asset_definitions_by_owner.block();
-        tip.insert(
-            ALICE_ID.clone(),
-            BTreeSet::from([fixture::id(2), fixture::id(3)]),
-        );
-        tip.insert(BOB_ID.clone(), BTreeSet::from([fixture::id(0)]));
+        tip.remove((ALICE_ID.clone(), fixture::id(0)));
+        tip.insert((BOB_ID.clone(), fixture::id(0)), ());
         tip.commit();
     }
     {
@@ -742,13 +746,13 @@ fn later_equal_or_changed_publications_cannot_refresh_any_frozen_asset_original(
                 2 => publish!(asset_definition_domains, fixture::id(99), other_domain()),
                 3 => publish!(
                     domain_asset_definitions,
-                    other_domain(),
-                    BTreeSet::from([fixture::id(99)])
+                    (other_domain(), fixture::id(99)),
+                    ()
                 ),
                 4 => publish!(
                     asset_definitions_by_owner,
-                    BOB_ID.clone(),
-                    BTreeSet::from([fixture::id(99)])
+                    (BOB_ID.clone(), fixture::id(99)),
+                    ()
                 ),
                 5 => publish!(
                     confidential_policy_transition_index,

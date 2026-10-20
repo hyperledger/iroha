@@ -3652,7 +3652,7 @@ impl Execute for SubmitPrivacyProofV1 {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        let submission = PreparedPrivacySubmissionV1::prepare(self, state_transaction)?;
+        let submission = PreparedPrivacySubmissionV1::prepare(self, authority, state_transaction)?;
         let activation = *resolve_qualified_privacy_activation_v1(
             state_transaction
                 .world
@@ -3682,6 +3682,7 @@ struct PreparedPrivacySubmissionV1 {
 impl PreparedPrivacySubmissionV1 {
     fn prepare(
         instruction: SubmitPrivacyProofV1,
+        authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<Self, Error> {
         let transaction_intent_digest = instruction
@@ -3697,6 +3698,7 @@ impl PreparedPrivacySubmissionV1 {
             })?;
         state_transaction
             .consume_privacy_transaction_intent_v1(
+                authority,
                 transaction_intent_digest,
                 signed_submission_hash,
             )
@@ -5967,7 +5969,7 @@ mod tests {
             zk_ams_runtime_fixture_for_test,
         },
         query::store::LiveQueryStore,
-        state::{State, World},
+        state::{State, StateReadOnly, World},
     };
     use core::num::NonZeroU64;
     use iroha_crypto::{Hash, HashOf};
@@ -6539,6 +6541,31 @@ mod tests {
         let submission_hash = crate::privacy::privacy_signed_submission_hash_v1(instruction)
             .expect("privacy submission encodes canonically");
         transaction.bind_privacy_transaction_intent_v1(Some((digest, submission_hash)));
+        // This component fixture starts after intent admission. Authenticate the exact signed
+        // source and arm the same direct-occurrence check used by production execution.
+        let mut builder = iroha_data_model::transaction::TransactionBuilder::new(
+            *transaction.network_id(),
+            ALICE_ID.clone(),
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([instruction.clone()]);
+        builder.set_creation_time(core::time::Duration::from_millis(1));
+        let signed = builder.sign(iroha_test_samples::ALICE_KEYPAIR.private_key());
+        crate::state::seed_committed_transaction_context(
+            transaction,
+            &iroha_data_model::transaction::TransactionEntrypoint::External(signed.clone()),
+            0,
+        );
+        transaction
+            .bind_privacy_transaction_source_v1(&signed)
+            .expect("component privacy source matches the signed submission");
+        transaction.arm_direct_privacy_instruction_v1(
+            &signed,
+            &ALICE_ID,
+            &instruction.clone().into(),
+            0,
+            true,
+        );
     }
     fn bind_payment_instruction(
         transaction: &mut StateTransaction<'_, '_>,
@@ -6554,7 +6581,8 @@ mod tests {
         // Exercise the same intent binding, resource preflight, native verifier, and state
         // transition as Execute. This component fixture supplies an exact compiled activation;
         // it does not construct or claim the separate Exact12 deployment qualification.
-        let submission = PreparedPrivacySubmissionV1::prepare(instruction, state_transaction)?;
+        let submission =
+            PreparedPrivacySubmissionV1::prepare(instruction, authority, state_transaction)?;
         let activation = *state_transaction
             .world
             .privacy_activations

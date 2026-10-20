@@ -1,0 +1,37 @@
+STDOUT (retained stream)
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --locked --offline --profile local-release -p iroha_zkp_vole --test root_slot_interface -- --nocapture --test-threads=1
+
+running 3 tests
+test an_equal_numeric_child_key_keeps_ordinary_aes_semantics ... ok
+test five_supplied_replies_preserve_wrapped_iv_and_exact_bit_projection ... ok
+test joint_root_projection_matches_source_rows_and_both_prg_backends ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+STDERR (retained stream)
+   Compiling typenum v1.20.0
+   Compiling libc v0.2.186
+   Compiling generic-array v0.14.7
+   Compiling syn v2.0.117
+   Compiling thiserror v2.0.18
+   Compiling crypto-common v0.1.7
+   Compiling inout v0.1.4
+   Compiling cpufeatures v0.2.17
+   Compiling keccak v0.1.6
+   Compiling cipher v0.4.4
+   Compiling block-buffer v0.10.4
+   Compiling zeroize v1.8.2
+   Compiling digest v0.10.7
+   Compiling aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+   Compiling sha3 v0.10.9
+   Compiling thiserror-impl v2.0.18
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+    Finished `local-release` profile [optimized] target(s) in 6.32s
+     Running tests/root_slot_interface.rs (target/cargo-fast/parliament-development/local-release/deps/root_slot_interface-0292f98877fcc9b6)

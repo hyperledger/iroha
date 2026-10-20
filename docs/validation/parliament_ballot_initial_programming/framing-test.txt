@@ -1,0 +1,6 @@
+test_actual_shape_bytes_and_domain_last_all_rows_roles (scripts.tests.parliament_ballot_write_framing_test.FramingTest.test_actual_shape_bytes_and_domain_last_all_rows_roles) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.493s
+
+OK

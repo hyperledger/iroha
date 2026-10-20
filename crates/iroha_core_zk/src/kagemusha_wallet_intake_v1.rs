@@ -3,7 +3,7 @@
 //! The installation owner supplies an authenticated immutable verifier and the canonical
 //! complete source-qualified wallet graph, including all sigma, receipt, Q, operation
 //! and Omega owners whose originals were strictly imported.
-//! Foreign inputs supply original credential, Enrollment CertificateSet and AccountId
+//! Foreign inputs supply original credential, Enrollment `CertificateSet` and `AccountId`
 //! frames, never slot/scheme/wallet/artifact identifiers or a replacement account vault. Native
 //! enumerates real provider slots, reconciles their markers, checks the positive hardware key,
 //! retained intent/request/current credential and selected capsule, then asks the existing
@@ -710,7 +710,7 @@ impl<F: KagemushaWalletFsV1, P> AdmittedWalletV1<F, P> {
         &self.credential
     }
 
-    /// Exact credential, Enrollment CertificateSet, account and asset-scope frames,
+    /// Exact credential, Enrollment `CertificateSet`, account and asset-scope frames,
     /// retained for the authentic native operation owner.
     #[must_use]
     pub fn originals(&self) -> (&[u8], &[u8], &[u8], &[u8]) {

@@ -45,6 +45,14 @@ Purpose
     remain fully accounted, but their failures cannot replace a declared control.
     These independent invocations retain the configured per-step deadlines, and any
     step error prevents the aggregate result from qualifying.
+    The campaign observes the complete nonignored workspace manifest and branch
+    before queueing work and after every owned child has closed naturally. Dirty
+    source and detached CI checkouts are accepted when those observations agree.
+    Cheap per-work-item checks reject branch drift, conflicts and unfinished Git
+    operations without repeated full source hashes or new native deadlines.
+    Any source observation error invalidates the entire report, even when every
+    native mutation was killed. These boundary observations detect persistent
+    drift; they are not a source seal or proof of Cargo input consumption.
 
     The table MUTATIONS mirrors §13.4 (MS*/ML* rows and the MX* rows of the simulator's toy AMX application, §11) plus ME*
     (the as-built rules E1-E7 of Appendix E, with their regression tests) and MR-* (revision-4
@@ -72,7 +80,7 @@ Prerequisites
     modified.
 
 Outputs
-    <target-dir>/report.json   per-mutation results and a summary
+    <target-dir>/report.json   source observations, per-mutation results and a summary
     <target-dir>/logs/*.log    exact combined Cargo/native bytes of every step
     <target-dir>/logs/*.runtime.json  capture-only Cargo runner cwd/environment
     <target-dir>/logs/*.compiler.log  selected compiler native-host query
@@ -99,6 +107,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import queue
@@ -110,6 +119,22 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _load_workspace_source_helper():
+    """Load the exact sibling helper, independent of caller paths and caches."""
+    path = Path(__file__).resolve().with_name("compute_workspace_source_manifest.py")
+    spec = importlib.util.spec_from_file_location("sumeragi_workspace_source_manifest", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load workspace source helper: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_workspace_source = _load_workspace_source_helper()
+workspace_source_git_state = _workspace_source.workspace_source_git_state
+workspace_source_observation = _workspace_source.workspace_source_observation
 
 REPO = Path(__file__).resolve().parent.parent
 CRATE = "iroha_sumeragi"
@@ -373,6 +398,18 @@ MUTATIONS = [
       ["machine::tests::liveness::det_s80_unrelated_lock_does_not_certify_execution"],
       causes=(ExpectedFailure("a held PrepareQC must certify the executed block, not merely its height",
           "crates/iroha_sumeragi/src/machine/tests/liveness.rs"),)),
+    m("MS84", "QC constructor discards original prepaid charge or partial counter prefix on physical refusal",
+      ["qc_custody::physical_tests::every_actual_qc_control_layout_refusal_retains_original_charge_prefix_and_same_source_retry"],
+      causes=(ExpectedFailure("constructor refusal must retain every original charge and completed control",
+          "crates/iroha_sumeragi/src/qc_custody/physical_tests.rs"),)),
+    m("MS82", "Shared semantic QC accepts a same-wire replacement source control",
+      ["qc_custody::tests::shared_qc_refuses_same_wire_replacement_and_different_source_span"],
+      causes=(ExpectedFailure("shared QC retry must retain the exact original immutable source control",
+          "crates/iroha_sumeragi/src/qc_custody/tests.rs"),)),
+    m("MS83", "Shared semantic QC accepts a foreign-pool source control",
+      ["qc_custody::tests::shared_qc_requires_leaf_and_control_to_share_the_exact_original_pool"],
+      causes=(ExpectedFailure("shared QC source control must belong to the original byte pool",
+          "crates/iroha_sumeragi/src/qc_custody/tests.rs"),)),
     m("MS81", "restore: accept a proposal reservation whose TC high-PQC certifies another block",
       ["machine::tests::recovery::det_s81_unsigned_proposal_restart_refuses_mismatched_high_pqc",
        "machine::tests::recovery::det_s81_signed_proposal_restart_refuses_mismatched_high_pqc"],
@@ -587,7 +624,222 @@ MUTATIONS = [
 
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
+# Ids HC900-HC999 are reserved for the S8 original-pool custody controls of the SCCP
+# workstream; other Core owners continue from the highest id below HC900.
 CORE_MUTATIONS = [
+    m("HC472", "Execution prefix physical refusal discards its original backing charge",
+      ["sumeragi::certified_chain::execution_read::prefix_construction_tests::prefix_physical_refusal_retains_original_charge_and_retries_without_credit"],
+      causes=(ExpectedFailure("prefix physical refusal must retain its exact original backing charge", "crates/iroha_core/src/sumeragi/certified_chain/execution_read/prefix_construction_tests.rs"),)),
+    m("HC471", "Execution reader accepts a replacement backend, slot, hash or pool",
+      ['sumeragi::certified_chain::execution_read::continuation_tests::execution_retry_rejects_replacement_pool_backend_and_expected_hash'],
+      causes=(ExpectedFailure('execution retry must retain its original backend slot hash and finite pool', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs'),)),
+    m('HC469', 'Native raw frame physical refusal discards its original backing charge',
+      ['kura::native_frame_continuation_tests::original_raw_frame_physical_refusal_retains_charge_and_retries_without_credit'],
+      causes=(ExpectedFailure('raw-frame refusal must retain the exact original backing charge', 'crates/iroha_core/src/kura/native_frame_continuation_tests.rs'),)),
+    m('HC470', 'Native raw frame retry accepts a replacement sidecar image',
+      ['kura::native_frame_continuation_tests::original_raw_frame_retry_refuses_replaced_sidecar_before_backing_allocation'],
+      causes=(ExpectedFailure('raw-frame retry must reject the original sidecar image substitution before body allocation', 'crates/iroha_core/src/kura/native_frame_continuation_tests.rs'),)),
+    m("HC467", "Native carrier refusal discards its original prepared decoder and children",
+      ["sumeragi::certified_chain::native_acquisition::tests::native_late_certificate_capacity_retains_same_decoder_children_and_original_retry", 'sumeragi::certified_chain::execution_read::continuation_tests::execution_late_certificate_refusal_retains_prepared_children_and_exact_cause'],
+      causes=(ExpectedFailure("native late refusal must retain the original prepared decoder and child charges", "crates/iroha_core/src/sumeragi/certified_chain/native_acquisition/tests.rs"), ExpectedFailure('execution late refusal must retain the original prepared decoder and child charges', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs'),)),
+    m("HC468", "Native shell physical refusal drops its original retained charge",
+      ["sumeragi::certified_chain::native_acquisition::tests::native_shell_actual_physical_refusal_keeps_original_charge_source_and_retry", 'sumeragi::certified_chain::execution_read::continuation_tests::execution_shell_physical_refusal_keeps_original_charge_and_single_wire_delivery'],
+      causes=(ExpectedFailure("native shell refusal must retain the exact original shell charge", "crates/iroha_core/src/sumeragi/certified_chain/native_acquisition/tests.rs"), ExpectedFailure('execution shell refusal must retain the exact original shell charge', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs'),)),
+
+    m("HC464", "Producer parent-QC refusal discards original paid byte and control construction",
+      ["sumeragi::certified_chain::state_certificate::parent_service_copy::tests::producer_copy_physical_byte_and_root_refusals_keep_original_charges_and_retry"],
+      causes=(ExpectedFailure("producer copy refusal must retain original byte and control charges", "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_copy/tests.rs"),)),
+
+    m("HC465", "Parent-service signer refusal discards original charges and completed key prefix",
+      ["sumeragi::certified_chain::state_certificate::parent_service_signers::tests::original_signer_late_capacity_retains_prefix_waiter_and_same_pool_retry"],
+      causes=(ExpectedFailure("signer refusal must retain every original charge and completed key prefix",
+          "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_signers/tests.rs"),)),
+    m("HC466", "Parent-service signer output accepts replacement source, cut, proposal or order",
+      ["sumeragi::certified_chain::state_certificate::parent_service_signers::tests::original_signer_lend_refuses_same_wire_source_pool_cut_and_selection_substitution"],
+      causes=(ExpectedFailure("same-wire signer source substitution must refuse the retained original owner",
+          "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_signers/tests.rs"),)),
+    m("HC463", "Semantic QC replaces typed refusal with a generic capacity diagnostic",
+      ["sumeragi::certified_chain::state_certificate::parent_service_qc::tests::semantic_qc_error_transport_retains_exact_original_capacity_and_allocator_fields"],
+      causes=(ExpectedFailure("parent-service semantic QC must preserve the original capacity cause",
+          "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_qc/tests.rs"),)),
+    m("HC462", "Worker drops the original partial semantic QC on actual admission refusal",
+      ["sumeragi::executor::parent_service_custody_tests::parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until_retry"],
+      causes=(ExpectedFailure("semantic QC refusal must retain the original worker source and partial decoder",
+          "crates/iroha_core/src/sumeragi/executor_parent_service_custody_tests.rs", worker_thread="sumeragi-publication-test", join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs", join_message="publication worker fixture: Any { .. }"),)),
+    m("HC460", "Original decoded proposal accepts a different equal-wire parent-QC owner",
+      ["sumeragi::executor::decoded_custody_tests::same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries"],
+      causes=(ExpectedFailure("same-wire parent-QC substitution must fail original lend", "crates/iroha_core/src/sumeragi/executor_decoded_custody_tests.rs"),)),
+
+    m("HC461", "Parent-QC decode drops original typed refusal provenance",
+      ["execution_attempt::prepared_parent_service_attempt_preserves_original_capacity_and_allocator_fields"],
+      causes=(ExpectedFailure("parent-QC decode must retain its original capacity cause", "crates/iroha_core/src/execution_attempt.rs"),)),
+
+    m("HC459", "Native action decode drops original typed refusal provenance",
+      ["execution_attempt::prepared_penalty_action_attempt_retains_exact_capacity_and_allocator_causes"],
+      causes=(ExpectedFailure("field 5 must preserve the exact original capacity cause", "crates/iroha_core/src/execution_attempt.rs"),)),
+
+    m("HC458", "Original decoded proposal accepts another same-wire action owner",
+      ["sumeragi::executor::decoded_custody_tests::same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return"],
+      causes=(ExpectedFailure("same-wire action substitution must fail original lend", "crates/iroha_core/src/sumeragi/executor_decoded_custody_tests.rs"),)),
+
+    m("HC900", "S8 numeric index: accept a foreign allocation-charge ledger",
+      ["smartcontracts::isi::staking::funded_numeric_tests::numeric_index_rejects_foreign_ledger_before_consuming_original_reservation"],
+      causes=(ExpectedFailure("HC900 numeric index must reject a foreign charge ledger before allocating",
+          "crates/iroha_core/src/smartcontracts/isi/staking_funded_numeric_tests.rs"),)),
+    m("HC901", "S8 penalty ordering: sort canonical actions with stable-sort scratch",
+      ["sumeragi::penalties::tests::canonical_action_order_deduplicates_without_allocator_scratch"],
+      causes=(ExpectedFailure("HC901 canonical penalty sorting must not allocate stable-sort scratch",
+          "crates/iroha_core/src/sumeragi/penalties.rs"),)),
+    m("HC902", "S8 slash publication: omit the retained pending-unbond amount",
+      ["state::output_publication::tests::slash_surface_binds_pending_amount_order_and_count_without_scratch"],
+      causes=(ExpectedFailure("HC902 local slash publication must bind the exact pending-unbond amount",
+          "crates/iroha_core/src/state/output_publication.rs"),)),
+    m("HC903", "S8 L3 caller: copy the pending-unbond graph before original liability refusal",
+      ["smartcontracts::isi::staking::tests::sccp_liable_unbond_keeps_exact_pending_request_and_both_balances"],
+      causes=(ExpectedFailure("HC903 L3 caller must inspect original unbond graphs without copying before refusal",
+          "crates/iroha_core/src/smartcontracts/isi/staking_sccp_liability_tests.rs"),)),
+    m("HC904", "S8 borrowed slash binding: replace the original canonical tuple frame identity",
+      ["smartcontracts::isi::asset::isi::borrowed_slash_binding_preserves_exact_canonical_frame_and_alignment"],
+      causes=(ExpectedFailure("HC904 borrowed slash binding must preserve the exact original canonical frame",
+          "crates/iroha_core/src/smartcontracts/isi/asset.rs"),)),
+    m("HC905", "S8 SCCP event graph: substitute an equal-limit allocation pool",
+      ["smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader"],
+      causes=(ExpectedFailure("event graph retains the original pool",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs"),)),
+    m("HC906", "S8 SCCP snapshot preflight: skip the offender-array committee bound",
+      ["sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode"],
+      causes=(ExpectedFailure("oversized SCCP graph is refused before nested decode",
+          "crates/iroha_core/src/sumeragi/evidence/sccp_record/tests.rs"),)),
+    m("HC907", "S8 SCCP refusal: allocate a replacement instruction diagnostic",
+      ["smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison"],
+      causes=(ExpectedFailure("local SCCP refusal cannot allocate a replacement diagnostic",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/tests.rs"),)),
+    m("HC910", "S8 penalty action backing: accept a foreign original reservation",
+      ["sumeragi::penalties::funded_actions::tests::action_backing_rejects_foreign_reservation_before_allocation"],
+      causes=(ExpectedFailure("HC910 funded action backing must reject a foreign reservation before allocating",
+          "crates/iroha_core/src/sumeragi/penalties/funded_actions/tests.rs"),)),
+    m("HC911", "S8 penalty actions: refund quantity custody before the retained action graph dies",
+      ["sumeragi::penalties::funded_actions::tests::action_graph_retains_exact_layouts_pointers_and_original_pool_through_moves"],
+      causes=(ExpectedFailure("HC911 funded actions must retain every original quantity allocation until graph destruction",
+          "crates/iroha_core/src/sumeragi/penalties/funded_actions/tests.rs"),)),
+    m("HC912", "S8 pending evidence selection: turn the original capture refusal into an empty successful batch",
+      ["sumeragi::evidence::tests::observer_pool_is_charged_and_refusal_preserves_original_source"],
+      causes=(ExpectedFailure("HC912 pending selection must preserve original capacity refusal and signed source",
+          "crates/iroha_core/src/sumeragi/evidence/tests.rs"),)),
+    m("HC913", "S8 pristine staking preparation: drop the exact funded actions before application",
+      ["sumeragi::penalties::tests::sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker"],
+      causes=(ExpectedFailure("HC913 pristine effects must retain the exact funded actions through application",
+          "crates/iroha_core/src/sumeragi/penalties/sccp_tests.rs"),)),
+    m("HC914", "S8 pending evidence selection: abort the proposal on a retryable per-report refusal",
+      ["sumeragi::evidence_history::lane::tests::local_proposer_keeps_earlier_selection_and_effects_when_later_report_retries", "sumeragi::evidence_history::lane::tests::native_lane_observer_proposes_only_original_authenticated_reports_after_local_retry"],
+      causes=(ExpectedFailure("HC914 a retryable later report must not abort the proposal effects",
+          "crates/iroha_core/src/sumeragi/evidence_history/lane/tests.rs"),
+      ExpectedFailure("HC914 retryable original-pool exhaustion must not abort the proposal",
+          "crates/iroha_core/src/sumeragi/evidence_history/lane/tests.rs"),)),
+    m("HC915", "S8 effects boundary: keep a selection preparation refusal wrapped",
+      ["sumeragi::penalties::tests::pending_selection_refusal_crosses_effects_boundary_as_bare_typed_preparation", "sumeragi::penalties::tests::selection_report_unwraps_only_preparation_refusals"],
+      causes=(ExpectedFailure("HC915 a selection refusal must cross the effects boundary as its bare typed cause",
+          "crates/iroha_core/src/sumeragi/penalties.rs"),
+      ExpectedFailure("HC915 a preparation refusal crosses the eyre boundary unwrapped",
+          "crates/iroha_core/src/sumeragi/penalties.rs"),)),
+    m("HC916", "S8 penalty actions: accept an out-of-order evidence key past run-local duplicate suppression",
+      ["sumeragi::penalties::funded_actions::tests::duplicate_suppression_reads_only_the_ordered_current_key_run"],
+      causes=(ExpectedFailure("HC916 an out-of-order evidence key must not escape duplicate suppression",
+          "crates/iroha_core/src/sumeragi/penalties/funded_actions/tests.rs"),)),
+    m("HC921", "S8 evidence restore: allocate an uncharged diagnostic string",
+      ["sumeragi::evidence::record::tests::closed_native_envelope_reorders_without_accepting_bare_or_unknown_material", "sumeragi::evidence::record::tests::retained_record_restore_keeps_resource_refusal_and_canonical_negative_priority"],
+      causes=(ExpectedFailure("HC921 restore diagnostics must be fixed allocation-free errors",
+          "crates/iroha_core/src/sumeragi/evidence/record/tests.rs"),
+      ExpectedFailure("HC921 restore diagnostics must be fixed allocation-free errors",
+          "crates/iroha_core/src/sumeragi/evidence/record/tests.rs"),)),
+    m("HC926", "snapshot index: fund the State/World index from a substituted pool",
+      ["state::deserialize::snapshot_map_tests::snapshot_index_retains_exact_original_layout_and_borrows_keys_through_moves"],
+      causes=(ExpectedFailure("snapshot index retains the captured original pool",
+          "crates/iroha_core/src/state/deserialize_snapshot_map_tests.rs"),)),
+    m("HC927", "snapshot evidence: accept any bytes instead of the streaming canonical comparison",
+      ["state::deserialize::snapshot_map_tests::snapshot_comparison_streams_hash_keys_and_nested_values_without_scratch"],
+      causes=(ExpectedFailure("snapshot comparison rejects changed canonical bytes",
+          "crates/iroha_core/src/state/deserialize_snapshot_map_tests.rs"),)),
+    m("HC928", "snapshot index: classify an active decode-resource refusal as snapshot syntax",
+      ["state::deserialize::snapshot_map_tests::snapshot_index_defers_active_decode_refusal_without_labelling_it_evidence"],
+      causes=(ExpectedFailure("an active decode refusal while indexing State is a local restore deferral",
+          "crates/iroha_core/src/state/deserialize_snapshot_map_tests.rs"),)),
+    m("HC929", "snapshot index: size the index from the input entry count instead of the schema",
+      ["state::deserialize::snapshot_map_tests::snapshot_index_is_sized_by_its_schema_not_the_input_entry_count"],
+      causes=(ExpectedFailure("an object larger than its schema is malformed, never a local index refusal",
+          "crates/iroha_core/src/state/deserialize_snapshot_map_tests.rs"),)),
+    m("HC930", "World decoder: skip the admitted field-order check",
+      ["state::deserialize::snapshot_map_tests::admitted_world_decoder_rejects_reordered_missing_and_unknown_fields_itself"],
+      causes=(ExpectedFailure("the World decoder itself must reject noncanonical admitted fields",
+          "crates/iroha_core/src/state/deserialize_snapshot_map_tests.rs"),)),
+    m("HC940", "S8 pairing: replace an original physical committee allocator refusal with an admission error",
+      ["sumeragi::crypto::funded::tests::physical_pairing_refusal_keeps_original_cause_and_source"],
+      causes=(ExpectedFailure("HC940 physical pairing refusal must retain its original allocator cause and exact layout",
+          "crates/iroha_core/src/sumeragi/crypto/funded/tests.rs"),)),
+    m("HC941", "S8 forgery pairing: classify physical allocation failure as a bad signature",
+      ["smartcontracts::isi::sccp::forgery::tests::local_refusal_and_stop_never_become_protocol_verdicts_or_leak_budget"],
+      causes=(ExpectedFailure("HC941 forgery pairing allocator refusal must remain local with its original cause",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/tests.rs"),)),
+    m("HC942", "S8 native certificate pairing: classify physical allocation failure as invalid original data",
+      ["smartcontracts::isi::sccp::read::native::tests::native_certificate_crypto_refusal_keeps_exact_original_pool_and_source"],
+      causes=(ExpectedFailure("HC942 native certificate pairing allocator refusal must preserve its original physical cause",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/read/native/tests.rs"),)),
+    m("HC951", "S8 prefix restore: discard the admitted frame slot on later result refusal",
+      ["sumeragi::certified_chain::tests::prefix_tests::admitted_prepared_prefix_refusal_retains_metadata_slots_and_original_release"],
+      causes=(ExpectedFailure("HC951 admitted prefix refusal must retain its original frame slot",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC952", "S8 prefix restore: substitute a foreign pool after the original frame refusal",
+      ["sumeragi::certified_chain::tests::prefix_tests::admitted_frame_refusal_rejects_foreign_pool_and_replacement_source_before_retry"],
+      causes=(ExpectedFailure("HC952 admitted frame retry must reject a foreign original pool before allocating",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC953", "S8 prefix authority: reuse a stale native configuration after same-epoch parameter activation",
+      ["sumeragi::certified_chain::tests::prefix_tests::admitted_prefix_rebuilds_funded_configuration_for_same_epoch_parameter_change"],
+      causes=(ExpectedFailure("HC953 same-epoch parameter activation must verify with the active native configuration",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC954", "S8 admitted frame: erase the original physical allocator refusal",
+      ["sumeragi::certified_chain::admitted_slot_allocator_refusal_keeps_original_physical_cause"],
+      causes=(ExpectedFailure("HC954 admitted frame allocator refusal retains its original physical cause",
+          "crates/iroha_core/src/sumeragi/certified_chain.rs"),)),
+    m("HC955", "S8 prefix advance: accept completed metadata from a foreign allocation pool",
+      ["sumeragi::certified_chain::artifacts::tests::admitted_prefix_rejects_foreign_completed_metadata_before_frame_allocation"],
+      causes=(ExpectedFailure("HC955 prefix advancement rejects foreign metadata before allocating",
+          "crates/iroha_core/src/sumeragi/certified_chain/artifacts/tests.rs"),)),
+    m("HC957", "S8 prefix restore: drop the new funded authority on later scratch refusal",
+      ["sumeragi::certified_chain::tests::prefix_tests::admitted_parameter_change_retains_pending_authority_across_later_scratch_refusal"],
+      causes=(ExpectedFailure("HC957 later scratch refusal must retain the original pending authority without satisfying its own release wait",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC958", "S8 prefix authority: substitute an equal-limit allocation pool",
+      ["sumeragi::certified_chain::funded_authority::prefix::tests::exact_prefix_authority_retains_material_config_and_pairing_through_last_reader"],
+      causes=(ExpectedFailure("HC958 prefix authority is charged to the captured original pool",
+          "crates/iroha_core/src/sumeragi/certified_chain/funded_authority/prefix/tests.rs"),)),
+    m("HC959", "S8 RS16 scratch: substitute an equal-limit allocation pool",
+      ["sumeragi::certified_chain::funded_availability::tests::funded_availability_keeps_canonical_relations_admission_order_and_original_release"],
+      causes=(ExpectedFailure("HC959 RS16 scratch is charged to the captured original pool",
+          "crates/iroha_core/src/sumeragi/certified_chain/funded_availability/tests.rs"),)),
+    m("HC960", "S8 canonical certificate metadata: substitute an equal-limit allocation pool",
+      ["sumeragi::certified_chain::artifacts::metadata::tests::metadata_retains_exact_original_graph_through_moves_sharing_and_last_reader"],
+      causes=(ExpectedFailure("HC960 canonical metadata retains the original pool",
+          "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/tests.rs"),)),
+    m("HC961", "S8 certificate metadata decoder: omit the exact canonical frame check",
+      ["sumeragi::certified_chain::artifacts::metadata::tests::metadata_accepts_only_the_exact_canonical_frame_of_its_value"],
+      causes=(ExpectedFailure("HC961 metadata accepts only the exact canonical frame of its decoded value",
+          "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/tests.rs"),)),
+    m("HC962", "S8 admitted frame: reject a different retained carrier or scope as invalid history",
+      ["sumeragi::certified_chain::tests::prefix_tests::admitted_frame_refusal_rejects_foreign_pool_and_replacement_source_before_retry"],
+      causes=(ExpectedFailure("HC962 a retained carrier mismatch is local custody, never a history verdict",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC963", "S8 one-shot prefix push: fund successor authority/RS16 scratch without a retained owner",
+      ["sumeragi::certified_chain::tests::prefix_tests::one_shot_admitted_push_funds_no_owner_that_could_release_its_own_wait"],
+      causes=(ExpectedFailure("HC963 one-shot pushes admit no successor owner from the original pool",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC964", "S8 one-shot admitted push: admit receipt and result slots separately",
+      ["sumeragi::certified_chain::tests::prefix_tests::one_shot_admitted_push_admits_both_slots_before_a_refusal_can_release_itself"],
+      causes=(ExpectedFailure("HC964 one-shot admitted push cannot satisfy its own release wait",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
+    m("HC965", "S8 prefix initialization: bind pool and genesis only after the first admission",
+      ["sumeragi::certified_chain::tests::prefix_tests::admitted_initialization_binds_original_pool_and_genesis_before_first_admission"],
+      causes=(ExpectedFailure("HC965 retained initialization binds its original pool before the first admission",
+          "crates/iroha_core/src/sumeragi/certified_chain/prefix_tests.rs"),)),
     m("HC400", "SCCP registration: ignore either required launch gate after native validation",
       ["smartcontracts::isi::sccp::governance::installation_tests::registration_requires_both_launch_gates_even_after_native_preconditions"],
       causes=(ExpectedFailure("SCCP registration must require both launch gates after native preconditions pass",
@@ -1617,6 +1869,97 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("the original busy native operation must finish cancelled read cleanup before returning",
           "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),)),
 
+    m("HC435", "Discarded incoming execution retains its original lane read",
+      ["sumeragi::executor::proposal_read_tests::discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclusion"],
+      causes=(ExpectedFailure("discarded incoming execution must release its own actual lane read without successor traffic", "crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs"),)),
+
+    m("HC436", "Incoming execution replaces rather than transfers its exact local read request",
+      ["sumeragi::executor::proposal_read_tests::authenticated_incoming_execution_moves_the_original_local_lane_request_without_reopening"],
+      causes=(ExpectedFailure("authenticated incoming execution must move the exact original local lane request and continue its native source", "crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs"),)),
+
+    m("HC437", "Read-only parking loses cancellation of the original in-flight frame",
+      ["sumeragi::lanes::registry::tests::proposal_reads::cancelled_read_only_incoming_frame_is_released_when_original_inflight_owner_parks"],
+      causes=(ExpectedFailure("cancelled incoming read-only custody must retire when the original in-flight owner parks", "crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs"),)),
+
+    m("HC438", "Native cleanup loses cancellation after observing the original flag",
+      ["sumeragi::lanes::store::refund_tests::state_read_cancellation_after_cleanup_observation_cannot_be_lost", "sumeragi::lanes::store::refund_tests::batch_read_cancellation_after_cleanup_observation_cannot_be_lost"],
+      causes=(ExpectedFailure("cancellation after the original cleanup observation must release that exact read without successor traffic", "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),
+          ExpectedFailure("cancellation after the original cleanup observation must release that exact read without successor traffic", "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),)),
+
+    m("HC439", "Final active opening caller abandons acknowledged request cancellation",
+      ["sumeragi::lanes::registry::tests::isolation_tests::final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery"],
+      causes=(ExpectedFailure("the final incoming opening caller must acknowledge cancellation without dropping independent historical recovery", "crates/iroha_core/src/sumeragi/lanes/registry/isolation_tests.rs"),)),
+
+    m("HC443", "Lane sweeps let later registrations consume original cleanup or retirement membership",
+      ['sumeragi::lanes::registry::tests::proposal_reads::cancelled_original_sweep_does_not_wait_for_new_disjoint_opening', 'sumeragi::lanes::registry::tests::proposal_reads::original_sweep_preserves_a_later_same_key_native_owner'],
+      causes=(ExpectedFailure('original cancelled lane cleanup cannot wait for an unrelated newly registered opening', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'),
+          ExpectedFailure('an original lane sweep cannot retire a later same-key registration', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'),)),
+
+    m("HC455", "Change capture encodes untouched cell values",
+      ["state::authority_registry::complete::original_stream::tests::untouched_cell_delta_keeps_original_identity_without_value_work_or_credit"],
+      causes=(ExpectedFailure("untouched cell change capture must admit no value work or credit",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs"),)),
+
+    m("HC456", "Change capture constructs unchanged borrowed policy scratch",
+      ["state::authority_registry::complete::original_stream::tests::unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool"],
+      causes=(ExpectedFailure("unchanged policies must skip borrowed projection scratch before allocation",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs"),)),
+
+    m("HC457", "Manifest projection ignores original runtime catalog touches",
+      ["state::authority_registry::complete::original_stream::tests::runtime_catalog_touch_keeps_manifest_preimage_and_refuses_foreign_binding"],
+      causes=(ExpectedFailure("runtime catalog touches must retain original manifest preimage",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs"),)),
+
+    m("HC454", "Membership change retry duplicates its retained partial key before original value admission",
+      ["state::authority_registry::complete::original_stream::tests::membership_delta_capacity_refusal_keeps_original_key_base_cause_and_refund"],
+      causes=(ExpectedFailure("membership retry must retain the exact original partial-key capacity cause",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs"),)),
+
+    m("HC450", "Membership publication omits exact rollback advancement",
+      ["state::storage_transactions::authority::tests::paired_publication_delta_recreates_exact_advance_replace_repeat_and_empty_cuts"],
+      causes=(ExpectedFailure("original rollback delta must recreate exact successor pair",
+          "crates/iroha_core/src/state/storage_transactions/authority/delta_tests.rs"),)),
+
+    m("HC451", "Membership delta accepts a substituted original publication surface",
+      ["state::storage_transactions::authority::tests::paired_publication_delta_requires_exact_original_surface_before_visitation"],
+      causes=(ExpectedFailure("membership delta must reject a substituted original publication surface",
+          "crates/iroha_core/src/state/storage_transactions/authority/delta_tests.rs"),)),
+
+    m("HC452", "Original State delta skips committed membership baseline admission",
+      ["state::authority_registry::complete::original_stream::tests::membership_delta_base_refusal_precedes_every_change_and_retains_original_retry"],
+      causes=(ExpectedFailure("membership base refusal must precede every original change callback",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs"),)),
+
+    m("HC453", "Change capture scans and replaces complete membership tables",
+      ["state::authority_registry::complete::original_stream::tests::change_membership_capture_uses_only_delta_sets_and_recreates_complete_pair"],
+      causes=(ExpectedFailure("membership change capture must avoid complete history scans",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs"),)),
+
+    m("HC446", "Change-only original State capture is delivered as a complete snapshot",
+      ["state::authority_registry::complete::original_stream::tests::change_intent_matches_complete_stream_but_cannot_emit_a_snapshot"],
+      causes=(ExpectedFailure("change-only original capture must refuse complete snapshot delivery before callbacks",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"),)),
+
+    m("HC447", "Change-only original State capture scans untouched native rows",
+      ["state::authority_registry::complete::original_stream::tests::change_intent_ignores_untouched_native_rows_and_replays_exact_original_changes"],
+      causes=(ExpectedFailure("change capture must inspect only original touched native rows",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"),)),
+
+    m("HC448", "Original change capture replaces its partially encoded key after refusal",
+      ["state::authority_registry::complete::original_stream::tests::change_capture_refusal_retains_original_partial_frame_through_retry_and_refund"],
+      causes=(ExpectedFailure("change capture retry must retain its original partial key frame",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"),)),
+
+    m("HC444", "Penalty registration lookup clones a replacement key outside original-pool custody",
+      ["sumeragi::penalties::tests::validator_registration_lookup_borrows_original_single_and_multisig_keys_without_allocation"],
+      causes=(ExpectedFailure("penalty registration lookup must borrow the exact funded key without replacement allocation",
+          "crates/iroha_core/src/sumeragi/penalties/key_custody_tests.rs"),)),
+
+    m("HC449", "Native socket qualification disables selected original row withholding",
+      ["sumeragi::node::tests::dataspace_roots::selective_rs16_tests::native_socket_selective_signed_rows_preserve_partial_delivery_and_original_paid_recovery"],
+      causes=(ExpectedFailure("selected original row deprivation must prevent native Apply",
+          "crates/iroha_core/src/sumeragi/node/tests/selective_rs16_tests.rs"),)),
+
     m("HC432", "Lane startup erases the original decode refusal into a bare WouldBlock",
       ["sumeragi::lanes::executor::native_decode_tests::startup_refusal_observation_borrows_the_original_native_recovery_carrier"],
       causes=(ExpectedFailure("lane startup must retain its original decode refusal through the public startup projection",
@@ -2210,6 +2553,43 @@ CORE_MUTATIONS = [
 
 # Model resource-custody rules execute only in the owning DataModel unit-test crate.
 MODEL_MUTATIONS = [
+    m("DM54", "Prepared canonical block counter refusal discards original construction",
+      ["block::prepared_signatures::tests::prepared_block_counter_physical_refusals_keep_original_charges_prefix_source_and_retry"],
+      causes=(ExpectedFailure("prepared block constructor refusal must retain both original counter charges", "crates/iroha_data_model/src/block/prepared_signatures/tests.rs"),)),
+
+    m("DM53", "Producer parent-QC copy accepts an equal-wire replacement parent control",
+      ["consensus::parent_service::prepared::tests::producer_copy_binds_actual_parent_control_pool_and_unchanged_vec_wire"],
+      causes=(ExpectedFailure("producer copy must bind the actual original parent control", "crates/iroha_data_model/src/consensus/parent_service/tests.rs"),)),
+
+    m("DM50", "Admitted parent-QC clone recopies untrusted bytes",
+      ["consensus::parent_service::prepared::tests::parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone"],
+      causes=(ExpectedFailure("parent-QC clone must retain the original immutable byte owner", "crates/iroha_data_model/src/consensus/parent_service/tests.rs"),)),
+
+    m("DM51", "Prepared parent-QC ignores complete source identity",
+      ["consensus::parent_service::prepared::tests::parent_service_source_and_capacity_retry_preserve_original_full_frame_pool_and_layout"],
+      causes=(ExpectedFailure("parent-QC custody must bind bytes outside the selected field", "crates/iroha_data_model/src/consensus/parent_service/tests.rs"),)),
+
+    m("DM52", "Outer field-5 retry replaces completed parent-QC custody",
+      ["block::prepared_signatures::tests::parent_service_tests::field5_parent_service_survives_later_action_refusal_with_exact_original_cut_and_retry"],
+      causes=(ExpectedFailure("outer retry must retain parent-QC custody and original release cut", "crates/iroha_data_model/src/block/prepared_signatures/tests/parent_service_tests.rs"),)),
+
+    m("DM49", "Payload field 5 discards retained partial action preparation on retry",
+      ["block::prepared_signatures::tests::penalty_action_tests::field5_penalty_refusal_retains_original_prefix_pool_and_exact_retry"],
+      causes=(ExpectedFailure("field 5 retry must retain the original partial action owner and release cut", "crates/iroha_data_model/src/block/prepared_signatures/tests/penalty_action_tests.rs"),)),
+
+    m("DM48", "Payload field 5 bypasses original native action custody",
+      ["block::prepared_signatures::tests::penalty_action_tests::field5_penalty_actions_keep_canonical_wire_and_original_shared_graph"],
+      causes=(ExpectedFailure("field 5 must retain the original admitted action graph", "crates/iroha_data_model/src/block/prepared_signatures/tests/penalty_action_tests.rs"),)),
+
+    m("DM45", "native penalty action custody: deep-copy an admitted immutable graph",
+      ["consensus::penalty_actions::prepared::tests::penalty_action_owner_preserves_sole_wire_schema_json_and_original_shared_graph"],
+      causes=(ExpectedFailure("admitted penalty action clone must retain the original graph", "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"),)),
+    m("DM46", "native penalty action custody: ignore changed complete original source",
+      ["consensus::penalty_actions::prepared::tests::penalty_action_source_binds_full_original_frame_pool_and_layout"],
+      causes=(ExpectedFailure("penalty action custody must bind the full original source", "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"),)),
+    m("DM47", "native penalty action custody: discard partial leaf backing on retry",
+      ["consensus::penalty_actions::prepared::tests::penalty_action_original_partial_refusal_retains_exact_prefix_pool_and_retry"],
+      causes=(ExpectedFailure("partial penalty retry must retain exact original refusal and release cut", "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"),)),
     m("DM1", "AMX instruction custody: deep-copy the original funded instruction graph",
       ["isi::amx_owner::tests::original_amx_instruction_clone_retains_exact_graph_and_pool_through_last_reader"]),
     m("DM2", "AMX proof custody: omit the actual Begin participant allocation from admission",
@@ -2322,6 +2702,10 @@ MODEL_MUTATIONS = [
       ["compute::tests::price_delta_wide_numerator_rejects_extreme_reduction"],
       causes=(ExpectedFailure("price percentage must widen the numerator before multiplication",
           "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM44", "completed FASTPQ tape: reset revives the terminal original destination",
+      ["fastpq::execution_effect::admitted::tests::completed_tape_take_rejects_prepared_replay_without_reminting_custody"],
+      causes=(ExpectedFailure("completed FASTPQ tape must refuse prepared replay without minting another graph",
+          "crates/iroha_data_model/src/fastpq/execution_effect/admitted/tests.rs"),)),
 
 ]
 
@@ -3302,6 +3686,15 @@ def main():
         selected = [by_id[x] for x in wanted]
     args.target_dir.mkdir(parents=True, exist_ok=True)
 
+    source = {"before": None, "after": None, "errors": [],
+              "scope": "campaign-boundary manifest and per-work-item Git state; not a source seal"}
+    try:
+        source["before"] = workspace_source_observation(REPO)
+    except Exception as error:
+        source["errors"].append(f"initial source observation: {type(error).__name__}: {error}")
+    expected_git = ({key: source["before"][key] for key in ("root", "branch")}
+                    if source["before"] is not None else None)
+
     work = queue.Queue()
     if not args.skip_baseline:
         work.put(("baseline", None))
@@ -3319,7 +3712,17 @@ def main():
                 kind, mu = work.get_nowait()
             except queue.Empty:
                 return
+            git_state = {"before": None, "after": None, "errors": []}
             try:
+                try:
+                    if expected_git is None:
+                        raise RuntimeError("campaign lacks its original source observation")
+                    git_state["before"] = workspace_source_git_state(REPO)
+                    if git_state["before"] != expected_git:
+                        raise RuntimeError("workspace branch changed before work item")
+                except Exception as error:
+                    git_state["errors"].append(f"{type(error).__name__}: {error}")
+                    raise
                 if kind == "baseline":
                     res = evaluate_baseline(args, target_dir, selected)
                 else:
@@ -3330,6 +3733,16 @@ def main():
                 res = {"id": "baseline" if kind == "baseline" else mu.id,
                        "verdict": "error",
                        "reason": f"worker evaluation raised {type(error).__name__}: {error}"}
+            if expected_git is not None:
+                try:
+                    git_state["after"] = workspace_source_git_state(REPO)
+                    if git_state["after"] != expected_git:
+                        raise RuntimeError("workspace branch changed during work item")
+                except Exception as error:
+                    git_state["errors"].append(f"{type(error).__name__}: {error}")
+                    res["execution_verdict"] = res["verdict"]
+                    res.update(verdict="error", reason="work-item source Git state changed or became unavailable")
+            res["source_git"] = git_state
             with lock:
                 results[res["id"]] = res
                 done[0] += 1
@@ -3345,11 +3758,25 @@ def main():
     for t in threads:
         t.join()
 
+    try:
+        source["after"] = workspace_source_observation(REPO)
+        if source["after"] != source["before"]:
+            source["errors"].append("workspace source or branch changed during the campaign")
+    except Exception as error:
+        source["errors"].append(f"final source observation: {type(error).__name__}: {error}")
+    refused_git = [identity for identity, result in sorted(results.items())
+                   if result["source_git"]["errors"]]
+    if refused_git:
+        source["errors"].append("work-item source Git state refused: " + ", ".join(refused_git))
+    source["boundaries_match"] = source["before"] is not None and source["before"] == source["after"]
+    source["unchanged"] = source["boundaries_match"] and not source["errors"]
+
     verdicts = {}
     for mu in selected:
         verdicts.setdefault(results[mu.id]["verdict"], []).append(mu.id)
     baseline = results.get("baseline")
     summary = {
+        "source": "pass" if source["unchanged"] else "error",
         "baseline": baseline["verdict"] if baseline else ("skipped" if args.skip_baseline else "error"),
         "mutations": len(selected),
         "killed_by_test": verdicts.get("killed_by_test", []),
@@ -3368,6 +3795,7 @@ def main():
         "seeds": None if args.fast else args.seeds,
         "fast": args.fast,
         "summary": summary,
+        "source": source,
         "baseline": baseline,
         "mutations": [results[mu.id] for mu in selected],
     }
@@ -3375,7 +3803,8 @@ def main():
     report_path.write_text(json.dumps(report, indent=1))
     print(json.dumps(summary, indent=1))
     print(f"report: {report_path}")
-    failed = (summary["baseline"] not in ("pass", "skipped")
+    failed = (summary["source"] != "pass"
+              or summary["baseline"] not in ("pass", "skipped")
               or summary["survived"] or summary["error"]
               or (args.strict and summary["killed_by_scenario_only"]))
     return 1 if failed else 0

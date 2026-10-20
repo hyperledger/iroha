@@ -10,6 +10,7 @@ load through in-process HTTP requests.
 - Core query benches: `crates/iroha_core/benches/queries.rs`
 - Client-path builder benches (mocked executor): `crates/iroha_core/benches/queries_client.rs`
 - Torii hot-path benches: `crates/iroha_torii/benches/torii_hot_paths.rs`
+- Collection metadata filtering: `crates/iroha_torii/benches/collection_metadata.rs`
 
 All are Criterion benches with a manual entrypoint (`fn main`) to comply with
 workspace lints.
@@ -104,6 +105,13 @@ Torii hot-path benches (`torii_hot_paths.rs`):
   - Useful for comparing handler-only measurements with realistic HTTP client
     and socket overhead
 
+The `torii_collection_metadata` group scans 128 or 1,024 accounts carrying
+4 KiB of metadata each. Scalar and metadata predicates both reject every row
+and return an empty page with exact total zero. Scalar rejection avoids full
+metadata projection; metadata rejection exercises it. Measurements include
+blocking-worker dispatch, scanning, response encoding and body consumption.
+These are two current-source workloads, not a historical before/after baseline.
+
 ## Running
 
 Build benches:
@@ -124,6 +132,8 @@ cargo bench -p iroha_core --bench queries_client
 
 # Torii signed/app handler-path benches
 cargo bench -p iroha_torii --bench torii_hot_paths --features app_api
+
+cargo bench -p iroha_torii --bench collection_metadata --features app_api,bench
 
 # Torii socket transport profiles only
 cargo bench -p iroha_torii --bench torii_hot_paths --features app_api torii_query_http_socket_sustained

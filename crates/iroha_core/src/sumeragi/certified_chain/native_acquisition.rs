@@ -2,20 +2,25 @@
 //!
 //! Retained bytes are an acquired snapshot; source-object and geometry checks never replace
 //! the full native verifier or claim continued equality with mutable disk contents. Complete
-//! body decoding survives later refusal. Incomplete decoder graphs retire under the caller's
-//! unchanged cumulative decoder context. Nested body/result graph funding remains open.
+//! body decoding and the existing prepared model children survive later refusal under
+//! the same original source, counter controls and finite pool. Transactions, results,
+//! evidence and other ordinary nested owning leaves still require dedicated custody.
 
 use super::*;
-use iroha_allocation::AllocationBudget;
-use iroha_data_model::block::{ReservedSharedSignedBlock, SharedSignedBlock};
+use iroha_allocation::{AllocationBudget, AllocationCharge, SharedFromChargeError};
+use iroha_data_model::block::{
+    PreparedSignedBlockSignaturesDecode, ReservedSharedSignedBlock, SharedSignedBlock,
+};
 
 // The completed body occupies its original prepaid shared shell, never an inline block.
 // Field order destroys that body/control before raw bytes, source and the original pool.
 // No additional control allocation or nested DTO graph clone is introduced here.
 pub(crate) struct NativeCarrierAcquisition<'kura> {
     decoded: Option<SharedSignedBlock>,
-    bytes: Option<crate::kura::NativeFrameBytes>,
+    decoder: Option<PreparedSignedBlockSignaturesDecode>,
     shell: Option<ReservedSharedSignedBlock>,
+    shell_charge: Option<AllocationCharge>,
+    bytes: Option<crate::kura::NativeFrameBytes>,
     source: Option<OriginalFrameSource<'kura>>,
     kura: KuraOwner<'kura>,
     index: NonZeroUsize,
@@ -47,7 +52,7 @@ impl OriginalFrameSource<'_> {
         }
     }
     fn read_original(
-        &self,
+        &mut self,
         length: u64,
         budget: &AllocationBudget,
     ) -> std::result::Result<Option<crate::kura::NativeFrameBytes>, crate::kura::Error> {
@@ -68,8 +73,10 @@ impl NativeCarrierAcquisition<'static> {
     ) -> Self {
         Self {
             decoded: None,
-            bytes: None,
+            decoder: None,
             shell: None,
+            shell_charge: None,
+            bytes: None,
             source: None,
             kura: KuraOwner::Owned(kura),
             index,
@@ -90,8 +97,10 @@ impl<'kura> NativeCarrierAcquisition<'kura> {
     ) -> Self {
         Self {
             decoded: None,
-            bytes: None,
+            decoder: None,
             shell: None,
+            shell_charge: None,
+            bytes: None,
             source: None,
             kura: KuraOwner::Borrowed(kura),
             index,
@@ -99,6 +108,35 @@ impl<'kura> NativeCarrierAcquisition<'kura> {
             maximum,
             budget,
             delivered: false,
+        }
+    }
+
+    /// Adopt the actual frame selected before the execution consumer admitted its extent.
+    /// The ordinary acquisition kernel still rechecks its backend and occupied slot.
+    pub(super) fn from_admitted_source(
+        kura: &'kura Kura,
+        source: crate::kura::NativeFrameRead<'kura>,
+        index: NonZeroUsize,
+        expected: HashOf<IrohaHeader>,
+        budget: AllocationBudget,
+        maximum: usize,
+    ) -> Self {
+        let mut original = Self::new(kura, index, expected, budget, maximum);
+        original.source = Some(OriginalFrameSource::Borrowed(source));
+        original
+    }
+
+    /// Borrow the actual acquired frame for the execution reader's canonical check.
+    pub(super) fn original_bytes(&self) -> Option<&crate::kura::NativeFrameBytes> {
+        self.bytes.as_ref()
+    }
+
+    /// Move the same original frame only after its body has been delivered.
+    pub(super) fn take_delivered_bytes(&mut self) -> Option<crate::kura::NativeFrameBytes> {
+        if self.delivered {
+            self.bytes.take()
+        } else {
+            None
         }
     }
 
@@ -200,7 +238,7 @@ impl<'kura> NativeCarrierAcquisition<'kura> {
         self.original_source()?;
         let height = self.index.get() as u64;
         if self.bytes.is_none() {
-            let source = self.source.as_ref().expect("original selected slot");
+            let source = self.source.as_mut().expect("original selected slot");
             self.bytes = Some(
                 source
                     .read_original(source.wire_len(), &self.budget)
@@ -212,29 +250,88 @@ impl<'kura> NativeCarrierAcquisition<'kura> {
         Ok(())
     }
     // Reserve the original shell before the sole canonical body decoder. This phase
-    // is shared by retained and one-shot reads; incomplete decoder graphs still retire.
+    // is shared by retained and initial reads. Store the original model decoder before
+    // entering it, so all persistent callers retain its partial prepared children.
+    // TODO: Ordinary nested body/result/evidence leaves still require their own
+    // retained funding; raw destination custody is not full-graph custody.
     fn decode_original_body(&mut self) -> Result<(), ExecutionAttemptError<ChainReadError>> {
         if self.decoded.is_some() {
             return Ok(());
         }
         let height = self.index.get() as u64;
         if self.shell.is_none() {
-            self.shell = Some(match SharedSignedBlock::reserve(&self.budget) {
-                Ok(shell) => shell,
-                Err(cause) => {
-                    #[cfg(all(test, sumeragi_core_mutation = "HC186"))]
-                    {
-                        self.bytes = None;
+            if self.shell_charge.is_none() {
+                let mut reservation = self
+                    .budget
+                    .try_reserve(SharedSignedBlock::allocation_layout())
+                    .map_err(|cause| {
+                        #[cfg(all(test, sumeragi_core_mutation = "HC186"))]
+                        {
+                            self.bytes = None;
+                        }
+                        ExecutionAttemptError::Deferred(cause.into())
+                    })?;
+                self.shell_charge = Some(
+                    reservation
+                        .try_split(SharedSignedBlock::allocation_layout())
+                        .expect("exact original shared body charge"),
+                );
+            }
+            match SharedSignedBlock::reserve_from_charge(
+                self.shell_charge.take().expect("original shell charge"),
+            ) {
+                Ok(shell) => self.shell = Some(shell),
+                Err((charge, error)) => {
+                    if !cfg!(all(test, sumeragi_core_mutation = "HC468")) {
+                        self.shell_charge = Some(charge);
                     }
-                    return Err(ExecutionAttemptError::Deferred(cause.into()));
+                    return Err(match error {
+                        original @ SharedFromChargeError::Allocator { .. } => {
+                            ExecutionAttemptError::Deferred(
+                                iroha_allocation::AllocatorRefusal::try_from(original)
+                                    .expect("actual native shell allocator cause")
+                                    .into(),
+                            )
+                        }
+                        _ => self.unavailable().into(),
+                    });
                 }
-            });
+            }
         }
-        let block = iroha_data_model::block::decode_framed_signed_block(
-            self.bytes.as_ref().expect("original complete native frame"),
-        )
-        .map_err(|error| {
-            crate::execution_attempt::canonical_decode_attempt_error(error, |_| self.unavailable())
+        if self.decoder.is_none() {
+            self.decoder = Some(
+                PreparedSignedBlockSignaturesDecode::new(&self.budget).map_err(|error| {
+                    crate::execution_attempt::prepared_signature_block_attempt_error(error, |_| {
+                        ChainReadError::NotInView { height }
+                    })
+                })?,
+            );
+        }
+        let source = self
+            .bytes
+            .as_ref()
+            .expect("original complete native frame")
+            .charged_source();
+        let result = self
+            .decoder
+            .as_mut()
+            .expect("original retained model decoder")
+            .decode(
+                source,
+                norito::core::SequenceSpan {
+                    start: 0,
+                    end: source.as_slice().len(),
+                },
+                norito::canonical_decode_limits(source.as_slice().len()),
+            );
+        #[cfg(all(test, sumeragi_core_mutation = "HC467"))]
+        if result.is_err() {
+            self.decoder = None;
+        }
+        let block = result.map_err(|error| {
+            crate::execution_attempt::prepared_signature_block_attempt_error(error, |_| {
+                ChainReadError::NotInView { height }
+            })
         })?;
         if block.hash() != self.expected || block.header().height().get() != height {
             return Err(self.unavailable().into());

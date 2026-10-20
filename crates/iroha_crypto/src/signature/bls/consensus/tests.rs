@@ -15,7 +15,8 @@ use crate::{
         uncached::{HASH_TO_FIELD_DST, NORMAL_PREFIX},
     },
     test_allocations::{
-        observed_deallocations, with_deallocation_observation, without_allocations,
+        allocations_during, observed_deallocations, with_allocation_failure,
+        with_deallocation_observation, without_allocations,
     },
 };
 use blstrs::{Bls12, G2Prepared, Scalar};
@@ -1091,6 +1092,259 @@ fn has_duplicate(keys: &[&BlsNormalPopVerifiedKey]) -> bool {
         .any(|(index, key)| keys[..index].contains(key))
 }
 
+/// `tmo_preimage(…, Some(hq))` at view 40: one digest per distinct high-QC view.
+fn timeout_digest(high_qc_view: u64) -> ConsensusDigest {
+    let mut preimage = sig_prefix(0x04);
+    preimage.extend_from_slice(&HEIGHT.to_be_bytes());
+    preimage.extend_from_slice(&40_u64.to_be_bytes());
+    preimage.push(0x01);
+    preimage.extend_from_slice(&high_qc_view.to_be_bytes());
+    assert_eq!(
+        ConsensusContext::of_preimage(&preimage),
+        Some(ConsensusContext::TimeoutWithHighQc)
+    );
+    ConsensusDigest::from_preimage(&preimage).expect("allowlisted timeout preimage")
+}
+
+type TimeoutGroups<'a> = Vec<(Vec<&'a BlsNormalPopVerifiedKey>, ConsensusDigest)>;
+
+/// Timeout votes `(voter, high-QC view)` grouped by view in first-vote order, with the
+/// sum of every vote; each vote signs its own view's digest.
+fn timeout_certificate<'a>(
+    voters: &[PrivateKey],
+    keys: &'a [BlsNormalPopVerifiedKey],
+    view_votes: &[(usize, u64)],
+) -> (TimeoutGroups<'a>, [u8; 96]) {
+    let mut groups_by_view: Vec<(u64, Vec<&BlsNormalPopVerifiedKey>)> = Vec::new();
+    let mut shares = Vec::new();
+    for &(voter, view) in view_votes {
+        shares.push(sign(&voters[voter], &timeout_digest(view)).expect("consensus vote"));
+        match groups_by_view.iter_mut().find(|(group, _)| *group == view) {
+            Some((_, members)) => members.push(&keys[voter]),
+            None => groups_by_view.push((view, vec![&keys[voter]])),
+        }
+    }
+    let groups = groups_by_view
+        .into_iter()
+        .map(|(view, members)| (members, timeout_digest(view)))
+        .collect();
+    (groups, aggregate(shares).expect("nonidentity aggregate"))
+}
+
+/// The admitted heap context, the stack function and the independent multi-Miller-loop
+/// reference return one verdict for structurally valid groups.
+fn grouped_verdict(
+    scratch: &mut ConsensusAggregateScratch,
+    groups: &[(Vec<&BlsNormalPopVerifiedKey>, ConsensusDigest)],
+    signature: &[u8; 96],
+) -> bool {
+    let paired: Vec<(&[&BlsNormalPopVerifiedKey], ConsensusDigest)> = groups
+        .iter()
+        .map(|(keys, digest)| (keys.as_slice(), *digest))
+        .collect();
+    let heap = without_allocations(|| {
+        scratch.verify_aggregate_multi(
+            paired
+                .iter()
+                .map(|(keys, digest)| (keys.iter().copied(), *digest)),
+            signature,
+        )
+    });
+    let stack = without_allocations(|| verify_aggregate_multi(&paired, signature));
+    let terms: Vec<_> = paired
+        .iter()
+        .map(|(keys, digest)| (key_sum(keys), *digest))
+        .collect();
+    assert_eq!(
+        heap,
+        stack,
+        "heap and stack contexts at {} terms",
+        terms.len()
+    );
+    assert_eq!(
+        heap,
+        reference_relation(&terms, signature),
+        "independent reference at {} terms",
+        terms.len()
+    );
+    heap
+}
+
+#[test]
+fn grouped_relation_crosses_the_eight_term_pairing_flush_like_the_reference() {
+    // blst buffers N_MAX = 8 Miller-loop terms per context and folds a full buffer into
+    // its accumulator, so a ninth term starts a second batch that commit folds in. A
+    // timeout certificate has one term per distinct high-QC view: n >= 13 (q >= 9) can
+    // need nine and n = 31 up to q = 21 (two full batches and a partial one).
+    let voters: Vec<PrivateKey> = (0..21_u8)
+        .map(|seed| {
+            KeyPair::from_seed(vec![0xb0 + seed; 32], Algorithm::BlsNormal)
+                .private_key()
+                .clone()
+        })
+        .collect();
+    let keys: Vec<BlsNormalPopVerifiedKey> = voters.iter().map(admitted).collect();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
+
+    // n = 16, q = 11: ten distinct views; voter 10 shares view 3 with voter 3.
+    let view_votes: Vec<(usize, u64)> = (0..10_u64)
+        .map(|view| (usize::try_from(view).unwrap(), view))
+        .chain([(10, 3)])
+        .collect();
+    for view_count in [1_u64, 8, 9, 10] {
+        let prefix: Vec<_> = view_votes
+            .iter()
+            .copied()
+            .filter(|(_, view)| *view < view_count)
+            .collect();
+        let (groups, signature) = timeout_certificate(&voters, &keys, &prefix);
+        assert_eq!(groups.len(), usize::try_from(view_count).unwrap());
+        assert!(
+            grouped_verdict(&mut scratch, &groups, &signature),
+            "{view_count} views"
+        );
+    }
+    let (groups, signature) = timeout_certificate(&voters, &keys, &view_votes);
+    assert_eq!(groups.len(), 10);
+    assert_eq!(groups[3].0.len(), 2);
+    // A missing post-flush term and a changed digest on either side of the flush.
+    assert!(!grouped_verdict(&mut scratch, &groups[..9], &signature));
+    for changed in [0, 7, 8, 9] {
+        let mut altered = groups.clone();
+        altered[changed].1 = timeout_digest(77);
+        assert!(
+            !grouped_verdict(&mut scratch, &altered, &signature),
+            "changed term {changed}"
+        );
+    }
+    // Moving a signer from a buffered term to a post-flush term changes the relation.
+    let mut moved = groups.clone();
+    let signer = moved[3].0.pop().unwrap();
+    moved[9].0.push(signer);
+    assert!(!grouped_verdict(&mut scratch, &moved, &signature));
+    // The product is independent of which terms were flushed first.
+    let mut reversed = groups.clone();
+    reversed.reverse();
+    assert!(grouped_verdict(&mut scratch, &reversed, &signature));
+    assert!(grouped_verdict(&mut scratch, &groups, &signature));
+
+    // n = 31, q = 21: every vote names a distinct view, so up to two flushes.
+    let distinct: Vec<(usize, u64)> = (0..21_u64)
+        .map(|view| (usize::try_from(view).unwrap(), 100 + view))
+        .collect();
+    for views in [16_usize, 17, 21] {
+        let (groups, signature) = timeout_certificate(&voters, &keys, &distinct[..views]);
+        assert_eq!(groups.len(), views);
+        assert!(
+            grouped_verdict(&mut scratch, &groups, &signature),
+            "{views} views"
+        );
+        let mut altered = groups.clone();
+        altered[views - 1].1 = timeout_digest(77);
+        assert!(!grouped_verdict(&mut scratch, &altered, &signature));
+    }
+}
+
+#[test]
+fn scratch_physical_refusal_keeps_allocator_kind_and_retires_original_owner() {
+    struct Owner<'a>(&'a Cell<usize>);
+    impl Drop for Owner<'_> {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    let drops = Cell::new(0);
+    let bytes = ConsensusAggregateScratch::<()>::backing_bytes();
+    let (result, allocations) = allocations_during(|| {
+        with_allocation_failure(bytes, || {
+            ConsensusAggregateScratch::new(|requested| {
+                assert_eq!(requested, bytes);
+                Ok::<_, ()>(Owner(&drops))
+            })
+        })
+    });
+    let Err(AggregateScratchError::Allocator { error, layout }) = result else {
+        panic!("physical pairing refusal must preserve allocator kind");
+    };
+    assert_eq!(layout.size(), bytes);
+    assert_eq!(layout.align(), core::mem::align_of::<u64>());
+    assert_eq!(allocations, 1, "one exact physical allocation is attempted");
+    assert_eq!(
+        drops.get(),
+        1,
+        "original funding is retired on physical failure"
+    );
+    assert!(
+        !error.to_string().is_empty(),
+        "original allocator error survives"
+    );
+}
+
+#[test]
+fn scratch_move_and_unwind_preserve_pointer_and_release_backing_before_owner() {
+    struct Owner<'a>(&'a Cell<usize>);
+    impl Drop for Owner<'_> {
+        fn drop(&mut self) {
+            assert_eq!(
+                observed_deallocations(),
+                1,
+                "unwind frees backing before funding"
+            );
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    let drops = Cell::new(0);
+    let bytes = ConsensusAggregateScratch::<()>::backing_bytes();
+    let scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(Owner(&drops))).unwrap();
+    let pointer = scratch.pairing.backing_pointer();
+    let moved = without_allocations(|| scratch);
+    assert_eq!(
+        moved.pairing.backing_pointer(),
+        pointer,
+        "moving custody preserves backing"
+    );
+    let (result, frees) = with_deallocation_observation(bytes, || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _owned = moved;
+            panic!("force pairing owner unwind");
+        }))
+    });
+    assert!(result.is_err());
+    assert_eq!(frees, 1);
+    assert_eq!(drops.get(), 1);
+}
+
+#[test]
+fn stack_aggregate_adapters_keep_verdicts_without_any_heap_request() {
+    let key = admitted_key(0);
+    let digest = standard_digest(0);
+    let signature = bytes::<96>(SIGNATURES[0][0]);
+    let committed = bytes::<48>(PUBLIC_KEYS[0]);
+    let keys = [&key];
+    let groups = [(&keys[..], digest)];
+    without_allocations(|| {
+        assert!(verify_fast_aggregate(&keys, &digest, &signature));
+        assert!(verify_fast_aggregate_iter(
+            keys.into_iter(),
+            &digest,
+            &signature
+        ));
+        assert!(verify_aggregate_multi(&groups, &signature));
+        assert!(verify_aggregate_multi_iter(
+            groups
+                .iter()
+                .map(|(keys, digest)| (keys.iter().copied(), *digest)),
+            &signature,
+        ));
+        assert!(verify_fast_aggregate_committed(
+            &[committed],
+            &digest,
+            &signature
+        ));
+        assert!(!verify_fast_aggregate(&keys, &digest, &[0; 96]));
+    });
+}
+
 #[test]
 fn scratch_exact_admission_refuses_before_backing_and_drops_backing_before_funding() {
     struct Token<'a> {
@@ -1109,6 +1363,14 @@ fn scratch_exact_admission_refuses_before_backing_and_drops_backing_before_fundi
     }
     let backing = ConsensusAggregateScratch::<()>::backing_bytes();
     assert!(backing > 0);
+    let layout = ConsensusAggregateScratch::<()>::backing_layout();
+    assert_eq!(layout, FalliblePairing::layout());
+    assert_eq!(layout.size(), backing);
+    assert_eq!(layout.align(), core::mem::align_of::<u64>());
+    assert_eq!(
+        layout,
+        crate::BlsNormalAggregateScratch::<()>::backing_layout()
+    );
     assert_eq!(
         backing,
         crate::BlsNormalAggregateScratch::<()>::backing_bytes()
@@ -1128,7 +1390,7 @@ fn scratch_exact_admission_refuses_before_backing_and_drops_backing_before_fundi
     };
     let refusal = without_allocations(|| ConsensusAggregateScratch::new(admit));
     assert!(
-        matches!(refusal, Err((requested, ceiling)) if requested == backing && ceiling == backing - 1)
+        matches!(refusal, Err(AggregateScratchError::Admission((requested, ceiling))) if requested == backing && ceiling == backing - 1)
     );
     assert_eq!(used.get(), 0);
     limit.set(backing);

@@ -11,8 +11,10 @@ use std::{
     time::Instant,
 };
 
-use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocationReservation};
-use iroha_crypto::bls::consensus::ConsensusAggregateScratch;
+use iroha_allocation::{
+    AllocationBudget, AllocationRefusal, AllocationReservation, AllocatorRefusal,
+};
+use iroha_crypto::bls::consensus::{AggregateScratchError, ConsensusAggregateScratch};
 use iroha_data_model::{
     NetworkId,
     block::consensus::SumeragiRootScope,
@@ -120,6 +122,9 @@ pub enum SccpNativeReadError {
     /// Physical allocation failed after admission by the original caller's pool.
     #[error("native SCCP response allocation failed")]
     PhysicalAllocation,
+    /// The exact admitted pairing allocation failed without a capacity-release source.
+    #[error(transparent)]
+    PairingAllocation(AllocatorRefusal),
     /// A bounded native decoder refused local resources.
     #[error("native SCCP decoder resource refusal: {0}")]
     DecodeResource(norito::core::DecodeResourceError),
@@ -526,7 +531,36 @@ fn verify_original_relation(
     control: SccpNativeReadControl<'_>,
 ) -> Result<Hash32> {
     deadline_check(control)?;
-    let mut scratch = ConsensusAggregateScratch::new(|bytes| budget.try_reserve_bytes(bytes))?;
+    let layout = ConsensusAggregateScratch::<()>::backing_layout();
+    let mut scratch = ConsensusAggregateScratch::new(|bytes| {
+        debug_assert_eq!(bytes, layout.size());
+        // The original pool refusal stays `Allocation`; the exact reservation holds this
+        // sole layout, so a refused split is local unavailability, never invalid data.
+        let mut original = budget.try_reserve(layout)?;
+        let charge = original.try_split(layout).map_err(|_| {
+            SccpNativeReadError::Unavailable("exact pairing reservation lacks its layout")
+        })?;
+        debug_assert_eq!(original.remaining_bytes(), 0);
+        Ok::<_, SccpNativeReadError>(charge)
+    })
+    .map_err(|error| match error {
+        AggregateScratchError::Admission(original) => original,
+        // Node startup refuses this linked build; it is unavailability, not invalid data.
+        AggregateScratchError::UnsupportedGeometry { .. } => {
+            SccpNativeReadError::Unavailable("linked pairing context is unsupported")
+        }
+        AggregateScratchError::Allocator { error, layout } => {
+            #[cfg(all(test, sumeragi_core_mutation = "HC942"))]
+            {
+                let _ = (error, layout);
+                SccpNativeReadError::Invalid("pairing allocation")
+            }
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC942")))]
+            SccpNativeReadError::PairingAllocation(AllocatorRefusal::from_vec_reserve(
+                error, layout,
+            ))
+        }
+    })?;
     let verified = verify_certificate_with_scratch(
         &instance.0,
         &data.qc,

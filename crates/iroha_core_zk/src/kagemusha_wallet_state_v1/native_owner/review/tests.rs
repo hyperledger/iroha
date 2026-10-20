@@ -28,7 +28,7 @@ fn vectors() -> norito::json::Value {
     )))
     .unwrap()
 }
-fn request() -> KagemushaWalletRequestV1 {
+fn open_request() -> KagemushaWalletRequestV1 {
     let all = vectors();
     let row = all["envelopes"]
         .as_array()
@@ -41,7 +41,12 @@ fn request() -> KagemushaWalletRequestV1 {
     let KagemushaWalletMessageV1::Request { request } = envelope.message else {
         panic!("Request fixture");
     };
+    request.verify_open(&scheme()).unwrap();
     request
+}
+fn request() -> KagemushaWalletRequestV1 {
+    // Review checks the payer's completion separately from its retained open original.
+    open_request().complete(&credential(), 0).unwrap()
 }
 fn scheme() -> KagemushaWalletSchemeV1 {
     super::super::super::tests::fixture("KagemushaWalletSchemeV1")
@@ -50,9 +55,10 @@ fn credential() -> KagemushaWalletCredentialV1 {
     super::super::super::tests::fixture("KagemushaWalletCredentialV1")
 }
 fn unadmitted_review_fixture() -> ReviewedOperationV1 {
-    let request = request();
-    request.verify(&scheme()).unwrap();
+    let open_request = open_request();
     let owner = credential();
+    let request = open_request.complete(&owner, 0).unwrap();
+    request.verify(&scheme()).unwrap();
     let head = KagemushaWalletStateCommitmentV1 {
         value: kagemusha_wallet_field_from_u128_v1(1),
     };
@@ -101,9 +107,7 @@ fn unadmitted_review_fixture() -> ReviewedOperationV1 {
             selected_generation: 4,
         },
         action: OperationActionV1::Send {
-            request: KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Request { request })
-                .to_canonical_bytes()
-                .unwrap(),
+            request: archive::encode(&open_request).unwrap(),
         },
     }
 }
@@ -120,7 +124,7 @@ fn signed_request_cannot_display_a_false_fee_or_retargeted_destination() {
             1 => changed.body.amount = changed.body.amount.checked_add(1).unwrap(),
             2 => changed.body.receiver_wallet_id[0] ^= 1,
             3 => changed.body.receiver_account_digest[0] ^= 1,
-            _ => changed.body.payer_wallet_id[0] ^= 1,
+            _ => changed.body.nonce[0] ^= 1,
         }
         assert!(changed.verify(&scheme).is_err());
     }
@@ -157,7 +161,7 @@ fn whole_send_check_rejects_ordinal_and_spendable_changes_even_with_a_valid_sign
         pending_outgoing_root: state.core.pending_outgoing_root,
         credit_digest_root: kagemusha_wallet_field_from_u128_v1(1),
     };
-    let check = |state: &KagemushaWalletStateV1| {
+    let check = |request: &KagemushaWalletRequestV1, state: &KagemushaWalletStateV1| {
         request.check_send(&KagemushaWalletSendInputsV1 {
             payer_credential: &owner,
             payer_state: state,
@@ -169,19 +173,33 @@ fn whole_send_check_rejects_ordinal_and_spendable_changes_even_with_a_valid_sign
             quota_usage: &usage,
         })
     };
-    check(&state).unwrap(); // Pure Model projection, never an admitted/proven Native fold.
+    check(&request, &state).unwrap(); // Pure Model projection, never an admitted/proven Native fold.
+    // The receiver signs only its terms. Payer fields retain that signature, but must still
+    // match this payer's identity and the selected head's next ordinal in the Send check.
+    for mutation in 0..3 {
+        let mut changed = request.clone();
+        match mutation {
+            0 => changed.body.payer_wallet_id[0] ^= 1,
+            1 => changed.body.payer_account_digest[0] ^= 1,
+            _ => changed.body.send_ordinal += 1,
+        }
+        changed.verify(&scheme).unwrap();
+        assert!(check(&changed, &state).is_err());
+    }
     let mut next = state;
     next.core.next_send += 1;
-    assert!(check(&next).is_err());
+    assert!(check(&request, &next).is_err());
     let mut low = state;
     low.core.balance -= 1;
-    assert!(check(&low).is_err());
+    assert!(check(&request, &low).is_err());
 }
 
 #[test]
 fn hardware_ui_data_and_copied_originals_cannot_replace_retained_action() {
     let review = unadmitted_review_fixture();
     let original = review.send_original().unwrap().to_vec();
+    let retained: KagemushaWalletRequestV1 = archive::decode(&original).unwrap();
+    assert!(retained.body.is_open());
     let mut data = review.projection().clone();
     data.fee = 0;
     data.gross_debit = 1;

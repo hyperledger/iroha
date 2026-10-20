@@ -106,6 +106,7 @@ def make_client(kind: str, response: ElectionResponse):
             "http://node.test",
             session=session,
             local_signing_context=LocalSigningContext(NetworkId.parse(NETWORK_ID)),
+            chain_discriminant=753,
         ),
         session,
     )

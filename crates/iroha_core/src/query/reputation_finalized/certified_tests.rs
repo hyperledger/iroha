@@ -301,6 +301,9 @@ fn certified_capture_contention_returns_release_without_mutation_and_retries_exa
         pin::Pin,
         task::{Context, Waker},
     };
+    // Keep retired fixture cells fixed while checking the registration's
+    // exact synchronous refund from the same State allocation pool.
+    let _state_retirement = crossbeam_epoch::pin();
     let chain = certified_reputation_chain();
     let waiter_budget = chain.state().ivm_execution_budget();
     let mut registration = crate::unit_test_support::release_registration(&waiter_budget);

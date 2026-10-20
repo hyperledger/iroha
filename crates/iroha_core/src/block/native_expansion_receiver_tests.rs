@@ -11,7 +11,14 @@ fn native_validation_retains_original_proposal_when_expansion_has_another_state_
     );
     let proposal = source.proposal(vec![source.transaction(2_001, None)], source.cadence());
     let (header, bytes) = source.header(&proposal);
-    let expansion = expand(source.chain.state(), &proposal, &NoLanes, Duration::ZERO).unwrap();
+    let expansion = expand(
+        source.chain.state(),
+        &proposal,
+        &NoLanes,
+        Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     let mut events = Vec::new();
     let (retained, error) = destination
         .validate_expanded(proposal, &header, &bytes, expansion)
@@ -37,7 +44,14 @@ fn native_validation_retains_original_proposal_when_expansion_generation_advance
     let proposal = fixture.proposal(vec![fixture.transaction(2_001, None)], fixture.cadence());
     let (header, bytes) = fixture.header(&proposal);
     let generation = original_state.state_view_generation();
-    let expansion = expand(&original_state, &proposal, &NoLanes, Duration::ZERO).unwrap();
+    let expansion = expand(
+        &original_state,
+        &proposal,
+        &NoLanes,
+        Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     fixture.chain.commit_at(3_000, Vec::new());
     let observed_generation = original_state.state_view_generation();
     assert_ne!(observed_generation, generation);

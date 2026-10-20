@@ -1131,6 +1131,13 @@ fn stale_failed_startup_releases_same_lane_only_after_original_workers_join() {
 
 #[test]
 fn pending_publication_waits_for_original_startup_workers() {
+    // Final State refunds require the process-wide epoch collector to advance;
+    // unrelated tests may retain a pinned State for their entire fixture.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_original_startup_workers",
+    ) {
+        return;
+    }
     use crate::sumeragi::driver::{DriverPreparation, PendingDriver, StartupPoll};
     let (
         awaiting,
@@ -1260,6 +1267,13 @@ fn pending_publication_waits_for_original_startup_workers() {
 
 #[test]
 fn retired_startup_keeps_publication_on_its_original_joiner() {
+    // Final State refunds require the process-wide epoch collector to advance;
+    // unrelated tests may retain a pinned State for their entire fixture.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::driver::tests::threaded::retirement_tests::retired_startup_keeps_publication_on_its_original_joiner",
+    ) {
+        return;
+    }
     use crate::sumeragi::driver::{DriverPreparation, PendingDriver, StartupPoll};
     // Cover no acquired worker, abandoned Ready, real readiness refusal, partial
     // physical creation refusal, and Ready already transferred to RunningDriver.
@@ -1425,6 +1439,13 @@ fn retired_startup_keeps_publication_on_its_original_joiner() {
 
 #[test]
 fn final_startup_shutdown_preserves_unpublished_original_store() {
+    // Final State refunds require the process-wide epoch collector to advance;
+    // unrelated tests may retain a pinned State for their entire fixture.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::driver::tests::threaded::retirement_tests::final_startup_shutdown_preserves_unpublished_original_store",
+    ) {
+        return;
+    }
     use crate::sumeragi::driver::{DriverPreparation, PendingDriver, StartupPoll};
     let (stopped, height_before_continuation, fakes, budget) =
         crate::sumeragi::lanes::registry::observe_shutdown_sync_for_test(|fixture| {
@@ -1488,6 +1509,13 @@ fn final_startup_shutdown_preserves_unpublished_original_store() {
 
 #[test]
 fn original_orphan_publication_does_not_block_other_lane_transaction_delivery() {
+    // Final State refunds require the process-wide epoch collector to advance;
+    // unrelated tests may retain a pinned State for their entire fixture.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::driver::tests::threaded::retirement_tests::original_orphan_publication_does_not_block_other_lane_transaction_delivery",
+    ) {
+        return;
+    }
     let (entered, progressed, tip_while_held, live_handle, live_fakes, budget) =
         crate::sumeragi::lanes::registry::observe_retired_sync_for_test(|fixture| {
             let publication = crate::sumeragi::driver::PublicationSession::start(

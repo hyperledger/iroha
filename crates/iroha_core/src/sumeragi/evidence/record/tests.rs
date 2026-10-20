@@ -8,7 +8,7 @@ use crate::{
 use iroha_data_model::block::consensus::EvidenceScope;
 use mv::storage::StorageReadOnly as _;
 
-fn claim() -> EvidenceRecord {
+pub(super) fn claim() -> EvidenceRecord {
     let mut chain = super::super::tests::chain();
     chain.commit(Vec::new());
     let native = super::super::tests::conflict(&chain, 2);
@@ -42,6 +42,59 @@ fn parse(
     parser.skip_ws();
     assert!(parser.eof());
     Ok(record)
+}
+
+/// Rejection category shared by the ordinary decoder and allocation-free restore.
+#[derive(Debug, PartialEq, Eq)]
+enum Rejection {
+    Missing,
+    Duplicate,
+    Unknown,
+    Variant,
+    Proof,
+}
+fn ordinary_rejection(error: &json::Error) -> Rejection {
+    match error {
+        json::Error::MissingField { .. } => Rejection::Missing,
+        // The derived closed-enum decoder reports an absent tag as text.
+        json::Error::Message(message) if message == "missing `kind` field" => Rejection::Missing,
+        json::Error::DuplicateField { .. } => Rejection::Duplicate,
+        json::Error::UnknownField { .. } => Rejection::Unknown,
+        json::Error::Message(message) if message == "unknown JSON enum variant" => {
+            Rejection::Variant
+        }
+        json::Error::Message(_) => Rejection::Proof,
+        other => panic!("unexpected ordinary decoder rejection: {other:?}"),
+    }
+}
+fn restored_rejection(error: &json::Error) -> Rejection {
+    let json::Error::WithPos {
+        msg,
+        byte: 0,
+        line: 1,
+        col: 1,
+    } = error
+    else {
+        panic!("HC921 restore diagnostics must be fixed allocation-free errors: {error:?}");
+    };
+    match *msg {
+        "missing required evidence JSON field" => Rejection::Missing,
+        "duplicate evidence JSON field" => Rejection::Duplicate,
+        "unknown evidence JSON field" => Rejection::Unknown,
+        "unknown JSON enum variant" | "unknown evidence JSON enum variant" => Rejection::Variant,
+        "invalid native evidence proof" => Rejection::Proof,
+        other => panic!("unexpected fixed restore diagnostic: {other}"),
+    }
+}
+/// A failure inside a shared decoder keeps the ordinary decoder's exact text. A
+/// restore-owned failure keeps its rejection category and source-order position;
+/// the ordinary text names fields or codec causes in owned, uncharged strings.
+fn assert_parity(restored: &json::Error, ordinary: &json::Error, shared: bool) {
+    if shared {
+        assert_eq!(restored.to_string(), ordinary.to_string());
+    } else {
+        assert_eq!(restored_rejection(restored), ordinary_rejection(ordinary));
+    }
 }
 
 #[test]
@@ -129,15 +182,29 @@ fn retained_record_restore_proof_and_final_shell_refusals_keep_typed_original_ca
     let original = claim();
     let source = json::to_json(&original).unwrap();
     let pool = AllocationBudget::new(1 << 20);
+    // The bounded material discriminator reserves its decoder control first.
+    let control = norito::core::DecodeBudgetContext::allocation_layout();
     let blocker = pool.try_reserve_bytes(pool.limit_bytes()).unwrap();
-    let proof_layout =
-        std::alloc::Layout::array::<u8>(native_claim(&original).native_frame().len()).unwrap();
-    let expected = pool.try_reserve(proof_layout).unwrap_err();
     let failure = parse(&source, &pool).unwrap_err();
     assert!(
-        matches!(failure, EvidenceRecordRestoreError::Preparation(EvidencePreparationError::Admission(ref actual)) if actual == &expected)
+        matches!(failure, EvidenceRecordRestoreError::Preparation(EvidencePreparationError::Admission(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. })) if requested_bytes == control.size())
     );
     assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    drop(blocker);
+    // With the discriminator and closed kind tag funded, the native proof frame is the
+    // first refused original demand and keeps its exact typed capacity cause.
+    let proof_layout =
+        std::alloc::Layout::array::<u8>(native_claim(&original).native_frame().len()).unwrap();
+    let headroom = control.size() + 256;
+    assert!(proof_layout.size() > headroom);
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - headroom)
+        .unwrap();
+    let failure = parse(&source, &pool).unwrap_err();
+    assert!(
+        matches!(failure, EvidenceRecordRestoreError::Preparation(EvidencePreparationError::Admission(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. })) if requested_bytes == proof_layout.size())
+    );
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes() - headroom);
     drop(blocker);
     let shell_layout = ChargedShared::<EvidenceRecordBody>::allocation_layout();
     let (failure, refused) = refuse_one_layout_during(shell_layout, || parse(&source, &pool));
@@ -267,17 +334,20 @@ fn retained_record_restore_keeps_resource_refusal_and_canonical_negative_priorit
         matches!(error, EvidenceRecordRestoreError::Logical(ref error) if error.is_decode_resource_limit())
     );
     assert_eq!(pool.reserved_bytes(), 0);
-    for source in [
-        "{}",
-        "{\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}}}",
-        "{\"attribution\":{}}",
+    for (source, shared) in [
+        ("{}", false),
+        (
+            "{\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}}}",
+            false,
+        ),
+        ("{\"attribution\":{}}", true),
     ] {
         let ordinary = json::from_str::<EvidenceRecord>(source).unwrap_err();
         let restored = parse(source, &pool).unwrap_err();
         let EvidenceRecordRestoreError::Json(actual) = restored else {
             panic!("canonical failure remains syntax")
         };
-        assert_eq!(actual.to_string(), ordinary.to_string());
+        assert_parity(&actual, &ordinary, shared);
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }
@@ -304,16 +374,25 @@ fn retained_record_reordered_fields_preserve_canonical_values_and_first_invalid_
     assert_eq!(pool.reserved_bytes(), 0);
     // Both fields are invalid. Source order, rather than a fabricated fixed schema
     // order, selects the canonical first error and retains its failed prefix.
-    for source in [
-        "{\"attribution\":{},\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}}}",
-        "{\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}},\"attribution\":{}}",
+    for (source, proof_first) in [
+        (
+            "{\"attribution\":{},\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}}}",
+            false,
+        ),
+        (
+            "{\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}},\"attribution\":{}}",
+            true,
+        ),
     ] {
         let ordinary = json::from_str::<EvidenceRecord>(source).unwrap_err();
         let restored = parse(source, &pool).unwrap_err();
         let EvidenceRecordRestoreError::Json(actual) = restored else {
             panic!("canonical first field failure remains syntax");
         };
-        assert_eq!(actual.to_string(), ordinary.to_string());
+        assert_parity(&actual, &ordinary, !proof_first);
+        if proof_first {
+            assert_eq!(restored_rejection(&actual), Rejection::Proof);
+        }
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }
@@ -338,24 +417,29 @@ fn retained_record_nested_invalid_keys_match_peer_decoder_category_and_source_or
         let invalid = json::to_json(invalid).unwrap();
         let changed = attribution.replacen(&original_key, &invalid, 1);
         assert_ne!(changed, attribution);
-        for source in [
+        for (index, source) in [
             format!(
                 "{{\"attribution\":{changed},\"evidence\":{{\"kind\":\"native\",\"value\":{{\"native\":[]}}}}}}"
             ),
             format!(
                 "{{\"evidence\":{{\"kind\":\"native\",\"value\":{{\"native\":[]}}}},\"attribution\":{changed}}}"
             ),
-        ] {
+        ].into_iter().enumerate() {
             let ordinary = json::from_str::<EvidenceRecord>(&source).unwrap_err();
             let restored = parse(&source, &pool).unwrap_err();
             let EvidenceRecordRestoreError::Json(actual) = restored else {
                 panic!("canonical invalid peer/proof remains syntax");
             };
-            assert_eq!(actual.to_string(), ordinary.to_string());
-            assert_eq!(
-                std::mem::discriminant(&actual),
-                std::mem::discriminant(&ordinary)
-            );
+            // The attribution-first key failure is the shared peer decoder's own error.
+            assert_parity(&actual, &ordinary, index == 0);
+            if index == 0 {
+                assert_eq!(
+                    std::mem::discriminant(&actual),
+                    std::mem::discriminant(&ordinary)
+                );
+            } else {
+                assert_eq!(restored_rejection(&actual), Rejection::Proof);
+            }
             assert_eq!(pool.reserved_bytes(), 0);
         }
     }
@@ -424,21 +508,35 @@ fn closed_native_envelope_reorders_without_accepting_bare_or_unknown_material() 
     assert_eq!(restored.canonical_projection(), original);
     assert_eq!(json::to_json(&restored).unwrap(), canonical);
     drop(restored);
-    for envelope in [
-        proof.clone(),
-        format!("{{\"kind\":\"unrecognized\",\"value\":{proof}}}"),
-        format!("{{\"kind\":\"native\",\"kind\":\"native\",\"value\":{proof}}}"),
-        format!("{{\"kind\":\"native\",\"value\":{proof},\"value\":{proof}}}"),
-        format!("{{\"kind\":\"native\",\"value\":{proof},\"extra\":0}}"),
-        format!("{{\"value\":{proof}}}"),
-        "{\"kind\":\"native\"}".into(),
+    for (envelope, rejection) in [
+        (proof.clone(), Rejection::Unknown),
+        (
+            format!("{{\"kind\":\"unrecognized\",\"value\":{proof}}}"),
+            Rejection::Variant,
+        ),
+        (
+            format!("{{\"kind\":\"native\",\"kind\":\"native\",\"value\":{proof}}}"),
+            Rejection::Duplicate,
+        ),
+        (
+            format!("{{\"kind\":\"native\",\"value\":{proof},\"value\":{proof}}}"),
+            Rejection::Duplicate,
+        ),
+        (
+            format!("{{\"kind\":\"native\",\"value\":{proof},\"extra\":0}}"),
+            Rejection::Unknown,
+        ),
+        (format!("{{\"value\":{proof}}}"), Rejection::Missing),
+        ("{\"kind\":\"native\"}".into(), Rejection::Missing),
     ] {
         let source = canonical.replacen(&expected, &envelope, 1);
         let ordinary = json::from_str::<EvidenceRecord>(&source).unwrap_err();
         let EvidenceRecordRestoreError::Json(error) = parse(&source, &pool).unwrap_err() else {
             panic!("closed envelope errors retain canonical syntax classification");
         };
-        assert_eq!(error.to_string(), ordinary.to_string());
+        // Envelope checks are restore-owned: fixed text, ordinary category.
+        assert_parity(&error, &ordinary, false);
+        assert_eq!(restored_rejection(&error), rejection);
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }

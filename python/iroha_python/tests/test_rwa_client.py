@@ -31,7 +31,7 @@ def test_explorer_rwas_collection_encodes_filters_and_decodes_page() -> None:
             }
         )
     )
-    client = ToriiClient("http://node.test", session=session)
+    client = ToriiClient("http://node.test", session=session, chain_discriminant=753)
 
     page = client.explorer_rwas.list(
         cursor="cHJldmlvdXMtcndhLWN1cnNvcg",
@@ -70,7 +70,7 @@ def test_get_explorer_rwa_detail_typed_encodes_path_and_decodes_payload() -> Non
             }
         )
     )
-    client = ToriiClient("http://node.test", session=session)
+    client = ToriiClient("http://node.test", session=session, chain_discriminant=753)
 
     detail = client.get_explorer_rwa_detail_typed(SAMPLE_RWA_ID)
 

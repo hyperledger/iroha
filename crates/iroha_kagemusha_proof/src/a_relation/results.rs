@@ -389,7 +389,7 @@ mod tests {
             assert!(synthesize(&wrong, 6, None).is_err());
         }
         let circuit = Claims {
-            mask: 21,
+            mask: 5,
             known: true,
             wrong_plan: false,
         };
@@ -397,7 +397,7 @@ mod tests {
         let unknown = synthesize(&circuit.without_witnesses(), 6, None).unwrap();
         assert_eq!(known.tables.fixed(), unknown.tables.fixed());
         assert_eq!(known.tables.permutation(), unknown.tables.permutation());
-        let public = vec![vec![Fp::ONE, Fp::ZERO, Fp::ONE, Fp::ZERO, Fp::ONE]];
+        let public = vec![vec![Fp::ONE, Fp::ZERO, Fp::ONE, Fp::ZERO]];
         assert!(
             iroha_plonk_gadgets::tamper::undetected_tampers(&circuit, 6, &public)
                 .unwrap()

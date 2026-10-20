@@ -115,7 +115,7 @@ pub struct RequestBodyV1 {
     pub account: AccountId,
     /// Asset scope from original account request, matching policy/challenge.
     pub asset: KagemushaWalletAssetScopeV1,
-    /// Exact canonical PlatformEvidenceV1 bytes, retained without rewriting.
+    /// Exact canonical `PlatformEvidenceV1` bytes, retained without rewriting.
     pub evidence: Vec<u8>,
 }
 impl RequestBodyV1 {
@@ -305,7 +305,7 @@ pub struct ResultV1 {
     pub version: u16,
     /// Original signed initial credential frame.
     pub credential: Vec<u8>,
-    /// Original signer CertificateSet frame, including the Enrollment issuer.
+    /// Original signer `CertificateSet` frame, including the Enrollment issuer.
     pub certificates: Vec<u8>,
     /// Exact issuer-retained original evidence.
     pub evidence: IssuerEvidenceV1,

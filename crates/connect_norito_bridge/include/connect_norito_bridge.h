@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define CONNECT_NORITO_BRIDGE_ABI_VERSION 30
+#define CONNECT_NORITO_BRIDGE_ABI_VERSION 31
 
 #define CONNECT_NORITO_ERR_ACCOUNT_ADDRESS -200
 #define CONNECT_NORITO_ERR_UNSUPPORTED_ALGORITHM -21
@@ -1846,12 +1846,14 @@ int32_t connect_norito_kagemusha_wallet_open_cancel_v1(uint64_t runtime);
 int32_t connect_norito_kagemusha_wallet_close_v1(uint64_t handle);
 int32_t connect_norito_kagemusha_wallet_activity_v1(uint64_t handle, uint8_t foreground, uint8_t charging);
 // Native lifecycle intent; no caller state, roots, proof, time or nonce. Selector meanings:
-// Load0(receipt,finality), Send1(Request), Receive2(Payment,credential,certificates),
+// Load0(receipt,finality), Send1(open Request; Native completes it for this payer),
+// Receive2(Payment,credential,certificates),
 // Credential3/SchemePolicy4/TimeAnchor6/QuotaShare7(update,certificates),
 // BlacklistInstall5(list,certificates): local install only, no operation, proof or retry
 // identity (request_id all zero); kind1 carries the held list's 32-byte object digest,
 // Unload8(optional quote+certificates, positive amount), Retire9(no originals),
-// ReceiveFromOffer10(Payment,signed Offer). Native extracts the Offer payer originals.
+// ReceiveWithCompanion10(Payment, payer companion <=2048). Native binds the companion to the
+// Payment's Omega(pred) credential and Request payer, then forwards its credential and certificates.
 // Unused slots/amount are zero. request_id is otherwise a nonzero local retry identity.
 // Original bounds are selector-specific; Payment remains <=10,000 bytes.
 typedef struct {
@@ -1866,9 +1868,14 @@ typedef struct {
     size_t third_length;
 } connect_norito_kagemusha_wallet_operation_request_v1;
 // Setup through the same exclusive Native owner. Selectors:
-// Bootstrap0(no originals), Offer1(positive amount), Request2(Offer, optional fee+certificate),
+// Bootstrap0(no originals), Request2(positive amount, no first original, optional second fee
+// schedule+third signer certificate) returns kind12 open Request (payer fields zero),
 // Credited3(Credited), BeginTime4(no originals), FinishTime5(TimeAnchor, certificate, owned token),
-// CancelTime6(owned token); envelope wrap7..10 / unwrap11..14 in Offer,Request,Payment,Credited order.
+// CancelTime6(owned token); envelope wrap8..10 / unwrap12..14 in Request,Payment,Credited order.
+// Offer selectors 1, 7 and 11 are retired and rejected.
+// PaymentCompanion55(first this wallet's own Payment <=10000, zero setup_id/amount/token) returns
+// kind12 canonical payer companion <=2048: the current credential, which must be the Payment's
+// Omega(pred) credential, and exactly its issuer certificate. DATA only; nothing is signed or written.
 // BackgroundStatus18(no inputs) returns kind29: detail bits0..1 phase (0 not started,
 // 1 parked,2 running), bit2 eligible,bit3 backlog known; sequence is last observed durable
 // backlog. No bytes or proof readiness. Terminal worker errors are returned unchanged and
@@ -1917,9 +1924,10 @@ typedef struct {
 // Setup35..37/46 use zero setup_id/amount/token and no unused originals. No HTTP receipt is authority.
 // RequestFeeSelection38(no inputs) returns kind12 bytes64 = asset digest32 || selected fee digest32.
 // Zero fee digest means Native-selected zero fee; this projection is DATA, never Request authority.
-// RequestWithFeePolicy39(nonzero setup_id, first Offer <=10000, optional paired second FeeSchedule
-// PolicyData envelope and third Certificates PolicyData envelope <=10000 each) invokes ordinary
-// Native Request with authenticated exact originals. No pair is accepted only by the zero-fee rule.
+// RequestWithFeePolicy39(nonzero setup_id, positive amount, optional paired first FeeSchedule
+// PolicyData envelope and second Certificates PolicyData envelope <=10000 each, no third) invokes
+// ordinary Native open Request with authenticated exact originals. No pair is accepted only by the
+// zero-fee rule.
 // ValidateRequestFeePolicy40(first FeeSchedule envelope, second Certificates envelope, each <=10000)
 // verifies signatures, scheme, asset, signer role and selected fee digest; returns the same bytes64.
 // Intake/cache validation does not refresh policy. Exact Request retries retain the original pair.
@@ -1937,9 +1945,12 @@ typedef struct {
 // kind12 canonical Credited data after native shape/scheme/full-envelope bounds; no proof verdict.
 // CreditProjection43 takes only the nonzero Receive request id; DeliveryProjection44 takes
 // nonzero Send request id, first exact completed-Archive Credited anchor <=10000 and optional
-// second newer Credited <=10000. Third/amount/token are zero. Both return kind47, <=10092:
+// second newer Credited <=10000. VerifiedDelivery54 takes nonzero Send request id and first exact
+// Credited <=10000 before any Archive: the same Send binding and verifier; it selects, proves and
+// signs nothing and prepares no Archive; a completed Archive of that original returns its projection44.
+// Unused originals/amount/token are zero. All return kind47, <=10092:
 // LE16 version1; evidence byte1=unfolded/2=credited/3=burned; archive byte0=receiver,
-// 1=awaiting fold/2=removed/3=retained; core-pending byte; three zeros; credit32;
+// 1=awaiting fold/2=removed/3=retained/4=verified, not archived; core-pending byte; three zeros; credit32;
 // Payment digest32; LE128amount; LE32original length; exact receiver Credited <=10000.
 // Payer original length is zero. Projection is display evidence, never permission to mutate.
 // CollectRetained47 takes only the historical u128 sequence in amount (zero is allowed).
@@ -1971,7 +1982,7 @@ typedef struct {
 // its incumbent from protected custody, verifies the exact boundary and atomically retains
 // the successor. Exact retries reconcile publication uncertainty and never regress progress.
 // Older epoch checkpoints remain available for delayed Load receipts. Both return kind57.
-// setup_id is exactly32 bytes: nonzero only for selectors1/2/19/20/25/27/30/33/34/39/41/42/43/44/45; all zero otherwise.
+// setup_id is exactly32 bytes: nonzero only for selectors2/19/20/25/27/30/33/34/39/41/42/43/44/45; all zero otherwise.
 // Unused originals/amount/token are empty/zero. Original bounds are selected by Native;
 // signer certificate frames are <=512 bytes. No caller clock, nonce, proof verdict or arbitrary signing body.
 // Transport uses first only and returns canonical bytes; it grants no monetary verdict.

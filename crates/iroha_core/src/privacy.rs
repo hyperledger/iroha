@@ -45,8 +45,9 @@ pub(crate) fn privacy_signed_submission_hash_v1(
 /// Recompute and validate the optional privacy intent in one signed payload.
 ///
 /// Ordinary transactions return `Ok(None)`. Any privacy-bearing payload must contain exactly one
-/// direct typed submission, have both derived digests correct, and avoid every dynamic/opaque V1
-/// path before this function returns its one-shot state binding.
+/// direct typed submission, have both derived digests correct, and avoid unsupported opaque V1
+/// paths. Mixed-batch contract calls remain in the signed intent; the executor must additionally
+/// bind this authorization to the original direct native occurrence before any effect.
 pub(crate) fn signed_privacy_transaction_intent_binding_v1(
     transaction: &SignedTransaction,
 ) -> Result<Option<(PrivacyTransactionIntentDigestV1, iroha_crypto::Hash)>, ValidationFail> {

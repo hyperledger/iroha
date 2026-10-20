@@ -326,7 +326,8 @@ fn exact_successful_pin_transaction(
                 }
                 continue;
             }
-            TransactionEntrypoint::SealedCommitment(_) => continue,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => continue,
         };
         if transaction
             .try_hash_as_entrypoint()

@@ -1,0 +1,5 @@
+# BuildKit reads this file instead of the repository's .dockerignore when it builds .oss-scanner/Dockerfile. The scan
+# image keeps the whole checkout, .git, SDKs, docs and fixtures included. Only local build output at the top level is
+# left out (tracked files live under nested target/ directories, so the patterns stay anchored).
+target
+target-*

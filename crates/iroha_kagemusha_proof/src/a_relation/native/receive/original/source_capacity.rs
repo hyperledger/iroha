@@ -155,7 +155,7 @@ fn publish<C: PastaCurve>(root: &Path, key: &ProvingKey<C>) {
 }
 
 #[test]
-#[ignore = "explicit exact retained metadata; actual nine-A/eight-W k16 source generation"]
+#[ignore = "explicit exact retained metadata; actual five-A/four-W k16 source generation"]
 fn genuine_renewed_schedule_fits_every_stage() {
     let input = std::env::var("KAGEMUSHA_CAPACITY_INPUT").unwrap();
     let original = std::env::var("KAGEMUSHA_DIAGNOSTIC_ORIGINALS").unwrap();
@@ -169,12 +169,11 @@ fn genuine_renewed_schedule_fits_every_stage() {
         Some(crate::a_relation::schedule::OperationTask::ReceiveConsumedEffects),
     ] {
         let mut tasks = renewed.tasks().to_vec();
-        assert_eq!(
-            tasks[6].pop(),
-            Some(crate::a_relation::schedule::OperationTask::ReceiveCreditEffects)
-        );
+        let credit = crate::a_relation::schedule::OperationTask::ReceiveCreditEffects;
+        assert_eq!(tasks[0].iter().position(|task| *task == credit), Some(1));
+        tasks[0].remove(1);
         if let Some(task) = replacement {
-            tasks[6].push(task);
+            tasks[0].insert(1, task);
         }
         let context = ContextPlan::with_schedule(
             plan.context().operation().clone(),

@@ -43,7 +43,7 @@ fn request() -> KagemushaWalletRequestV1 {
     let KagemushaWalletMessageV1::Request { request } = envelope.message else {
         panic!("Request fixture")
     };
-    request.validate().unwrap();
+    request.validate_open().unwrap();
     request
 }
 
@@ -115,6 +115,36 @@ fn exact_requests_keep_their_original_and_survive_reopening() {
     store.remove(ArchiveKey::Object(record.request)).unwrap();
     assert!(matches!(
         store.read_object(&record.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1),
+        Err(Error::WitnessLost(_))
+    ));
+}
+
+#[test]
+fn issued_request_custody_holds_only_the_open_request() {
+    // A payer's completion keeps the receiver signature and Request digest, but it is never
+    // the receiver's issued original: custody refuses to retain or restore it.
+    let mut store = MemoryArchive::new();
+    let request = request();
+    let mut completed = request.clone();
+    completed.body = completed.body.completed([0x71; 32], [0x72; 32], 3);
+    completed.validate().unwrap();
+    assert_eq!(completed.request_digest(), request.request_digest());
+    assert!(retain_request(&mut store, IndexRoot::default(), &completed).is_err());
+    let record = IssuedRequestCustodyV1 {
+        request: store
+            .write_object(
+                &archive::encode(&completed).unwrap(),
+                KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+            )
+            .unwrap(),
+    };
+    assert!(matches!(
+        record.read(
+            &mut store,
+            &request.body.scheme_id,
+            &request.body.receiver_wallet_id,
+            &request.request_digest(),
+        ),
         Err(Error::WitnessLost(_))
     ));
 }

@@ -52,7 +52,7 @@ pub(super) type WriterFlushNoticeReceiver = mpsc::UnboundedReceiver<ActorProgres
 /// itself still travels on the occurrence's oneshot, which remains the only
 /// delivery linearization point; a notice is merely a wake-up hint. A post the
 /// writer refuses to queue is disarmed, so refusal cannot cause a busy loop.
-pub(crate) struct WriterFlushNotice {
+pub struct WriterFlushNotice {
     sender: Option<mpsc::UnboundedSender<ActorProgressSource>>,
     source: Option<ActorProgressSource>,
 }

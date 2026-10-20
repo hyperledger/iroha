@@ -91,14 +91,14 @@ fn operation(variant: Variant, signature_words: usize) -> AProofPlan {
 }
 
 fn tasks(variant: Variant) -> Vec<Vec<OperationTask>> {
-    vec![
-        vec![if variant == Variant::Unload {
+    vec![vec![
+        if variant == Variant::Unload {
             OperationTask::UnloadRecovery
         } else {
             OperationTask::RetiringState
-        }],
-        vec![OperationTask::UnloadAuthorization],
-    ]
+        },
+        OperationTask::UnloadAuthorization,
+    ]]
 }
 
 #[test]
@@ -112,16 +112,22 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
         let operation = operation(variant, schema.instance_length());
         assert!(operation.is_inline());
         let specs = UnloadObjects::context_specs().unwrap().to_vec();
-        let context = |operation: AProofPlan, partition, owner, specs| {
+        let context = |operation: AProofPlan, partition, owner, specs, tasks| {
             ContextPlan::with_schedule(operation, partition, owner, specs)
                 .unwrap()
-                .with_operation_tasks(tasks(variant))
+                .with_operation_tasks(tasks)
                 .unwrap()
         };
-        let partition = vec![vec![], vec![0]];
-        let honest = context(operation.clone(), partition.clone(), Some(0), specs.clone());
+        let partition = vec![vec![0]];
+        let honest = context(
+            operation.clone(),
+            partition.clone(),
+            Some(0),
+            specs.clone(),
+            tasks(variant),
+        );
         let plan = UnloadStagePlan::new(honest, policy).unwrap();
-        assert_eq!(plan.context().stage_count(), 2);
+        assert_eq!(plan.context().stage_count(), 1);
         assert_eq!(plan.context().object_specs(), specs);
         assert_eq!(specs.iter().map(|s| s.tag).collect::<Vec<_>>(), [1]);
         for (spec, kind) in specs.iter().zip(KINDS) {
@@ -147,20 +153,28 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
                     .map_or(true, |c| UnloadStagePlan::new(c, policy).is_err())
             );
         }
-        // The own receipt leaf belongs to A2, never beside the predecessor in A1.
-        assert!(
-            UnloadStagePlan::new(
-                context(
-                    operation.clone(),
-                    vec![vec![0], vec![]],
-                    Some(0),
-                    specs.clone()
-                ),
-                policy
-            )
-            .is_err()
-        );
-        // A1 owns no Q, so the hard predecessor must be verified there.
+        // One terminal A owns the transition and the own receipt leaf beside the hard
+        // predecessor: the retired split layouts are refused even with every task once.
+        let effect = tasks(variant)[0][0];
+        for (partition, owners) in [
+            (
+                vec![vec![], vec![0]],
+                vec![vec![effect], vec![OperationTask::UnloadAuthorization]],
+            ),
+            (
+                vec![vec![0], vec![]],
+                vec![vec![effect, OperationTask::UnloadAuthorization], vec![]],
+            ),
+        ] {
+            assert!(
+                UnloadStagePlan::new(
+                    context(operation.clone(), partition, Some(0), specs.clone(), owners),
+                    policy
+                )
+                .is_err()
+            );
+        }
+        // The single stage must verify the hard predecessor.
         assert!(
             ContextPlan::with_schedule(
                 operation.clone(),
@@ -172,7 +186,7 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
         );
         for index in 0..2 {
             let mut missing = tasks(variant);
-            missing[index].clear();
+            missing[0].remove(index);
             assert!(
                 ContextPlan::with_schedule(
                     operation.clone(),
@@ -185,8 +199,8 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
                 .is_err()
             );
             let mut repeated = tasks(variant);
-            let duplicate = repeated[index][0];
-            repeated[index].push(duplicate);
+            let duplicate = repeated[0][index];
+            repeated[0].insert(index, duplicate);
             assert!(
                 ContextPlan::with_schedule(
                     operation.clone(),
@@ -199,9 +213,9 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
                 .is_err()
             );
         }
-        // Swapped stage owners keep the task set but not the fixed layout.
+        // Swapped owners keep the task set but not the canonical ascending order.
         let mut swapped = tasks(variant);
-        swapped.swap(0, 1);
+        swapped[0].swap(0, 1);
         assert!(
             ContextPlan::with_schedule(
                 operation.clone(),
@@ -211,7 +225,7 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
             )
             .unwrap()
             .with_operation_tasks(swapped)
-            .map_or(true, |c| UnloadStagePlan::new(c, policy).is_err())
+            .is_err()
         );
         let wrong_effect = if variant == Variant::Unload {
             Variant::Retiring
@@ -233,7 +247,7 @@ fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
     let wrong = operation(Variant::Unload, schema.instance_length() - 1);
     let context = ContextPlan::with_schedule(
         wrong,
-        vec![vec![], vec![0]],
+        vec![vec![0]],
         Some(0),
         UnloadObjects::context_specs().unwrap().to_vec(),
     )

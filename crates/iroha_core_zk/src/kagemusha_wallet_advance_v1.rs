@@ -158,7 +158,9 @@ pub use self::store::{
     KagemushaWalletSimFaultV1, KagemushaWalletSimFsV1, KagemushaWalletSimLockV1,
     KagemushaWalletSimPowerLossV1, KagemushaWalletSimStagedFileV1, KagemushaWalletSimStepV1,
 };
-pub use self::store::{KagemushaWalletStdFsLockV1, KagemushaWalletStdFsV1};
+pub use self::store::{
+    KagemushaWalletStdFsLockV1, KagemushaWalletStdFsV1, kagemusha_wallet_custody_refusal_v1,
+};
 pub use self::{
     advance::{
         KAGEMUSHA_WALLET_CAPACITY_HEADROOM_BYTES_V1, KagemushaWalletAdvanceCapsuleV1,
@@ -344,6 +346,9 @@ pub(crate) mod test_support;
 
 #[cfg(test)]
 mod crash_matrix_tests;
+
+#[cfg(all(test, unix))]
+mod custody_transaction_tests;
 
 #[cfg(test)]
 mod tests {

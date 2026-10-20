@@ -1,0 +1,22 @@
+{
+  "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+  "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+  "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+  "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+  "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+  "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+  "docs/validation/parliament_ballot_application_reconciliation/SHA256SUMS": "23ee549058fcd57fbd385a6bef61bbb15d354946564c90e87da16ba7e4e52dba",
+  "docs/validation/parliament_ballot_request_machine/capture/source/target/parliament-ideal-machine-stage/chronological_log.py.template": "200dfc7bbd53782c4aeb609b4c3322737bab934e8985712e84f96fd45cfa95cf",
+  "docs/validation/parliament_ballot_request_machine/capture/source/target/parliament-ideal-machine-stage/l0_machine.py.template": "e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23",
+  "docs/validation/parliament_ballot_request_machine/capture/source/target/parliament-ideal-machine-stage/write_machine.py.template": "4982fb0bada85cbb6a323f367935a9743e6d383ed275f19e61a97f297e2964aa",
+  "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+  "scripts/parliament_ballot_static_overlay.py": "395bed0abcde58a3915210f5f55a79ecec9facaa960b6cd6ee6a12051093a102",
+  "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617",
+  "scripts/tests/parliament_ballot_static_overlay_test.py": "a92a3ce59392e4805d0194f5c3707ae7ffd74a877c3e239214b5197613a65906",
+  "specs/parliament_ballot_b6_application_reconciliation.md": "2bdd292fac6e78db6659a521e06ffc8e5d299338b6ab15e81b24cbb821bb2be7",
+  "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+  "specs/parliament_ballot_b6_initial_programming.md": "de542e02fe0473d901c42249d48c0d73fbde075cf64e6b995ac0f8e21ed2349f",
+  "specs/parliament_ballot_b6_material_entry.md": "fa3eec746759ef30626be188b050eb9716a048493a39a0970aa58ce7a7fd020e",
+  "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+  "specs/parliament_ballot_b6_root_entry.md": "0e72876532d84460478c9b4c4f3104622837dd06655906825ab00855e34e3771"
+}

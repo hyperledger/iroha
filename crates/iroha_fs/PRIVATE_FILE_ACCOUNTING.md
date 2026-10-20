@@ -39,9 +39,13 @@ closed; the native qualification targets remain Linux, macOS and Windows.
 ## Derivation
 
 Unix directory validation performs one descriptor metadata read; macOS also
-reads the descriptor ACL. Each ancestor revalidation validates the held object,
-opens and validates its current name, then reads both identities: five probes
-on Linux and seven on macOS. Denote this whole ancestry cost by `D`, and one file
+reads the descriptor ACL. Each ancestor revalidation opens and validates its
+current name and compares that identity with the identity the held object had
+when it was admitted (a held descriptor's identity cannot change): three probes
+on Linux and four on macOS. Only a refused ancestor also validates the held
+object, so the original error is reported; a walk therefore never exceeds the
+five probes on Linux and seven on macOS charged here per ancestor. Denote this
+whole ancestry ceiling by `D`, and one file
 validation by `V` (`1` on Linux, `2` on macOS). A generic retained revalidation
 costs `2D + 2V + 3`; a strict one adds one `V`. The three fixed calls are two
 identity reads and one named open. A strict snapshot invokes two strict

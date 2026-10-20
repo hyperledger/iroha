@@ -2263,6 +2263,53 @@ def _release_workspace_snapshot(root: Path) -> tuple[str, str]:
     return manifest, lock_sha256
 
 
+def workspace_source_git_state(root: Path) -> dict[str, str | None]:
+    """Observe branch and reject unfinished Git operations without hashing source.
+
+    A detached checkout is valid. HEAD changes alone do not invalidate a dirty
+    development candidate whose actual source and branch remain unchanged.
+    """
+
+    root = root.resolve()
+    _reject_active_git_operations(root)
+    unmerged = _git_unmerged_paths(root)
+    if unmerged:
+        raise UnmergedSourceError(
+            "workspace contains unresolved merge entries: " + ", ".join(unmerged)
+        )
+    result = subprocess.run(
+        _git_command(root, "symbolic-ref", "--quiet", "HEAD"), cwd=root,
+        env=_git_read_only_environment(), stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, check=False,
+    )
+    if result.returncode == 1:
+        branch = None
+    else:
+        result.check_returncode()
+        branch = result.stdout.strip()
+        if not branch.startswith("refs/heads/"):
+            raise RuntimeError("Git did not identify one current branch")
+    return {"root": str(root), "branch": branch}
+
+
+def workspace_source_observation(root: Path) -> dict[str, str | None]:
+    """Observe source bytes and branch at a mutable campaign boundary.
+
+    This allows unchanged dirty source, detects persistent boundary drift and
+    rejects unfinished Git operations. It is not a hermetic source seal and
+    does not prove which inputs Cargo or its compiler actually consumed.
+    """
+
+    # All observations belong to this one root, even if a caller's alias moves.
+    root = root.resolve()
+    before = workspace_source_git_state(root)
+    manifest = workspace_source_manifest(root)
+    if workspace_source_git_state(root) != before:
+        raise RuntimeError("workspace branch changed during source observation")
+    return {**before, "workspace_source_manifest_sha256": manifest,
+            "cargo_source_consumption": "not_proven"}
+
+
 def workspace_source_manifest(root: Path) -> str:
     """Return the checkout source manifest rooted at ``root``."""
 

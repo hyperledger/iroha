@@ -17,7 +17,9 @@ pub(crate) fn seed_committed_transaction_context(
     let transaction = match entrypoint {
         TransactionEntrypoint::External(transaction) => transaction,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            return;
+        }
     };
     state_transaction.tx_call_hash = Some(Hash::from(entrypoint.execution_call_hash()));
     state_transaction.current_tx_hash =

@@ -43,7 +43,7 @@ impl CaAwaitingMainAuxiliaryV1 {
     ) -> Result<CaAwaitingJointPointV1, ZkX509CaAccumulatorProofErrorV1> {
         let proof_instance = self.binding.proof_instance_v1();
         self.validate_v1()?;
-        if !auxiliary.matches_v1(self.binding, JointSubproofV1::Ca, self.auxiliary_root_v1()) {
+        if !auxiliary.matches_v1(&self.binding, JointSubproofV1::Ca, self.auxiliary_root_v1()) {
             return Err(ZkX509CaAccumulatorProofErrorV1::TranscriptMismatch);
         }
         let layout = ca_aggregate_layout_v1()?;

@@ -64,10 +64,10 @@ object IrohaPeerNfcReaderPlanningV1 {
 
 /**
  * Sender state (`ISC1`) that must be durable before the first Payment byte is written. Restoring
- * the encoded checkpoint reuses the exact IPM1 Payment and can never create or debit a
- * replacement Payment. The payer builds it from the Request read
- * ([IrohaPeerNfcRequestReadV1.senderCheckpoint]) and the approved Payment, persists [encode] and
- * continues on the same connection with it ([IrohaPeerNfcReaderExchangeV1.run]).
+ * the encoded checkpoint reuses the exact IPM1 Payment (the Payment carrier with its payer
+ * companion) and can never create or debit a replacement Payment. The payer builds it from the
+ * Request read ([IrohaPeerNfcRequestReadV1.senderCheckpoint]) and the approved Payment, persists
+ * [encode] and continues on the same connection with it ([IrohaPeerNfcReaderExchangeV1.run]).
  */
 class IrohaPeerNfcSenderCheckpointV1 @JvmOverloads constructor(
     sessionId: ByteArray,
@@ -468,8 +468,10 @@ class IrohaPeerNfcReaderExchangeResultV1 @JvmOverloads constructor(
 }
 
 /**
- * Transport-neutral, status-reconciled Payment phase, the Swift
- * `IrohaPeerNfcReaderExchangeV1`. Blocking; Android reader mode runs it on its binder thread.
+ * Transport-neutral payer side of the NFC exchange, the Swift `IrohaPeerNfcReaderExchangeV1`:
+ * tap 1 reads the receiver's open Request ([readRequest]), then the status-reconciled Payment
+ * phase ([run]) carries the approved Payment and collects the Credited acknowledgement. Blocking;
+ * Android reader mode runs both on its binder thread and keeps the connection through approval.
  *
  * With [run]'s `restoredCheckpoint` (the `ISC1` the payer persisted after approving the Payment,
  * or after an interrupted exchange) the reader resumes from the card's GET_STATUS and replays the
@@ -500,6 +502,49 @@ object IrohaPeerNfcReaderExchangeV1 {
             if (remaining <= 0) nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
             remaining -= 1
         }
+    }
+
+    /**
+     * Tap 1: SELECT, GET_INTAKE (`IOI1`), GET_INFO (`INF1`, REQUEST_READY under the same session
+     * identifier) and the receiver's open Request in min(local, card) chunks, checked against `INF1`
+     * exactly as [IrohaPeerNfcReaderPlanningV1.validateReceiveRequest] does. No value moves and
+     * nothing is written to the card. Keep the transceiver connected while the payer reviews the
+     * Request (Native completes it for the payer's wallet) and approves; persist
+     * [IrohaPeerNfcRequestReadV1.senderCheckpoint] for the Payment and continue with [run] on the same
+     * connection. A card that hosts another profile is [IrohaPeerNfcErrorV1.INVALID_PROFILE], one
+     * past REQUEST_READY [IrohaPeerNfcErrorV1.STATE_MISMATCH].
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun readRequest(
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = IrohaPeerNfcLimitsV1.DEFAULT,
+        transceive: IrohaPeerNfcReaderTransceiverV1,
+    ): IrohaPeerNfcRequestReadV1 {
+        nfcRequireEmptySuccess(
+            transceive.transceive(IrohaPeerNfcCommandV1.SelectApplication(applicationIdentifier)),
+            IrohaPeerNfcOperationV1.SELECT_APPLICATION,
+        )
+        val intake = IrohaPeerNfcIntakeRecordV1.decode(
+            nfcRequireSuccess(transceive.transceive(IrohaPeerNfcCommandV1.GetIntake), IrohaPeerNfcOperationV1.GET_INTAKE).data(),
+        )
+        if (intake.profile != profilePolicy.profile) nfcFail(IrohaPeerNfcErrorV1.INVALID_PROFILE)
+        val info = IrohaPeerNfcInfoV1.decode(
+            nfcRequireSuccess(transceive.transceive(IrohaPeerNfcCommandV1.GetInfo), IrohaPeerNfcOperationV1.GET_INFO).data(),
+        )
+        if (!intake.sessionEquals(info.identity.sessionId)) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
+        if (info.identity.profile != profilePolicy.profile) nfcFail(IrohaPeerNfcErrorV1.INVALID_PROFILE)
+        if (info.phase != IrohaPeerNfcPhaseV1.REQUEST_READY) nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
+        if (info.requestLength > limits.maximumMessageBytes) {
+            nfcMessageTooLarge(info.requestLength, limits.maximumMessageBytes)
+        }
+        val request = IrohaPeerNfcReaderPlanningV1.validateReceiveRequest(
+            nfcReadRequestBytes(info, limits, transceive) {},
+            info,
+            limits,
+        )
+        return IrohaPeerNfcRequestReadV1(intake, info, request)
     }
 
     @JvmStatic
@@ -542,7 +587,7 @@ object IrohaPeerNfcReaderExchangeV1 {
                 IrohaPeerNfcTwoTapReducerV1(it, limits).requireSamePeer(info)
             }
         } else {
-            val request = readRequest(info, limits, budget, transceive)
+            val request = readBudgetedRequest(info, limits, budget, transceive)
             // Loading or atomically creating the mandatory pre-BEGIN_PAYMENT checkpoint is one
             // application transition. Charge it before invoking application code, so a hostile
             // one-byte peer cannot exhaust the budget only after value has been created.
@@ -625,7 +670,7 @@ object IrohaPeerNfcReaderExchangeV1 {
         }
     }
 
-    private fun readRequest(
+    private fun readBudgetedRequest(
         info: IrohaPeerNfcInfoV1,
         limits: IrohaPeerNfcLimitsV1,
         budget: ActionBudget,
@@ -728,15 +773,13 @@ object IrohaPeerNfcReaderExchangeV1 {
 }
 
 /**
- * Offer phase result: the card's final `IOI1` [intake], its `INF1` [info], the verified [request] it
- * hosts under the intake's session identifier and the receiver's [ask] the Offer was built for.
+ * Tap-1 result ([IrohaPeerNfcReaderExchangeV1.readRequest]): the card's `IOI1` [intake], its `INF1`
+ * [info] and the verified open [request] it hosts under that session identifier.
  */
-class IrohaPeerNfcRequestReadV1 @JvmOverloads constructor(
+class IrohaPeerNfcRequestReadV1(
     @JvmField val intake: IrohaPeerNfcIntakeRecordV1,
     @JvmField val info: IrohaPeerNfcInfoV1,
     @JvmField val request: IrohaPeerWireMessageV1,
-    /** The ask read by [IrohaPeerNfcOfferExchangeV1.runFromAsk]; `null` after [IrohaPeerNfcOfferExchangeV1.run]. */
-    @JvmField val ask: IrohaPeerAskV1? = null,
 ) {
     init {
         if (!intake.sessionEquals(info.identity.sessionId)) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
@@ -748,8 +791,9 @@ class IrohaPeerNfcRequestReadV1 @JvmOverloads constructor(
     }
 
     /**
-     * The sender checkpoint for the approved [payment] (complete Payment IPM1 bytes) of this
-     * Request. Persist its [IrohaPeerNfcSenderCheckpointV1.encode] before sending any Payment byte.
+     * The sender checkpoint for the approved [payment] (complete Payment IPM1 bytes, the Payment
+     * carrier with its payer companion) of this Request. Persist its
+     * [IrohaPeerNfcSenderCheckpointV1.encode] before sending any Payment byte.
      */
     @JvmOverloads
     fun senderCheckpoint(
@@ -765,288 +809,11 @@ class IrohaPeerNfcRequestReadV1 @JvmOverloads constructor(
     )
 
     override fun equals(other: Any?): Boolean = other is IrohaPeerNfcRequestReadV1 && intake == other.intake &&
-        info == other.info && request == other.request && ask == other.ask
+        info == other.info && request == other.request
 
-    override fun hashCode(): Int = ((31 * intake.hashCode() + info.hashCode()) * 31 + request.hashCode()) * 31 +
-        (ask?.hashCode() ?: 0)
+    override fun hashCode(): Int = (31 * intake.hashCode() + info.hashCode()) * 31 + request.hashCode()
 
     override fun toString(): String = "IrohaPeerNfcRequestReadV1(request=${request.byteCount} bytes)"
-}
-
-/**
- * Builds the payer's Offer (an IPM1 message of kind Offer) for the receiver's [IrohaPeerAskV1] during
- * [IrohaPeerNfcOfferExchangeV1.runFromAsk]: the wallet creates it natively inside the same hold.
- */
-fun interface IrohaPeerNfcOfferFactoryV1 {
-    fun offer(ask: IrohaPeerAskV1): IrohaPeerWireMessageV1
-}
-
-/**
- * Offer phase: carries the payer's Offer to the card and reads back the receiver's Request.
- * Keep the transceiver connected during approval, then run [IrohaPeerNfcReaderExchangeV1] on it
- * with the durable checkpoint to finish the payment in the same hold.
- *
- * SELECT, then GET_INTAKE. Awaiting an Offer, or receiving another Offer, the reader sends
- * BEGIN_OFFER; receiving this Offer, it resumes at the received offset. It writes contiguous chunks
- * of min(local, card) write bytes and submits, then polls GET_INTAKE until REQUEST_READY (this
- * Offer, or a direct-mode Request with zero Offer fields) or DECLINED
- * ([IrohaPeerNfcErrorV1.OFFER_DECLINED]). A card bound to another Offer is a continuity mismatch.
- * Finally it reads `INF1` (REQUEST_READY, the intake's session identifier) and the Request, checked
- * against `INF1` exactly as [IrohaPeerNfcReaderPlanningV1.validateReceiveRequest] does.
- *
- * The receiver sets the amount: [runFromAsk] reads the receiver's ask with GET_ASK right after
- * GET_INTAKE, has the payer's wallet build the Offer for it ([IrohaPeerNfcOfferFactoryV1]) and then
- * continues exactly as [run] inside the same contact. [run] carries an Offer the payer already holds.
- * Blocking; Android reader mode runs both on its binder thread.
- */
-object IrohaPeerNfcOfferExchangeV1 {
-    /** Waits between GET_INTAKE polls while the card prepares the Request. */
-    fun interface Sleeper {
-        @Throws(InterruptedException::class)
-        fun sleep(millis: Long)
-    }
-
-    const val DEFAULT_PREPARATION_TIMEOUT_MILLIS = 8_000L
-    const val DEFAULT_POLL_INTERVAL_MILLIS = 50L
-
-    /** Sleeps on the calling thread. */
-    @JvmField val THREAD_SLEEPER: Sleeper = Sleeper { millis -> Thread.sleep(millis) }
-
-    /**
-     * [preparationTimeoutMillis] bounds the total [pollIntervalMillis] waits spent polling a card
-     * that is preparing the Request; the reader then fails with
-     * [IrohaPeerNfcErrorV1.REQUEST_PREPARATION_TIMED_OUT].
-     */
-    @JvmStatic
-    @JvmOverloads
-    fun run(
-        offer: IrohaPeerWireMessageV1,
-        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
-        profilePolicy: IrohaPeerNfcProfilePolicyV1,
-        limits: IrohaPeerNfcLimitsV1 = IrohaPeerNfcLimitsV1.DEFAULT,
-        transceive: IrohaPeerNfcReaderTransceiverV1,
-        preparationTimeoutMillis: Long = DEFAULT_PREPARATION_TIMEOUT_MILLIS,
-        pollIntervalMillis: Long = DEFAULT_POLL_INTERVAL_MILLIS,
-        sleeper: Sleeper = THREAD_SLEEPER,
-    ): IrohaPeerNfcRequestReadV1 {
-        requirePolling(preparationTimeoutMillis, pollIntervalMillis)
-        val offerBytes = requireOffer(offer, profilePolicy, limits)
-        val intake = selectAndReadIntake(applicationIdentifier, profilePolicy, transceive)
-        return carryOffer(
-            offer, offerBytes, intake, null, profilePolicy, limits, transceive,
-            preparationTimeoutMillis, pollIntervalMillis, sleeper,
-        )
-    }
-
-    /**
-     * Receiver-led tap 1. SELECT, then GET_INTAKE, which must be AWAITING_OFFER or RECEIVING_OFFER:
-     * the unfinished Offer of an earlier payer is replaced by this one exactly as [run] replaces it, so
-     * an abandoned contact never wedges the receiver. Any state bound to an Offer fails with
-     * [IrohaPeerNfcErrorV1.STATE_MISMATCH] before GET_ASK. A payer whose own contact was interrupted
-     * after [offerFactory] returned must resume through [run] with that Offer: calling this again
-     * builds a second Offer. GET_ASK then yields the
-     * receiver's ask: `6985` (the receiver set no amount) is [IrohaPeerNfcErrorV1.PEER_REJECTED] for
-     * [IrohaPeerNfcOperationV1.GET_ASK], a record of another length [IrohaPeerNfcErrorV1.INVALID_LENGTH]
-     * and an invalid record [IrohaPeerNfcErrorV1.INVALID_ASK]. [offerFactory] builds the Offer for that
-     * ask exactly once; it may block, and if it throws the failure propagates and nothing further is
-     * sent. The Offer is checked and carried exactly as [run] does; the result names the ask.
-     */
-    @JvmStatic
-    @JvmOverloads
-    fun runFromAsk(
-        offerFactory: IrohaPeerNfcOfferFactoryV1,
-        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
-        profilePolicy: IrohaPeerNfcProfilePolicyV1,
-        limits: IrohaPeerNfcLimitsV1 = IrohaPeerNfcLimitsV1.DEFAULT,
-        transceive: IrohaPeerNfcReaderTransceiverV1,
-        preparationTimeoutMillis: Long = DEFAULT_PREPARATION_TIMEOUT_MILLIS,
-        pollIntervalMillis: Long = DEFAULT_POLL_INTERVAL_MILLIS,
-        sleeper: Sleeper = THREAD_SLEEPER,
-    ): IrohaPeerNfcRequestReadV1 {
-        requirePolling(preparationTimeoutMillis, pollIntervalMillis)
-        val intake = selectAndReadIntake(applicationIdentifier, profilePolicy, transceive)
-        if (intake.state != IrohaPeerNfcIntakeStateV1.AWAITING_OFFER &&
-            intake.state != IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER
-        ) {
-            nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
-        }
-        val ask = readAsk(transceive)
-        val offer = offerFactory.offer(ask)
-        val offerBytes = requireOffer(offer, profilePolicy, limits)
-        return carryOffer(
-            offer, offerBytes, intake, ask, profilePolicy, limits, transceive,
-            preparationTimeoutMillis, pollIntervalMillis, sleeper,
-        )
-    }
-
-    /**
-     * The tap-1 exchange of [run] and [runFromAsk] after the first GET_INTAKE ([first]): carry [offer]
-     * unless the card is already bound to it, poll GET_INTAKE, then read `INF1` and the Request.
-     */
-    private fun carryOffer(
-        offer: IrohaPeerWireMessageV1,
-        offerBytes: ByteArray,
-        first: IrohaPeerNfcIntakeRecordV1,
-        ask: IrohaPeerAskV1?,
-        profilePolicy: IrohaPeerNfcProfilePolicyV1,
-        limits: IrohaPeerNfcLimitsV1,
-        transceive: IrohaPeerNfcReaderTransceiverV1,
-        preparationTimeoutMillis: Long,
-        pollIntervalMillis: Long,
-        sleeper: Sleeper,
-    ): IrohaPeerNfcRequestReadV1 {
-        val offerHash = offer.wireHash
-        var intake = first
-        val session = intake.sessionId
-        val ours = intake.offerHashEquals(offerHash)
-        when (intake.state) {
-            IrohaPeerNfcIntakeStateV1.AWAITING_OFFER,
-            IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER,
-            -> {
-                var offset = if (intake.state == IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER && ours) {
-                    if (intake.offerLength != offerBytes.size) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-                    intake.receivedOfferBytes
-                } else {
-                    nfcRequireEmptySuccess(
-                        transceive.transceive(
-                            IrohaPeerNfcCommandV1.BeginOffer(
-                                session,
-                                offerBytes.copyOfRange(0, IrohaPeerWireMessageV1.HEADER_LENGTH),
-                            ),
-                        ),
-                        IrohaPeerNfcOperationV1.BEGIN_OFFER,
-                    )
-                    0
-                }
-                while (offset < offerBytes.size) {
-                    val count = minOf(limits.maximumWriteChunkBytes, intake.maximumWriteChunkBytes, offerBytes.size - offset)
-                    nfcRequireEmptySuccess(
-                        transceive.transceive(
-                            IrohaPeerNfcCommandV1.WriteOffer(
-                                session,
-                                offerHash,
-                                offset.toLong(),
-                                offerBytes.copyOfRange(offset, offset + count),
-                            ),
-                        ),
-                        IrohaPeerNfcOperationV1.WRITE_OFFER,
-                    )
-                    offset += count
-                }
-                nfcRequireEmptySuccess(
-                    transceive.transceive(IrohaPeerNfcCommandV1.SubmitOffer(session, offerHash)),
-                    IrohaPeerNfcOperationV1.SUBMIT_OFFER,
-                )
-            }
-            IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST,
-            IrohaPeerNfcIntakeStateV1.REQUEST_READY,
-            IrohaPeerNfcIntakeStateV1.DECLINED,
-            -> if (intake.hasOffer && !ours) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-        }
-
-        var waitedMillis = 0L
-        while (true) {
-            intake = readIntake(transceive, profilePolicy)
-            if (!intake.sessionEquals(session)) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-            val boundToOurs = intake.offerHashEquals(offerHash)
-            when (intake.state) {
-                IrohaPeerNfcIntakeStateV1.REQUEST_READY -> {
-                    if (intake.hasOffer && !boundToOurs) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-                    break
-                }
-                IrohaPeerNfcIntakeStateV1.DECLINED -> {
-                    if (!boundToOurs) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-                    throw IrohaPeerNfcExceptionV1(IrohaPeerNfcErrorV1.OFFER_DECLINED, detail = intake.reason)
-                }
-                IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST -> {
-                    if (!boundToOurs) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-                    if (waitedMillis >= preparationTimeoutMillis) {
-                        nfcFail(IrohaPeerNfcErrorV1.REQUEST_PREPARATION_TIMED_OUT)
-                    }
-                    sleeper.sleep(pollIntervalMillis)
-                    waitedMillis += pollIntervalMillis
-                }
-                IrohaPeerNfcIntakeStateV1.AWAITING_OFFER,
-                IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER,
-                -> nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-            }
-        }
-
-        val info = IrohaPeerNfcInfoV1.decode(
-            nfcRequireSuccess(transceive.transceive(IrohaPeerNfcCommandV1.GetInfo), IrohaPeerNfcOperationV1.GET_INFO).data(),
-        )
-        if (!info.identity.sessionEquals(session)) nfcFail(IrohaPeerNfcErrorV1.CONTINUITY_MISMATCH)
-        if (info.phase != IrohaPeerNfcPhaseV1.REQUEST_READY) nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
-        if (info.identity.profile != profilePolicy.profile) nfcFail(IrohaPeerNfcErrorV1.INVALID_PROFILE)
-        if (info.requestLength > limits.maximumMessageBytes) {
-            nfcMessageTooLarge(info.requestLength, limits.maximumMessageBytes)
-        }
-        val request = IrohaPeerNfcReaderPlanningV1.validateReceiveRequest(
-            nfcReadRequestBytes(info, limits, transceive) {},
-            info,
-            limits,
-        )
-        return IrohaPeerNfcRequestReadV1(intake, info, request, ask)
-    }
-
-    private fun requirePolling(preparationTimeoutMillis: Long, pollIntervalMillis: Long) {
-        require(preparationTimeoutMillis >= 0) { "NFC preparation timeout must not be negative" }
-        require(pollIntervalMillis > 0) { "NFC poll interval must be positive" }
-    }
-
-    /** The bytes of [offer]: an Offer of the accepted profile within the NFC Offer bound. */
-    private fun requireOffer(
-        offer: IrohaPeerWireMessageV1,
-        profilePolicy: IrohaPeerNfcProfilePolicyV1,
-        limits: IrohaPeerNfcLimitsV1,
-    ): ByteArray {
-        if (offer.nfcKind != IrohaPeerPayloadKind.OFFER) nfcFail(IrohaPeerNfcErrorV1.INVALID_KIND)
-        if (!profilePolicy.accepts(offer.nfcProfile)) nfcFail(IrohaPeerNfcErrorV1.INVALID_PROFILE)
-        val offerBytes = offer.encode()
-        val offerMaximum = minOf(limits.maximumMessageBytes, IrohaPeerNfcV1.MAXIMUM_OFFER_BYTES)
-        if (offerBytes.size > offerMaximum) nfcMessageTooLarge(offerBytes.size, offerMaximum)
-        return offerBytes
-    }
-
-    private fun selectAndReadIntake(
-        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
-        profilePolicy: IrohaPeerNfcProfilePolicyV1,
-        transceive: IrohaPeerNfcReaderTransceiverV1,
-    ): IrohaPeerNfcIntakeRecordV1 {
-        nfcRequireEmptySuccess(
-            transceive.transceive(IrohaPeerNfcCommandV1.SelectApplication(applicationIdentifier)),
-            IrohaPeerNfcOperationV1.SELECT_APPLICATION,
-        )
-        return readIntake(transceive, profilePolicy)
-    }
-
-    /** GET_ASK: exactly one valid 56-byte `IAK1` record. */
-    private fun readAsk(transceive: IrohaPeerNfcReaderTransceiverV1): IrohaPeerAskV1 {
-        val record = nfcRequireSuccess(
-            transceive.transceive(IrohaPeerNfcCommandV1.GetAsk),
-            IrohaPeerNfcOperationV1.GET_ASK,
-        ).data()
-        if (record.size != IrohaPeerNfcV1.ASK_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_LENGTH)
-        return try {
-            IrohaPeerAskV1.decode(record)
-        } catch (failure: IllegalArgumentException) {
-            throw IrohaPeerNfcExceptionV1(IrohaPeerNfcErrorV1.INVALID_ASK, cause = failure)
-        }
-    }
-
-    private fun readIntake(
-        transceive: IrohaPeerNfcReaderTransceiverV1,
-        profilePolicy: IrohaPeerNfcProfilePolicyV1,
-    ): IrohaPeerNfcIntakeRecordV1 {
-        val record = IrohaPeerNfcIntakeRecordV1.decode(
-            nfcRequireSuccess(
-                transceive.transceive(IrohaPeerNfcCommandV1.GetIntake),
-                IrohaPeerNfcOperationV1.GET_INTAKE,
-            ).data(),
-        )
-        if (record.profile != profilePolicy.profile) nfcFail(IrohaPeerNfcErrorV1.INVALID_PROFILE)
-        return record
-    }
 }
 
 /** Read the complete Request advertised by [info] in min(local, card) chunks. */

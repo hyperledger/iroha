@@ -179,8 +179,17 @@ impl StatelessChecks {
 }
 
 impl TransactionCheck for StatelessChecks {
-    fn check(&self, tx: &TransactionEntrypoint, _anchor_time_ms: u64) -> Result<(), String> {
+    fn check(
+        &self,
+        tx: &TransactionEntrypoint,
+        _anchor_time_ms: u64,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
         match tx {
+            TransactionEntrypoint::AnonymousBallot(_) => {
+                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ))
+            }
             TransactionEntrypoint::External(signed)
             | TransactionEntrypoint::SealedReveal(
                 iroha_data_model::transaction::signed::SealedTransactionReveal {
@@ -191,15 +200,17 @@ impl TransactionCheck for StatelessChecks {
                 if signed.network_id() != Some(&self.network) {
                     return Err("the transaction belongs to another network".into());
                 }
-                signed.verify_signature().map_err(|error| error.to_string())
+                signed.verify_signature().map_err(|error| {
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error.to_string())
+                })
             }
             TransactionEntrypoint::SealedCommitment(commitment) => {
                 if commitment.payload().network_id != self.network {
                     return Err("the transaction belongs to another network".into());
                 }
-                commitment
-                    .verify_signature()
-                    .map_err(|error| error.to_string())
+                commitment.verify_signature().map_err(|error| {
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error.to_string())
+                })
             }
         }
     }

@@ -16,7 +16,7 @@ internal object KagemushaNearbyProbeManifest {
     private val common = setOf("request-id", "session-id", "request-hash", "peer-certificate")
     val schemas = mapOf(
         "nearby-identity" to setOf(emptySet<String>()), "nearby-permissions" to setOf(emptySet<String>()),
-        "nearby-prepare" to setOf(setOf("setup-id", "offer"), setOf("setup-id", "offer", "fee-schedule", "fee-certificate")),
+        "nearby-prepare" to setOf(setOf("setup-id", "amount"), setOf("setup-id", "amount", "fee-schedule", "fee-certificate")),
         "nearby-send" to setOf(common), "nearby-recover-send" to setOf(common),
         "nearby-receive" to setOf(common + "setup-id"), "nearby-recover-receive" to setOf(common + "setup-id"),
     )
@@ -92,11 +92,12 @@ internal class KagemushaNearbyDeviceStages(
         if (command.action == "nearby-prepare") {
             val setup = word(input("setup-id"), 32); val path = "private/nearby/setup-${digest(setup)}"
             config.files.publish("$path-binding", KagemushaMonetaryProbeManifest.binding("nearby-prepare", values))
-            val request = wallet.request(setup, input("offer"), values["fee-schedule"], values["fee-certificate"])
+            val request = wallet.request(setup, KagemushaMonetaryProbeManifest.amount(input("amount")),
+                values["fee-schedule"], values["fee-certificate"])
             val payload = IrohaPeerWalletRequestV1(wallet.envelope(KagemushaWalletTransportKindV1.REQUEST, request),
                 wallet.metadata().accountOriginal()).encode()
             val wire = message(IrohaPeerPayloadKind.REQUEST, payload)
-            config.files.publish("$path-request", wire.encode()); config.files.publish("$path-offer", input("offer"))
+            config.files.publish("$path-request", wire.encode())
             output("nearby-request-hash.bin", wire.canonicalHash, sequence)
             output("nearby-request-ipm1.bin", wire.encode(), sequence)
             trace("request-prepared", fields = arrayOf("requestSHA256" to digest(request),
@@ -253,8 +254,10 @@ internal class KagemushaNearbyDeviceStages(
                 }
                 val nativeOutput = released(KagemushaWalletReleasedOutputV1.Kind.SEND); gate.sendReleased()
                 val payment = nativeOutput.peerOriginal() ?: throw EnrollmentProbeFailure("native-projection")
-                send(session.seal(message(IrohaPeerPayloadKind.PAYMENT,
-                    wallet.envelope(KagemushaWalletTransportKindV1.PAYMENT, payment))).encode())
+                val payerCompanion = wallet.paymentCompanion(payment)
+                output("nearby-payer-companion.norito", payerCompanion, sequence)
+                send(session.seal(message(IrohaPeerPayloadKind.PAYMENT, IrohaPeerWalletPaymentV1(
+                    wallet.envelope(KagemushaWalletTransportKindV1.PAYMENT, payment), payerCompanion).encode())).encode())
                 val received = receive()
                 val creditedWire = session.open(IrohaPeerNearbyEncryptedRecordV1.decode(received.bytes))
                 probeRequire(creditedWire.canonicalPayload.kind == IrohaPeerPayloadKind.CREDITED, "nearby-credited")
@@ -279,19 +282,20 @@ internal class KagemushaNearbyDeviceStages(
                     requestWire.canonicalHash.contentEquals(requestHash), "nearby-request")
                 val companion = IrohaPeerWalletRequestV1.decode(requestWire.canonicalPayload.bytes)
                 probeRequire(companion.destinationAccountOriginal().contentEquals(wallet.metadata().accountOriginal()), "nearby-owner")
-                val offer = config.files.read("$path-offer", 10_000)
                 send(session.seal(requestWire).encode())
                 val paymentWire = session.open(IrohaPeerNearbyEncryptedRecordV1.decode(receive().bytes))
                 probeRequire(paymentWire.canonicalPayload.kind == IrohaPeerPayloadKind.PAYMENT, "nearby-payment")
                 output("nearby-payment-opened-ipm1.bin", paymentWire.encode(), sequence)
-                val payment = wallet.original(KagemushaWalletTransportKindV1.PAYMENT, paymentWire.canonicalPayload.bytes)
-                bind(requestId, "receive", mapOf("request-id" to requestId, "payment" to payment, "offer" to offer), recovery)
+                val carrier = IrohaPeerWalletPaymentV1.decode(paymentWire.canonicalPayload.bytes)
+                val payment = wallet.original(KagemushaWalletTransportKindV1.PAYMENT, carrier.paymentEnvelope())
+                val payerCompanion = carrier.payerCompanion()
+                bind(requestId, "receive", mapOf("request-id" to requestId, "payment" to payment, "companion" to payerCompanion), recovery)
                 val call = if (recovery) {
                     probeRequire(config.files.exists(marker(requestId)), "recovery-required")
                     wallet.requestStatus(requestId)
                 } else {
                     config.files.publish(marker(requestId), probeJson("kind" to "RECEIVE", "paymentSHA256" to digest(payment)), exclusive = true)
-                    wallet.receiveFromOffer(requestId, payment, offer)
+                    wallet.receiveWithCompanion(requestId, payment, payerCompanion)
                 }
                 trace("native-return", fields = arrayOf("status" to call.status.toString(), "outputSHA256" to digest(call.bytes())))
                 val credited = gate.receivedCredit(call.status, requestId,

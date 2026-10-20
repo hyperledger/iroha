@@ -10,6 +10,25 @@ use send_chain::load_outer;
 
 include!("common/proof_fixtures/compact_catalog_body.rs");
 
+/// Check the genuine outer transport against the model's complete carrying-frame budget.
+/// Exact envelope overhead and boundary rejection are checked separately by model tests.
+/// The 320-byte internal public prefix is not part of the transported proof.
+pub(crate) fn assert_omega_peer_budget(transport: &[u8]) {
+    use iroha_data_model::kagemusha::kagemusha_wallet_v1::{
+        KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1,
+        KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1, KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1,
+    };
+
+    assert!(transport.len() <= KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1);
+    assert!(
+        KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1
+            + transport.len()
+            + KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1
+            <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+        "genuine Omega must fit an onward Payment with the largest admitted sigma"
+    );
+}
+
 fn send_terminal(source: &send_chain::AuthenticatedSend) -> Terminal<'_> {
     Terminal {
         key: &source.key,
@@ -120,6 +139,14 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
     assert_eq!(send.key.to_bytes(), initial_send.key.to_bytes());
     assert_eq!(send.state.lineage[17], program.digest());
     let outer = program.prove(send_terminal(&send), "Send-mask0");
+    let outer = native::Output {
+        proof: outer.proof,
+        instances: outer.public,
+        pallas: send.pallas.clone(),
+        vesta: outer.vesta,
+        opening: outer.opening,
+    };
+    assert_omega_peer_budget(&outer.transport());
     send.pallas
         .decide(
             &PinnedParams::<Ep>::derive(16).unwrap(),
@@ -134,7 +161,7 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
         key: program.key,
         binding: program.binding,
         proof: outer.proof,
-        instances: outer.public,
+        instances: outer.instances,
         opening: outer.opening,
         vesta: outer.vesta,
         catalog: program.catalog,

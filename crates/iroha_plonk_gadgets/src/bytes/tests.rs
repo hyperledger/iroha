@@ -937,7 +937,9 @@ fn large_input_digests_match_the_wallet_vectors() {
 /// The signing messages of the shared wallet vectors
 /// (`poseidon.signing_messages`, owner answer A1): every signed body's
 /// 32-byte message `m = P_bytes(d, transcript)` packs natively and in
-/// circuit to its vectored value, under each of the 16 signing domains.
+/// circuit to its vectored value, under each of the 14 `P_bytes` signing
+/// domains. The Request's `kgwrqst2` message is `P` over its terms elements,
+/// not `P_bytes`; the KAGEMUSHA proof crate checks it.
 #[test]
 fn signing_messages_match_the_wallet_vectors() {
     let mut domains = std::collections::BTreeSet::new();
@@ -947,8 +949,7 @@ fn signing_messages_match_the_wallet_vectors() {
     }
     let expected: std::collections::BTreeSet<u64> = [
         "kgwcert1", "kgwcred1", "kgwrnch1", "kgwrnkb1", "kgwartf1", "kgwrcpt1", "kgwspol1",
-        "kgwfsch1", "kgwblst1", "kgwqshr1", "kgwtanc1", "kgwchgq1", "kgwoffr1", "kgwsctl1",
-        "kgwrqst1", "kgwlctl1",
+        "kgwfsch1", "kgwblst1", "kgwqshr1", "kgwtanc1", "kgwchgq1", "kgwsctl1", "kgwlctl1",
     ]
     .map(domain_word)
     .into_iter()

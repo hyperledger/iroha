@@ -45,11 +45,13 @@ mod tests {
 
     #[test]
     fn borrowed_lane_matches_owned_for_optional_labels_and_reserved_metadata() {
-        let mut lane = LaneConfig::default();
-        lane.alias = "borrowed-independent-root".into();
-        lane.lane_type = Some("bank".into());
-        lane.governance = Some("governed".into());
-        lane.settlement = Some("settle".into());
+        let mut lane = LaneConfig {
+            alias: "borrowed-independent-root".into(),
+            lane_type: Some("bank".into()),
+            governance: Some("governed".into()),
+            settlement: Some("settle".into()),
+            ..LaneConfig::default()
+        };
         lane.metadata
             .insert(super::super::AUTOSCALE_META_MANAGED.into(), "true".into());
         lane.metadata
