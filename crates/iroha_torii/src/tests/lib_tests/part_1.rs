@@ -1446,10 +1446,12 @@ async fn new_with_handle_preflights_fused_privacy_before_startup() {
     let cfg = crate::test_utils::mk_minimal_root_cfg();
     let (kiso, _child) = KisoHandle::start(cfg.clone());
     let kura = Kura::blank_kura_for_testing();
-    let state = Arc::new(IrohaState::new_for_testing(
+    let state = Arc::new(IrohaState::new_with_chain_and_network_id_for_testing(
         World::default(),
         kura.clone(),
         LiveQueryStore::start_test(),
+        ChainId::from("fused-privacy-preflight-test"),
+        signed_query_test_network_id(),
     ));
     let queue_cfg = iroha_config::parameters::actual::Queue {
         capacity: NonZeroUsize::new(100).expect("queue capacity non-zero"),

@@ -34,14 +34,14 @@ fn store_config(path: &Path) -> config::Kura {
         fsync_interval: defaults::kura::FSYNC_INTERVAL,
     }
 }
-fn run(test: impl FnOnce() + Send + 'static) {
+fn run<T: Send + 'static>(test: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
         .name("isolated-native-replay".into())
         .stack_size(32 * 1024 * 1024)
         .spawn(test)
         .unwrap()
         .join()
-        .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
+        .unwrap_or_else(|failure| std::panic::resume_unwind(failure))
 }
 pub(super) fn fixture() -> (CertifiedTestChain, NativeReplaySeed, AssetId) {
     let (chain, mut seeds, asset) = fixture_with_seeds(1);
@@ -301,6 +301,38 @@ fn isolated_replay_recovers_nonempty_h1_and_h2_without_live_publication() {
 }
 
 #[test]
+fn replay_initializes_and_completes_on_default_worker_stack() {
+    // Fixture construction retains its existing stack; real replay runs on a
+    // standard worker with no stack override, matching the FASTPQ worker path.
+    let (chain, seed, target) = run(|| {
+        let (chain, seed, _) = fixture();
+        let target = native(&chain, 2);
+        (Box::new(chain), seed, target)
+    });
+    std::thread::spawn(move || {
+        let original_root = chain.state().verify_world_state_accumulator().unwrap();
+        let original_files = inventory(&chain.kura().store_root());
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut replay = seed.begin(&target, deadline).unwrap();
+        let transport = replay.advance(&target, deadline, 64).unwrap().unwrap();
+        assert_eq!(replay.prepared.state.committed_height(), 2);
+        assert_eq!(
+            replay
+                .prepared
+                .state
+                .verify_world_state_accumulator()
+                .unwrap(),
+            original_root
+        );
+        assert!(transport.into_for(&target).unwrap().is_temporary_staging());
+        assert_eq!(chain.state().committed_height(), 2);
+        assert_eq!(inventory(&chain.kura().store_root()), original_files);
+    })
+    .join()
+    .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
+}
+
+#[test]
 fn replay_preserves_original_target_and_expired_deadline() {
     run(|| {
         let (mut chain, seed, asset) = fixture();
@@ -340,6 +372,13 @@ fn replay_preserves_original_target_and_expired_deadline() {
 
 #[test]
 fn isolated_state_configuration_preserves_live_pool_and_process_cache() {
+    // Final owner release uses the process-global EBR collector. Other tests may retain
+    // unrelated epochs, so run this exact refund/cache check in its own harness process.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::node::replay::tests::isolated_state_configuration_preserves_live_pool_and_process_cache",
+    ) {
+        return;
+    }
     run(|| {
         let sentinel = ivm::ivm_cache::CacheLimits {
             capacity: 9,

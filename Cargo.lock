@@ -6033,6 +6033,7 @@ dependencies = [
  "bytes",
  "ciborium",
  "criterion",
+ "crossbeam-epoch",
  "dashmap",
  "displaydoc",
  "ed25519-dalek",

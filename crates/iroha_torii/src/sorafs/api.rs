@@ -35736,7 +35736,7 @@ mod advert_tests {
             );
         }
         let macro_body = mount_source
-            .split("(limited_hardened_canonical_signature_get($handler:path, $limit:expr)) => {")
+            .split("limited_hardened_canonical_signature_get ($handler:path, $limit:expr) => {")
             .nth(1)
             .and_then(|tail| tail.split("\n    };").next())
             .expect("hardened canonical-signature GET macro");

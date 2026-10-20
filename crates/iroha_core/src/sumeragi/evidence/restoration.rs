@@ -61,6 +61,27 @@ fn require_no_sccp_claims(state: &State) -> Result<(), EvidenceAdmissionError> {
 }
 
 impl RestorationRead {
+    /// Authenticate the real history before a test narrows only persisted-proof decoding.
+    #[cfg(test)]
+    pub(super) fn prepare_for_testing(state: &State) -> Result<Self, EvidenceAdmissionError> {
+        let generation = state.state_view_generation();
+        if !generation.is_multiple_of(2) {
+            return Err(EvidencePreparationError::OriginalHistoryPending.into());
+        }
+        let view = state.view();
+        let mut read = Self::capture(state, &view, generation)?;
+        drop(view);
+        read.complete(state)?;
+        let view = state.view();
+        if !crate::state::is_stable_state_view_generation(generation, state.state_view_generation())
+            || !read.matches(&view, generation)
+        {
+            return Err(EvidencePreparationError::OriginalHistoryPending.into());
+        }
+        read.validate_sccp()?;
+        Ok(read)
+    }
+
     fn capture(
         state: &State,
         view: &StateView<'_>,

@@ -179,7 +179,8 @@ impl Fixture {
             view.world()
                 .account_permissions()
                 .get(&self.outsider)
-                .is_none()
+                .is_none_or(BTreeSet::is_empty),
+            "the outsider has no explicit permissions after genesis registration",
         );
         drop(view);
         app
@@ -486,7 +487,22 @@ async fn signed_reserve_account_http_source_refusal_preserves_the_same_native_re
     let mut f = Fixture::new();
     f.publish_policy();
     let native = f.verified_tip();
-    let refused = router(f.app(8))
+    // Admit the original signer before refusing a native source frame, so
+    // authentication capacity cannot stand in for the source-refusal assertion.
+    let genesis_bytes = f.chain.committed(1).block().encode_wire().unwrap().len();
+    let narrow_app = f.app(
+        genesis_bytes
+            .checked_sub(1)
+            .unwrap()
+            .checked_mul(8)
+            .unwrap(),
+    );
+    let probe = f.manager_request(3);
+    assert_eq!(
+        operator(&narrow_app, probe.headers(), probe.method(), probe.uri()).unwrap(),
+        f.manager,
+    );
+    let refused = router(narrow_app)
         .oneshot(f.manager_request(3))
         .await
         .unwrap();

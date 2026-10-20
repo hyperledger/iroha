@@ -266,6 +266,9 @@ fn original_raw_frame_partial_backing_survives_narrower_replay_and_abandonment()
     for owned in [false, true] {
         let chain = fixture(true);
         let wire = chain.committed(2).block().encode_wire().unwrap();
+        // Pin the authenticated slot before corrupting its body; a fresh committed
+        // read correctly rejects the malformed canonical image.
+        let mut source = Original::new(&chain, owned);
         // Same real occupied slot, but a stable shorter sidecar: body storage must
         // reject after acquiring and reading the original partial backing.
         chain
@@ -275,7 +278,6 @@ fn original_raw_frame_partial_backing_survives_narrower_replay_and_abandonment()
             .write_da_block_bytes(2, &wire[..wire.len() - 1])
             .unwrap();
         let pool = AllocationBudget::new(wire.len());
-        let mut source = Original::new(&chain, owned);
         let wide = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, PROBE, 64);
         let spent = norito::with_decode_limits_scope(wide, || {
             assert!(matches!(

@@ -11457,12 +11457,8 @@ async fn handler_explorer_instruction_contract_view(
     {
         return Ok(explorer_json_error_response(error));
     }
-    match crate::contract_sources::handle_get_instruction_contract_view(
-        app.state.clone(),
-        hash,
-        index,
-    )
-    .await
+    match crate::contract_sources::handle_get_instruction_contract_view(app.clone(), hash, index)
+        .await
     {
         Ok(response) => Ok(response.into_response()),
         Err(error) => Ok(explorer_json_error_response(error)),

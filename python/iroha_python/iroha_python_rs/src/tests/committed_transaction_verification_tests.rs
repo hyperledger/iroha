@@ -2,7 +2,7 @@
 use super::*;
 use crate::{PyNetworkId, verify_committed_transaction_inclusion_py};
 use iroha_core::{
-    state::World,
+    state::{StorageReadOnly, World},
     sumeragi::{
         finality::{build_checkpoint, build_proof},
         test_chain::{CertifiedTestChain, TestChainConfig},
@@ -478,22 +478,57 @@ fn native_selected_output_account_context_matrix_uses_real_authenticated_wire() 
     pyo3::Python::attach(|py| {
         for prefix in [117, 369, 753, 117] {
             let (projection, promoted) = verify_committed_transaction_inclusion_py(
-                py, &hex::encode(fixture.selected.entrypoint_hash.as_ref()), &row,
-                &fixture.chain_json(), &PyNetworkId { inner: fixture.network() },
-                fixture.checkpoint.chain_id(), &checkpoint, prefix).unwrap();
+                py,
+                &hex::encode(fixture.selected.entrypoint_hash.as_ref()),
+                &row,
+                &fixture.chain_json(),
+                &PyNetworkId {
+                    inner: fixture.network(),
+                },
+                fixture.checkpoint.chain_id(),
+                &checkpoint,
+                prefix,
+            )
+            .unwrap();
             let decoded: json::Value = json::from_json(&projection).unwrap();
-            let authority = fixture.selected.entrypoint.authority_opt().unwrap()
-                .to_i105_for_discriminant(prefix).unwrap();
-            assert_eq!(decoded.get("authority").and_then(json::Value::as_str), Some(authority.as_str()));
+            let authority = fixture
+                .selected
+                .entrypoint
+                .authority_opt()
+                .unwrap()
+                .to_i105_for_discriminant(prefix)
+                .unwrap();
+            assert_eq!(
+                decoded.get("authority").and_then(json::Value::as_str),
+                Some(authority.as_str())
+            );
             let promoted = promoted.bind(py).as_bytes().to_vec();
-            if let Some(prior) = &prior_promoted { assert_eq!(&promoted, prior); }
-            else { prior_promoted = Some(promoted); }
-            let mut malformed = row.clone(); malformed.push(0);
-            assert!(verify_committed_transaction_inclusion_py(
-                py, &hex::encode(fixture.selected.entrypoint_hash.as_ref()), &malformed,
-                &fixture.chain_json(), &PyNetworkId { inner: fixture.network() },
-                fixture.checkpoint.chain_id(), &checkpoint, prefix).is_err());
-            assert_eq!(iroha_data_model::account::address::chain_discriminant(), ambient);
+            if let Some(prior) = &prior_promoted {
+                assert_eq!(&promoted, prior);
+            } else {
+                prior_promoted = Some(promoted);
+            }
+            let mut malformed = row.clone();
+            malformed.push(0);
+            assert!(
+                verify_committed_transaction_inclusion_py(
+                    py,
+                    &hex::encode(fixture.selected.entrypoint_hash.as_ref()),
+                    &malformed,
+                    &fixture.chain_json(),
+                    &PyNetworkId {
+                        inner: fixture.network()
+                    },
+                    fixture.checkpoint.chain_id(),
+                    &checkpoint,
+                    prefix
+                )
+                .is_err()
+            );
+            assert_eq!(
+                iroha_data_model::account::address::chain_discriminant(),
+                ambient
+            );
         }
     });
 }
@@ -882,6 +917,213 @@ fn native_selected_batch_output_context_matrix_preserves_real_crypto_and_nested_
             assert_eq!(signed.signature(), &signature);
             signed.verify_signature().unwrap();
             assert_eq!(chain_discriminant(), ambient);
+        }
+    });
+}
+
+fn details_wire(row: &CommittedTransaction) -> Vec<u8> {
+    norito::to_bytes(&iroha_torii_shared::PipelineTransactionDetailsResponse {
+        hash: row.entrypoint_hash.to_string(),
+        transaction: row.clone(),
+    })
+    .unwrap()
+}
+
+fn verify_details_fixture(f: &Fixture, wire: &[u8], prefix: u16) -> PyResult<(String, Vec<u8>)> {
+    pyo3::Python::attach(|py| {
+        let (projection, promoted) =
+            crate::transaction_details::verify_transaction_details_inclusion(
+                py,
+                &hex::encode(f.selected.entrypoint_hash.as_ref()),
+                &pyo3::types::PyBytes::new(py, wire),
+                &f.chain_json(),
+                &PyNetworkId { inner: f.network() },
+                f.checkpoint.chain_id(),
+                &pyo3::types::PyBytes::new(py, &f.checkpoint_bytes()),
+                prefix,
+            )?;
+        Ok((projection, promoted.bind(py).as_bytes().to_vec()))
+    })
+}
+
+#[test]
+fn native_details_receipts_share_real_accepted_rejected_and_mixed_batch_producer() {
+    pyo3::Python::initialize();
+    let batch = CertifiedBatchContextFixture::new();
+    for f in [&Fixture::new(false), &Fixture::new(true), &batch.inclusion] {
+        let wire = details_wire(&f.selected);
+        for prefix in [117, 369, 753] {
+            let (details, promoted) = verify_details_fixture(f, &wire, prefix).unwrap();
+            let (query, query_promoted) = pyo3::Python::attach(|py| {
+                let (projection, promoted) = verify_committed_transaction_inclusion_py(
+                    py,
+                    &hex::encode(f.selected.entrypoint_hash.as_ref()),
+                    &response(vec![f.selected.clone()]),
+                    &f.chain_json(),
+                    &PyNetworkId { inner: f.network() },
+                    f.checkpoint.chain_id(),
+                    &f.checkpoint_bytes(),
+                    prefix,
+                )
+                .unwrap();
+                (projection, promoted.bind(py).as_bytes().to_vec())
+            });
+            assert_eq!(details, query);
+            assert_eq!(promoted, query_promoted);
+            assert_eq!(wire, details_wire(&f.selected));
+            let projected: json::Value = json::from_json(&details).unwrap();
+            assert_eq!(
+                projected["result_ok"].as_bool(),
+                Some(f.selected.result().is_ok())
+            );
+            assert_eq!(
+                projected["batch_outcomes"].as_array().unwrap().len(),
+                f.selected.result().batch_transfer_outcomes().len()
+            );
+        }
+    }
+}
+
+#[test]
+fn native_details_refuse_wrong_original_frame_hash_row_output_and_root() {
+    pyo3::Python::initialize();
+    let f = Fixture::new(false);
+    let expected = f.selected.entrypoint_hash;
+    let wire = details_wire(&f.selected);
+    let mut altered = wire.clone();
+    altered.push(0);
+    assert!(verify_details_fixture(&f, &altered, 369).is_err());
+    assert!(verify_details_fixture(&f, &response(vec![f.selected.clone()]), 369).is_err());
+    assert!(verify_details_fixture(&f, &[], 369).is_err());
+    let other = HashOf::from_untyped_unchecked(Hash::new(b"unrelated details row"));
+    let wrong_hash = iroha_torii_shared::PipelineTransactionDetailsResponse {
+        hash: other.to_string(),
+        transaction: f.selected.clone(),
+    };
+    assert!(verify_details_fixture(&f, &norito::to_bytes(&wrong_hash).unwrap(), 369).is_err());
+    let mut wrong_row = wrong_hash.clone();
+    wrong_row.hash = expected.to_string();
+    wrong_row.transaction.entrypoint_hash = other;
+    assert!(verify_details_fixture(&f, &norito::to_bytes(&wrong_row).unwrap(), 369).is_err());
+    let mut wrong_output = f.selected.clone();
+    wrong_output.output = f.block.execution_outputs()[0].clone();
+    wrong_output.output_hash = HashOf::new(&wrong_output.output);
+    wrong_output.output_proof = f.block.output_proof(0).unwrap();
+    assert!(verify_details_fixture(&f, &details_wire(&wrong_output), 369).is_err());
+    let foreign = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"foreign details network",
+    )));
+    for (network, chain, checkpoint) in [
+        (foreign, f.checkpoint.chain_id(), f.checkpoint_bytes()),
+        (f.network(), "wrong-chain", f.checkpoint_bytes()),
+        (f.network(), f.checkpoint.chain_id(), vec![3; 32]),
+    ] {
+        assert!(
+            authenticate_selected_response(
+                expected,
+                &wire,
+                &f.chain_json(),
+                network,
+                chain,
+                &checkpoint,
+                |bytes| crate::transaction_details::decode_bound_details(expected, bytes)
+            )
+            .is_err()
+        );
+    }
+    pyo3::Python::attach(|py| {
+        let hash = crate::transaction_details::transaction_details_carrier_block_hash(
+            &hex::encode(expected.as_ref()),
+            &pyo3::types::PyBytes::new(py, &wire),
+        )
+        .unwrap();
+        assert_eq!(hash, hex::encode(f.block.hash().as_ref()));
+        assert!(
+            crate::transaction_details::transaction_details_carrier_block_hash(
+                &hex::encode(other.as_ref()),
+                &pyo3::types::PyBytes::new(py, &wire)
+            )
+            .is_err()
+        );
+    });
+}
+
+#[test]
+fn native_details_builder_selects_only_exact_hash_and_preserves_reader_context() {
+    use iroha_data_model::query::dsl::{CompoundPredicate, SelectorTuple};
+    use iroha_data_model::query::parameters::QueryParams;
+    use iroha_data_model::query::{CommittedTxFilters, QueryItemKind, QueryRequest, SignedQuery};
+    use iroha_version::codec::DecodeVersioned as _;
+    use norito::codec::Encode as _;
+    pyo3::Python::initialize();
+    let key = KeyPair::try_from_seed(vec![0x31; 32], Algorithm::Ed25519).unwrap();
+    let authority = AccountId::new(key.public_key().clone());
+    let (_, private) = key.private_key().to_bytes();
+    let expected = HashOf::from_untyped_unchecked(Hash::new(b"details-builder"));
+    let network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"details-query-network",
+    )));
+    pyo3::Python::attach(|py| {
+        for prefix in [117, 369, 753] {
+            let selected = authority.to_i105_for_discriminant(prefix).unwrap();
+            let build = || {
+                crate::transaction_details::build_find_transaction_details_query(
+                    py,
+                    &selected,
+                    &pyo3::types::PyBytes::new(py, &private),
+                    &PyNetworkId { inner: network },
+                    &hex::encode(expected.as_ref()),
+                    prefix,
+                )
+                .unwrap()
+            };
+            let first = build();
+            let second = build();
+            // Bound the actual signed details fixture for the planned transport request cap.
+            assert!(!first.bind(py).as_bytes().is_empty());
+            assert!(first.bind(py).as_bytes().len() <= 64 * 1024);
+            assert!(second.bind(py).as_bytes().len() <= 64 * 1024);
+            let signed = SignedQuery::decode_all_versioned(first.bind(py).as_bytes()).unwrap();
+            let again = SignedQuery::decode_all_versioned(second.bind(py).as_bytes()).unwrap();
+            signed.verify_signature().unwrap();
+            assert_eq!(signed.authority(), &authority);
+            assert_eq!(signed.payload.network_id(), network);
+            assert_ne!(signed.payload.nonce(), again.payload.nonce());
+            assert_eq!(signed.payload.time_to_live_ms().get(), 100_000);
+            let QueryRequest::Start(query) = signed.request() else {
+                panic!("start query")
+            };
+            let (kind, predicate, selector, payload) = query.parts();
+            assert_eq!(kind, QueryItemKind::CommittedTransaction);
+            assert_eq!(query.params(), &QueryParams::default());
+            assert_eq!(
+                payload,
+                iroha_data_model::query::transaction::FindTransactions.encode()
+            );
+            assert_eq!(
+                selector,
+                SelectorTuple::<CommittedTransaction>::default().encode()
+            );
+            assert_eq!(
+                predicate,
+                CompoundPredicate::<CommittedTransaction>::from_filters(CommittedTxFilters {
+                    entry_eq: Some(expected),
+                    ..CommittedTxFilters::default()
+                })
+                .encode()
+            );
+            let wrong = if prefix == 369 { 753 } else { 369 };
+            assert!(
+                crate::transaction_details::build_find_transaction_details_query(
+                    py,
+                    &selected,
+                    &pyo3::types::PyBytes::new(py, &private),
+                    &PyNetworkId { inner: network },
+                    &hex::encode(expected.as_ref()),
+                    wrong
+                )
+                .is_err()
+            );
         }
     });
 }

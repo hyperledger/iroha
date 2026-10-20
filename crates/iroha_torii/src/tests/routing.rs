@@ -46,20 +46,18 @@ mod tests {
             Some(Telemetry::new(metrics, true)),
             TelemetryProfile::Full,
         );
-        let error = super::handle_status(
+        let response = super::handle_status(
             &crate::build_identity_test_fixture::build_identity().status(),
             &telemetry,
             Some(axum::http::HeaderValue::from_static("application/json")),
         )
         .await
-        .expect_err("an unavailable telemetry actor must fail status retriably");
-        assert!(matches!(
-            error,
-            Error::AppServiceUnavailable {
-                code: "status_metrics_unavailable",
-                ..
-            }
-        ));
+        .expect("unavailable telemetry returns its retriable HTTP response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get("x-iroha-reject-code").unwrap(),
+            "status_mailbox_unavailable"
+        );
     }
     #[cfg(feature = "telemetry")]
     #[tokio::test]
@@ -106,6 +104,7 @@ mod tests {
             iroha_data_model::nexus::LaneCatalog::new(nonzero_ext::nonzero!(4u32), lanes)
                 .expect("status lane catalog");
         nexus.configured_lane_catalog = nexus.lane_catalog.clone();
+        nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
         nexus.routing_policy = policy;
         let telemetry = MaybeTelemetry::for_tests_with_nexus(Some(nexus));
         let response = super::handle_status(
@@ -735,7 +734,7 @@ mod tests {
             manifest: Some(hex::encode(challenge_a.manifest_digest)),
             provider: Some(hex::encode(challenge_a.provider_id)),
             epoch: Some(challenge_a.epoch_id),
-            status: Some("pending".to_string()),
+            status: Some("awaiting_proof".to_string()),
             limit: 5,
             max_bytes: POR_STATUS_PAGE_MAX_CANONICAL_BYTES_V1,
             cursor: None,

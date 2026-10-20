@@ -9994,16 +9994,14 @@ mod tests {
             VERIFIED_SIGNERS_HEADER,
         ] {
             let mut padded = headers.clone();
-            let canonical = padded
-                .get(header_name)
-                .expect("fixture header")
-                .to_str()
-                .expect("ASCII fixture header");
-            let padded_value = format!(" {canonical} ");
+            let canonical = padded.get(header_name).expect("fixture header").as_bytes();
+            let mut padded_value = Vec::with_capacity(canonical.len() + 2);
+            padded_value.push(b' ');
+            padded_value.extend_from_slice(canonical);
+            padded_value.push(b' ');
             padded.insert(
                 header_name,
-                padded_value
-                    .parse()
+                axum::http::HeaderValue::from_bytes(&padded_value)
                     .expect("HTTP header permits visible padding"),
             );
             let error = verified_soracloud_request_identity(&padded)
@@ -10099,6 +10097,13 @@ mod tests {
             )
             .execute(&SAMPLE_GENESIS_ACCOUNT_ID, &mut stx)?;
             let mut bundle = fixture_bundle("1.0.0");
+            // Snapshot projection needs an admissible deployment; FHE bindings
+            // remain unavailable until a replacement profile is qualified.
+            bundle
+                .service
+                .state_bindings
+                .retain(|binding| binding.encryption != SoraStateEncryptionV1::FheCiphertext);
+
             bundle.container.required_config_names = vec!["ui/theme".to_string()];
             bundle.container.config_exports = vec![
                 SoraConfigExportV1 {
@@ -11035,7 +11040,12 @@ mod tests {
         let error = authoritative_health_compliance_report(&app, None, None, 20)
             .expect_err("missing authoritative governance linkage must fail closed");
         assert_eq!(error.kind, SoracloudErrorKind::Internal);
-        assert!(error.message.contains("missing `governance_tx_hash`"));
+        assert!(error.message.contains("governance_tx_hash"));
+        assert!(
+            error
+                .message
+                .contains("must be present for this lifecycle action")
+        );
     }
     #[tokio::test]
     async fn health_compliance_report_rate_limit_keys_transport_remote_when_internal_header_missing()
@@ -11700,14 +11710,16 @@ mod tests {
                 Path(PUBLIC_SERVICE_DISCOVERY_INDEX_DOCUMENT.to_owned()),
             )
             .await;
-            assert_eq!(cid_host_response.status(), StatusCode::NOT_FOUND);
+            // The authoritative document is served directly for its bound CID
+            // host, even when the general storage API is disabled.
+            assert_eq!(cid_host_response.status(), StatusCode::OK);
             let cid_host_body = cid_host_response
                 .into_body()
                 .collect()
                 .await
-                .expect("collect storage-disabled CID-host response")
+                .expect("collect authoritative CID-host response")
                 .to_bytes();
-            assert_eq!(cid_host_body, path_body);
+            assert_eq!(cid_host_body.as_ref(), discovery_document_bytes.as_slice());
             let blocked_other_path = crate::sorafs::api::handle_get_sorafs_cid_path(
                 State(Arc::clone(&app)),
                 HeaderMap::new(),
@@ -12184,7 +12196,7 @@ mod tests {
                 model_name: None,
                 bundle_root: None,
             },
-            "service_name must not contain leading or trailing whitespace",
+            "invalid service_name: White space not allowed in `Name` constructs",
         );
         assert_bad_request(
             UploadedModelStatusQuery {
@@ -12194,7 +12206,7 @@ mod tests {
                 model_name: None,
                 bundle_root: None,
             },
-            "service_name must use canonical NFC form",
+            "service_name must use its exact canonical V1 spelling",
         );
         assert_bad_request(
             UploadedModelStatusQuery {
@@ -12254,7 +12266,7 @@ mod tests {
                 model_name: Some("cafe\u{301}".to_string()),
                 bundle_root: None,
             },
-            "model_name must use canonical NFC form",
+            "model_name must use its exact canonical V1 spelling",
         );
         assert_bad_request(
             UploadedModelStatusQuery {

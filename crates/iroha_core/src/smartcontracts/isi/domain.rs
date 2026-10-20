@@ -4873,7 +4873,7 @@ mod tests {
                 tx.nexus.staking.slash_sink_account_id = helper_account_id.to_string();
             },
             "committed root fee sink account must not be unregistered",
-            "committed root fee sink account",
+            "committed root fee sink; commit a replacement root fee policy first",
             "error should explain nexus fee-sink conflict",
         );
     }
@@ -4900,7 +4900,8 @@ mod tests {
             .expect_err("configured account must remain protected");
         let err_string = err.to_string();
         assert!(
-            err_string.contains("committed root fee sink account"),
+            err_string
+                .contains("committed root fee sink; commit a replacement root fee policy first"),
             "error should explain nexus fee-sink conflict: {err_string}"
         );
         assert!(
@@ -7786,7 +7787,7 @@ mod tests {
                     .expect_err("nexus fee asset definition must not be unregistered");
                 let err_string = err.to_string();
                 assert!(
-                    err_string.contains("nexus fee asset definition"),
+                    err_string.contains("immutable committed root fee currency"),
                     "error should explain nexus fee-asset conflict: {err_string}"
                 );
                 assert!(

@@ -1428,3 +1428,48 @@ fn retained_state_partial_musubi_validation_refuses_changed_visibility() {
 
 #[path = "publication_effect_retry_tests.rs"]
 mod effect_retry_tests;
+
+#[test]
+fn retained_canonical_merge_cell_busy_recovers_original_cursors_before_retry() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
+    use crate::state::StatePublicationOutcome;
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    let owner = std::ptr::from_ref(&*original);
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    assert!(matches!(
+        original.try_publish(),
+        StatePublicationOutcome::Deferred(_)
+    ));
+    drop(occupied);
+    let blocker = state.world.merge_global_state_root.block();
+    for _ in 0..3 {
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::PublicationBusy(_)
+            )
+        ));
+        assert_eq!(std::ptr::from_ref(&*original), owner);
+        assert_eq!(original.world.musubi_public_directory.len(), 1);
+        // These actual acquisitions precede the held last World Cell in the
+        // publication inventory and must have been recovered after its refusal.
+        drop(state.world.parameters.block());
+        drop(state.canonical_runtime.block());
+        drop(state.transactions.block());
+        assert!(state.state_write_lock.try_lock().is_some());
+        assert!(state.state_commit_lock.try_lock().is_some());
+    }
+    drop(blocker);
+    assert!(matches!(
+        original.try_publish(),
+        StatePublicationOutcome::Published
+    ));
+    drop(original);
+    assert_eq!(state.world.musubi_public_directory.view().len(), 1);
+}

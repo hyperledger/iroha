@@ -2039,10 +2039,11 @@ fn to_analysis_dto(analysis: &ProgramAnalysis) -> ContractViewAnalysisDto {
     }
 }
 fn locate_instruction_box(
-    state: &CoreState,
+    app: &crate::SharedAppState,
     transaction_hash: &str,
     index: u64,
 ) -> Result<InstructionBox, Error> {
+    let state = app.state.as_ref();
     if state.emergency_fast_startup_enabled() {
         return Err(Error::AppServiceUnavailable {
             code: "emergency_fast_history_unavailable",
@@ -2060,43 +2061,45 @@ fn locate_instruction_box(
     let height = state
         .committed_entrypoint_height(&target)
         .ok_or_else(not_found)?;
-    let work = crate::routing::app_query_limits().max_fetch_size;
-    let carrier = state
-        .read_finalized_execution_carrier(
-            height,
-            work,
-            iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
-        )
-        .map_err(crate::canonical_history::query_attempt_error)?;
-    let mut instruction = None;
-    let mut matched = false;
-    for (source_hash, signed, _) in crate::canonical_history::signed_calls(carrier.block())
-        .map_err(|error| conversion_error(error.to_string()))?
-    {
-        if !crate::signed_transaction_carrier_matches_indexed_identity(
-            &source_hash,
-            signed,
-            &target,
-        ) {
-            continue;
-        }
-        if matched {
-            return Err(conversion_error(
-                "indexed transaction has duplicate Network sources",
-            ));
-        }
-        matched = true;
-        instruction = signed
-            .instructions()
-            .explicit_instructions()
-            .nth(lookup_index)
-            .cloned();
-    }
+    // HTTP observation: authenticate the carrier through State/checkpoint ancestry under
+    // this request's owner, retained through the membership recheck below.
+    let original = crate::read_pipeline_execution_carrier(app, height)?;
+    let instruction = original
+        .owner
+        .scope(|| -> Result<Option<InstructionBox>, Error> {
+            let mut instruction = None;
+            let mut matched = false;
+            for (source_hash, signed, _) in
+                crate::canonical_history::signed_calls(original.carrier.block())
+                    .map_err(|error| conversion_error(error.to_string()))?
+            {
+                if !crate::signed_transaction_carrier_matches_indexed_identity(
+                    &source_hash,
+                    signed,
+                    &target,
+                ) {
+                    continue;
+                }
+                if matched {
+                    return Err(conversion_error(
+                        "indexed transaction has duplicate Network sources",
+                    ));
+                }
+                matched = true;
+                instruction = signed
+                    .instructions()
+                    .explicit_instructions()
+                    .nth(lookup_index)
+                    .cloned();
+            }
+            Ok(instruction)
+        })?;
     if state.committed_entrypoint_height(&target) != Some(height) {
         return Err(conversion_error(
             "transaction membership changed during instruction lookup",
         ));
     }
+    drop(original);
     instruction.ok_or_else(not_found)
 }
 
@@ -2708,12 +2711,12 @@ fn bounded_verified_source_diagnostic_message(
     output.finish()
 }
 pub async fn handle_get_instruction_contract_view(
-    state: Arc<CoreState>,
+    app: crate::SharedAppState,
     transaction_hash: String,
     index: u64,
 ) -> Result<impl IntoResponse, Error> {
-    let instruction = locate_instruction_box(state.as_ref(), &transaction_hash, index)?;
-    let input = resolve_contract_view_input_for_instruction(&instruction, state.as_ref())?;
+    let instruction = locate_instruction_box(&app, &transaction_hash, index)?;
+    let input = resolve_contract_view_input_for_instruction(&instruction, app.state.as_ref())?;
     let view = build_contract_view(input)?;
     Ok(JsonBody(view))
 }
@@ -3808,6 +3811,57 @@ seiyaku Display {
         );
         (state, target_hash)
     }
+    fn app_with_state(state: Arc<State>) -> crate::SharedAppState {
+        let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests();
+        Arc::get_mut(&mut app)
+            .expect("unique contract view app")
+            .state = state;
+        app
+    }
+    #[tokio::test]
+    async fn instruction_contract_view_lookup_reads_past_fetch_budget_through_checkpoint_ancestry()
+    {
+        let key = crate::tests_runtime_handlers::checked_torii_test_ed25519_keypair(
+            0x24,
+            "past-budget contract view authority",
+        );
+        let authority = dm::AccountId::new(key.public_key().clone());
+        let instruction = dm::InstructionBox::from(iroha_data_model::isi::Log::new(
+            iroha_data_model::level::Level::INFO,
+            "contract view lookup past the fetch budget".into(),
+        ));
+        let (app, transactions, _chain) =
+            crate::tests_runtime_handlers::past_fetch_budget_history_fixture(
+                iroha_core::sumeragi::test_chain::TestChainConfig::new(
+                    crate::tests_runtime_handlers::world_with_account(&authority),
+                    1_000,
+                ),
+                |network| {
+                    vec![
+                        crate::tests_runtime_handlers::past_fetch_budget_transaction(
+                            network,
+                            &key,
+                            vec![instruction.clone()],
+                        ),
+                    ]
+                },
+                &[true],
+            );
+        let hash = transactions[0].hash_as_entrypoint().to_string();
+        let available = app.query_fanout_inflight.available_bytes();
+        assert_eq!(
+            locate_instruction_box(&app, &hash, 0)
+                .expect("the HTTP lookup serves a receipt past the full-prefix budget"),
+            instruction
+        );
+        assert!(matches!(
+            locate_instruction_box(&app, &hash, 1),
+            Err(Error::Query(ValidationFail::QueryFailed(
+                QueryExecutionFail::NotFound
+            )))
+        ));
+        assert_eq!(app.query_fanout_inflight.available_bytes(), available);
+    }
     fn install_contract_instance(
         state: &State,
         authority: &AccountId,
@@ -3889,10 +3943,11 @@ seiyaku Display {
             code: program,
         });
         let (state, hash) = build_state_with_single_transaction(vec![instruction]);
-        let response = handle_get_instruction_contract_view(state, hash.to_string(), 0)
-            .await
-            .expect("contract view response")
-            .into_response();
+        let response =
+            handle_get_instruction_contract_view(app_with_state(state), hash.to_string(), 0)
+                .await
+                .expect("contract view response")
+                .into_response();
         assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await

@@ -11,12 +11,110 @@ use std::{
     time::Duration,
 };
 
+// The real prover is synchronous and bounded by structural work policy, not
+// wall time. Observe its intervals separately from finite worker liveness.
+#[derive(Default)]
+struct ProofActivity {
+    started: Option<Instant>,
+    completed: Duration,
+}
+impl ProofActivity {
+    fn begin(&mut self, now: Instant) {
+        assert!(
+            self.started.is_none(),
+            "one original worker proof at a time"
+        );
+        self.started = Some(now);
+    }
+
+    fn finish(&mut self, now: Instant, produced: bool) {
+        let started = self.started.take().expect("original proving interval");
+        if produced {
+            self.completed += now.saturating_duration_since(started);
+        }
+    }
+
+    fn elapsed(&self, now: Instant) -> Duration {
+        self.completed
+            + self.started.map_or(Duration::ZERO, |started| {
+                now.saturating_duration_since(started)
+            })
+    }
+}
+
+struct ProofActivityGuard<'a> {
+    activity: &'a parking_lot::Mutex<ProofActivity>,
+    active: bool,
+}
+impl<'a> ProofActivityGuard<'a> {
+    fn begin(activity: &'a parking_lot::Mutex<ProofActivity>) -> Self {
+        activity.lock().begin(Instant::now());
+        Self {
+            activity,
+            active: true,
+        }
+    }
+
+    fn finish(mut self, produced: bool) {
+        self.activity.lock().finish(Instant::now(), produced);
+        self.active = false;
+    }
+}
+impl Drop for ProofActivityGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            // A panic grants no successful proving interval or fresh idle budget.
+            self.activity.lock().finish(Instant::now(), false);
+        }
+    }
+}
+
+#[test]
+fn proof_activity_excludes_only_nonoverlapping_real_proving_intervals() {
+    let start = Instant::now();
+    let at = |seconds| start + Duration::from_secs(seconds);
+    let mut activity = ProofActivity::default();
+    activity.begin(at(5));
+    assert_eq!(activity.elapsed(at(50)), Duration::from_secs(45));
+    activity.finish(at(100), true);
+    assert_eq!(activity.elapsed(at(200)), Duration::from_secs(95));
+
+    let phase_start = at(200);
+    let baseline = activity.elapsed(phase_start);
+    activity.begin(at(250));
+    let proving = activity.elapsed(at(300)).saturating_sub(baseline);
+    assert_eq!(at(300) - phase_start - proving, Duration::from_secs(50));
+    activity.finish(at(310), true);
+    let proving = activity.elapsed(at(350)).saturating_sub(baseline);
+    assert_eq!(at(350) - phase_start - proving, Duration::from_secs(90));
+
+    // Busy, errors and skipped outputs restore all wall time to the idle allowance.
+    activity.begin(at(350));
+    activity.finish(at(360), false);
+    let proving = activity.elapsed(at(380)).saturating_sub(baseline);
+    assert_eq!(at(380) - phase_start - proving, Duration::from_secs(120));
+    activity.begin(at(380));
+    activity.finish(at(390), false);
+    let proving = activity.elapsed(at(390)).saturating_sub(baseline);
+    assert_eq!(at(390) - phase_start - proving, Duration::from_secs(130));
+    activity.begin(at(390));
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            activity.begin(at(391));
+        }))
+        .is_err()
+    );
+    assert_eq!(activity.started, Some(at(390)));
+    activity.finish(at(400), false);
+}
+
 /// Observation delegates every input and output to the actual production engine.
 /// It cannot fabricate a receipt or make an unavailable artifact look complete.
 struct ObservedRealEngine {
     inner: RealProofEngine,
     calls: Arc<AtomicUsize>,
     produced: Arc<AtomicUsize>,
+    activity: Arc<parking_lot::Mutex<ProofActivity>>,
 }
 impl FastpqProofEngine for ObservedRealEngine {
     fn limits(&self) -> (ProvingLimits, ExecutionEffectVerificationLimits) {
@@ -30,7 +128,12 @@ impl FastpqProofEngine for ObservedRealEngine {
         reservation: &mut AllocationReservation,
     ) -> Result<FastpqProofOutput, ProvingError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let output = self.inner.prove(statement, expected, budget, reservation)?;
+        let activity = ProofActivityGuard::begin(&self.activity);
+        let result = self.inner.prove(statement, expected, budget, reservation);
+        // Only a produced real proof excludes its synchronous work interval.
+        // Busy, errors, skipped outputs and panics retain their full idle cost.
+        activity.finish(matches!(&result, Ok(FastpqProofOutput::Produced(_))));
+        let output = result?;
         assert!(matches!(&output, FastpqProofOutput::Produced(_)));
         self.produced.fetch_add(1, Ordering::SeqCst);
         Ok(output)
@@ -250,30 +353,43 @@ async fn publish_on_idle_worker(
     original_files: &BTreeMap<PathBuf, Vec<u8>>,
     engine: Arc<dyn FastpqProofEngine>,
     produced: &AtomicUsize,
+    activity: &parking_lot::Mutex<ProofActivity>,
 ) -> BTreeMap<PathBuf, Vec<u8>> {
     // Restart uses only its own original startup seed, signed history and existing
     // timer/queue service. The sender stays open but never receives one work item.
     let producer = WorkerProducer::new(Arc::clone(chain.state()), policy, seed);
+    let started = Instant::now();
+    let proof_baseline = activity.lock().elapsed(started);
     let (_sender, shutdown, task) = start_idle_worker(producer, engine);
-    // Preserve the existing missing-tape worker test's bound; no daemon/protocol
-    // timeout, thread stack, pool ceiling or proof policy is enlarged for this test.
-    let observed = tokio::time::timeout(Duration::from_secs(120), async {
+    // Keep the existing 120-second finite allowance for idle wakes, replay and
+    // publication. Real synchronous proving may exceed that wall time in debug
+    // builds; it retains the original default structural work and memory policy.
+    let observed = async {
         loop {
             let mut complete = true;
             for key in positions.keys() {
                 complete &= chain.kura().read_fastpq_producer_record(*key)?.is_some();
             }
             if complete {
-                return Ok::<(), crate::kura::Error>(());
+                return Ok::<bool, crate::kura::Error>(true);
+            }
+            let idle = {
+                let activity = activity.lock();
+                let now = Instant::now();
+                let proving = activity.elapsed(now).saturating_sub(proof_baseline);
+                now.duration_since(started).saturating_sub(proving)
+            };
+            if idle >= Duration::from_secs(120) {
+                return Ok(false);
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-    })
+    }
     .await;
     shutdown.send();
     task.await.unwrap(); // wait for the original durability barrier to retire naturally
     assert!(
-        matches!(observed, Ok(Ok(()))),
+        matches!(observed, Ok(true)),
         "actual H1 and H2 artifacts must complete on the idle worker: {observed:?}"
     );
     assert_eq!(produced.load(Ordering::SeqCst), 1 + positions.len());
@@ -411,6 +527,13 @@ async fn verify_after_restart(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_without_traffic() {
+    // The original nonblocking prover lock is process-wide. Give this real-proof
+    // lifecycle its own globals so sibling proofs cannot exhaust its finite turns.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "fastpq::lane::producer::proof_completion_tests::missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_without_traffic",
+    ) {
+        return;
+    }
     let _status = crate::status::operator_status_test_guard();
     let (chain, mut seeds) = original_fixture();
     let positions = original_positions(&chain);
@@ -421,6 +544,7 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
     let original_settlements = format!("{:?}", crate::status::settlement_snapshot());
     let calls = Arc::new(AtomicUsize::new(0));
     let produced = Arc::new(AtomicUsize::new(0));
+    let activity = Arc::new(parking_lot::Mutex::new(ProofActivity::default()));
     let engine: Arc<dyn FastpqProofEngine> = Arc::new(ObservedRealEngine {
         inner: RealProofEngine {
             proving: ProvingLimits::default(),
@@ -428,6 +552,7 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
         },
         calls: Arc::clone(&calls),
         produced: Arc::clone(&produced),
+        activity: Arc::clone(&activity),
     });
     let policy = FastpqProducer {
         poll_interval: Duration::from_millis(1),
@@ -452,6 +577,7 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
         &original_files,
         Arc::clone(&engine),
         &produced,
+        &activity,
     ))
     .await;
     Box::pin(verify_after_restart(

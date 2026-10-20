@@ -54,6 +54,10 @@ fn interval_busy_capture_returns_exact_writer_release_without_work_or_refund_und
         future::Future,
         task::{Context, Waker},
     };
+    // Keep retired fixture World versions from refunding this exact State pool
+    // during the request-work comparisons. Publisher release and physical
+    // response retirement below do not depend on epoch reclamation.
+    let _epoch = crossbeam_epoch::pin();
     let chain = chain();
     let state = chain.state();
     let pool = state.ivm_execution_budget();

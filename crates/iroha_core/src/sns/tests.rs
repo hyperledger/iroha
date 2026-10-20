@@ -364,25 +364,38 @@ fn account_alias_authentication_uses_stable_borrowed_catalog_and_original_counte
         &pool,
     )
     .unwrap();
-    assert!(
-        state
-            .try_with_authorization_view(&refused, |view| {
-                resolve_active_account_alias(
-                    view.world(),
-                    view.catalog(),
-                    &alias,
-                    view.ledger_time_ms(),
-                )
-            })
-            .unwrap()
-            .is_err(),
-        "authentication cannot reset or replace the caller's exhausted counter"
+    let error = state
+        .try_with_authorization_view(&refused, |view| {
+            resolve_active_account_alias(
+                view.world(),
+                view.catalog(),
+                &alias,
+                view.ledger_time_ms(),
+            )
+        })
+        .unwrap()
+        .expect_err("authentication must retain the caller's exhausted counter");
+    let original = error
+        .deferral()
+        .expect("local admission must remain distinct from invalid SNS state")
+        .decode_refusal()
+        .expect("SNS must retain the decoder's original refusal after scope retirement");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
     );
+    assert!(matches!(
+        original.clone().into_error(),
+        norito::Error::ScopedDecodeResource(_)
+    ));
+
     let mut trailing = encoded;
     trailing.push(0);
+    let malformed = decode_record_for_selector(&trailing, &selector)
+        .expect_err("borrowing exact wire bytes must preserve trailing-byte refusal");
     assert!(
-        decode_record_for_selector(&trailing, &selector).is_err(),
-        "borrowing exact wire bytes must preserve trailing-byte refusal"
+        malformed.deferral().is_none(),
+        "invalid source bytes must remain a completed rejection"
     );
 }
 #[test]

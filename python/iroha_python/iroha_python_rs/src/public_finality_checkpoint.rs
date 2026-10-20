@@ -208,8 +208,13 @@ fn authenticate(
         .map_err(|e| Failure::Native("checkpoint_encoding", e.into()))?;
     // A one-proof page reauthenticates this exact exported checkpoint in the
     // existing committed-inclusion API; it is never an independently chosen root.
+    let mut tip_proofs = Vec::new();
+    tip_proofs
+        .try_reserve_exact(1)
+        .map_err(Failure::Allocation)?;
+    tip_proofs.push(tip);
     let tip_proof_chain_json =
-        json::to_json_bounded(&[tip], MAX_TIP_JSON).map_err(Failure::Json)?;
+        json::to_json_bounded(&tip_proofs, MAX_TIP_JSON).map_err(Failure::Json)?;
     let header_hash: HashOf<BlockHeader> = verified.header().hash();
     let metadata_json = json::to_json_bounded(
         &norito::json!({
@@ -292,6 +297,174 @@ fn authenticate_public_finality_checkpoint_v1(
         output.tip_proof_chain_json,
     ))
 }
+
+// A checkpoint is selected trust, never a responding peer's new root. This
+// operation only advances its consecutive native history; application result,
+// intent and persistence policy remain with the consumer.
+fn advance(
+    trusted_checkpoint: &[u8],
+    proofs: &[&[u8]],
+    network: NetworkId,
+    chain: &str,
+) -> Result<Output, Failure> {
+    const MAX_CHECKPOINT: usize = 68 * 1024 * 1024;
+    if trusted_checkpoint.is_empty()
+        || trusted_checkpoint.len() > MAX_CHECKPOINT
+        || chain.is_empty()
+        || chain.len() > MAX_CHAIN
+        || chain.trim() != chain
+        || chain.chars().any(char::is_control)
+        || !(1..=MAX_PROOFS).contains(&proofs.len())
+    {
+        return Err(Failure::Input(
+            "checkpoint page requires bounded exact inputs",
+        ));
+    }
+    let mut total = 0usize;
+    for wire in proofs {
+        total = total
+            .checked_add(wire.len())
+            .ok_or(Failure::Input("proof byte count overflow"))?;
+        if wire.is_empty() || total > MAX_PROOF_BYTES {
+            return Err(Failure::Input(
+                "proof frames must be nonempty and total at most 16 MiB",
+            ));
+        }
+    }
+    let checkpoint =
+        iroha_data_model::sumeragi_finality::SumeragiFinalityCheckpoint::decode_canonical(
+            trusted_checkpoint,
+        )
+        .map_err(|e| Failure::Native("checkpoint_decode", e))?;
+    if checkpoint.network_id() != network
+        || checkpoint.chain_id() != chain
+        || checkpoint.height() < 2
+    {
+        return Err(Failure::Input(
+            "checkpoint differs from selected public successor context",
+        ));
+    }
+    // One enclosing input-derived allocation budget applies to the whole decoded
+    // page, rather than granting an independent maximum to every retained frame.
+    norito::core::with_decode_limits_scope(norito::canonical_decode_limits(total), || {
+        let mut decoded = Vec::new();
+        decoded
+            .try_reserve_exact(proofs.len())
+            .map_err(Failure::Allocation)?;
+        for wire in proofs {
+            decoded.push(decode_proof(wire)?);
+        }
+        let page = iroha_data_model::sumeragi_finality::verify_checkpoint_page(
+            network,
+            &checkpoint,
+            &decoded,
+            MAX_PROOFS,
+            MAX_PROOF_BYTES,
+        )
+        .map_err(|e| Failure::Native("proof_verification", e))?;
+        let verified = page.tip();
+        if verified.root_scope() != SumeragiRootScope::Global {
+            return Err(Failure::Input(
+                "public checkpoint page requires the selected Global genesis",
+            ));
+        }
+        let promoted = page
+            .checkpoint()
+            .encode_canonical()
+            .map_err(|e| Failure::Native("checkpoint_encoding", e.into()))?;
+        let tip = decoded
+            .last()
+            .ok_or(Failure::Input("missing verified page tip"))?;
+        // Keep the original proof originals in the consumer's archive. This
+        // native one-proof projection can verify a selected receipt at this tip.
+        let mut tip_proofs = Vec::new();
+        tip_proofs
+            .try_reserve_exact(1)
+            .map_err(Failure::Allocation)?;
+        tip_proofs.push(tip);
+        let tip_proof_chain_json =
+            json::to_json_bounded(&tip_proofs, MAX_TIP_JSON).map_err(Failure::Json)?;
+        let header_hash: HashOf<BlockHeader> = verified.header().hash();
+        let metadata_json = json::to_json_bounded(
+            &norito::json!({
+                "network_id": (network.to_string()), "chain_id": chain,
+                "root_scope": "Global", "anchor_height": (checkpoint.height()),
+                "height": (verified.height()), "proof_count": (proofs.len() as u64),
+                "block_hash": (hex::encode(header_hash.as_ref())),
+                "context_id": (hex::encode(verified.context_id().as_ref())),
+            }),
+            4096,
+        )
+        .map_err(Failure::Json)?;
+        Ok(Output {
+            metadata_json,
+            checkpoint: promoted,
+            tip_proof_chain_json,
+        })
+    })
+}
+
+/// Advance independently selected public trust using exact canonical proof frames.
+/// Nothing is persisted; this is historical finality, not current state or lane authority.
+#[pyfunction]
+#[pyo3(signature = (trusted_checkpoint, proof_wires, *, expected_network_id, expected_chain))]
+fn advance_public_finality_checkpoint_v1(
+    py: Python<'_>,
+    trusted_checkpoint: &Bound<'_, PyBytes>,
+    proof_wires: &Bound<'_, PyTuple>,
+    expected_network_id: &super::PyNetworkId,
+    expected_chain: &str,
+) -> PyResult<(String, Py<PyBytes>, String)> {
+    let fail = |error: Failure| error.into_py(py);
+    if !trusted_checkpoint.is_exact_instance_of::<PyBytes>()
+        || !proof_wires.is_exact_instance_of::<PyTuple>()
+        || !(1..=MAX_PROOFS).contains(&proof_wires.len())
+    {
+        return Err(fail(Failure::Input(
+            "require exact checkpoint bytes and a bounded exact proof tuple",
+        )));
+    }
+    let mut owners = Vec::new();
+    owners
+        .try_reserve_exact(proof_wires.len())
+        .map_err(|e| fail(Failure::Allocation(e)))?;
+    let mut total = 0usize;
+    for item in proof_wires.iter() {
+        if !item.is_exact_instance_of::<PyBytes>() {
+            return Err(fail(Failure::Input(
+                "each proof frame must be exact immutable bytes",
+            )));
+        }
+        let bytes = item.cast_into::<PyBytes>()?;
+        total = total
+            .checked_add(bytes.as_bytes().len())
+            .ok_or_else(|| fail(Failure::Input("proof byte count overflow")))?;
+        if bytes.as_bytes().is_empty() || total > MAX_PROOF_BYTES {
+            return Err(fail(Failure::Input(
+                "proof frames exceed the closed aggregate byte bound",
+            )));
+        }
+        owners.push(bytes);
+    }
+    let mut wires = Vec::new();
+    wires
+        .try_reserve_exact(owners.len())
+        .map_err(|e| fail(Failure::Allocation(e)))?;
+    wires.extend(owners.iter().map(|wire| wire.as_bytes()));
+    let output = advance(
+        trusted_checkpoint.as_bytes(),
+        &wires,
+        *expected_network_id.as_inner(),
+        expected_chain,
+    )
+    .map_err(fail)?;
+    Ok((
+        output.metadata_json,
+        PyBytes::new(py, &output.checkpoint).unbind(),
+        output.tip_proof_chain_json,
+    ))
+}
+
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add(
         "PublicFinalityReadError",
@@ -299,6 +472,10 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     module.add_function(wrap_pyfunction!(
         authenticate_public_finality_checkpoint_v1,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        advance_public_finality_checkpoint_v1,
         module
     )?)
 }

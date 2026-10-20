@@ -1454,7 +1454,12 @@ fn seed_due_native_renewals(
     policy.fund_splitter_account = collector;
     transaction.world.smart_contract_state.insert(
         crate::sns::policy_storage_key(DOMAIN_NAME_SUFFIX_ID),
-        norito::to_bytes(&policy).unwrap(),
+        norito::codec::Encode::encode(&policy),
+    );
+    assert_eq!(
+        crate::sns::policy_by_id(&transaction.world, DOMAIN_NAME_SUFFIX_ID)
+            .expect("fixture uses the production SNS policy codec"),
+        Some(policy.clone())
     );
     **transaction
         .world
@@ -1487,7 +1492,12 @@ fn seed_due_native_renewals(
         );
         transaction.world.smart_contract_state.insert(
             crate::sns::record_storage_key(&selector),
-            norito::to_bytes(&record).unwrap(),
+            norito::codec::Encode::encode(&record),
+        );
+        assert_eq!(
+            crate::sns::record_by_selector(&transaction.world, &selector)
+                .expect("fixture uses the production SNS record codec"),
+            Some(record)
         );
         let target = AliasTargetV1::Domain(ResolvedDomainV1::new(
             domain,

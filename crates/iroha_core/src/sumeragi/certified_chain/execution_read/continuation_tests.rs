@@ -117,25 +117,30 @@ fn execution_shell_physical_refusal_keeps_original_charge_and_single_wire_delive
 
 #[test]
 fn execution_late_certificate_refusal_retains_prepared_children_and_exact_cause() {
+    use std::task::{Context, Waker};
+
     let chain = fixture();
     let pool = AllocationBudget::new(16 * 1024 * 1024);
+    let mut registration = crate::unit_test_support::release_registration(&pool);
+    let baseline = pool.reserved_bytes();
+    let mut context = Context::from_waker(Waker::noop());
     let mut measure = pending(&chain, &pool);
     let measured = measure.read_block(chain.kura(), &pool).unwrap();
-    let required = pool.reserved_bytes();
+    let required = pool.reserved_bytes() - baseline;
     let certificate_bytes = measured.commit_certificate().unwrap().payload_len()
         + iroha_allocation::ChargedShared::<ChargedCertificateParts>::allocation_layout().size();
     drop(measured);
     drop(measure);
-    assert_eq!(pool.reserved_bytes(), 0);
+    assert_eq!(pool.reserved_bytes(), baseline);
     assert!(required > certificate_bytes && required < pool.limit_bytes());
-    let blocker_bytes = pool.limit_bytes() - (required - 1);
+    let blocker_bytes = pool.limit_bytes() - baseline - (required - 1);
     let blocker = pool.try_reserve_bytes(blocker_bytes).unwrap();
     let mut original = pending(&chain, &pool);
     let cause = match original.read_block(chain.kura(), &pool) {
         Err(NativeExecutionReadError::Deferred(cause)) => cause,
         other => panic!("actual final certificate capacity: {other:?}"),
     };
-    let retained = blocker_bytes + required - certificate_bytes;
+    let retained = baseline + blocker_bytes + required - certificate_bytes;
     assert!(
         matches!(cause.allocation_refusal(), Some(AllocationRefusal::Capacity {
         requested_bytes, reserved_bytes, limit_bytes, ..
@@ -157,7 +162,38 @@ fn execution_late_certificate_refusal_retains_prepared_children_and_exact_cause(
         Err(NativeExecutionReadError::Deferred(cause)) => cause,
         other => panic!("same original final certificate capacity: {other:?}"),
     };
-    assert_eq!(again.allocation_refusal(), cause.allocation_refusal());
+    assert!(
+        matches!(again.allocation_refusal(), Some(AllocationRefusal::Capacity {
+            requested_bytes, reserved_bytes, limit_bytes, ..
+        }) if *requested_bytes == certificate_bytes && *reserved_bytes == retained && *limit_bytes == pool.limit_bytes())
+    );
+    let AllocationRefusal::Capacity {
+        release: first_release,
+        ..
+    } = cause.allocation_refusal().unwrap()
+    else {
+        unreachable!()
+    };
+    let AllocationRefusal::Capacity { release, .. } = again.allocation_refusal().unwrap() else {
+        unreachable!()
+    };
+    // Completion publishes the first attempt's temporary decoder refunds after
+    // capturing its refusal. The retry must observe that real release, then keep
+    // its stable prepared children and the new original wait cut thereafter.
+    assert!(
+        registration
+            .poll_wait(first_release, &mut context)
+            .is_ready()
+    );
+    assert!(registration.poll_wait(release, &mut context).is_pending());
+    let third = match original.read_block(chain.kura(), &pool) {
+        Err(NativeExecutionReadError::Deferred(cause)) => cause,
+        other => panic!("retained final certificate capacity: {other:?}"),
+    };
+    assert_eq!(third.allocation_refusal(), again.allocation_refusal());
+    let foreign = AllocationBudget::new(1);
+    drop(foreign.try_reserve_bytes(1).unwrap());
+    assert!(registration.poll_wait(release, &mut context).is_pending());
     assert_eq!(pool.reserved_bytes(), retained);
     assert_eq!(
         original
@@ -169,6 +205,8 @@ fn execution_late_certificate_refusal_retains_prepared_children_and_exact_cause(
         raw
     );
     drop(blocker);
+    assert!(registration.poll_wait(release, &mut context).is_ready());
+    registration.cancel();
     let body = original.read_block(chain.kura(), &pool).unwrap();
     let wire = original.take_wire();
     assert_eq!(wire.as_slice().as_ptr(), raw);
@@ -177,6 +215,8 @@ fn execution_late_certificate_refusal_retains_prepared_children_and_exact_cause(
     drop(original);
     drop(body);
     drop(wire);
+    assert_eq!(pool.reserved_bytes(), baseline);
+    drop(registration);
     assert_eq!(pool.reserved_bytes(), 0);
 }
 

@@ -8893,6 +8893,9 @@ fn decode_world_fields(
     let nft_custody_records = take_optional(&mut map, "nft_custody_records")?.unwrap_or_default();
 
     let vpn_leases = take_required(&mut map, "vpn_leases")?;
+    let merge_hint_roots: Cell<Vec<Hash>> = take_required(&mut map, "merge_hint_roots")?;
+    let merge_global_state_root: Cell<Option<Hash>> =
+        take_required(&mut map, "merge_global_state_root")?;
     let consensus_evidence = map
         .remove("consensus_evidence")
         .ok_or_else(|| json::Error::missing_field("consensus_evidence"))?
@@ -9178,6 +9181,8 @@ fn decode_world_fields(
         global_beacon_latest_pulse,
         global_beacon_pulses,
         global_beacon_pulse_slots: Storage::default(),
+        merge_hint_roots,
+        merge_global_state_root,
         consensus_evidence,
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
@@ -10341,18 +10346,26 @@ pub(in crate::state) fn seeded_musubi_attested_publication_world_for_testing() -
 mod decode_tests {
     use super::*;
     include!("deserialize_world_musubi_live_tests.rs");
-
     #[test]
-    fn world_snapshot_has_no_retired_merge_roots_and_rejects_their_reintroduction() {
-        let encoded = json::to_json(&World::default()).expect("encode current World schema");
-        let fields = SnapshotJsonMap::parse(&encoded, "world").expect("current World object");
-        let retired = ["merge_hint_roots", "merge_global_state_root"];
-        for field in retired {
-            assert!(
-                !fields.contains_key(field),
-                "retired field {field} survived"
-            );
+    fn canonical_merge_cells_roundtrip_nonempty_current_and_predecessor_values() {
+        let world = World::default();
+        let first_hints = vec![Hash::new(b"retained hint A"), Hash::new(b"retained hint B")];
+        let next_hints = vec![first_hints[1], first_hints[0], first_hints[1]];
+        let first_root = Some(Hash::new(b"retained reduced root A"));
+        let next_root = Some(Hash::new(b"retained reduced root B"));
+        {
+            let mut block = world.block();
+            *block.merge_hint_roots.get_mut() = first_hints.clone();
+            *block.merge_global_state_root.get_mut() = first_root;
+            block.commit();
         }
+        {
+            let mut block = world.block();
+            *block.merge_hint_roots.get_mut() = next_hints.clone();
+            *block.merge_global_state_root.get_mut() = next_root;
+            block.commit();
+        }
+        let encoded = json::to_json(&world).expect("encode the one current World schema");
         let pool = iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         );
@@ -10361,29 +10374,137 @@ mod decode_tests {
             ivm: &ivm,
             _marker: PhantomData,
         };
-        let decoded = parse_world(&pool, fields, &seed)
-            .expect("current World fields decode without retired merge roots");
+        let restored = parse_world(
+            &pool,
+            SnapshotJsonMap::parse(&encoded, "world").expect("original World object"),
+            &seed,
+        )
+        .expect("restore retained canonical cells without migration or defaulting");
+        assert_eq!(&*restored.merge_hint_roots.view(), &next_hints);
+        assert_eq!(*restored.merge_global_state_root.view(), next_root);
         assert_eq!(
-            json::to_json(&decoded).expect("reencode current World"),
-            encoded,
-            "removing writerless cells preserves every surviving field and schema order"
+            &*restored.merge_hint_roots.predecessor_view(),
+            &Some(first_hints.clone())
         );
-        let prefix = encoded.strip_suffix('}').expect("World object ending");
-        for field in retired {
-            let injected = format!("{prefix},\"{field}\":null}}");
-            let error = parse_world(
-                &pool,
-                SnapshotJsonMap::parse(&injected, "world").expect("substituted World object"),
-                &seed,
-            )
-            .err()
-            .expect("retired fields cannot reenter a first-release snapshot");
+        assert_eq!(
+            *restored.merge_global_state_root.predecessor_view(),
+            Some(first_root)
+        );
+        assert_eq!(
+            json::to_json(&restored).unwrap(),
+            encoded,
+            "retain exact semantic current and undo values, including vector order and duplicates"
+        );
+        use crate::state::world_projection::WorldStateAccumulator;
+        assert_eq!(
+            WorldStateAccumulator::capture(&restored.block())
+                .unwrap()
+                .root(),
+            WorldStateAccumulator::capture(&world.block())
+                .unwrap()
+                .root()
+        );
+        {
+            let reverted = restored.block_and_revert();
+            assert_eq!(reverted.merge_hint_roots.as_slice(), first_hints.as_slice());
+            assert_eq!(**reverted.merge_global_state_root, first_root);
+        }
+    }
+
+    #[test]
+    fn canonical_merge_cells_are_required_in_the_single_world_decoder() {
+        let encoded = json::to_json(&World::default()).unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        for required in ["merge_hint_roots", "merge_global_state_root"] {
+            let mut fields = SnapshotJsonMap::parse(&encoded, "world").unwrap();
+            fields
+                .remove(required)
+                .expect("canonical field is serialized");
+            let error = parse_world(&pool, fields, &seed)
+                .err()
+                .expect("missing canonical data cannot silently default");
+            assert!(format!("{error:?}").contains(required));
+        }
+        let restored = parse_world(
+            &pool,
+            SnapshotJsonMap::parse(&encoded, "world").unwrap(),
+            &seed,
+        )
+        .unwrap();
+        assert!(restored.merge_hint_roots.view().is_empty());
+        assert_eq!(*restored.merge_global_state_root.view(), None);
+        assert_eq!(json::to_json(&restored).unwrap(), encoded);
+    }
+
+    #[test]
+    fn canonical_merge_cell_decoder_rejects_malformed_persisted_values() {
+        let pool = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        for field in ["merge_hint_roots", "merge_global_state_root"] {
+            let json::Value::Object(mut fields) = json::to_value(&World::default()).unwrap() else {
+                panic!("World must be an object");
+            };
+            fields.insert(field.to_owned(), json::Value::Bool(true));
             assert!(
-                matches!(error, StateRestoreError::Serialization(json::Error::InvalidField {
-                    field: rejected, ref message,
-                }) if rejected == format!("world.{field}") && message.contains("unknown field"))
+                parse_world(&pool, SnapshotJsonMap::from_owned(fields), &seed).is_err(),
+                "malformed canonical cell must not be defaulted: {field}"
             );
         }
+    }
+
+    #[test]
+    fn canonical_merge_optional_root_preserves_present_none_undo() {
+        let world = World::default();
+        assert_eq!(*world.merge_global_state_root.predecessor_view(), None);
+        let original_root = Some(Hash::new(b"first nonempty canonical root"));
+        {
+            let mut block = world.block();
+            *block.merge_global_state_root.get_mut() = original_root;
+            block.commit();
+        }
+        assert_eq!(
+            *world.merge_global_state_root.predecessor_view(),
+            Some(None)
+        );
+        let encoded = json::to_json(&world).unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &pool,
+            SnapshotJsonMap::parse(&encoded, "world").unwrap(),
+            &seed,
+        )
+        .unwrap();
+        assert_eq!(*restored.merge_global_state_root.view(), original_root);
+        assert_eq!(
+            *restored.merge_global_state_root.predecessor_view(),
+            Some(None)
+        );
+        assert_eq!(json::to_json(&restored).unwrap(), encoded);
+        let reverted = restored.block_and_revert();
+        assert_eq!(
+            **reverted.merge_global_state_root, None,
+            "present undo containing None must actually restore absence"
+        );
     }
     use crate::query::store::LiveQueryStore;
     use iroha_crypto::SignatureOf;

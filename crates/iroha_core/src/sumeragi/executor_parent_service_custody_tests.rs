@@ -345,6 +345,9 @@ fn parent_service_worker_cancellation_retires_the_same_original_partial_graph() 
 
 #[test]
 fn parent_service_preparation_refuses_foreign_original_owner_without_replacing_receipts() {
+    // Pin before constructing the signed chain so older State refunds cannot
+    // change this test's exact original-pool accounting.
+    let _epoch = crossbeam_epoch::pin();
     publication_tests::with_worker_from(
         executed_chain,
         ConsensusMode::Permissioned,
@@ -352,7 +355,6 @@ fn parent_service_preparation_refuses_foreign_original_owner_without_replacing_r
             let mut prepared = super::super::certified_chain::ParentServicePreparation::default();
             let view = chain.state().view();
             let budget = view.execution_budget();
-            let epoch = crossbeam_epoch::pin();
             let baseline = budget.reserved_bytes();
             prepared.prepare(&view, 3).unwrap();
             let pointers = prepared.original_pointers();
@@ -379,7 +381,6 @@ fn parent_service_preparation_refuses_foreign_original_owner_without_replacing_r
             drop(prepared);
             assert_eq!(budget.reserved_bytes(), baseline);
             assert!(worker.live.is_none());
-            drop(epoch);
         },
     );
 }
@@ -766,6 +767,9 @@ fn parent_service_completed_payload_rechecks_actual_predecessor_slot_before_lend
 
 #[test]
 fn parent_service_missing_predecessor_retries_original_tip_and_refuses_nontip_preparation() {
+    // Pin before constructing the signed chain so older State refunds cannot
+    // change this test's exact original-pool accounting.
+    let _epoch = crossbeam_epoch::pin();
     publication_tests::with_worker_from(
         executed_chain,
         ConsensusMode::Permissioned,
@@ -779,7 +783,6 @@ fn parent_service_missing_predecessor_retries_original_tip_and_refuses_nontip_pr
             // as NotInView; keep that existing source classification across preparation.
             physical.write_block_index(1, predecessor.start, 0).unwrap();
             let budget = view.execution_budget();
-            let epoch = crossbeam_epoch::pin();
             let baseline = budget.reserved_bytes();
             let mut prepared = super::super::certified_chain::ParentServicePreparation::default();
             let error = prepared.prepare(&view, 3).unwrap_err();
@@ -837,7 +840,6 @@ fn parent_service_missing_predecessor_retries_original_tip_and_refuses_nontip_pr
             assert!(events.try_recv().is_err());
             drop(prepared);
             assert_eq!(budget.reserved_bytes(), baseline);
-            drop(epoch);
         },
     );
 }
@@ -925,6 +927,9 @@ fn parent_service_validation_busy_view_retains_original_receipts_before_parent_l
 
 #[test]
 fn parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until_retry() {
+    // Pin before constructing the signed chain so older State refunds cannot
+    // change this test's exact original-pool accounting.
+    let _epoch = crossbeam_epoch::pin();
     publication_tests::with_worker_from(
         executed_chain,
         ConsensusMode::Permissioned,
@@ -933,7 +938,6 @@ fn parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             let budget = worker.state.ivm_execution_budget();
             let mut registration = crate::unit_test_support::release_registration(&budget);
-            let epoch = crossbeam_epoch::pin();
             let baseline = budget.reserved_bytes();
             let retained = Rc::new(RefCell::new(None));
             let blocker = Rc::clone(&retained);
@@ -1020,10 +1024,12 @@ fn parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until
             );
             assert_eq!(budget.reserved_bytes(), controls);
             assert!(worker.run_execution(&block, hash, false).unwrap().is_some());
+            assert!(worker.signature_decode.is_none());
             let pointers = worker
-                .signature_decode
+                .live
                 .as_ref()
-                .unwrap()
+                .expect("successful execution retains the original decoder in Live")
+                .signature_decode
                 .parent_service
                 .qc_pointers();
             assert_eq!(pointers.0, source);
@@ -1034,13 +1040,15 @@ fn parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until
             drop(first);
             drop(second);
             assert_eq!(budget.reserved_bytes(), baseline);
-            drop(epoch);
         },
     );
 }
 
 #[test]
 fn parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_release() {
+    // Pin before constructing the signed chain so older State refunds cannot
+    // change this test's exact original-pool accounting.
+    let _epoch = crossbeam_epoch::pin();
     publication_tests::with_worker_from(
         executed_chain,
         ConsensusMode::Permissioned,
@@ -1054,7 +1062,6 @@ fn parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_re
                 .retained_allocation_layout()
                 .size();
             let mut registration = crate::unit_test_support::release_registration(&budget);
-            let epoch = crossbeam_epoch::pin();
             let baseline = budget.reserved_bytes();
             let retained = Rc::new(RefCell::new(None));
             let blocker = Rc::clone(&retained);
@@ -1130,11 +1137,13 @@ fn parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_re
             assert!(registration.poll_wait(release, &mut context).is_ready());
             assert_eq!(budget.reserved_bytes(), controls);
             assert!(worker.run_execution(&block, hash, false).unwrap().is_some());
+            assert!(worker.signature_decode.is_none());
             assert_eq!(
                 worker
-                    .signature_decode
+                    .live
                     .as_ref()
-                    .unwrap()
+                    .expect("successful execution retains the original decoder in Live")
+                    .signature_decode
                     .parent_service
                     .signer_pointers(),
                 pointers
@@ -1145,7 +1154,6 @@ fn parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_re
             drop(first);
             drop(second);
             assert_eq!(budget.reserved_bytes(), baseline);
-            drop(epoch);
         },
     );
 }

@@ -365,6 +365,9 @@ recomputes the floor from the lane blocks; a different declaration makes the blo
    lane heights ascending, transactions in batch order — after lane 0's transactions, exactly as
    if they were one ordered list in the `G` block: the executed block is the proposal with these
    entrypoints appended (`merged_count` records how many; removing them recovers the proposal).
+   Parent-service QC and signer custody retain the checked original proposal-header identity
+   across this expansion. They still require the same admitted QC allocation, allocation pool
+   and native parent cut; expanded execution roots cannot replace that source identity.
    Each transaction retains its complete `TransactionEntrypoint`: `External`, sealed
    commitment or sealed reveal. A merged transaction is dropped — no effect, no fee, not in
    the executed block — when `route(tx, state before h)` (§5.1) is not the lane that carried it

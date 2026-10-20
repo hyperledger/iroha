@@ -279,7 +279,9 @@ static TEST_PROCESSING_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 static TEST_REPORT_SAVE_FAILURE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 #[cfg(test)]
-static TEST_SNAPSHOT_LOAD_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+static TEST_SNAPSHOT_LOAD_ELAPSED_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static TEST_SCAN_ELAPSED_MS: AtomicU64 = AtomicU64::new(u64::MAX);
 #[cfg(test)]
 static TEST_MAX_SCAN_MILLIS_OVERRIDE: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
@@ -770,8 +772,20 @@ fn remove_report_summary(id: &str) {
     let _guard = report_summary_lock().lock();
     remove_report_summary_locked(id);
 }
+fn scan_elapsed(start: std::time::Instant) -> Duration {
+    #[cfg(test)]
+    {
+        // The serialized scanner fixture advances this clock only after the
+        // actual immutable snapshot has loaded. Other scans retain wall time.
+        let elapsed = TEST_SCAN_ELAPSED_MS.load(AtomicOrdering::SeqCst);
+        if elapsed != u64::MAX {
+            return Duration::from_millis(elapsed);
+        }
+    }
+    start.elapsed()
+}
 fn scan_deadline_reached(start: std::time::Instant, max_millis: u64) -> bool {
-    start.elapsed() >= Duration::from_millis(max_millis)
+    scan_elapsed(start) >= Duration::from_millis(max_millis)
 }
 fn canonicalize_attachment_locations(locations: &mut Vec<AttachmentLocation>) {
     locations.sort_unstable();
@@ -1164,9 +1178,9 @@ fn load_attachment_snapshot(
     };
     #[cfg(test)]
     {
-        let delay = TEST_SNAPSHOT_LOAD_DELAY_MS.load(AtomicOrdering::Relaxed);
-        if delay > 0 {
-            std::thread::sleep(Duration::from_millis(delay));
+        let elapsed = TEST_SNAPSHOT_LOAD_ELAPSED_MS.load(AtomicOrdering::SeqCst);
+        if elapsed > 0 {
+            TEST_SCAN_ELAPSED_MS.store(elapsed, AtomicOrdering::SeqCst);
         }
     }
     Ok(Some(snapshot_load))
@@ -2754,7 +2768,7 @@ async fn run_budgeted_scan_reserved(
     telemetry.with_metrics(|tel| {
         tel.set_torii_zk_prover_inflight(0);
         tel.set_torii_zk_prover_pending(remaining);
-        tel.record_torii_zk_prover_scan(bytes_processed, start.elapsed().as_millis() as u64);
+        tel.record_torii_zk_prover_scan(bytes_processed, scan_elapsed(start).as_millis() as u64);
     });
     if errors.is_empty()
         && !stopped_by_shutdown
@@ -2769,7 +2783,7 @@ async fn run_budgeted_scan_reserved(
         processed_reports,
         bytes_processed,
         #[cfg(test)]
-        duration_ms: start.elapsed().as_millis() as u64,
+        duration_ms: scan_elapsed(start).as_millis() as u64,
         #[cfg(test)]
         remaining_pending: remaining,
         budget_exhausted: budget_reason,
@@ -3305,16 +3319,18 @@ mod tests {
         .expect("same executable identity in prover fixture")
         .commit();
         super::TEST_PROCESSING_DELAY_MS.store(0, AtomicOrdering::SeqCst);
-        super::TEST_SNAPSHOT_LOAD_DELAY_MS.store(0, AtomicOrdering::SeqCst);
+        super::TEST_SNAPSHOT_LOAD_ELAPSED_MS.store(0, AtomicOrdering::SeqCst);
+        super::TEST_SCAN_ELAPSED_MS.store(u64::MAX, AtomicOrdering::SeqCst);
         super::MAX_INFLIGHT_OBSERVED.store(0, AtomicOrdering::SeqCst);
     }
     fn init_test_cfg() {
         configure_test_cfg(iroha_config::parameters::defaults::torii::zk_prover_allowed_circuits());
     }
-    struct SnapshotLoadDelayReset;
-    impl Drop for SnapshotLoadDelayReset {
+    struct SnapshotLoadClockReset;
+    impl Drop for SnapshotLoadClockReset {
         fn drop(&mut self) {
-            super::TEST_SNAPSHOT_LOAD_DELAY_MS.store(0, AtomicOrdering::SeqCst);
+            super::TEST_SNAPSHOT_LOAD_ELAPSED_MS.store(0, AtomicOrdering::SeqCst);
+            super::TEST_SCAN_ELAPSED_MS.store(u64::MAX, AtomicOrdering::SeqCst);
             super::TEST_MAX_SCAN_MILLIS_OVERRIDE.store(0, AtomicOrdering::SeqCst);
         }
     }

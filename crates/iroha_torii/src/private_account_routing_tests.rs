@@ -242,7 +242,11 @@ async fn private_account_and_permissions_read_require_current_physical_root_gran
         permissions["items"][0]["name"].as_str(),
         Some("CanReadRestrictedDataspace")
     );
-    assert_eq!(permissions["has_more"].as_bool(), Some(false));
+    assert_eq!(
+        permissions.get("next_cursor"),
+        Some(&norito::json::Value::Null),
+        "the canonical collection page has no continuation"
+    );
 
     for caller in [None, Some(&stranger)] {
         let response = account_response(

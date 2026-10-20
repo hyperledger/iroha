@@ -90,6 +90,14 @@ async fn push_records_teu_from_ivm_metadata() {
     register_test_authority(&state, &account_id);
     let max_cycles = 42_000_u64;
     let tx = accepted_ivm_tx_by(account_id, &key_pair, &time_source, max_cycles);
+    let gas_limit = iroha_data_model::transaction::require_transaction_gas_limit(
+        tx.external().unwrap().fee_payment_intent(),
+    )
+    .expect("IVM input carries the signed gas derived from its cycle metadata");
+    assert_eq!(
+        gas_limit,
+        crate::smartcontracts::ivm::gas_limit_for_cycles(NonZeroU64::new(max_cycles).unwrap())
+    );
     let hash = tx.hash_as_entrypoint();
     queue
         .push(tx, state.view())
@@ -98,7 +106,8 @@ async fn push_records_teu_from_ivm_metadata() {
         .tx_teu
         .get(&hash)
         .expect("TEU info missing for IVM transaction");
-    assert_eq!(info.teu, max_cycles);
+    assert_eq!(info.teu, gas_limit);
+    assert_eq!(queue.admitted_proposal_gas_cost(&hash).unwrap(), gas_limit);
 }
 
 #[test]

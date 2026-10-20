@@ -115,6 +115,8 @@ specs/da/_generated/threat_model_report.json
 /.cargo-target/
 # Swift Package Manager also writes scratch trees at the root and in examples.
 .build/
+# Nested agent worktrees are generated checkouts, not this workspace source.
+/.claude/worktrees/
 # Personal agent permissions and settings are local to each checkout.
 **/.claude/settings.local.json
 /.codex_artifacts/

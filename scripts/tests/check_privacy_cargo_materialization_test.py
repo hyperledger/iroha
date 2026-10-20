@@ -180,6 +180,7 @@ IROHA_PRIVACY_CARGO_LOCKFILE_PATH="$3" privacy_sdk_resolve_cargo_lockfile "$2" "
         # Preceding reviewed digests are rejected fixtures, never alternate
         # selectors. Even a correct current physical seal cannot authorize them.
         stale_digests = (
+            "466e9ce02aae1688d27faf164f01f4cd6ccbfcfd866b3504cd05e9527d894b58",
             "f63ef61b2abd60f5dc71ec5cfffa5652c49b01ce1789be3ab9240ebe06d04698",
             "1c67e27eee71508ca7822f52851ec110ce1f78e74a50ec985f342f5baa91fb62",
             "c766e96ceedbad8f0a457746590ec5e5795934793bfc507aa3a5c3f2effee631",

@@ -1420,6 +1420,7 @@ async fn app_api_get_by_id_not_found_returns_404() {
 struct RuntimeApiRouterFixture {
     router: crate::TestApiRouterRuntime,
     _kiso_child: iroha_futures::supervisor::Child,
+    _data_dir: tempfile::TempDir,
 }
 impl RuntimeApiRouterFixture {
     fn standard(chain_id: &'static str) -> Self {
@@ -1457,6 +1458,23 @@ impl RuntimeApiRouterFixture {
         configure: impl FnOnce(&mut iroha_config::parameters::actual::Root),
     ) -> Self {
         let mut cfg = crate::test_utils::mk_minimal_root_cfg();
+        // Each runtime owns durable outbox writers until shutdown. Parallel router
+        // fixtures must not share the process-default checkpoint directory.
+        let data_dir = tempfile::tempdir().expect("runtime router data directory");
+        let root = data_dir
+            .path()
+            .canonicalize()
+            .expect("canonical router data directory");
+        cfg.torii.data_dir = root.clone();
+        cfg.torii.sorafs_storage.data_dir = root.join("sorafs");
+        let por_root = cfg.torii.sorafs_storage.data_dir.join("por");
+        cfg.torii.sorafs_por.state_dir = por_root.clone();
+        cfg.torii.sorafs_por.drand.state_path =
+            por_root.join(iroha_config::parameters::defaults::sorafs::por::DRAND_STATE_FILE);
+        cfg.torii.sorafs_por.vrf_state_path =
+            por_root.join(iroha_config::parameters::defaults::sorafs::por::VRF_STATE_FILE);
+        cfg.torii.da_ingest.replay_cache_store_dir = root.join("da_replay");
+        cfg.torii.da_ingest.manifest_store_dir = root.join("da_manifests");
         configure(&mut cfg);
         let (kiso, child) = KisoHandle::start(cfg.clone());
         let queue = Arc::new(Queue::from_config(
@@ -1491,6 +1509,7 @@ impl RuntimeApiRouterFixture {
                 .api_router_for_tests()
                 .expect("test Torii router initializes"),
             _kiso_child: child,
+            _data_dir: data_dir,
         }
     }
 
@@ -1630,10 +1649,14 @@ async fn retired_storage_pin_route_cannot_mutate_chain_or_local_storage() {
         LiveQueryStore::start_test(),
     ));
     let storage_dir = tempfile::tempdir().expect("storage tempdir");
+    let storage_root = storage_dir
+        .path()
+        .canonicalize()
+        .expect("canonical storage root");
     let sorafs_node = sorafs_node::NodeHandle::new(
         sorafs_node::config::StorageConfig::builder()
             .enabled(true)
-            .data_dir(storage_dir.path().join("storage"))
+            .data_dir(storage_root.join("storage"))
             .build(),
     );
     let storage = sorafs_node.storage().expect("enabled storage");

@@ -285,7 +285,7 @@ mod tests {
         },
         block::BlockHeader,
         domain::Domain,
-        nexus::{DataSpaceCatalog, DataSpaceMetadata},
+        nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
     };
     use iroha_model_base::domain::DomainId;
     use iroha_primitives::numeric::{NumericSpec, Quantity};
@@ -363,6 +363,21 @@ mod tests {
         .expect("test catalog");
         stx.nexus.dataspace_catalog = catalog.clone();
         stx.world.dataspace_catalog = catalog;
+        // This global-root fixture activates a public home; unknown data spaces
+        // are restricted and cannot substitute a public lane in the catalog.
+        stx.nexus.lane_catalog = LaneCatalog::new(
+            nonzero!(2_u32),
+            vec![
+                LaneConfig::default(),
+                LaneConfig {
+                    id: iroha_model_base::topology::LaneId::new(1),
+                    alias: "bpng".to_owned(),
+                    dataspace_id: DataSpaceId::new(7),
+                    ..LaneConfig::default()
+                },
+            ],
+        )
+        .expect("public retail home lane");
         stx.current_dataspace_id = Some(DataSpaceId::new(7));
         stx.world.current_dataspace_id = Some(DataSpaceId::new(7));
     }

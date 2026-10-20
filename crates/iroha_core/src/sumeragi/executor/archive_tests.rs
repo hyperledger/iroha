@@ -186,7 +186,8 @@ fn context(
         .unwrap();
     (
         ExecutorContext {
-            time_source: iroha_primitives::time::TimeSource::new_system(),
+            // The genuine historical proposal advances this fixture-owned clock.
+            time_source: chain.execution_time_source(),
             state: Clone::clone(chain.state()),
             native_context_archive: Arc::new(
                 NativeContextArchive::open(

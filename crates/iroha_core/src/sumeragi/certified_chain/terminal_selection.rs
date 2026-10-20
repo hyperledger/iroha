@@ -118,7 +118,86 @@ pub(super) struct TerminalSelection<'kura> {
     delivered: bool,
     budget: AllocationBudget,
 }
-impl TerminalSelection<'_> {
+impl<'kura> TerminalSelection<'kura> {
+    // Genesis-prefix decoding has returned before these certificate/gap return
+    // temporaries become live. The original cursor lock spans both phases.
+    #[inline(never)]
+    fn certify<V: StateReadOnly + ?Sized>(
+        &mut self,
+        prefix: &mut VerifiedPrefix,
+        context: PrefixVerifierContext,
+        view: &'kura V,
+        budget: &AllocationBudget,
+        #[cfg(test)] probe: &parking_lot::Mutex<Option<TerminalProbe<'kura>>>,
+    ) -> Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>> {
+        let height = self.height;
+        self.target.decode(height, prefix, budget)?;
+        #[cfg(test)]
+        if let Some(observe) = probe.lock().take() {
+            observe(self.target.borrowed());
+        }
+        if height == GENESIS_HEIGHT {
+            let committed = self.target.borrowed();
+            if committed.core_hash != prefix.tip.core_hash || committed.result != prefix.tip.result
+            {
+                return Err(ChainReadError::ForeignGenesis.into());
+            }
+            let certificate =
+                context.prepare_certificate(committed, &prefix.authority, None, None, None)?;
+            self.target.acquisition.original_source()?;
+            self.delivered = true;
+            return Ok(certificate.into_certified(self.target.take()));
+        }
+        while prefix
+            .tip
+            .height
+            .checked_add(1)
+            .is_some_and(|next| next < height)
+        {
+            let next = prefix.tip.height + 1;
+            if self.gap.is_none() {
+                self.gap = Some(OriginalReceipt::new(view, next, budget)?);
+            }
+            let gap = self
+                .gap
+                .as_mut()
+                .expect("same original missing predecessor");
+            let prepared = (|| {
+                gap.decode(next, prefix, budget)?;
+                let prepared = context.prepare_advance(prefix, gap.borrowed(), None)?;
+                gap.acquisition.original_source()?;
+                self.target.acquisition.original_source()?;
+                Ok::<_, ExecutionAttemptError<ChainReadError>>(prepared)
+            })();
+            let prepared = match prepared {
+                Ok(prepared) => prepared,
+                Err(cause) => {
+                    #[cfg(all(test, sumeragi_core_mutation = "HC188"))]
+                    if matches!(&cause, ExecutionAttemptError::Deferred(_)) {
+                        // Deliberately forget only completed target-result work after a later
+                        // genuine predecessor refusal. Authentication and source guards stay.
+                        self.target.committed = None;
+                    }
+                    return Err(cause);
+                }
+            };
+            // The private prepared value proves all fallible checks finished. Move the exact
+            // gap graph into its original predecessor cursor; never clone a returned receipt.
+            prefix.tip = gap.take();
+            prefix.schedule = prepared.schedule;
+            prefix.authority = prepared.authority;
+            prefix.proof_source = prepared.proof_source;
+            drop(prepared.certificate);
+            self.gap = None;
+        }
+        // Full fallible schedule advancement must finish even though this terminal result
+        // intentionally does not become another retained prefix tip.
+        let prepared = context.prepare_advance(prefix, self.target.borrowed(), None)?;
+        self.target.acquisition.original_source()?;
+        self.delivered = true;
+        Ok(prepared.certificate.into_certified(self.target.take()))
+    }
+
     pub(super) const fn delivered(&self) -> bool {
         self.delivered
     }
@@ -209,72 +288,17 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
             instance: self.instance,
             root_scope: self.root_scope,
         };
-        let pending = self.terminal.as_mut().expect("original terminal selection");
-        pending.target.decode(height, prefix, budget)?;
-        #[cfg(test)]
-        if let Some(observe) = self.terminal_probe.lock().take() {
-            observe(pending.target.borrowed());
-        }
-        if height == GENESIS_HEIGHT {
-            let committed = pending.target.borrowed();
-            if committed.core_hash != prefix.tip.core_hash || committed.result != prefix.tip.result
-            {
-                return Err(ChainReadError::ForeignGenesis.into());
-            }
-            let certificate =
-                context.prepare_certificate(committed, &prefix.authority, None, None, None)?;
-            pending.target.acquisition.original_source()?;
-            pending.delivered = true;
-            return Ok(certificate.into_certified(pending.target.take()));
-        }
-        while prefix
-            .tip
-            .height
-            .checked_add(1)
-            .is_some_and(|next| next < height)
-        {
-            let next = prefix.tip.height + 1;
-            if pending.gap.is_none() {
-                pending.gap = Some(OriginalReceipt::new(view, next, budget)?);
-            }
-            let gap = pending
-                .gap
-                .as_mut()
-                .expect("same original missing predecessor");
-            let prepared = (|| {
-                gap.decode(next, prefix, budget)?;
-                let prepared = context.prepare_advance(prefix, gap.borrowed(), None)?;
-                gap.acquisition.original_source()?;
-                pending.target.acquisition.original_source()?;
-                Ok::<_, ExecutionAttemptError<ChainReadError>>(prepared)
-            })();
-            let prepared = match prepared {
-                Ok(prepared) => prepared,
-                Err(cause) => {
-                    #[cfg(all(test, sumeragi_core_mutation = "HC188"))]
-                    if matches!(&cause, ExecutionAttemptError::Deferred(_)) {
-                        // Deliberately forget only completed target-result work after a later
-                        // genuine predecessor refusal. Authentication and source guards stay.
-                        pending.target.committed = None;
-                    }
-                    return Err(cause);
-                }
-            };
-            // The private prepared value proves all fallible checks finished. Move the exact
-            // gap graph into its original predecessor cursor; never clone a returned receipt.
-            prefix.tip = gap.take();
-            prefix.schedule = prepared.schedule;
-            prefix.authority = prepared.authority;
-            prefix.proof_source = prepared.proof_source;
-            drop(prepared.certificate);
-            pending.gap = None;
-        }
-        // Full fallible schedule advancement must finish even though this terminal result
-        // intentionally does not become another retained prefix tip.
-        let prepared = context.prepare_advance(prefix, pending.target.borrowed(), None)?;
-        pending.target.acquisition.original_source()?;
-        pending.delivered = true;
-        Ok(prepared.certificate.into_certified(pending.target.take()))
+        self.terminal
+            .as_mut()
+            .expect("original terminal selection")
+            .certify(
+                prefix,
+                context,
+                view,
+                budget,
+                #[cfg(test)]
+                &self.terminal_probe,
+            )
     }
 }
 

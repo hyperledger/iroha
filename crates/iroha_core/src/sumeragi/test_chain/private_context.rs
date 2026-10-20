@@ -1,6 +1,6 @@
 //! Real paid H2 private-context source for downstream authorization-race controls.
 //!
-//! Reuses the canonical empty-pool bootstrap planner and CertifiedTestChain's actual native
+//! Reuses the canonical governed-pool bootstrap planner and CertifiedTestChain's actual native
 //! execution/publication. The fixture signs genuine four-seat certificates itself; it does
 //! not run a consensus network or grant a production proof-authority constructor.
 
@@ -21,7 +21,7 @@ use iroha_data_model::{
         PrivateSettlementPoolGovernanceLifecycleV1, PrivateSettlementPoolGovernanceProjectionV1,
         PrivateSettlementPoolKeyV1, PrivateSettlementRouteV1,
     },
-    privacy::PrivacyPoolIdV1,
+    privacy::{PrivacyCommitmentV1, PrivacyPoolIdV1},
     transaction::{
         FeeChargeKind, FeeChargeLimit, FeePaymentIntent, SignedTransaction, TransactionBuilder,
     },
@@ -146,7 +146,10 @@ pub fn native_private_context_route_fixture()
     {
         use iroha_data_model::{
             consensus::{ConsensusKeyId, ConsensusKeyRecord, ConsensusKeyRole, ConsensusKeyStatus},
-            sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember, SumeragiLaneRecord},
+            sumeragi_lanes::{
+                SumeragiFixedLane, SumeragiLaneFrontier, SumeragiLaneMember, SumeragiLanePolicy,
+                SumeragiLaneRecord,
+            },
         };
         use iroha_model_base::peer::PeerId;
         let mut keys = (0..4)
@@ -183,7 +186,26 @@ pub fn native_private_context_route_fixture()
                     pop,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        // The genuine genesis lane step closes assignments absent from policy.
+        // Commit this exact fixed committee so the selected H2 route stays live.
+        let mut policy = SumeragiLanePolicy::for_chain(
+            Default::default(),
+            iroha_sumeragi::availability::recommended_data_availability_layout(),
+        );
+        policy.fixed.push(SumeragiFixedLane {
+            lane: key.route.lane_id,
+            dataspace: key.route.dataspace_id,
+            committee: members.clone(),
+        });
+        policy
+            .validate()
+            .expect("canonical fixed-lane fixture policy");
+        config
+            .genesis_parameters
+            .push(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter(),
+            ));
         let mut lanes = config.world.sumeragi_lanes.view().get().clone();
         lanes.upsert(SumeragiLaneRecord {
             da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
@@ -222,7 +244,8 @@ pub fn native_private_context_route_fixture()
         &config.world.private_settlement_pools.view(),
         &config.world.private_settlement_roots.view(),
         governance,
-        &[],
+        // A governed pool starts with its actual nonempty commitment frontier.
+        &[PrivacyCommitmentV1::new([0xD3; 32])],
         1,
     )
     .unwrap()

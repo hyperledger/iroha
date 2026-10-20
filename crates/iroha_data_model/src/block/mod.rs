@@ -488,6 +488,18 @@ impl SignedBlock {
         Ok(proposal.materialize())
     }
 
+    /// Borrow the original proposal's header after projecting any executed lane suffix.
+    ///
+    /// Certified lane expansion changes execution roots. Source custody must bind the
+    /// original proposal roots instead, without cloning its transactions or evidence.
+    /// This projection establishes no signature, lane or execution authority.
+    ///
+    /// # Errors
+    /// Rejects an impossible merged suffix, malformed context alignment or encoding error.
+    pub fn canonical_resultless_header(&self) -> Result<BlockHeader, NoritoFrameError> {
+        Ok(proposal::Proposal::new(self)?.shape().0)
+    }
+
     /// The lane merge section this block carries, if any.
     #[must_use]
     pub fn lane_merge(&self) -> Option<&crate::sumeragi_lanes::SumeragiLaneMergeSection> {

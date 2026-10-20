@@ -255,10 +255,8 @@ fn bounded_identity_loader_rejects_bad_key_empty_oversized_and_replaced_files() 
         .write_atomic("key.der", &other.key, PublishMode::Replace)
         .unwrap();
     let error = PreparedHttps::load(&identity.config).err().unwrap();
-    assert_eq!(
-        error.to_string(),
-        "invalid Torii HTTPS certificate/key identity"
-    );
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(error.to_string(), "invalid native HTTPS identity");
     identity
         .directory
         .write_atomic("key.der", &identity.key, PublishMode::Replace)

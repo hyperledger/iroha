@@ -210,6 +210,13 @@ mod tests {
 
     #[test]
     fn actual_verified_producer_artifact_survives_refusal_and_fresh_cursor_recovery() {
+        // The canonical prover admits one proof per process. Sibling real-proof
+        // fixtures must not turn this exact success case into an unrelated Busy.
+        if crate::unit_test_support::run_in_isolated_harness(
+            "fastpq::lane::durable::tests::actual_verified_producer_artifact_survives_refusal_and_fresh_cursor_recovery",
+        ) {
+            return;
+        }
         let (chain, job) = source();
         let source_hash = job.block_hash();
         let key = position(&job).unwrap();
