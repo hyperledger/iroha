@@ -445,21 +445,7 @@ pub fn build_attestation(
     // One reverse source walk joins the target to H2 and genesis, checking both
     // selected QCs/availability and the exact separately projected genesis result.
     // No producer cursor, source verdict or challenge is retained across calls.
-    let (genesis_finality_proof, finality_proof) = {
-        let proof_chain =
-            CertifiedChain::new(view).map_err(|error| Error::GenesisFinalityProof(error.into()))?;
-        let (genesis_decision, genesis) =
-            attestation_genesis_proof(&proof_chain).map_err(Error::GenesisFinalityProof)?;
-        let tip = if height == 1 {
-            genesis.clone()
-        } else if height > 2 && !norito::core::decode_limits_active() {
-            current_execution_proof(&proof_chain, height, genesis_decision)
-                .map_err(Error::FinalityProof)?
-        } else {
-            proof_from_chain(&proof_chain, height).map_err(Error::FinalityProof)?
-        };
-        (genesis, tip)
-    };
+    let (genesis_finality_proof, finality_proof) = attestation_proofs(view, height)?;
     finish_attestation(
         view,
         status,
@@ -474,6 +460,29 @@ pub fn build_attestation(
             tip: finality_proof,
         },
     )
+}
+
+// Retire the independent certificate reader and all of its construction slots before
+// the fresh source fence validates and signs the portable attestation body.
+#[inline(never)]
+fn attestation_proofs(
+    view: &impl StateReadOnly,
+    height: u64,
+) -> Result<(SumeragiFinalityProof, SumeragiFinalityProof), AttestationBuildError> {
+    use AttestationBuildError as Error;
+    let proof_chain =
+        CertifiedChain::new(view).map_err(|error| Error::GenesisFinalityProof(error.into()))?;
+    let (genesis_decision, genesis) =
+        attestation_genesis_proof(&proof_chain).map_err(Error::GenesisFinalityProof)?;
+    let tip = if height == 1 {
+        genesis.clone()
+    } else if height > 2 && !norito::core::decode_limits_active() {
+        current_execution_proof(&proof_chain, height, genesis_decision)
+            .map_err(Error::FinalityProof)?
+    } else {
+        proof_from_chain(&proof_chain, height).map_err(Error::FinalityProof)?
+    };
+    Ok((genesis, tip))
 }
 
 // Coordinates of the exact native receipt projected into the returned genesis proof.

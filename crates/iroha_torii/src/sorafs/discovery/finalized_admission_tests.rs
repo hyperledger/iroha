@@ -79,9 +79,15 @@ fn current_signed_genesis_admission_is_discoverable_and_keeps_expiry_and_replay_
             .is_some()
     );
     assert!(cache.unverified_record_for_native_proof(&[0; 32]).is_none());
+    // ProviderAdvertV1 validates through the signed expires_at second.
     assert!(
         cache
             .admitted_record_by_provider(&provider, now + 60)
+            .is_some()
+    );
+    assert!(
+        cache
+            .admitted_record_by_provider(&provider, now + 61)
             .is_none()
     );
     cache.replay_checkpoint_poisoned = true;

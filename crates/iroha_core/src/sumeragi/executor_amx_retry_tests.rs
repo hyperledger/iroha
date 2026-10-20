@@ -792,6 +792,9 @@ fn assert_original_partial_leg_prefix(
 #[test]
 fn rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence()
  {
+    // This test measures only its original leg bank's refunds; keep unrelated
+    // retired fixture State generations out of that exact accounting.
+    let _epoch = crossbeam_epoch::pin();
     crate::sumeragi::threads::sumeragi_thread_builder("amx-rejected-bank-replay-test")
         .spawn(|| crate::sumeragi::amx::with_paid_prepare_retry_fixture(|chain, instruction, customer| {
             use iroha_allocation::{AllocationRefusal, ChargedBufferError};
@@ -834,9 +837,13 @@ fn rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later
                     assert!(valid.as_ref().output_error(0).is_some());
                     assert!(valid.as_ref().output_error(1).is_none());
                     drop(observation);
+                    // The successful overlay owns a deferred-refund scope. Finish
+                    // that already-checked execution before the independent bank
+                    // control observes the actual external blocker's release.
+                    worker.discard(block.header().height, &[]);
+                    assert!(worker.live.is_none() && worker.finishing.is_none());
+                    assert!(worker.signature_decode.is_none());
                     // Exact ReleaseWait assertions are scoped to the leg bank.
-                    // Enclosing Worker rollback may separately retire legitimate
-                    // State/transaction owners from this same finite pool.
                     let mut attempt = SignatureDecodeAttempt {
                         block_hash: hash, source: block.clone(),
                         decoder: iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&pool).unwrap(),

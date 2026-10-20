@@ -267,10 +267,21 @@ pub(crate) mod tests {
             staged_context_hash(&changed_catalog),
             "dataspace catalog changes must alter the signed height context",
         );
-        let mut changed_amx = lane_hash_world(&records);
+        let changed_amx = lane_hash_world(&records);
         let mut pipeline = changed_amx.pipeline_snapshot();
         pipeline.amx_group_budget_ms = pipeline.amx_group_budget_ms.saturating_add(1);
-        changed_amx.set_pipeline(pipeline);
+        // Validity comes from the original committed chain policy, not node settings.
+        {
+            let mut world = changed_amx.world.block();
+            world
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    crate::pipeline_validity_policy::policy_of(&pipeline).into_custom_parameter(),
+                ))
+                .unwrap();
+            world.commit();
+        }
         assert_ne!(
             staged_context_hash(&baseline),
             staged_context_hash(&changed_amx),
@@ -305,10 +316,20 @@ pub(crate) mod tests {
             assert_eq!(first, second);
             first
         };
-        let mut drifted = baseline;
+        let drifted = baseline;
         let mut pipeline = drifted.pipeline_snapshot();
         pipeline.overlay_max_bytes = pipeline.overlay_max_bytes.saturating_add(1);
-        drifted.set_pipeline(pipeline);
+        {
+            let mut world = drifted.world.block();
+            world
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    crate::pipeline_validity_policy::policy_of(&pipeline).into_custom_parameter(),
+                ))
+                .unwrap();
+            world.commit();
+        }
         let staged = drifted.block(genesis_header());
         assert_ne!(
             staged_genesis_execution_policy_hash(&staged).expect("derive drifted policy"),

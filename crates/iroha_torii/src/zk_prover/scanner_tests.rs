@@ -1456,9 +1456,10 @@ fn snapshot_that_crosses_time_budget_is_charged_and_completed_once() {
     let body = fixture_attachment_bytes();
     let body_size = body.len() as u64;
     let max_scan_millis = 100;
+    let snapshot_elapsed_millis = 150;
     let _env = TestDataDirGuard::new();
     configure_test_cfg(iroha_config::parameters::defaults::torii::zk_prover_allowed_circuits());
-    let _delay_reset = SnapshotLoadDelayReset;
+    let _clock_reset = SnapshotLoadClockReset;
     let tenant_key = anon_tenant_key();
     ensure_tenant_dir(&tenant_key);
     let id = attachment_body_id(&body);
@@ -1477,8 +1478,11 @@ fn snapshot_that_crosses_time_budget_is_charged_and_completed_once() {
         norito::json::to_json_pretty(&meta).expect("delayed snapshot metadata JSON"),
     )
     .expect("write delayed snapshot metadata");
+    // Discovery runs at elapsed zero. The real snapshot-load hook advances
+    // this test clock past the deadline only after the immutable body is read.
+    super::TEST_SCAN_ELAPSED_MS.store(0, AtomicOrdering::SeqCst);
     super::TEST_MAX_SCAN_MILLIS_OVERRIDE.store(max_scan_millis, AtomicOrdering::SeqCst);
-    super::TEST_SNAPSHOT_LOAD_DELAY_MS.store(150, AtomicOrdering::SeqCst);
+    super::TEST_SNAPSHOT_LOAD_ELAPSED_MS.store(snapshot_elapsed_millis, AtomicOrdering::SeqCst);
     let stats = block_on_scan().expect("run prover scan");
     assert_eq!(stats.processed_reports, 1);
     assert_eq!(stats.bytes_processed, body_size);
@@ -1487,17 +1491,20 @@ fn snapshot_that_crosses_time_budget_is_charged_and_completed_once() {
     assert!(stats.remaining_pending <= 1);
     assert_eq!(stats.budget_exhausted, Some("time"));
     assert!(stats.duration_ms >= max_scan_millis);
+    assert_eq!(stats.duration_ms, snapshot_elapsed_millis);
     assert!(
         load_report(&id).expect("cross-budget snapshot report").ok,
         "an immutable snapshot read before the time check must complete exactly once"
     );
     let attempts = proof_verification_attempt_count();
     super::TEST_MAX_SCAN_MILLIS_OVERRIDE.store(0, AtomicOrdering::SeqCst);
-    super::TEST_SNAPSHOT_LOAD_DELAY_MS.store(0, AtomicOrdering::SeqCst);
+    super::TEST_SNAPSHOT_LOAD_ELAPSED_MS.store(0, AtomicOrdering::SeqCst);
+    super::TEST_SCAN_ELAPSED_MS.store(0, AtomicOrdering::SeqCst);
     let completed = block_on_scan().expect("finish the retained discovery cursor");
     assert_eq!(completed.processed_reports, 0);
     assert_eq!(completed.bytes_processed, 0);
     assert_eq!(completed.remaining_pending, 0);
+    assert_eq!(completed.duration_ms, 0);
     assert_eq!(
         proof_verification_attempt_count(),
         attempts,

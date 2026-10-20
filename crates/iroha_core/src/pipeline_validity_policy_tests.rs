@@ -105,7 +105,10 @@ fn scarce_local_resources(base: &Pipeline) -> Pipeline {
         source_model_operations: base.state_capture.source_model_operations.saturating_sub(1),
         source_signature_checks: base.state_capture.source_signature_checks.saturating_sub(1),
         native_work_per_attempt: base.state_capture.native_work_per_attempt.saturating_sub(1),
-        table_count: base.state_capture.table_count.saturating_sub(1),
+        // The default admits exactly one selected table per semantic builder;
+        // zero refuses genesis capture before these validity assertions can run.
+        // Keep this local resource different while still admitting that table.
+        table_count: base.state_capture.table_count + 1,
         table_rows: base.state_capture.table_rows.saturating_sub(1),
         table_payload_bytes: base.state_capture.table_payload_bytes.saturating_sub(1),
         table_ordered_bytes: base.state_capture.table_ordered_bytes.saturating_sub(1),

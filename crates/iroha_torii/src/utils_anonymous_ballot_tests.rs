@@ -59,6 +59,19 @@ fn versioned_anonymous_json_preserves_nested_resource_refusal_and_restores_scope
     assert_eq!(decoded.unwrap(), entry);
     let complete = usage.total_allocated_bytes();
     assert!(complete > iroha_data_model::governance::anonymous_ballot::BallotProofBytesV1::LENGTH);
+    let (direct_refusal, rejecting_usage) =
+        norito::core::with_decode_limits_measured(limits(complete - 1), || {
+            TransactionEntrypoint::decode_versioned_json_body(&body, None)
+        });
+    assert_eq!(
+        direct_refusal.unwrap_err().status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    assert_eq!(
+        rejecting_usage.total_allocated_bytes(),
+        complete - iroha_data_model::governance::anonymous_ballot::BallotProofBytesV1::LENGTH,
+        "the rejecting owner refuses the inner proof after funding the outer wrapper",
+    );
     let (refused, refused_usage) =
         norito::core::with_decode_limits_measured(limits(usize::MAX), || {
             TransactionEntrypoint::decode_versioned_json_body(
@@ -69,8 +82,8 @@ fn versioned_anonymous_json_preserves_nested_resource_refusal_and_restores_scope
     let refused = refused.unwrap_err();
     assert_eq!(
         refused_usage.total_allocated_bytes(),
-        complete - iroha_data_model::governance::anonymous_ballot::BallotProofBytesV1::LENGTH,
-        "the refusal occurs at the inner proof reservation after the outer wrapper is funded",
+        complete,
+        "the enclosing owner records its cumulative charge before the tighter nested owner refuses",
     );
     assert_eq!(refused.status(), StatusCode::PAYLOAD_TOO_LARGE);
     assert!(refused.headers().get("x-iroha-reject-code").is_none());

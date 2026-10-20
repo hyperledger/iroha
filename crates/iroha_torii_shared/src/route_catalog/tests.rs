@@ -102,7 +102,7 @@ mod tests {
         }
     }
     #[test]
-    fn amx_debit_approval_proof_is_an_account_authenticated_sdk_read() {
+    fn amx_debit_approval_proof_is_an_account_authenticated_openapi_and_sdk_read() {
         let route = contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST;
         assert_eq!(
             route.stable_route_id(),
@@ -121,7 +121,8 @@ mod tests {
         );
         assert!(route.requires_private_no_store());
         assert_eq!(route.feature_gate(), FeatureGate::Feature("app_api"));
-        assert_eq!(route.projections(), RouteProjections::SDK);
+        assert_eq!(route.projections(), RouteProjections::OPENAPI_AND_SDK);
+        assert!(!route.projections().mcp());
         assert!(route.cors_options());
         assert!(contracts_and_verification_keys::ROUTES.contains(&route));
         assert!(CATALOGED_ROUTES.contains(&route));

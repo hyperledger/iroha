@@ -28,6 +28,13 @@ fn refuse_actual_batch(worker: &mut Worker<'_>, height: u64, view: u64) {
 
 #[test]
 fn original_lane_read_request_survives_refusal_busy_state_and_incidental_publication() {
+    // Full State retirement requires the process-wide epoch collector to advance.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::executor::proposal_read_tests::original_lane_read_request_survives_refusal_busy_state_and_incidental_publication",
+    ) {
+        return;
+    }
+    let fixture_epoch = crossbeam_epoch::pin();
     let observed = Arc::new(std::sync::Mutex::new(None));
     let result = observed.clone();
     lanes::merge::with_original_lane_merge_fixture(move |chain, stores, certify, [first, _]| {
@@ -94,6 +101,7 @@ fn original_lane_read_request_survives_refusal_busy_state_and_incidental_publica
             },
         );
     });
+    drop(fixture_epoch);
     let (budget, correct) = observed.lock().unwrap().take().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while budget.reserved_bytes() != 0 && std::time::Instant::now() < deadline {
@@ -109,6 +117,13 @@ fn original_lane_read_request_survives_refusal_busy_state_and_incidental_publica
 
 #[test]
 fn final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_tick() {
+    // Full State retirement requires the process-wide epoch collector to advance.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::executor::proposal_read_tests::final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_tick",
+    ) {
+        return;
+    }
+    let fixture_epoch = crossbeam_epoch::pin();
     let observed = Arc::new(std::sync::Mutex::new(None));
     let result = observed.clone();
     lanes::merge::with_original_lane_merge_fixture(move |chain, stores, certify, [first, _]| {
@@ -158,6 +173,7 @@ fn final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_
         drop((store, epoch));
         *result.lock().unwrap() = Some((budget, cancelled && no_pending));
     });
+    drop(fixture_epoch);
     let (budget, correct) = observed.lock().unwrap().take().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while budget.reserved_bytes() != 0 && std::time::Instant::now() < deadline {
@@ -173,6 +189,12 @@ fn final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_
 
 #[test]
 fn successful_parent_commit_cancels_proposal_read_only_after_original_publication() {
+    // Full State retirement requires the process-wide epoch collector to advance.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::executor::proposal_read_tests::successful_parent_commit_cancels_proposal_read_only_after_original_publication",
+    ) {
+        return;
+    }
     let observed = Arc::new(std::sync::Mutex::new(None));
     let result = observed.clone();
     lanes::merge::with_original_lane_merge_fixture(move |chain, stores, certify, [first, _]| {
@@ -320,6 +342,13 @@ impl lanes::merge::LaneBlockSource for IncomingReadRefusal {
 
 #[test]
 fn discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclusion() {
+    // Full State retirement requires the process-wide epoch collector to advance.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::executor::proposal_read_tests::discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclusion",
+    ) {
+        return;
+    }
+    let fixture_epoch = crossbeam_epoch::pin();
     let observed = Arc::new(std::sync::Mutex::new(None));
     let result = observed.clone();
     lanes::merge::with_original_lane_merge_fixture(move |chain, stores, certify, [first, _]| {
@@ -469,6 +498,7 @@ fn discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclu
             },
         );
     });
+    drop(fixture_epoch);
     let (budget, decoded_retired, read_retired) = observed.lock().unwrap().take().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while budget.reserved_bytes() != 0 && std::time::Instant::now() < deadline {
@@ -488,6 +518,13 @@ fn discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclu
 
 #[test]
 fn authenticated_incoming_execution_moves_the_original_local_lane_request_without_reopening() {
+    // Full State retirement requires the process-wide epoch collector to advance.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::executor::proposal_read_tests::authenticated_incoming_execution_moves_the_original_local_lane_request_without_reopening",
+    ) {
+        return;
+    }
+    let fixture_epoch = crossbeam_epoch::pin();
     let observed = Arc::new(std::sync::Mutex::new(None));
     let result = observed.clone();
     lanes::merge::with_original_lane_merge_fixture(move |chain, stores, certify, [first, _]| {
@@ -590,6 +627,7 @@ fn authenticated_incoming_execution_moves_the_original_local_lane_request_withou
             },
         );
     });
+    drop(fixture_epoch);
     let (budget, transferred) = observed.lock().unwrap().take().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while budget.reserved_bytes() != 0 && std::time::Instant::now() < deadline {

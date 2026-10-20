@@ -221,7 +221,10 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
         assert_eq!(Some(context.canonical_bytes().as_ptr()), pointer);
         assert_eq!(context.canonical_bytes(), bytes.as_ref().unwrap());
         assert!(context.prepared_intent_bytes().is_none());
-        assert_eq!(worker.state.view().height(), 1);
+        assert_eq!(
+            worker.state.view().height() as u64,
+            block.header().height - 1
+        );
         assert!(worker.live.is_none());
         assert_eq!(budget.limit_bytes(), limit);
         assert!(budget.same_pool(&worker.state.ivm_execution_budget()));
@@ -276,7 +279,7 @@ fn original_paid_intent_namespace_refusal_retains_both_buffers_and_exact_commit_
             );
             assert_eq!(source.prepared_intent_bytes().unwrap(), expected);
             assert!(worker.commit(&block, &qc).is_err());
-            assert_eq!(worker.applied.0, 1);
+            assert_eq!(worker.applied.0, block.header().height - 1);
         }
         fs::rename(&hidden, &directory).unwrap();
         worker.commit(&block, &qc).unwrap();
@@ -384,7 +387,7 @@ fn original_paid_intent_changed_durable_bytes_never_acknowledge_or_repair() {
         blocks.append(&block, &qc).unwrap();
         for _ in 0..2 {
             assert!(worker.commit(&block, &qc).is_err());
-            assert_eq!(worker.applied.0, 1);
+            assert_eq!(worker.applied.0, block.header().height - 1);
             assert_eq!(
                 worker
                     .pending_commit

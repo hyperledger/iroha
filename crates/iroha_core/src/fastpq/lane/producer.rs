@@ -503,6 +503,8 @@ impl Producer {
         }
     }
 
+    // Each phase owns large native by-value results. End unrelated temporary
+    // frames before replay acquires World blocks on the ordinary blocking worker.
     fn step(
         &mut self,
         engine: &Arc<dyn FastpqProofEngine>,
@@ -512,114 +514,159 @@ impl Producer {
         deadline: Instant,
     ) -> Result<(), ProducerError> {
         check(deadline)?;
-        if let Some(completed) = self.completed.take() {
-            // The generation lease held by the worker spans this exact-byte barrier.
-            // Cancellation checks precede persistence; a completed barrier remains a fact.
-            if shutdown_requested(shutdown, external_shutdown) {
-                self.completed = Some(completed);
-                return Ok(());
-            }
-            match completed.persist(self.state.kura()) {
-                Ok(job) => self.job = Some(job),
-                Err((completed, error)) => {
-                    self.completed = Some(completed);
-                    return Err(error.into());
-                }
-            }
-            return check(deadline);
+        if self.completed.is_some() {
+            return self.persist_completed(shutdown, external_shutdown, deadline);
         }
-        if let Some(job) = self.job.as_mut() {
-            if job.next_statement == job.source.leaves().len() {
-                // Empty manifests advance only after the complete native D7 and source
-                // inventory were actually authenticated by NativeFastpqSourceRead.
-                self.height = self
-                    .height
-                    .checked_add(1)
-                    .ok_or(ProducerError::Identity("height exhausted"))?;
-                self.job = None;
-                return Ok(());
-            }
-            let (proving, verification) = engine.limits();
-            if job.recover_next(self.state.kura(), proving, &verification)? {
-                return check(deadline);
-            }
-            check(deadline)?;
-            let job = self.job.take().expect("retained exact job");
-            match process_job(engine, job, generation, shutdown, external_shutdown) {
-                FastpqJobOutcome::Complete(completed) => self.completed = Some(completed),
-                FastpqJobOutcome::Exhausted(job) => self.job = Some(job),
-                FastpqJobOutcome::Deferred { job, error } => {
-                    self.job = Some(job);
-                    return Err(error.into());
-                }
-            }
-            // A synchronous proof cannot be preempted. The same absolute budget is
-            // checked after it, preserving the produced owner for a later finite turn.
-            return check(deadline);
+        if self.job.is_some() {
+            return self.advance_job(engine, generation, shutdown, external_shutdown, deadline);
         }
-        if let Some(read) = self.source.as_mut() {
+        if self.source.is_some() {
             if self.source_missing {
-                let seed = self.replay_seed.as_ref().ok_or(ProducerError::Identity(
-                    "missing original startup replay seed",
-                ))?;
-                if !seed.belongs_to(&self.state) {
-                    return Err(ProducerError::Identity(
-                        "replay seed differs from original State, Kura or pool",
-                    ));
-                }
-                if self.replay.is_none() {
-                    self.replay = Some(seed.begin(read.native()?, deadline)?);
-                    return check(deadline);
-                }
-                let completed = self
-                    .replay
-                    .as_mut()
-                    .expect("retained original replay")
-                    .advance(
-                        read.native()?,
-                        deadline,
-                        usize::from(self.policy.max_native_steps.get()),
-                    );
-                let completed = match completed {
-                    Ok(completed) => completed,
-                    Err(error) => {
-                        if replay_needs_fresh_capture(&error) {
-                            // Drop only this isolated temporary destination. The
-                            // original authenticated source, seed and deadline
-                            // remain selected; no durable cursor has advanced.
-                            self.replay = None;
-                        }
-                        return Err(error.into());
-                    }
-                };
-                if let Some(transport) = completed {
-                    read.use_replayed_transport(transport)?;
-                    self.source_missing = false;
-                    self.source_replayed = true;
+                return self.replay_source(deadline);
+            }
+            return self.read_source(deadline);
+        }
+        self.select_source(engine, deadline)
+    }
+
+    #[inline(never)]
+    fn persist_completed(
+        &mut self,
+        shutdown: &ShutdownSignal,
+        external_shutdown: Option<&ShutdownSignal>,
+        deadline: Instant,
+    ) -> Result<(), ProducerError> {
+        let completed = self.completed.take().expect("retained completed proof");
+        // The generation lease held by the worker spans this exact-byte barrier.
+        // Cancellation checks precede persistence; a completed barrier remains a fact.
+        if shutdown_requested(shutdown, external_shutdown) {
+            self.completed = Some(completed);
+            return Ok(());
+        }
+        match completed.persist(self.state.kura()) {
+            Ok(job) => self.job = Some(job),
+            Err((completed, error)) => {
+                self.completed = Some(completed);
+                return Err(error.into());
+            }
+        }
+        check(deadline)
+    }
+
+    #[inline(never)]
+    fn advance_job(
+        &mut self,
+        engine: &Arc<dyn FastpqProofEngine>,
+        generation: u64,
+        shutdown: &ShutdownSignal,
+        external_shutdown: Option<&ShutdownSignal>,
+        deadline: Instant,
+    ) -> Result<(), ProducerError> {
+        let job = self.job.as_mut().expect("retained exact job");
+        if job.next_statement == job.source.leaves().len() {
+            // Empty manifests advance only after the complete native D7 and source
+            // inventory were actually authenticated by NativeFastpqSourceRead.
+            self.height = self
+                .height
+                .checked_add(1)
+                .ok_or(ProducerError::Identity("height exhausted"))?;
+            self.job = None;
+            return Ok(());
+        }
+        let (proving, verification) = engine.limits();
+        if job.recover_next(self.state.kura(), proving, &verification)? {
+            return check(deadline);
+        }
+        check(deadline)?;
+        let job = self.job.take().expect("retained exact job");
+        match process_job(engine, job, generation, shutdown, external_shutdown) {
+            FastpqJobOutcome::Complete(completed) => self.completed = Some(completed),
+            FastpqJobOutcome::Exhausted(job) => self.job = Some(job),
+            FastpqJobOutcome::Deferred { job, error } => {
+                self.job = Some(job);
+                return Err(error.into());
+            }
+        }
+        // A synchronous proof cannot be preempted. The same absolute budget is
+        // checked after it, preserving the produced owner for a later finite turn.
+        check(deadline)
+    }
+
+    #[inline(never)]
+    fn replay_source(&mut self, deadline: Instant) -> Result<(), ProducerError> {
+        let read = self.source.as_mut().expect("retained original source");
+        let seed = self.replay_seed.as_ref().ok_or(ProducerError::Identity(
+            "missing original startup replay seed",
+        ))?;
+        if !seed.belongs_to(&self.state) {
+            return Err(ProducerError::Identity(
+                "replay seed differs from original State, Kura or pool",
+            ));
+        }
+        if self.replay.is_none() {
+            self.replay = Some(seed.begin(read.native()?, deadline)?);
+            return check(deadline);
+        }
+        let completed = self
+            .replay
+            .as_mut()
+            .expect("retained original replay")
+            .advance(
+                read.native()?,
+                deadline,
+                usize::from(self.policy.max_native_steps.get()),
+            );
+        let completed = match completed {
+            Ok(completed) => completed,
+            Err(error) => {
+                if replay_needs_fresh_capture(&error) {
+                    // Drop only this isolated temporary destination. The
+                    // original authenticated source, seed and deadline
+                    // remain selected; no durable cursor has advanced.
                     self.replay = None;
                 }
-                return check(deadline);
+                return Err(error.into());
             }
-            match read.poll() {
-                Ok(Some(source)) => {
-                    self.job = Some(FastpqWitnessJob::from_recovered(source));
-                    self.source = None;
-                    self.source_replayed = false;
-                }
-                Ok(None) => {}
-                Err(error) if missing_transport(&error) => {
-                    if self.source_replayed {
-                        return Err(ProducerError::Identity(
-                            "completed isolated replay omitted exact source transport",
-                        ));
-                    }
-                    self.source_missing = true;
-                    return Err(error.into());
-                }
-                Err(error) => return Err(error.into()),
-            }
-            return check(deadline);
+        };
+        if let Some(transport) = completed {
+            read.use_replayed_transport(transport)?;
+            self.source_missing = false;
+            self.source_replayed = true;
+            self.replay = None;
         }
+        check(deadline)
+    }
+
+    #[inline(never)]
+    fn read_source(&mut self, deadline: Instant) -> Result<(), ProducerError> {
+        let read = self.source.as_mut().expect("retained original source");
+        match read.poll() {
+            Ok(Some(source)) => {
+                self.job = Some(FastpqWitnessJob::from_recovered(source));
+                self.source = None;
+                self.source_replayed = false;
+            }
+            Ok(None) => {}
+            Err(error) if missing_transport(&error) => {
+                if self.source_replayed {
+                    return Err(ProducerError::Identity(
+                        "completed isolated replay omitted exact source transport",
+                    ));
+                }
+                self.source_missing = true;
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        }
+        check(deadline)
+    }
+
+    #[inline(never)]
+    fn select_source(
+        &mut self,
+        engine: &Arc<dyn FastpqProofEngine>,
+        deadline: Instant,
+    ) -> Result<(), ProducerError> {
         if u64::try_from(self.state.committed_height())
             .map_err(|_| ProducerError::Identity("committed height is not representable"))?
             < self.height.max(2)

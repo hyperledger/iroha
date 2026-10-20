@@ -102,9 +102,10 @@ mod tests {
                 Account::new(owner.clone()).build(&owner),
                 Account::new(escrow.clone()).build(&escrow),
             ],
-            [AssetDefinition::numeric(
+            [AssetDefinition::new(
                 definition.clone(),
                 "Staked XOR",
+                iroha_primitives::numeric::NumericSpec::fractional(9),
                 iroha_data_model::asset::AssetBalancePolicy::Global,
                 None,
             )

@@ -162,7 +162,10 @@ impl NativeValidationFixture {
             crate::sumeragi::certified_chain::ParentServicePreparation::default();
         let prepare_parent = proposal.header().height().get() > 2
             && proposal.has_consensus_work()
-            && ValidBlock::native_header_source(&proposal, state, header, bytes).is_ok();
+            && ValidBlock::native_header_source(&proposal, state, header, bytes).is_ok()
+            // Malformed sidecars must reach the validator's typed rejection,
+            // before the semantic parent-QC preparer would refuse them.
+            && ValidBlock::validate_da_sidecar_hashes(&proposal).is_ok();
         if prepare_parent {
             crate::sumeragi::certified_chain::admit_parent_service_fixture(
                 &mut proposal,

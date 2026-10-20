@@ -13,7 +13,36 @@ fn counter(budget: &iroha_allocation::AllocationBudget, maximum: usize) -> Decod
 
 #[test]
 fn initial_authenticated_genesis_failure_keeps_original_body_raw_and_pool_until_retirement() {
+    let _epoch = crossbeam_epoch::pin();
     let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+    // Independently census the model decoder's retained controls and immutable
+    // children; the raw frame and shared body shell do not fund that custody.
+    let decoded_bytes = {
+        let wire = chain.committed(1).block().encode_wire().unwrap();
+        let census = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
+        let mut source = iroha_allocation::ChargedBuffer::new(wire.len(), &census).unwrap();
+        source.append(&wire).unwrap();
+        let mut decoder =
+            iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&census).unwrap();
+        let body = decoder
+            .decode(
+                &source,
+                norito::core::SequenceSpan {
+                    start: 0,
+                    end: wire.len(),
+                },
+                norito::canonical_decode_limits(wire.len()),
+            )
+            .unwrap();
+        assert_eq!(body.encode_wire().unwrap(), wire);
+        let retained = census.reserved_bytes() - wire.len();
+        assert!(retained > 0);
+        drop(body);
+        drop(decoder);
+        drop(source);
+        assert_eq!(census.reserved_bytes(), 0);
+        retained
+    };
     // The canonical frame comes from the genuine independent producer. Only this
     // reader's authenticated network scope is foreign; no block/proof is fabricated.
     let wrong = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
@@ -46,7 +75,7 @@ fn initial_authenticated_genesis_failure_keeps_original_body_raw_and_pool_until_
     let length = raw.as_slice().len();
     assert_eq!(
         budget.reserved_bytes(),
-        before + length + SharedSignedBlock::allocation_layout().size()
+        before + length + SharedSignedBlock::allocation_layout().size() + decoded_bytes
     );
     let reads = chain.kura().canonical_query_reads_for_test();
     assert_eq!(reads, (1, u64::try_from(length).unwrap()));

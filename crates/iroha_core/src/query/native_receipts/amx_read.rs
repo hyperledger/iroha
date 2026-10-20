@@ -285,14 +285,23 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
 
     // The same acquisition used by borrowed polling and detach. A refusal leaves every field
     // in this reader; already issued carrier/namespace owners are never reacquired.
+    #[inline(never)]
     fn acquire_original_source(&mut self) -> Result<(), NativeAmxRecordProofErrorV1> {
-        let source = self
-            .source
+        self.source
             .as_mut()
             .ok_or(NativeAmxRecordProofErrorV1::Source(
                 "native AMX proof already completed",
-            ))?;
-        source.require_pending()?;
+            ))?
+            .require_pending()?;
+        self.initialize_original_chain()?;
+        self.certify_original_source()?;
+        self.open_original_archive()
+    }
+
+    // Retire constructor return temporaries before descending into certificate decoders.
+    // These phases retain the same owners and predicate order without new backing.
+    #[inline(never)]
+    fn initialize_original_chain(&mut self) -> Result<(), NativeAmxRecordProofErrorV1> {
         if self.chain.is_none() {
             if self.initialization.is_none() {
                 self.initialization = Some(AmxChainInitialization::new(self.view)?);
@@ -307,6 +316,12 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
             // empty stage neither refunds backing nor releases an original decoder.
             self.initialization = None;
         }
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn certify_original_source(&mut self) -> Result<(), NativeAmxRecordProofErrorV1> {
+        let source = self.source.as_mut().expect("original pending source");
         if source.certified.is_none() {
             source.certified = Some(
                 self.chain
@@ -315,6 +330,12 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
                     .certified_terminal_amx(source.height)?,
             );
         }
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn open_original_archive(&mut self) -> Result<(), NativeAmxRecordProofErrorV1> {
+        let source = self.source.as_mut().expect("original pending source");
         if source.read.is_none() {
             source.read = Some(
                 NativeContextArchive::open_existing(

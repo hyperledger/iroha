@@ -1381,7 +1381,7 @@ mod tests {
     };
     use iroha_data_model::{
         isi::Log,
-        transaction::{FeePaymentIntent, TransactionEntrypoint},
+        transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionEntrypoint},
     };
     use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
     use iroha_model_base::{chain::ChainId, peer::PeerId};
@@ -1639,6 +1639,22 @@ mod tests {
             ));
         for parameter in extra {
             builder = builder.append_parameter(parameter);
+        }
+        // Ordinary node traffic pays the fee policy encoded by GenesisBuilder. Fund both
+        // workload signers through the same signed genesis, including the elastic shard.
+        let fee_asset =
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
+        builder = builder.append_instruction(Register::asset_definition(AssetDefinition::numeric(
+            fee_asset.clone(),
+            "Node fixture XOR",
+            iroha_data_model::asset::AssetBalancePolicy::Global,
+            None,
+        )));
+        for payer in [ALICE_ID.clone(), second_shard_account()] {
+            builder = builder.append_instruction(Mint::asset_quantity(
+                1_000_000_u32,
+                AssetId::of(fee_asset.clone(), payer),
+            ));
         }
         let manifest = builder
             .with_block_cadence_ms(NonZeroU64::new(100).expect("non-zero"))
@@ -2014,12 +2030,40 @@ mod tests {
         message: &str,
     ) -> HashOf<TransactionEntrypoint> {
         let network_id = NetworkId::from_genesis_hash(chain.genesis.hash());
+        let instruction = InstructionBox::from(Log::new(Level::INFO, message.to_owned()));
+        let fees = validators[0]
+            .state
+            .view()
+            .world()
+            .parameters()
+            .root_fees()
+            .expect("original signed node fee policy")
+            .clone();
+        assert!(
+            fees.per_byte_fee.is_zero(),
+            "fixed node fixture has no byte fee"
+        );
+        let gas = crate::gas::meter_instruction(&instruction, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("complete Log gas quote");
+        let fee = crate::executor::compute_nexus_fee_amount(&fees, 0, 1, gas)
+            .expect("exact signed Log charge");
+        assert!(
+            !fee.is_zero(),
+            "ordinary node progress pays its committed fee"
+        );
         let signed = TransactionBuilder::new(
             network_id,
             AccountId::new(key.public_key().clone()),
-            FeePaymentIntent::authority(Vec::new(), None),
+            FeePaymentIntent::authority(
+                vec![FeeChargeLimit::new(
+                    FeeChargeKind::Nexus,
+                    fees.fee_asset_id,
+                    fee,
+                )],
+                None,
+            ),
         )
-        .with_instructions([Log::new(Level::INFO, message.to_owned())])
+        .with_instructions([instruction])
         .sign(key.private_key());
         let accepted = AcceptedTransaction::accept(
             signed,
@@ -2226,7 +2270,10 @@ mod tests {
         shutdown(validators);
     }
 
-    const ELASTIC_BURST_INPUTS: u32 = 256;
+    // At the unchanged sixty-second burst deadline, 32 admitted inputs supply
+    // at least 0.533 TPS: above the signed 0.3 TPS scale-out threshold. A smaller
+    // paid batch keeps real four-validator execution bounded in debug builds.
+    const ELASTIC_BURST_INPUTS: u32 = 32;
 
     /// A lane policy that autoscales one elastic lane (16) over the whole validator set.
     fn elastic_lane_policy(_keys: &[KeyPair]) -> Vec<Parameter> {
@@ -2267,7 +2314,7 @@ mod tests {
                 max_lane_exclusive: iroha_model_base::topology::LaneId::new(17),
                 dataspace: iroha_model_base::topology::DataSpaceId::new(0),
                 committee_size: 4,
-                per_lane_target_tps: 10,
+                per_lane_target_tps: 1,
                 window: 3,
                 scale_out_permille: 300,
                 scale_in_permille: 150,
@@ -2356,8 +2403,8 @@ mod tests {
             if running(&validators) == vec![1; 4] {
                 break;
             }
-            // Amortize real proposal/QC work with a bounded queue of ordinary signed inputs.
-            // Six inputs per several-second commit do not supply the policy's 3 TPS threshold.
+            // Amortize real proposal/QC work with a bounded queue of ordinary paid inputs.
+            // Even a burst at the finite wait bound crosses the signed 0.3 TPS threshold.
             burst(
                 &validators,
                 usize::try_from(ELASTIC_BURST_INPUTS).expect("bounded burst"),
@@ -2400,12 +2447,14 @@ mod tests {
                 .iter()
                 .all(|merged| *merged >= 1)
         );
-        // Idle: spaced transactions show low utilization and the lane closes.
+        // Idle: with both default-route lanes active, one input per four seconds
+        // offers at most 125 permille of the signed 1 TPS per-lane capacity, below
+        // the 150-permille scale-in threshold even on a fast host.
         for index in 0..12 {
             if lane_record(&validators[0], elastic).is_none_or(|record| record.closing.is_some()) {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(1_600));
+            std::thread::sleep(Duration::from_secs(4));
             let hash = submit(&chain, &validators, &format!("idle {index}"));
             wait_until(
                 &validators,

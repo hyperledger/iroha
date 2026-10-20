@@ -195,6 +195,8 @@ fn commit_independent_global_work(fixture: &mut Fixture) {
 
 #[test]
 fn closed_unhosted_lane_proposal_retries_original_opening_and_preserves_certified_backlog() {
+    // Keep retired fixture allocations stable during exact capacity accounting.
+    let _epoch = crossbeam_epoch::pin();
     let mut closed = closed_lane();
     refuse_original_tip(&mut closed);
     let merges = {
@@ -230,6 +232,14 @@ fn closed_unhosted_lane_proposal_retries_original_opening_and_preserves_certifie
 
 #[test]
 fn abandoned_proposal_tip_releases_original_opening_after_certified_retirement() {
+    // The final zero-balance assertion needs exclusive access to epoch collection.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::lanes::merge::tests::opening_retirement::abandoned_proposal_tip_releases_original_opening_after_certified_retirement",
+    ) {
+        return;
+    }
+    // Keep retired fixture allocations stable during exact capacity accounting.
+    let epoch = crossbeam_epoch::pin();
     let mut closed = closed_lane();
     refuse_original_tip(&mut closed);
     closed.request = crate::sumeragi::lanes::ProposalReadScope::new();
@@ -314,7 +324,7 @@ fn abandoned_proposal_tip_releases_original_opening_after_certified_retirement()
     assert!(body.admitted_to(&budget));
     assert_eq!(fs::read(&closed.path).unwrap(), closed.frame);
     assert!(!closed.fixture.committed(&closed.transaction));
-    drop((body, certificate, replay, closed));
+    drop((body, certificate, replay, closed, epoch));
     // State's existing EBR protocol runs only after every native result and owner
     // above has been consumed; a retained native cycle cannot be collected here.
     let deadline = std::time::Instant::now() + Duration::from_secs(5);

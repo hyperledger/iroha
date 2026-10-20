@@ -98,7 +98,7 @@ impl Original {
             pool,
             kura: view.kura_handle(),
             tip,
-            proposal: proposal.hash(),
+            proposal: parent_service_proposal_hash(proposal)?,
             predecessor: coordinates(predecessor),
             current: coordinates(current),
             indices,
@@ -128,7 +128,7 @@ impl Original {
             || !ChargedBuffer::belongs_to(&self.source, &pool)
             || !std::ptr::eq(self.kura.as_ref(), view.kura())
             || view.native_execution_tip() != Some(self.tip)
-            || self.proposal != proposal.hash()
+            || self.proposal != parent_service_proposal_hash(proposal)?
             || self.predecessor != coordinates(predecessor)
             || self.current != coordinates(current)
             || !qc

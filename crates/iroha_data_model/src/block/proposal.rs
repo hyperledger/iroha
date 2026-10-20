@@ -161,11 +161,9 @@ impl<'a> Payload<'a> {
         });
         let mut header = source.header;
         if count > 0 {
-            let mut merkle = MerkleTree::<TransactionEntrypoint>::default();
-            for entrypoint in external {
-                merkle.add(entrypoint.hash());
-            }
-            header.merkle_root = merkle.root();
+            header.merkle_root = MerkleTree::<TransactionEntrypoint>::root_from_typed_leaves(
+                external.iter().map(|entrypoint| entrypoint.hash()),
+            );
             let context = execution_context
                 .as_ref()
                 .expect("nonzero merge has a context");

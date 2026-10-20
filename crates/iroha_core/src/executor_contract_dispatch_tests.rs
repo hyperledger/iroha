@@ -146,10 +146,14 @@ fn contract_entrypoint_authorization_accepts_direct_and_role_grants() {
     let authority = ALICE_ID.clone();
     let account = Account::new(authority.clone()).build(&authority);
     let world = World::with([], [account], []);
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = query::store::LiveQueryStore::start_test();
-    let state = State::new(world, kura, query_handle);
-    let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = state_after_genesis(world);
+    let header = BlockHeader::new(
+        nonzero!(2_u64),
+        Some(state.view().latest_block_hash().unwrap()),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     let mut tx = block.transaction();
     let contract_address = ContractAddress::derive(
@@ -2524,17 +2528,29 @@ fn completion_permission_payload_requires_exact_nonzero_provider_scope() {
 
 #[test]
 fn migration_and_upgrade_keep_one_original_refusal_until_state_terminal() {
+    // Keep retired genesis generations from refunding the saturated original pool.
+    let _retirement_pin = crossbeam_epoch::pin();
     for through_upgrade in [false, true] {
         let raw = data_model_executor::Executor::new(IvmBytecode::from_compiled(
             generate_migration_program(&Ok(initial_executor_data_model_fallback())),
         ));
-        let state = State::new_with_chain(
-            World::new(),
-            Kura::blank_kura_for_testing(),
-            query::store::LiveQueryStore::start_test(),
-            ChainId::from("migration-owner"),
-        );
-        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        let mut world = World::with([], [Account::new(ALICE_ID.clone()).build(&ALICE_ID)], []);
+        world.account_permissions = [(
+            ALICE_ID.clone(),
+            BTreeSet::from([Permission::from(
+                executor_permission::executor::CanUpgradeExecutor,
+            )]),
+        )]
+        .into_iter()
+        .collect();
+        let state = state_after_genesis(world);
+        let mut block = state.block(BlockHeader::new(
+            nonzero!(2_u64),
+            Some(state.view().latest_block_hash().unwrap()),
+            None,
+            1,
+            0,
+        ));
         let marker: iroha_model_base::state_path::StatePath =
             "migration_original_owner_TESTDATA".parse().unwrap();
         let mut tx = block.transaction();
