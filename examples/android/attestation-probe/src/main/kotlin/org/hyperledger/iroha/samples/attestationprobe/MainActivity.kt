@@ -143,6 +143,7 @@ class MainActivity : Activity() {
                     appendLine("security_patch=${Build.VERSION.SECURITY_PATCH}")
                     appendLine("challenge_hex=${ProbeEncoding.hex(challenge)}")
                     appendLine("key_algorithm=EC_secp256r1")
+                    appendLine("key_purposes=SIGN")
                     appendLine("user_authentication_required=false")
                     appendLine("verification=not_performed_capture_only")
                     appendLine("enrollment_decision=none_diagnostic_capture")
@@ -213,11 +214,10 @@ class MainActivity : Activity() {
             val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, keyStore.provider)
             report.appendLine("generator_provider=${generator.provider.name}")
             generator.initialize(
-                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
                     .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setAttestationChallenge(challenge.copyOf())
-                    .setUserAuthenticationRequired(false)
                     .build(),
             )
             val keyPair = generator.generateKeyPair()
