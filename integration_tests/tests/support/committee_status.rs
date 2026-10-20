@@ -145,48 +145,27 @@ where
     Ok(result)
 }
 
-/// Retry only a validated fee-quote capacity refusal for an unsigned transaction draft.
-/// Each read still authenticates its HTTP request; transaction signing happens afterwards.
-/// The account already carries the original submission deadline; sleeping or retrying
-/// never renews it, and this helper cannot sign or submit a transaction.
+/// Quote one unsigned draft through the SDK's deadline-bound retry owner.
+/// The account carries the original submission deadline; each retry authenticates
+/// fresh HTTP work for the same draft. Transaction signing happens afterwards.
+/// This helper checks the phase boundary and never signs or submits a transaction.
 pub async fn quote_fees_until(
     account: &iroha::client::AccountClient,
     payload: &iroha_data_model::transaction::TransactionPayload,
     deadline: Instant,
 ) -> Result<iroha_torii_shared::FeeQuoteResponse> {
-    loop {
-        ensure!(
-            Instant::now() < deadline,
-            "committee fee quote deadline elapsed"
-        );
-        let result = account
-            .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature { payload })
-            .await;
-        match result {
-            Ok(quote) => {
-                ensure!(
-                    Instant::now() < deadline,
-                    "committee fee quote deadline elapsed"
-                );
-                return Ok(quote);
-            }
-            Err(error) => {
-                let Some(backpressure) =
-                    error.downcast_ref::<iroha::client::FeeQuoteBackpressure>()
-                else {
-                    return Err(error);
-                };
-                let delay = backpressure.retry_after();
-                if delay >= deadline.saturating_duration_since(Instant::now()) {
-                    return Err(error);
-                }
-                tokio::time::sleep(delay).await;
-                if Instant::now() >= deadline {
-                    return Err(error);
-                }
-            }
-        }
-    }
+    ensure!(
+        Instant::now() < deadline,
+        "committee fee quote deadline elapsed"
+    );
+    let quote = account
+        .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature { payload })
+        .await?;
+    ensure!(
+        Instant::now() < deadline,
+        "committee fee quote deadline elapsed"
+    );
+    Ok(quote)
 }
 
 /// Read an authoritative applied height without extending the caller's deadline.
@@ -1587,11 +1566,19 @@ mod status_observation_tests {
         let error = quote_fees_until(&account, &fee_payload(&account), deadline)
             .await
             .unwrap_err();
-        assert!(
-            error
-                .downcast_ref::<iroha::client::FeeQuoteBackpressure>()
-                .is_some()
-        );
+        if let Some(backpressure) = error.downcast_ref::<iroha::client::FeeQuoteBackpressure>() {
+            assert_eq!(backpressure.retry_after(), Duration::from_secs(1));
+        } else {
+            // Scheduling may consume the remaining budget while sleeping; an
+            // actually elapsed deadline remains its original transport timeout.
+            assert!(Instant::now() >= deadline);
+            assert_eq!(
+                error
+                    .downcast_ref::<std::io::Error>()
+                    .map(std::io::Error::kind),
+                Some(std::io::ErrorKind::TimedOut)
+            );
+        }
         let requests = transport.requests.lock().unwrap();
         // Scheduling may exhaust the original deadline during the first sleep.
         // The successful-retry test separately requires two reads; this refusal

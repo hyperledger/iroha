@@ -759,6 +759,11 @@ fn prefix_error(error: PrefixArtifactsError) -> Attempt<io::Error> {
         {
             crate::sumeragi::storage_attempt::byte(error)
         }
+        PrefixArtifactsError::Certificate(CertificateReadError::Canonical(original)) => {
+            canonical_decode_attempt_error(original, |error| {
+                io::Error::new(io::ErrorKind::InvalidData, error)
+            })
+        }
         PrefixArtifactsError::Certificate(CertificateReadError::Decode(error)) => {
             norito_decode_attempt_error(error, |error| {
                 io::Error::new(io::ErrorKind::InvalidData, error)
@@ -847,6 +852,157 @@ mod tests {
 #[cfg(test)]
 mod artifact_tests {
     use super::*;
+
+    #[test]
+    fn stored_prefix_metadata_preserves_retired_decode_origin_and_retries_original_source() {
+        let (chain, _, _epoch) = super::super::tests::fixed_lane_chain();
+        let block = chain
+            .kura()
+            .get_block(
+                NonZeroUsize::new(2).unwrap(),
+                &chain.state().ivm_execution_budget(),
+            )
+            .expect("original stored block read")
+            .unwrap();
+        let wire = block.encode_wire().unwrap();
+        let budget = AllocationBudget::new(1 << 26);
+        for elements in [true, false] {
+            let limits = norito::DecodeLimits::new(
+                usize::MAX,
+                usize::MAX,
+                if elements { 0 } else { usize::MAX },
+                if elements { usize::MAX } else { 0 },
+                128,
+            );
+            let read = PrefixArtifactsRead::new(Clone::clone(&block), budget.clone());
+            let (read, error) = norito::with_decode_limits_scope(limits, || read.complete(&budget))
+                .err()
+                .expect("actual stored metadata preflight refuses its enclosing limit");
+            let retained = match &error {
+                PrefixArtifactsError::Certificate(CertificateReadError::Canonical(original)) => {
+                    original.local_refusal()
+                }
+                PrefixArtifactsError::Certificate(CertificateReadError::Decode(_)) => None,
+                _ => panic!("expected actual metadata preflight refusal: {error:?}"),
+            };
+            let partial_bytes = budget.reserved_bytes();
+            let mut projected = None;
+            let allocations = norito::with_decode_limits_scope(limits, || {
+                let raw = match &error {
+                    PrefixArtifactsError::Certificate(CertificateReadError::Canonical(
+                        original,
+                    )) => original.error(),
+                    PrefixArtifactsError::Certificate(CertificateReadError::Decode(raw)) => raw,
+                    _ => unreachable!("checked metadata decoder error"),
+                };
+                assert!(
+                    !norito::core::decode_error_matches_active_limits(raw),
+                    "a foreign equal scope cannot adopt the retired decoder error"
+                );
+                crate::test_allocations::allocations_during(|| {
+                    projected = Some(prefix_error(error));
+                })
+            });
+            let projected = projected.unwrap();
+            assert!(
+                matches!(&projected, Attempt::Deferred(local) if local.decode_refusal().is_some()),
+                "HC967 stored prefix metadata retains its original local refusal after scope retirement"
+            );
+            let Attempt::Deferred(local) = projected else {
+                unreachable!("checked original local refusal");
+            };
+            assert_eq!(
+                allocations, 0,
+                "forward the exact cause without allocating a replacement diagnostic"
+            );
+            assert_eq!(
+                local.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            let retained = retained.expect("captured original metadata decoder owner");
+            assert_eq!(
+                retained.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(local.decode_refusal(), Some(&retained));
+            assert!(local.allocation_refusal().is_none());
+            assert!(local.allocator_refusal().is_none());
+            assert_eq!(budget.reserved_bytes(), partial_bytes);
+            let artifacts = read
+                .complete(&budget)
+                .unwrap_or_else(|(_, error)| panic!("unchanged source retries: {error}"));
+            assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+                artifacts.source(),
+                &block
+            ));
+            assert_eq!(artifacts.source().encode_wire().unwrap(), wire);
+            drop(artifacts);
+            assert_eq!(budget.reserved_bytes(), 0);
+        }
+    }
+
+    #[test]
+    fn oversized_metadata_remains_rejected_under_foreign_equal_field_ceiling() {
+        use crate::sumeragi::{
+            certified_chain::artifacts::metadata, durable_qc_codec::MAX_QC_METADATA_BYTES,
+            durable_record_codec::MAX_HEADER_METADATA_BYTES,
+        };
+        use norito::core as ncore;
+
+        let budget = AllocationBudget::new(1 << 20);
+        for is_header in [true, false] {
+            let cap = if is_header {
+                MAX_HEADER_METADATA_BYTES
+            } else {
+                MAX_QC_METADATA_BYTES
+            } + ncore::Header::SIZE;
+            let oversized = vec![0_u8; cap + 1];
+            for is_funded in [true, false] {
+                let unlimited =
+                    norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128);
+                let error =
+                    norito::with_decode_limits_scope(unlimited, || match (is_header, is_funded) {
+                        (true, true) => metadata::header(&oversized, &budget).map(drop),
+                        (true, false) => metadata::decoded_header(&oversized).map(drop),
+                        (false, true) => metadata::qc(&oversized, &budget).map(drop),
+                        (false, false) => metadata::decoded_qc(&oversized).map(drop),
+                    })
+                    .unwrap_err();
+                let CertificateReadError::Canonical(original) = error else {
+                    panic!("intrinsic metadata cap must retain terminal classification: {error:?}");
+                };
+                assert_eq!(original.kind(), ncore::DecodeAttemptErrorKind::Invalid);
+                assert!(original.local_refusal().is_none());
+                assert!(
+                    matches!(original.error(), norito::Error::FieldLengthExceeded { length, limit }
+                    if *length == (cap + 1) as u64 && *limit == cap as u64)
+                );
+                let foreign =
+                    norito::DecodeLimits::new(usize::MAX, cap, usize::MAX, usize::MAX, 128);
+                let projected = norito::with_decode_limits_scope(foreign, || {
+                    assert!(
+                        ncore::decode_error_matches_active_limits(original.error()),
+                        "legacy numeric matching would adopt this intrinsic cap under the foreign scope"
+                    );
+                    prefix_error(PrefixArtifactsError::Certificate(
+                        CertificateReadError::Canonical(original),
+                    ))
+                });
+                let Attempt::Rejected(error) = projected else {
+                    panic!("intrinsically oversized metadata cannot become a foreign-scope retry");
+                };
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+                let retained = error
+                    .get_ref()
+                    .unwrap()
+                    .downcast_ref::<ncore::DecodeAttemptError>()
+                    .unwrap();
+                assert_eq!(retained.kind(), ncore::DecodeAttemptErrorKind::Invalid);
+                assert!(retained.local_refusal().is_none());
+                assert_eq!(budget.reserved_bytes(), 0);
+            }
+        }
+    }
 
     #[test]
     fn certificate_refusal_keeps_completed_archive_and_prefix_until_original_retry() {

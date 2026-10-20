@@ -707,7 +707,7 @@ impl crate::state::WorldTransaction<'_, '_> {
     }
 
     /// Keep the first retry owner without constructing a diagnostic that a caller discards.
-    fn record_execution_deferral(&self, reason: impl Into<ExecutionDeferred>) {
+    pub(crate) fn record_execution_deferral(&self, reason: impl Into<ExecutionDeferred>) {
         self.execution_deferral.borrow_mut().record(reason);
     }
 

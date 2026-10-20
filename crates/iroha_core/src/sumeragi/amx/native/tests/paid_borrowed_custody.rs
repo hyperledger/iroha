@@ -548,6 +548,9 @@ fn native_amx_original_begin_instruction_refusal_preserves_same_pool_and_last_ow
     fn original_control() {
         use iroha_allocation::{AllocationBudget, AllocationRefusal};
         use iroha_data_model::isi::AmxInstructionAdmissionErrorV1;
+        // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+        // Pin before replay can retire charged generations into the shared epoch collector.
+        let _state_retirement = crossbeam_epoch::pin();
         let mut roots = paid_roots();
         let transaction = roots.transaction(100, 0x71);
         roots.approve_all(&transaction);
@@ -717,6 +720,9 @@ fn native_amx_paid_owned_queue_and_payload_clones_retain_original_proof_graph_an
     fn original_control() {
         use crate::queue::Queue;
         use std::num::NonZeroUsize;
+        // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+        // Pin before replay can retire charged generations into the shared epoch collector.
+        let _state_retirement = crossbeam_epoch::pin();
         let (roots, accepted, original, _tx) = paid_original_relay();
         let pool = roots.participants[0].state().ivm_execution_budget();
         let Executable::Instructions(instructions) = accepted.external().unwrap().instructions()
@@ -1079,6 +1085,9 @@ fn instruction_relay(instruction: &InstructionBox) -> &AmxRecordProofV1 {
 
 #[test]
 fn restarted_paid_intent_delivers_exact_native_prepared_relay_and_refunds_original_pool() {
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     with_restarted_paid_prepared_intent(|chain, expected, tx| {
         let budget = chain.state().ivm_execution_budget();
         budget.with_deferred_refund_notifications(|_| {
@@ -1165,6 +1174,9 @@ fn restarted_paid_intent_final_namespace_refusal_retains_exact_funded_instructio
     use crate::query::native_receipts::{
         NativeAmxPreparedRelayErrorV1 as Error, NativeAmxPreparedRelayPollV1 as Poll,
     };
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     with_restarted_paid_prepared_intent(|chain, expected, _| {
         let budget = chain.state().ivm_execution_budget();
         budget.with_deferred_refund_notifications(|_| {
@@ -1290,6 +1302,9 @@ fn restarted_paid_intent_original_pool_refusal_keeps_frame_and_selected_source_w
 fn restarted_paid_intent_rejects_substituted_authority_carrier_and_execution_claims() {
     use crate::query::native_context_archive::prepared_intent_test_helpers::rewrite_claims;
     use crate::query::native_receipts::NativeAmxPreparedRelayErrorV1 as Error;
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     with_restarted_paid_prepared_intent(|chain, _, _| {
         let budget = chain.state().ivm_execution_budget();
         budget.with_deferred_refund_notifications(|_| {
@@ -1342,6 +1357,9 @@ fn restarted_paid_intent_rejects_substituted_authority_carrier_and_execution_cla
 fn restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery() {
     use crate::query::native_context_archive::prepared_intent_test_helpers::one_row_subset;
     use crate::query::native_receipts::NativeAmxPreparedRelayErrorV1 as Error;
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     let mut roots = paid_roots();
     let transactions = [roots.transaction(40, 0x79), roots.transaction(60, 0x7A)];
     for transaction in &transactions {
@@ -1473,6 +1491,9 @@ fn instruction_decision(instruction: &InstructionBox) -> &AmxRecordProofV1 {
 #[test]
 fn native_amx_decision_delivery_after_restart_settles_exact_registered_child_at_final_tip() {
     use crate::query::native_receipts::decision_amx_relay;
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut roots, restored, tx, begin_height) = restarted_paid_decision();
     let tip = restored.height();
     let budget = restored.state().ivm_execution_budget();
@@ -1618,6 +1639,9 @@ fn native_amx_decision_delivery_rejects_absent_begin_wrong_participant_and_forei
 #[test]
 fn native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction() {
     use crate::query::native_receipts::decision_amx_relay;
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     let (_, restored, tx, begin_height) = restarted_paid_decision();
     let budget = restored.state().ivm_execution_budget();
     budget.with_deferred_refund_notifications(|_| {

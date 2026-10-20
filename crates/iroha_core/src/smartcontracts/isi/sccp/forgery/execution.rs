@@ -55,6 +55,22 @@ pub(crate) enum ForgeryExecutionError {
     Preparation(#[from] EvidencePreparationError),
 }
 
+/// Local preparation retains either the existing storage owner or a move-only
+/// execution refusal. Neither form is a deterministic verdict on signed evidence.
+#[derive(Debug)]
+pub(crate) enum ForgeryLocalRefusal {
+    /// Original State storage or finite evidence-pool refusal.
+    Storage(StateStorageAdmissionError),
+    /// Original physical pairing allocator cause, moved without diagnostic copying.
+    Execution(crate::execution_attempt::ExecutionDeferred),
+}
+
+impl From<StateStorageAdmissionError> for ForgeryLocalRefusal {
+    fn from(error: StateStorageAdmissionError) -> Self {
+        Self::Storage(error)
+    }
+}
+
 impl ForgeryExecutionError {
     /// Retain local failure before crossing the model-owned instruction error boundary.
     /// The outer output owner checks these sticky sources before deterministic R-EX.
@@ -68,10 +84,17 @@ impl ForgeryExecutionError {
                 // Its sticky owner rejects the carrier before receipts or apply; even a
                 // diagnostic allocation here could fail while reporting allocator refusal.
                 #[cfg(all(test, sumeragi_core_mutation = "HC907"))]
-                let message = local.to_string().into_boxed_str();
+                let message = format!("{local:?}").into_boxed_str();
                 #[cfg(not(all(test, sumeragi_core_mutation = "HC907")))]
                 let message = Box::<str>::default();
-                stx.arm_local_storage_refusal(local);
+                match local {
+                    ForgeryLocalRefusal::Storage(original) => {
+                        stx.arm_local_storage_refusal(original);
+                    }
+                    ForgeryLocalRefusal::Execution(original) => {
+                        stx.world.record_execution_deferral(original);
+                    }
+                }
                 InstructionExecutionError::InvariantViolation(message)
             }
             Err(protocol) => {
@@ -98,27 +121,28 @@ impl ForgeryExecutionError {
 
     /// Extract the unchanged local refusal without requiring a transaction or allocating
     /// a diagnostic. Protocol failures are returned intact for the caller's drop policy.
-    pub(crate) fn into_local_refusal(self) -> Result<StateStorageAdmissionError, Self> {
+    pub(crate) fn into_local_refusal(self) -> Result<ForgeryLocalRefusal, Self> {
         match self {
-            Self::Storage(error) => Ok(StateStorageAdmissionError::SccpForgery(error)),
-            Self::Preparation(error) => Ok(StateStorageAdmissionError::SccpEvidence(error)),
-            Self::Verification(ForgeryVerificationError::Allocation(error)) => {
-                Ok(StateStorageAdmissionError::SccpEvidence(
-                    EvidencePreparationError::Admission(error),
+            Self::Storage(error) => Ok(StateStorageAdmissionError::SccpForgery(error).into()),
+            Self::Preparation(error) => Ok(StateStorageAdmissionError::SccpEvidence(error).into()),
+            Self::Verification(ForgeryVerificationError::Allocation(error)) => Ok(
+                StateStorageAdmissionError::SccpEvidence(EvidencePreparationError::Admission(
+                    error,
                 ))
-            }
-            // The pairing scratch is the only physical allocation of verification: a local
-            // allocator refusal of its exact admitted layout, never a protocol rejection.
-            // TODO(S8): retain the original move-only AllocatorRefusal once the preparation
-            // error owns it.
-            Self::Verification(ForgeryVerificationError::PhysicalAllocation(_)) => {
-                Ok(StateStorageAdmissionError::SccpEvidence(
-                    EvidencePreparationError::Allocator {
-                        requested_bytes:
-                            iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_layout()
-                                .size(),
-                    },
-                ))
+                .into(),
+            ),
+            // Keep the original move-only cause in the existing execution owner.
+            // The cloneable storage diagnostic cannot preserve a TryReserveError.
+            Self::Verification(ForgeryVerificationError::PhysicalAllocation(original)) => {
+                #[cfg(all(test, sumeragi_core_mutation = "HC966"))]
+                {
+                    drop(original);
+                    return Ok(ForgeryLocalRefusal::Execution(
+                        ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+                    ));
+                }
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC966")))]
+                Ok(ForgeryLocalRefusal::Execution(original.into()))
             }
             Self::Verification(
                 ForgeryVerificationError::Unavailable(_)
@@ -128,9 +152,7 @@ impl ForgeryExecutionError {
             ) => {
                 // No synchronous caller can acquire a read deadline or stop condition.
                 // An inconsistent original source is local recovery, never bad evidence.
-                Ok(StateStorageAdmissionError::SccpForgery(
-                    ForgeryStorageError::Invalid,
-                ))
+                Ok(StateStorageAdmissionError::SccpForgery(ForgeryStorageError::Invalid).into())
             }
             protocol => Err(protocol),
         }

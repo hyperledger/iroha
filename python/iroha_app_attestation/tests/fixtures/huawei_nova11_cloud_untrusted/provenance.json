@@ -1,0 +1,92 @@
+{
+  "fixture_purpose": "A genuine Huawei Cloud Testing lab capture whose plausible Android KeyDescription claims must be refused because its root is untrusted. No Huawei vendor adapter qualification or retail-device generalization.",
+  "source": {
+    "provider": "Huawei AppGallery Connect Cloud Testing",
+    "official_service_url": "https://developer.huawei.com/consumer/en/agconnect/cloud-test/",
+    "authenticated_report_locator_sha256": "d2f1370cfe4b9d136893efacd195473f5e88b10bddf9d41cfdbb52677a8e66f3",
+    "locator_storage": "Exact signed-in report/task locator remains in ignored capture evidence, outside this public fixture.",
+    "catalog_device": "nova 11 Oversea",
+    "catalog_os": "HarmonyOS 4.0.0",
+    "execution_started_at_utc": "2026-10-20T09:36:19Z",
+    "execution_finished_at_utc": "2026-10-20T09:44:19Z",
+    "retrieved_on_utc": "2026-10-20",
+    "archive_local_mtime_utc": "2026-10-20T09:47:10.257036+00:00",
+    "archive_sha256": "539f1f2928953812141df8b1cf2f3ab847746e0e1e578404159ff2bf720ed80a",
+    "archive_bytes": 1317089
+  },
+  "capture": {
+    "id": "1792489065033-a2967b9b-00d5-4344-a55b-2d8508fc735e",
+    "trigger": "automatic",
+    "zip_sha256": "ae2fb1811888c2c7bbf49a9b60c98d7df93a57a2787b3c68639deeeba40492e4",
+    "zip_bytes": 6238,
+    "reported_manufacturer": "HUAWEI",
+    "reported_model": "FOA-LX9",
+    "reported_api_level": 31,
+    "reported_google_play_services_installed": false,
+    "reported_google_play_store_installed": false,
+    "metadata_limit": "Model, installed-service presence and time are lab/probe observations. The untrusted chain does not authenticate these observations or its secure-hardware claims. This result does not establish how retail Nova 11 phones are provisioned. No raw logs, account IDs, phone identifiers or private keys are included."
+  },
+  "independent_request": {
+    "created_at_utc": "2026-10-20T09:10:43.602242+00:00",
+    "request_sha256": "5c7306b16dde9d628cf168760efa34bd104b040286acc33d9fcdf9428572762f",
+    "apk_sha256": "208eeb2c99f363b5db88a4f4a860aade9360216d60a6045665b832148308f1f8",
+    "apk_bytes": 880214,
+    "package_name": "org.hyperledger.iroha.samples.attestationprobe",
+    "minimum_package_version": 1,
+    "signer_sha256": "eb2e20a4d49918e1dbd9b78b20b62a7442812cb9d2cd808ff3deff3fb7c35c27",
+    "challenge_hex": "0253567353484b29189d0a58c297ce35ecbecb956e1806b3cf4fdb9933923f83",
+    "wallet_e1_challenge": false
+  },
+  "chain_order": [
+    "certificate-0.der",
+    "certificate-1.der",
+    "certificate-2.der",
+    "certificate-3.der"
+  ],
+  "files": {
+    "certificate-0.der": {
+      "bytes": 721,
+      "sha256": "ea4401e19fd1c5a1c812a99be9e83d7fafdb6d3095365df55033eeb625b743d0",
+      "spki_sha256": "55ccf376f74e6c7f8d4799f41c718923c426091511282a862626f37020f4a383"
+    },
+    "certificate-1.der": {
+      "bytes": 386,
+      "sha256": "125238d5b0943510e53bec4c53912eeb62cba1ba1499c7802ade0220947640a6",
+      "spki_sha256": "4434177000e1cede6f64d5c6be55cfd29ccf9b84257276c0a026cc62832c3cc1"
+    },
+    "certificate-2.der": {
+      "bytes": 401,
+      "sha256": "f17fc960b9d1c04e0650f379b48214d2a59bf10772c54bba876c830009a66f25",
+      "spki_sha256": "1c4e3c259f9630bf649db242fad2061d996b05f20d7535ad516cbd7a7b6859ac"
+    },
+    "certificate-3.der": {
+      "bytes": 488,
+      "sha256": "16558c6287fa75e02c4f5ae9919bad2aa0df9d47745751a7f63cf7fc550a368b",
+      "spki_sha256": "9088e09e1c9ce45b8519169af96682cec51dea69db1fce64fcff1c16a6b8f8dd"
+    },
+    "public-key.spki.der": {
+      "bytes": 91,
+      "sha256": "55ccf376f74e6c7f8d4799f41c718923c426091511282a862626f37020f4a383"
+    },
+    "challenge-signature.der": {
+      "bytes": 71,
+      "sha256": "eff276041b75748260918bd5f1424575f377c095750661df8e2d56165a395adb"
+    },
+    "challenge.bin": {
+      "bytes": 32,
+      "sha256": "f775b699b4682e7c7363cf1d19a3c264a67a75d71406ed3924a37e20f5d41d52"
+    }
+  },
+  "untrusted_root": {
+    "spki_sha256": "9088e09e1c9ce45b8519169af96682cec51dea69db1fce64fcff1c16a6b8f8dd",
+    "self_asserted_subject": "CN=ca.demo,O=Qcom,L=BJ,ST=BJ,C=CN",
+    "authority": "None established; subject names are not proof of vendor ownership or hardware attestation authority."
+  },
+  "observed_path_defect": {
+    "missing_basic_constraints_certificate_indices": [
+      1,
+      2
+    ]
+  },
+  "boundary": "Diagnostic nonce and debug app only; plausible key, app, boot and TEE claims plus valid signatures never authorize an unpinned root. The fixture must be refused before revocation; it is not a signed wallet E1, persistent key or live enrollment."
+}

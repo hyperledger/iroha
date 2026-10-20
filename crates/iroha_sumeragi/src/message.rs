@@ -51,6 +51,7 @@ impl VoteKind {
 /// Block header (§3.2). Its hash is [`preimage::block_hash`].
 #[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, NoritoSchema, IntoSchema)]
 #[norito_schema(name = "iroha_sumeragi::BlockHeader")]
+#[norito(decode_fields, decode_from_slice)]
 pub struct BlockHeader {
     /// Instance id `I`.
     pub instance: Hash32,
@@ -335,7 +336,7 @@ impl TimeoutVote {
 /// A quorum certificate: `PrepareQC` if `kind == Prepare`, `CommitQC` if `kind == Commit` (§3.4).
 #[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, NoritoSchema, IntoSchema)]
 #[norito_schema(name = "iroha_sumeragi::Qc")]
-#[norito(decode_fields)]
+#[norito(decode_fields, decode_from_slice)]
 pub struct Qc {
     /// Prepare or Commit.
     pub kind: VoteKind,
@@ -1089,6 +1090,74 @@ mod tests {
             signers: Bitmap::from_indices(4, [0, 1, 3]).unwrap(),
             agg_sig: AggregateSignature([9; SIGNATURE_LEN]),
         }
+    }
+
+    fn assert_metadata_slice_contract<T>(value: &T)
+    where
+        T: norito::core::NoritoSerialize + std::fmt::Debug + PartialEq,
+        for<'de> T: norito::core::NoritoDeserialize<'de> + norito::core::DecodeFromSlice<'de>,
+    {
+        use norito::core as ncore;
+
+        let frame = norito::encode_canonical(value).unwrap();
+        let view = ncore::from_bytes_view(&frame).unwrap();
+        assert_eq!(&norito::decode_canonical::<T>(&frame).unwrap(), value);
+        assert_eq!(&ncore::decode_from_bytes::<T>(&frame).unwrap(), value);
+        assert_eq!(&view.decode::<T>().unwrap(), value);
+        let mut prefix = view.as_bytes().to_vec();
+        prefix.push(0xa5);
+        let (decoded, used) = {
+            let _flags = ncore::DecodeFlagsGuard::enter(view.flags());
+            T::decode_from_slice(&prefix).unwrap()
+        };
+        assert_eq!(&decoded, value);
+        assert_eq!(used, view.as_bytes().len());
+        assert_eq!(norito::encode_canonical(&decoded).unwrap(), frame);
+
+        let mut suffixed = frame.clone();
+        suffixed.push(0xa5);
+        assert!(ncore::decode_from_bytes::<T>(&suffixed).is_err());
+        assert!(ncore::decode_from_bytes::<T>(&frame[..frame.len() - 1]).is_err());
+        let mut corrupted = frame.clone();
+        *corrupted.last_mut().unwrap() ^= 1;
+        assert!(matches!(
+            ncore::decode_from_bytes::<T>(&corrupted),
+            Err(norito::Error::ChecksumMismatch)
+        ));
+        let wrong_schema =
+            ncore::frame_bare_with_header_flags::<u8>(view.as_bytes(), view.flags()).unwrap();
+        assert!(matches!(
+            ncore::decode_from_bytes::<T>(&wrong_schema),
+            Err(norito::Error::SchemaMismatch)
+        ));
+
+        // These values have nonempty key/bitmap storage. The new slice entry
+        // must keep its caller's original field, element, allocation and depth
+        // ceilings; payload-derived scopes cannot replenish them.
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, 0, usize::MAX, 128),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 0),
+        ] {
+            let error = norito::with_decode_limits_scope(limits, || {
+                ncore::classify_decode_attempt(|| ncore::decode_from_bytes::<T>(&frame))
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), ncore::DecodeAttemptErrorKind::EnclosingLimit);
+            assert!(error.error().decode_resource_error().is_some());
+            assert_eq!(&ncore::decode_from_bytes::<T>(&frame).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn block_header_slice_entry_keeps_original_frame_prefix_and_enclosing_limits() {
+        assert_metadata_slice_contract(&sample_header());
+    }
+
+    #[test]
+    fn quorum_certificate_slice_entry_keeps_original_frame_prefix_and_enclosing_limits() {
+        assert_metadata_slice_contract(&sample_qc(VoteKind::Commit, 0));
     }
 
     fn sample_tc() -> TimeoutCert {

@@ -317,6 +317,8 @@ _REVIEWED_PUBLIC_IVM_ARTIFACT_INPUTS = frozenset({
 # excepted for these exact files; every other operational/material gate remains.
 _REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS = frozenset({
     "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata.rs",
+    # Canonical record destination owned by metadata.rs; not runtime artifacts.
+    "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination.rs",
     "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/tests.rs",
     "crates/iroha_core/src/sumeragi/certified_chain/artifacts/tests.rs",
     "crates/iroha_p2p/src/peer/run/admission_class_tests.rs",
@@ -329,6 +331,9 @@ _REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS = frozenset({
 # Objective-C source and the embedded Metal library, traced to their source
 # owners. There is no general binary, extensionless or uncommon-suffix role.
 _REVIEWED_PUBLIC_FIXTURE_INPUTS = frozenset({
+    # Public immutable library embedded by fastpq_prover/src/metal_artifact.rs.
+    # Its full bytes remain sealed; this does not admit other Metal libraries.
+    "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/fastpq.metallib",
     "crates/iroha_core/tests/fixtures/repo_lifecycle_proof.digest",
     "crates/iroha_core_privacy/src/privacy_engines/fcmp_plus_plus/test_vectors/SHA256SUMS",
     # Public deterministic ballot test vectors and retained parser corpus; owners

@@ -17750,7 +17750,9 @@ seiyaku OuterCaller {
     fn execute_instruction_ballot_consumes_each_pending_envelope_once() {
         let first = [0x41; 32];
         let second = [0x42; 32];
-        let explicit = [0x43; 32];
+        // An explicit envelope is decoded before latch selection and must name its proof bytes.
+        let proof_bytes = vec![0xa5];
+        let explicit: [u8; 32] = Hash::new(&proof_bytes).into();
         for (provided, expected_hashes) in [
             (None, [Some(first), Some(second), None]),
             (Some(explicit), [Some(explicit); 3]),
@@ -17762,7 +17764,7 @@ seiyaku OuterCaller {
             let backend: iroha_schema::Ident = "pipa-r/pasta".into();
             let mut proof = ProofAttachment::new_ref(
                 backend.clone(),
-                ProofBox::new(backend.clone(), vec![0xa5]),
+                ProofBox::new(backend.clone(), proof_bytes.clone()),
                 VerifyingKeyId::new(backend.as_str(), "ordered-ballot-envelope"),
             );
             proof.envelope_hash = provided;
@@ -17774,6 +17776,11 @@ seiyaku OuterCaller {
             };
             let payload = norito::to_bytes(&InstructionBox::from(ballot.clone()))
                 .expect("encode ballot instruction");
+            assert_eq!(
+                decode_canonical_norito::<InstructionBox>(&payload)
+                    .expect("canonical ballot attachment"),
+                InstructionBox::from(ballot.clone()),
+            );
             let mut vm = IVM::new(50_000_000);
             let instruction_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
             for (index, expected_hash) in expected_hashes.into_iter().enumerate() {

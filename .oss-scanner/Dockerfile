@@ -7,17 +7,17 @@
 # The build fetches every crate in Cargo.lock, then prebuilds in the dev profile (debug assertions and overflow checks
 # on) the binaries the release image ships (see the repository Dockerfile) and the test binaries of the crates that
 # parse untrusted input. The scanner allows 45 minutes for the clone, this file and its own layers, and iroha_core
-# alone is about 1.5M lines, so the compile steps share one deadline, OSS_SCANNER_BUDGET_MINUTES after the first RUN.
-# A step still running at the deadline stops, keeps what it compiled and lets the build finish. A compile error still
-# fails the build, and the scanner emails the log to primary_contact. /opt/oss-scanner/build.log in the image records
-# how each step ended.
+# alone is about 1.5M lines, so the compile steps share one OSS_SCANNER_BUDGET_MINUTES budget after dependency fetch.
+# The deadline is initialized in the compilation RUN, so rebuilding changed source never reuses a cached deadline.
+# A step still running at the deadline stops, keeps what it compiled and lets the build finish. Compile errors and
+# abnormal exits, including SIGKILL, fail the build. /opt/oss-scanner/build.log in the image records how each step
+# ended. Package installation, toolchain installation and fetching dependencies also count toward the scanner's
+# overall limit, but are outside this compilation budget.
 #
 # Dockerfile.dockerignore beside this file replaces the repository's .dockerignore for this build, so the image keeps
 # the whole checkout, .git included.
 
 FROM debian:trixie
-
-ARG OSS_SCANNER_BUDGET_MINUTES=30
 
 # The workspace's profile.dev turns incremental compilation on and profile.test turns it off. Without
 # CARGO_INCREMENTAL=0, `cargo test` recompiles every workspace crate that `cargo build` compiled.
@@ -29,10 +29,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CARGO_TERM_COLOR=never \
     RUST_BACKTRACE=1
 
-# The deadline clock starts here. build-essential compiles the C in blst, ring and zstd-sys, and mold links the large
-# binaries. Tests call git, python3 and openssl, and the localnet start script needs python3.
+# build-essential compiles the C in blst, ring and zstd-sys, and mold links the large binaries. Tests call git,
+# python3 and openssl, and the localnet start script needs python3.
 RUN mkdir -p /opt/oss-scanner \
-    && echo $(( $(date +%s) + ${OSS_SCANNER_BUDGET_MINUTES} * 60 )) > /opt/oss-scanner/deadline \
     && apt-get update && apt-get install -y --no-install-recommends \
          build-essential ca-certificates curl git mold openssl python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -70,7 +69,7 @@ status=$?
 took=$(( $(date +%s) - started ))
 case "$status" in
     0) outcome="done in ${took}s" ;;
-    124 | 137) outcome="stopped at the deadline after ${took}s, unfinished"; status=0 ;;
+    124) outcome="stopped at the deadline after ${took}s, unfinished"; status=0 ;;
     *) outcome="failed with exit status $status after ${took}s" ;;
 esac
 echo "$name: $outcome" | tee -a /opt/oss-scanner/build.log
@@ -100,33 +99,34 @@ WORKDIR /src
 # Every crate in Cargo.lock, for every platform and feature, so the audit can build other configurations offline.
 RUN cargo fetch --locked
 
-# The release image's binaries plus the Kotodama compiler, built together as the repository Dockerfile builds them
-# (adding koto changes no features).
-RUN within-budget "release binaries" cargo build --locked \
-      -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain \
-      --features irohad/external-software-signer-bin \
-      --bin iroha3d --bin iroha3d_taira --bin sorafs_governance_dag --bin sorafs_external_software_signer \
-      --bin iroha --bin attachment_sanitizer --bin koto
-
-# kagami next: a network needs at least four validators (3f + 1), and `kagami localnet generate` writes one. It is
-# built on its own because building it with the binaries above would unify its test-only features
-# (iroha_core/iroha-core-tests, among others) into iroha3d.
-RUN within-budget "kagami" cargo build --locked -p iroha_kagami --bin kagami
-
+# First build the release image's binaries plus the Kotodama compiler together as in the repository Dockerfile
+# (adding koto changes no features). Keep kagami in its own Cargo invocation, matching the release image.
+# A network needs at least four validators (3f + 1), and `kagami localnet generate` writes one.
 # Test binaries, each built exactly as `cargo test -p <crate>` resolves it. Cargo resolves features per invocation,
 # so each crate's tests are a separate build from the node's. The most useful come first, and the deadline decides how
-# far the list gets.
-RUN within-budget "norito tests" cargo test --locked --no-run -p norito
-RUN within-budget "iroha_sumeragi simulator tests" cargo test --locked --no-run -p iroha_sumeragi --features sim
-RUN within-budget "iroha_crypto tests" cargo test --locked --no-run -p iroha_crypto
-RUN within-budget "ivm tests" cargo test --locked --no-run -p ivm
-RUN within-budget "iroha_p2p tests" cargo test --locked --no-run -p iroha_p2p
+# far the list gets. Initialize the deadline in this same RUN: cached setup layers must not consume a future build's
+# compilation budget, and every compilation step must share the newly initialized deadline.
+ARG OSS_SCANNER_BUDGET_MINUTES=30
+RUN echo $(( $(date +%s) + ${OSS_SCANNER_BUDGET_MINUTES} * 60 )) > /opt/oss-scanner/deadline \
+    && within-budget "release binaries" cargo build --locked \
+         -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain \
+         --features irohad/external-software-signer-bin \
+         --bin iroha3d --bin iroha3d_taira --bin sorafs_governance_dag --bin sorafs_external_software_signer \
+         --bin iroha --bin attachment_sanitizer --bin koto \
+    && within-budget "kagami" cargo build --locked -p iroha_kagami --bin kagami \
+    && within-budget "norito tests" cargo test --locked --no-run -p norito \
+    && within-budget "iroha_sumeragi simulator tests" cargo test --locked --no-run -p iroha_sumeragi --features sim \
+    && within-budget "iroha_crypto tests" cargo test --locked --no-run -p iroha_crypto \
+    && within-budget "ivm tests" cargo test --locked --no-run -p ivm \
+    && within-budget "iroha_p2p tests" cargo test --locked --no-run -p iroha_p2p
 
 RUN pin-iroha-plonk
 
-# Record which binaries start, then print the log, so the scanner's build output shows what the audit gets.
-RUN for bin in iroha3d iroha3d_taira iroha kagami koto attachment_sanitizer; do \
+# Record CLI startup and internal-subprocess availability, then print what the audit gets.
+# attachment_sanitizer requires its parent's private IPC setup and intentionally has no --help CLI.
+RUN for bin in iroha3d iroha3d_taira sorafs_governance_dag sorafs_external_software_signer iroha kagami koto attachment_sanitizer; do \
       if [ ! -x "target/debug/$bin" ]; then echo "$bin: not built"; \
+      elif [ "$bin" = attachment_sanitizer ]; then echo "$bin: built, internal subprocess (no --help CLI)"; \
       elif "target/debug/$bin" --help >/dev/null 2>&1; then echo "$bin: built, --help works"; \
       else echo "$bin: built, but --help failed"; fi; \
     done >> /opt/oss-scanner/build.log \

@@ -405,3 +405,49 @@ fn signed_forgery_successful_callback_overflow_invalidates_whole_network_attempt
         assert_unpublished(&chain);
     }
 }
+
+#[test]
+fn signed_forgery_physical_pairing_refusal_survives_discard_and_retries_same_source() {
+    let (chain, keys, ordinary_signer) =
+        active_member_chain_with_output_policy(output_policy(65_536), None);
+    let evidence = future(&chain, &keys);
+    let source = signed_carrier(&chain, &keys[0], &ordinary_signer, &evidence, 1);
+    let (mut block, recording) = recorded(chain.state(), &source);
+    let pool = chain.state().evidence_preparation_budget();
+    let before = pool.reserved_bytes();
+    let layout = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_layout();
+    let (result, observed) =
+        crate::test_allocations::refuse_one_layout_during(layout, || execute(&mut block, &source));
+    assert!(
+        observed,
+        "signed Network execution attempted the pairing allocation"
+    );
+    let ExecutionOutputAttemptError::Deferred(original) = result.unwrap_err() else {
+        panic!("physical pairing refusal must remain a typed unfinished execution");
+    };
+    assert!(
+        original
+            .allocator_refusal()
+            .and_then(|cause| cause.vec_reserve_error())
+            .is_some_and(|(_, actual)| actual == layout),
+        "HC966 signed SCCP output must retain the original physical pairing cause"
+    );
+    assert!(original.allocation_refusal().is_none());
+    assert_eq!(pool.reserved_bytes(), before);
+    assert!(block.retained_execution_outputs_for_test().is_err());
+    assert!(block.world.consensus_evidence.is_empty());
+    assert!(block.world.sccp_forgery_offences.is_empty());
+    assert!(evidence_events(&block).is_empty());
+    assert!(matches!(
+        block.commit(),
+        Err(TransactionsBlockError::ExecutionOutputCapacity)
+    ));
+    drop(recording);
+    assert_unpublished(&chain);
+    let (mut retry, recording) = recorded(chain.state(), &source);
+    execute(&mut retry, &source).unwrap();
+    assert_success_record(&retry, &source, &evidence);
+    drop(retry);
+    drop(recording);
+    assert_unpublished(&chain);
+}

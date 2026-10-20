@@ -54,6 +54,9 @@ fn instruction_prepare(instruction: &InstructionBox) -> &PrepareAmxV1 {
 
 #[test]
 fn native_amx_begin_delivery_after_restart_uses_successful_input_and_exact_registered_child() {
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut roots, restored, tx) = restarted_paid_begin();
     let tip = restored.height();
     let budget = restored.state().ivm_execution_budget();
@@ -186,6 +189,9 @@ fn native_amx_begin_delivery_rejects_wrong_source_height_record_and_participant(
 
 #[test]
 fn native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction() {
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     let (_, restored, tx) = restarted_paid_begin();
     let budget = restored.state().ivm_execution_budget();
     budget.with_deferred_refund_notifications(|_| {

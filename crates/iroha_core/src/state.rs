@@ -344,6 +344,7 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+pub(crate) mod parliament_candidate_testing;
 mod privacy_transaction_intent;
 mod sccp_forgery_entrypoint;
 pub(crate) mod sccp_pause_entrypoint;
@@ -14243,6 +14244,9 @@ pub struct StateTransaction<'block, 'state> {
     pub(crate) current_network_entrypoint_hash: Option<HashOf<TransactionEntrypoint>>,
     /// Original authenticated genesis input authority; absent for ordinary and ad-hoc execution.
     pub(crate) genesis_execution_scope: Option<network_policy_routes::GenesisExecutionScope>,
+    /// One-use native instruction frame from the exact original candidate-testing selection.
+    direct_parliament_candidate_testing:
+        Option<parliament_candidate_testing::DirectCandidateTesting>,
     /// Canonical hash of the current signed transaction, when executing a transaction.
     pub current_tx_hash: Option<HashOf<SignedTransaction>>,
     /// One-shot binding to the exact standalone ballot in the signed payload.
@@ -36710,6 +36714,8 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         ValidationFeePolicyRegistryV1::parameter_id(),
         AccountAdmissionPolicy::parameter_id(),
         RootFeePolicy::parameter_id(),
+        iroha_data_model::governance::anonymous_ballot::ParliamentCandidateTestingPolicyV1::parameter_id()
+            .clone(),
         ReputationFinalizedArchiveRetentionRequestV1::parameter_id(),
     ];
     ids.extend(crate::pipeline_gas_policy::parameter_ids());
@@ -36784,6 +36790,7 @@ mod consensus_owned_parameter_tests {
             "ivm_gas_units_per_gas",
             "iroha:da_ingest_admission_policy_v1",
             "nexus_runtime_catalog_v1",
+            "parliament_candidate_testing_v1",
         ] {
             let id: CustomParameterId = name.parse().expect("parameter identifier");
             assert!(is_consensus_owned_custom_parameter(&id), "{name}");
@@ -38785,6 +38792,7 @@ impl<'state> StateBlock<'state> {
             tx_call_hash: None,
             current_network_entrypoint_hash: None,
             genesis_execution_scope: None,
+            direct_parliament_candidate_testing: None,
             current_tx_hash: None,
             governance_ballot_entrypoint_binding: None,
             kagemusha_load_entrypoint_binding: None,

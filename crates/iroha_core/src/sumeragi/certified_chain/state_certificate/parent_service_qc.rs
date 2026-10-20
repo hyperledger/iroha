@@ -10,11 +10,19 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedShared};
 use iroha_sumeragi::qc_custody::{NativeQc, PreparedQc, QcCustodyError, QcFieldError};
 use norito::core::{PreparedDecodeError, PreparedDecodeScopeError, SequenceSpan};
 
+/// Bind the exact first input before the checked projection can refuse. Once complete,
+/// retain only its original signed header; a later execution expansion cannot rebind it.
+#[derive(Clone, Copy)]
+enum ProposalIdentity {
+    Captured(HashOf<IrohaHeader>),
+    Projected(HashOf<IrohaHeader>),
+}
+
 /// One proposal's retained original semantic QC, reusable only for the same source and pool.
 #[derive(Default)]
 pub(crate) struct ParentServiceQcPreparation {
     original: Option<(
-        HashOf<IrohaHeader>,
+        ProposalIdentity,
         ChargedShared<ChargedBuffer<u8>>,
         AllocationBudget,
     )>,
@@ -42,8 +50,16 @@ impl ParentServiceQcPreparation {
             || !pool.same_pool(budget)
             || !offered.belongs_to(pool)
             || !ChargedBuffer::belongs_to(offered, pool)
-            || *hash != parent_service_proposal_hash(proposal)?
         {
+            return Err(parent_source_failure(
+                "parent-service QC replaced its original proposal, source or pool",
+            ));
+        }
+        let matches = match hash {
+            ProposalIdentity::Captured(hash) => *hash == proposal.hash(),
+            ProposalIdentity::Projected(hash) => *hash == parent_service_proposal_hash(proposal)?,
+        };
+        if !matches {
             return Err(parent_source_failure(
                 "parent-service QC replaced its original proposal, source or pool",
             ));
@@ -66,12 +82,22 @@ impl ParentServiceQcPreparation {
                     parent_source_failure("parent-service QC has no admitted original source")
                 })?;
             self.original = Some((
-                parent_service_proposal_hash(proposal)?,
+                ProposalIdentity::Captured(proposal.hash()),
                 offered.clone(),
                 pool.clone(),
             ));
         }
         let source = self.require_original(proposal, pool)?.clone();
+        if matches!(
+            self.original.as_ref().map(|original| original.0),
+            Some(ProposalIdentity::Captured(_))
+        ) {
+            // A refusal keeps the first raw header, original QC owner and pool. Retry must
+            // match all three before attempting this same checked projection again.
+            let projected = parent_service_proposal_hash(proposal)?;
+            self.original.as_mut().expect("captured original QC").0 =
+                ProposalIdentity::Projected(projected);
+        }
         if self.complete.is_some() {
             return Ok(());
         }

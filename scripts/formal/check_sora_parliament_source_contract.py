@@ -28,12 +28,6 @@ attempt, and no missing-pulse classification, veto or substitute draw exists in
 the reducer, planner, executor, State, restore or the model.
 It also keeps the PR model run bound to archived copies of its exact inputs and
 to stable, source-identified result metadata.
-The timed-OVN client half retired by 3be383b0e7 (the Torii release adapter, its
-handlers and the four ballot routes, and the daemon's partial-release signer and
-broker chain) is checked as absent, not as a working path: Core still verifies
-timed-OVN evidence inside lifecycle transitions, but no shipped component produces
-a partial release. No check here asserts that an anonymous-ballot entrypoint,
-route or relation exists; none does yet (open P.8 work).
 
 Requires Python 3.10+ and the repository sources; no third-party dependencies or
 environment variables are needed. Paths resolve from this script and checks are
@@ -52,15 +46,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Torii routes of the timed-OVN client half retired by 3be383b0e7. They stay
-# absent; no anonymous-ballot Torii route replaces them yet (open P.8 work).
+# Former public/provider owners only; native Core evidence verification is retained.
 RETIRED_TIMED_OVN_BALLOT_ROUTES = (
     "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
     "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
     "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
     "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
 )
-# Torii items of that client half, also retired by 3be383b0e7.
+
+
 RETIRED_TIMED_OVN_TORII_IDENTIFIERS = (
     "parliament_tle_release",
     "parliament_tle_release_coordinator",
@@ -71,11 +65,84 @@ RETIRED_TIMED_OVN_TORII_IDENTIFIERS = (
     "handler_gov_parliament_tle_partial_release",
     "TleReleaseCoordinatorV1",
 )
+
+
 RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS = (
     "GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ",
     "GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF",
     "GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ",
     "GOV_PARLIAMENT_TLE_PARTIAL_RELEASE",
+)
+
+
+RETIRED_TLE_DAEMON_IDENTIFIERS = (
+    "parliament_tle_partial_release_signer",
+    "with_parliament_tle_partial_release_signer",
+    "parliament_tle_release_coordinator",
+    "with_parliament_tle_release_coordinator",
+    "parliament_tle_release_tests",
+    "TlePartialReleaseSignerV1",
+    "TleReleaseCoordinatorV1",
+    "CapabilityProbeSigner",
+    "threshold_signer_startup_readiness_never_consults_parliament_tle_custody",
+)
+
+
+RETIRED_TLE_BROKER_SURFACES = (
+    ("crates/irohad/src/runtime_provider_broker/protocol_primitives.rs", (
+        "OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "ParliamentTleCapabilityAttestRequestWireV1",
+        "ParliamentTleCapabilityAttestResultWireV1",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/protocol_operation_validation.rs", (
+        "OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "decode_parliament_tle_capability_attest_request",
+        "verify_parliament_tle_capability_attest_result",
+        "verify_parliament_tle_partial_release_result",
+        "ParliamentTlePartialReleaseSigner",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/validate_operation_payload.rs", (
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "parliament_tle_partial_release_signer_slot",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/platform_operation_dispatch.rs", (
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "parliament_tle_partial_release_signer_slot",
+        "parliament_tle_capability_attest",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/protocol/platform/operation_dispatch/consensus.rs", (
+        "parliament_tle_capability_attest",
+        "attest_partial_release_capability",
+        "parliament_tle_partial_release_signer",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/api.rs", (
+        "ParliamentTlePartialReleaseSignerBrokerBackendV1",
+        "ParliamentTlePartialReleaseSignerBrokerBackendErrorV1",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/platform_provider_clients_03.rs", (
+        "attest_partial_release_capability",
+        "sign_projected_partial_release",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "ParliamentTleCapabilityAttestResultWireV1",
+    )),
+    ("crates/irohad/src/external_software_signer/consensus_threshold.rs", (
+        "attest_partial_release_capability",
+        "TlePartialReleaseCapabilityErrorV1",
+        "ParliamentTlePartialReleaseSignerBrokerBackendErrorV1",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/server_tests_04.rs", (
+        "parliament_tle_capability_attestation_round_trips_over_authenticated_broker",
+        "parliament_tle_capability_typed_proxy_requalifies_before_and_after_lookup",
+        "parliament_tle_partial_release_round_trips_over_authenticated_broker",
+        "ParliamentTleCapabilityResultFault",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+    )),
+    ("crates/irohad/src/main.rs", (
+        "parliament_tle_release_coordinator",
+        "with_parliament_tle_release_coordinator",
+    )),
 )
 
 
@@ -621,6 +688,93 @@ def require_opaque_casting_authorization(casting: str) -> None:
             raise RuntimeError(
                 f"{casting_path}: opaque casting authorization exposes {forbidden!r}"
             )
+
+RETIRED_PARLIAMENT_BROKER_PATHS = (
+    "crates/irohad/src/runtime_provider_broker/protocol_primitives.rs",
+    "crates/irohad/src/runtime_provider_broker/protocol_operation_validation.rs",
+    "crates/irohad/src/runtime_provider_broker/validate_operation_payload.rs",
+    "crates/irohad/src/runtime_provider_broker/platform_operation_dispatch.rs",
+    "crates/irohad/src/runtime_provider_broker/protocol/platform/operation_dispatch/consensus.rs",
+    "crates/irohad/src/runtime_provider_broker/api.rs",
+    "crates/irohad/src/runtime_provider_broker/platform_provider_clients_03.rs",
+    "crates/irohad/src/external_software_signer/consensus_threshold.rs",
+    "crates/irohad/src/runtime_provider_broker/server_tests_04.rs",
+    "crates/irohad/src/runtime_provider_broker/protocol_codec_and_bindings.rs",
+    "crates/irohad/src/runtime_provider_broker/platform_server_transport.rs",
+)
+
+
+def require_retired_parliament_broker_exposure() -> None:
+    """Bind retirement to the former broker owners and the current operation registry.
+
+    IDs 124/125 have no named operation and the exact live known-operation
+    predicate excludes them. The live reader rejects unknown IDs before reading
+    a body, its budget wrapper delegates to that reader, and the server binds the
+    decoded request's operation to the announced ID before dispatch. Complete
+    reviewed item digests retain these checks and their original input bindings.
+    The real ordinal test retains both negative cases.
+    This is a scoped source check, not proof that no equivalent implementation
+    could be written elsewhere, a broker runtime test, or anonymous integration.
+    Core TLE authorization and native beacon startup remain separate checks.
+    """
+    sources = {path: read(path) for path in RETIRED_PARLIAMENT_BROKER_PATHS}
+    for path, source in sources.items():
+        code = mask_rust(source)
+        if re.search(r"\b(?:[A-Za-z_0-9]*PARLIAMENT_TLE[A-Za-z_0-9]*|"
+                     r"[A-Za-z_0-9]*parliament_tle[A-Za-z_0-9]*|"
+                     r"[A-Za-z_0-9]*ParliamentTle[A-Za-z_0-9]*)\b", code):
+            raise RuntimeError(f"{path}: retired Parliament broker exposure returned")
+        require_identifiers_absent(path, code, (
+            "TlePartialReleaseSignerV1", "TleProjectedPartialReleaseSignerV1",
+            "ValidatedTleReleaseProjectionV1", "TleReleaseCoordinatorV1",
+            "TlePartialReleaseShareV1",
+        ))
+    for path, identifiers in RETIRED_TLE_BROKER_SURFACES:
+        require_identifiers_absent(path, mask_rust(sources.get(path) or read(path)), identifiers)
+    primitives_path, validation_path, _, dispatch_path = RETIRED_PARLIAMENT_BROKER_PATHS[:4]
+    primitives = sources[primitives_path]
+    code = mask_rust(primitives)
+    declarations = re.findall(r"\bconst\s+(OPERATION_[A-Z_0-9]+)\s*:\s*u16\s*=\s*([0-9]+)\s*;", code)
+    names = re.findall(r"\bconst\s+(OPERATION_[A-Z_0-9]+)\s*:\s*u16\b", code)
+    values = [int(value) for _, value in declarations]
+    if (names != [name for name, _ in declarations] or len(names) != len(set(names))
+            or len(values) != len(set(values)) or {124, 125}.intersection(values)):
+        raise RuntimeError(f"{primitives_path}: retired broker operation ID returned or registry became ambiguous")
+    known = unconditional_rust_item(sources[validation_path], "const fn operation_is_known(", validation_path)
+    if rust_token_digest(known) != "793e9c8ecc1e3ea7e0b0f17755bc9c3b65b391d63930f85eb30ea4d392728f4e":
+        raise RuntimeError(f"{validation_path}: reviewed broker known-operation predicate changed")
+    if not set(re.findall(r"\bOPERATION_[A-Z_0-9]+\b", mask_rust(known))).issubset(names):
+        raise RuntimeError(f"{primitives_path}: known broker operations lost their original declarations")
+    module = construction_rust_item(primitives, "mod operation_ordinal_tests", primitives_path,
+                                    attributes=("#[cfg(test)]",))
+    ordinal = construction_rust_item(module, "fn post_soracloud_operation_ids_are_exact_and_ordered()",
+                                     primitives_path, "mod operation_ordinal_tests", ("#[test]",))
+    if rust_token_digest(ordinal) != "f19efe472a5b3f2d380c22c5387a4bed59468ac8f1fd0a6f09c4bbd5fc812252":
+        raise RuntimeError(f"{primitives_path}: broker ordinal and unsupported-ID test changed")
+    codec_path, transport_path = RETIRED_PARLIAMENT_BROKER_PATHS[-2:]
+    for declaration, expected in (
+        ("fn read_operation_request_frame_inner<",
+         "2e09f31932331f32e40b5473768dbe4887e51c50f2d9de293696cf4afed1e913"),
+        ("fn read_operation_request_frame_with_budget<",
+         "b31b6785ad83268e9596df42ea7efef8392acde491123f5ec6f74c09d69547de"),
+    ):
+        item = unconditional_rust_item(sources[codec_path], declaration, codec_path)
+        if rust_token_digest(item) != expected:
+            raise RuntimeError(f"{codec_path}: live broker operation reader changed")
+    server = construction_rust_item(
+        sources[transport_path], "fn serve_client(", transport_path,
+        attributes=('#[expect(clippy::needless_pass_by_value, reason = '
+                    '"each blocking session owns its shared permits and ordered transcript")]',),
+    )
+    if rust_token_digest(server) != "34291b440f43b692acfcc036937ecf3f961c85770985a4ce1b287d286b1fa9ba":
+        raise RuntimeError(f"{transport_path}: live broker request/discriminator binding changed")
+    # Retain the shared live broker's original pre-dispatch requalification.
+    dispatch = unconditional_rust_item(sources[dispatch_path], "fn dispatch_server_operation_with_session(", dispatch_path)
+    require_ordered_once(dispatch_path, "broker pre-dispatch qualification", compact_rust(mask_rust(dispatch)), (
+        "letrequalify=||qualify_server_binding(state,&request.binding,request.provider_metadata_digest);requalify()?;",
+        "letresult=match(request.binding.slot,request.operation){",
+    ))
+
 
 def require_public_finding_endorsement_order(types: str) -> None:
     """Bind strict supporter ordering to certificate validation, regardless of wrapping."""
@@ -1352,13 +1506,15 @@ def require_block_start_construction(state: str) -> None:
     path = "crates/iroha_core/src/state/state_block_construction.rs"
     acquisition_path = "crates/iroha_core/src/state/canonical_runtime/acquisition.rs"
     runtime_path = "crates/iroha_core/src/state/canonical_runtime.rs"
+    policy_path = "crates/iroha_core/src/state/canonical_runtime/static_policy.rs"
     hydration_path = "crates/iroha_core/src/state/da_hydration.rs"
     module_lint = "#![allow(clippy::items_after_statements, clippy::used_underscore_binding)]"
     if state.count(module_lint) != 1:
         raise RuntimeError(f"{state_path}: start construction changed reviewed module lint")
     sources = {state_path: state.replace(module_lint, "", 1),
                path: read(path), acquisition_path: read(acquisition_path),
-               runtime_path: read(runtime_path), hydration_path: read(hydration_path)}
+               runtime_path: read(runtime_path), hydration_path: read(hydration_path),
+               policy_path: read(policy_path)}
     gate = '#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]'
     lint = '''#[expect(clippy::large_types_passed_by_value,
         reason = "the acquired block owns the supplied header independently of its caller")]'''
@@ -1372,21 +1528,18 @@ def require_block_start_construction(state: str) -> None:
         (state_path, "mod da_hydration;", ()),
         (runtime_path, "mod acquisition;", ('#[path = "canonical_runtime/acquisition.rs"]',)),
         (runtime_path, "pub(super) use acquisition::{AcquiredRuntimeBlock, AcquiredRuntimeBlockFields};", ()),
+        (runtime_path, "mod static_policy;", ()),
+        (runtime_path, "pub use static_policy::StaticExecutionPolicy;", ()),
     ):
         construction_rust_item(sources[location], declaration, location, attributes=attributes)
 
     # Full-item pins prevent early returns, extra effects, shadowed bindings and
-    # intact handoff text hidden inside a conditional. Re-reviewed against HEAD
-    # 5d63ed789a: the five node-configuration snapshots (oracle, crypto, gov,
-    # content, settlement) moved into the one captured StaticExecutionPolicy, a
-    # `network_signatures_prechecked` flag starts false, and a malformed retained
-    # source quota now refuses the replacement start before its stage callback.
-    # No writer, release order, handoff or continuation changed. The macro pin includes the
+    # intact handoff text hidden inside a conditional. The macro pin includes the
     # matching acquired-field declaration/init cfg and original release order;
     # its invocation binds exactly the original four State Cell sources.
     owners = (
         (path, "pub(super) fn construct_acquired_block<'state, R>(", "impl State", (lint,),
-         "original writers and armed continuation", "60f0a1ff0a554d7fca89822545364b42383ebd3cc794344dd9c60b580f52487f"),
+         "original writers and armed continuation", "b598f2643ff1f30ea3e3656e6f15857285acb579c4a3ad9bb45f0e55524d5940"),
         (path, "fn finish_state_block_construction<R>(", None, ("#[inline(never)]",),
          "bounded borrowed finish", "aa4f6e7dd39969dd98751ac40f7f1b87bd4664a960a937cd8ccadc99487831b1"),
         (acquisition_path, "macro_rules! runtime_cells", None, (),
@@ -1408,7 +1561,7 @@ def require_block_start_construction(state: str) -> None:
         (state_path, "pub struct StateBlock<'state>", None, (),
          "original armed State owner", "7e13644044a601096aaeb2925833a17155627e291f47483344d61dd793e0397b"),
         (state_path, "pub struct StateBlockFields<'state>", None, (),
-         "original armed State owner fields and paired cfg", "116868e3737e12d027965b0b67af098d0beca6285341aaa02612d4ede0e8b0ee"),
+         "original armed State owner fields and paired cfg", "38f3579738e338befdf0c76b96f0818b50ea4af8d923e1117125764057a55e9e"),
         (state_path, "fn from_fields(", "impl<'state> StateBlock<'state>", (),
          "original armed State owner", "a946ab2482fdd67135614e20b672dba30bfd09176105b2d94838ba89ef09eac9"),
         (state_path, "impl mv::BlockRetirement for StateBlock<'_>", None, (),
@@ -1424,15 +1577,16 @@ def require_block_start_construction(state: str) -> None:
         if rust_token_digest(item) != expected:
             raise RuntimeError(f"{location}: start construction changed {obligation}")
     # Item tokens alone do not resolve names: a new import/type alias or later
-    # macro definition can change an otherwise identical body. These four
+    # macro definition can change an otherwise identical body. These five
     # defining modules are therefore pinned in full, including every import,
     # macro and module item, rather than normalizing arbitrary binding surfaces.
     # Changes anywhere in these small sources require another scoped review.
     # This still trusts the surrounding Rust crate/dependency resolver/compiler;
     # it is not a complete semantic proof of arbitrary Rust programs.
     for location, expected in (
-        (path, "6884efd39fbb0c802e8e9c095bcbebca49602c34973ff436d73e9d38ee65189a"),
+        (path, "694dd24b7abcd0d7d55406b5ad8d007bf57b3c0c8524db70d7fbf88118023235"),
         (runtime_path, "a2686034fb1ab48518d0c9f2f01d88230ba5a5ca297639cde2046f34a7554994"),
+        (policy_path, "13607ca92e0c04219d4af4c7e38db727da756ae15fc221ecffda3b53ee2e596c"),
         (acquisition_path, "876c3b13faf12679ac157b5dd030780f30dbdfd74686fb0ef7874d279ede035a"),
         (hydration_path, "da39434761a9214486ebf0d5b65e697e763bf247358d784a9eeeafac55c06755"),
     ):
@@ -1440,32 +1594,133 @@ def require_block_start_construction(state: str) -> None:
             raise RuntimeError(f"{location}: start construction changed its defining module tokens")
 
 
-def require_timed_ovn_release_routes_retired(torii: str, route_catalog: str) -> None:
-    """Keep the retired timed-OVN Torii release adapter and ballot routes absent.
+def torii_without_reviewed_lint_attributes(source: str) -> str:
+    """Remove only the two reviewed leading Torii lint attributes for ownership checks.
 
-    3be383b0e7 deleted the local partial-release adapter
-    (`crates/iroha_torii/src/parliament_tle_release.rs`), its release coordinator
-    field and all four Parliament ballot routes with their handlers and catalog
-    descriptors. No Torii route now reads a casting context, accepts a casting
-    proof, reads a release context or requests a partial release. Core still
-    verifies timed-OVN evidence inside lifecycle transitions, but no shipped
-    component produces a partial release. This check asserts only that absence:
-    it does not claim that an anonymous-ballot route or relation exists (none
-    does yet; that is open P.8 work).
+    The complete literal-preserving attribute tokens are pinned before removal.
+    New inner cfg/allow attributes, non-leading attributes, altered conditions or
+    additional code refuse. No general attribute stripping is performed.
     """
-    torii_path = "crates/iroha_torii/src/lib.rs"
-    route_catalog_path = "crates/iroha_torii_shared/src/route_catalog.rs"
-    require_path_absent("crates/iroha_torii/src/parliament_tle_release.rs")
-    require_identifiers_absent(
-        torii_path, mask_rust(torii), RETIRED_TIMED_OVN_TORII_IDENTIFIERS
+    path = "crates/iroha_torii/src/lib.rs"
+    code = mask_rust(source)
+    spans: list[tuple[int, int]] = []
+    end = 0
+    for match in re.finditer(r"#\s*!\s*\[", code):
+        if code[end:match.start()].strip():
+            raise RuntimeError(f"{path}: Torii exposure has non-leading inner attributes")
+        depth, end = 1, match.end()
+        while end < len(code) and depth:
+            depth += (code[end] == "[") - (code[end] == "]")
+            end += 1
+        if depth:
+            raise RuntimeError(f"{path}: Torii exposure has an unclosed inner attribute")
+        spans.append((match.start(), end))
+    attributes = " ".join(source[start:end] for start, end in spans)
+    if rust_token_digest(attributes) != "3cfefcb2f50982444ad977cb430d5d8e2497115d1d78d23cffd8e47ed54e83d8":
+        raise RuntimeError(f"{path}: Torii exposure changed reviewed leading lint attributes")
+    located = list(source)
+    for start, end in spans:
+        located[start:end] = " " * (end - start)
+    return "".join(located)
+
+
+RETIRED_TORII_RELEASE_PATH = "crates/iroha_torii/src/parliament_tle_release.rs"
+PARLIAMENT_EXPOSURE_PATHS = (
+    "crates/iroha_torii/src/lib.rs", "crates/iroha_torii/src/gov.rs",
+    "crates/iroha_torii_shared/src/route_catalog.rs", "crates/irohad/src/main.rs",
+    "crates/irohad/src/main/runtime_deps.rs",
+)
+PARLIAMENT_PUBLIC_ROUTES = (
+    ("ATTEMPT_DRAFT", "attempt_draft", "app_signed_post", "attempts/draft", "attempt.draft"),
+    ("ATTEMPT_READ", "attempt_read", "app_signed_get", "attempts/{governance_attempt_id}", "attempt.read"),
+    ("ATTEMPT_PLAN", "attempt_plan", "app_signed_get", "attempts/{governance_attempt_id}/plan", "attempt.plan"),
+    ("TRANSITION_DRAFT", "transition_draft", "app_signed_post", "transitions/draft", "transition.draft"),
+)
+
+
+def require_retired_parliament_release_exposure() -> None:
+    """Keep the removed public TLE corridor absent from its original exposure owners.
+
+    The exact current Parliament route set, registered handlers and daemon Torii
+    dependency builder are checked, including renamed/inlined edits there. This
+    is scoped source structure, not universal absence of an equivalent program,
+    proof of native execution, or anonymous-ballot integration. Independent Core
+    TLE authorization and consensus-native beacon checks remain mandatory.
+    """
+    require_path_absent(RETIRED_TORII_RELEASE_PATH)
+    sources = {path: read(path) for path in PARLIAMENT_EXPOSURE_PATHS}
+    for path, source in sources.items():
+        code = mask_rust(source)
+        if re.search(r"\b(?:[A-Za-z_0-9]*parliament_tle_[A-Za-z_0-9]*|"
+                     r"[A-Za-z_0-9]*ParliamentTle[A-Za-z_0-9]*)\b", code):
+            raise RuntimeError(f"{path}: retired public Parliament TLE exposure returned")
+        if re.search(r'/v1/gov/parliament/ballots/[^"\n]*', strip_rust_comments(source)):
+            raise RuntimeError(f"{path}: retired public Parliament ballot route returned")
+    torii_path, gov_path, catalog_path, daemon_path, _ = PARLIAMENT_EXPOSURE_PATHS
+    torii, gov, catalog, daemon = (sources[p] for p in PARLIAMENT_EXPOSURE_PATHS[:4])
+    require_identifiers_absent(torii_path, mask_rust(torii), RETIRED_TIMED_OVN_TORII_IDENTIFIERS)
+    require_identifiers_absent(catalog_path, mask_rust(catalog), RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS)
+    located_torii = torii_without_reviewed_lint_attributes(torii)
+    lint = "#![allow(unexpected_cfgs)]"
+    if gov.count(lint) != 1:
+        raise RuntimeError(f"{gov_path}: current Parliament module lint changed")
+    located_gov = gov.replace(lint, "", 1)
+    expected_ids = tuple("GOV_PARLIAMENT_" + row[0] for row in PARLIAMENT_PUBLIC_ROUTES)
+    found_ids = tuple(re.findall(r"\bGOV_PARLIAMENT_[A-Z_]+\b", mask_rust(catalog)))
+    if found_ids != expected_ids + expected_ids:
+        raise RuntimeError(f"{catalog_path}: current Parliament route definition/registry set changed")
+    if tuple(re.findall(r"\bGOV_PARLIAMENT_[A-Z_]+\b", mask_rust(torii))) != expected_ids:
+        raise RuntimeError(f"{torii_path}: current Parliament route registration set changed")
+    expected_paths = tuple('/v1/gov/parliament/' + row[3] for row in PARLIAMENT_PUBLIC_ROUTES)
+    actual_paths = tuple(re.findall(r'"(/v1/gov/parliament/[^"\n]*)"', strip_rust_comments(catalog)))
+    if actual_paths != expected_paths:
+        raise RuntimeError(f"{catalog_path}: current Parliament route path set changed")
+    handler_pins = (
+        ("f3368e5759a111d1fc7345b59ec62dde64d061aa2452a8ab549923e950222bea", "d6ac2c27e2627068f946bd4993d78e41602b42547e540c13c6a2a8d151f0d950"),
+        ("ebab8d0b25d5b1e220eb54bfcc4bdf6e5a499bf1ae392025bf445c25adf81611", "3da534aa6aa16c64f0615f60df91b6276eca276febf904653e233eee45715797"),
+        ("53304c10dfd3ac9fb3defe2b9a26cbfd64ad11b447c47eaa9aa5a280f144c594", "4cf9d6c3c2b0116783c9699dcad8aea8e607903576b02cd6b718a58c7b0182e9"),
+        ("27c316273576b5c4bcd15fa8c9b9c89cb06b81caa02080b01a9e4e39e497f0e7", "8ec3a6d6e2989ad06461ec32d000a5804981349078df5ffe93931e982419ede6"),
     )
-    require_identifiers_absent(
-        route_catalog_path, mask_rust(route_catalog), RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS
-    )
-    for path, source in ((torii_path, torii), (route_catalog_path, route_catalog)):
-        for route in RETIRED_TIMED_OVN_BALLOT_ROUTES:
-            if route in source:
-                raise RuntimeError(f"{path}: retired timed-OVN ballot route {route} remains")
+    for row, pins in zip(PARLIAMENT_PUBLIC_ROUTES, handler_pins):
+        tag, name, method, suffix, operation = row
+        # A descriptor is a semicolon-terminated value, not a brace-owned item.
+        # Locate its exact value and check its original enclosing owner using an
+        # empty-body stand-in, as construction_rust_item does for module routes.
+        declaration = "pub const GOV_PARLIAMENT_" + tag + ":"
+        matches = list(re.finditer(
+            rf"\bpub\s+const\s+GOV_PARLIAMENT_{tag}\s*:", mask_rust(catalog),
+        ))
+        if len(matches) != 1:
+            raise RuntimeError(f"{catalog_path}: Parliament route descriptor owner changed: {tag}")
+        start = matches[0].start()
+        end = mask_rust(catalog).find(";", matches[0].end())
+        if end == -1:
+            raise RuntimeError(f"{catalog_path}: Parliament route descriptor is unterminated: {tag}")
+        descriptor = catalog[start:end + 1]
+        located = catalog[:matches[0].end()] + " {}" + catalog[end + 1:]
+        construction_rust_item(located, declaration, catalog_path, "pub mod runtime_governance")
+        expected = (f'pub const GOV_PARLIAMENT_{tag}: RouteDescriptor = {method}('
+                    f'"governance.parliament.{operation}", "/v1/gov/parliament/{suffix}", );')
+        if rust_token_digest(descriptor) != rust_token_digest(expected):
+            raise RuntimeError(f"{catalog_path}: Parliament route descriptor changed: {tag}")
+        verb = "post" if method.endswith("post") else "get"
+        limit = "runtime_governance_body_limit" if verb == "post" else "0"
+        route = (f"GOV_PARLIAMENT_{tag}=>canonical_account_{verb}("
+                 f"handler_gov_parliament_{name},app_state,{limit});")
+        require_ordered_once(torii_path, "Parliament route registration", compact_rust(mask_rust(torii)), (route,))
+        for path, source, prefix, attrs, pin in (
+            (torii_path, located_torii, "async fn handler_gov_parliament_", ('#[cfg(feature = "app_api")]',), pins[0]),
+            (gov_path, located_gov, "pub async fn handle_gov_parliament_", (), pins[1]),
+        ):
+            item = construction_rust_item(source, prefix + name + "(", path, attributes=attrs)
+            if rust_token_digest(item) != pin:
+                raise RuntimeError(f"{path}: current Parliament handler body changed: {name}")
+    startup = rust_item(daemon, "async fn activate_with_runtime_deps(", daemon_path)
+    builder = rust_item(startup, "let runtime_deps = (|| {", daemon_path)
+    if (compact_rust(mask_rust(startup)).count("letruntime_deps=(||{") != 1
+            or rust_token_digest(builder) != "bf8d2d1be278b37cbad45a1dffe497b98fa7267b1b9e815190cbbf518b8ed284"
+            or not compact_rust(mask_rust(startup[startup.index(builder) + len(builder):])).startswith(")();letqueue_backpressure=")):
+        raise RuntimeError(f"{daemon_path}: current Torii dependency construction changed")
 
 
 def require_block_start_phase_call_order(state: str) -> None:
@@ -1534,11 +1789,9 @@ def require_block_start_phase_call_order(state: str) -> None:
     if re.sub(r"\s+", "", phases) != re.sub(r"\s+", "", expected):
         raise RuntimeError(f"{state_path}: start phases must use the original block and height in order")
     compact = compact_rust(mask_rust(constructor))
-    # A malformed retained source quota refuses the whole block start with its
-    # original policy reason before any callback or shared start effect
-    # (2fa0fc9194; formerly it ran the after-start callback alone). Bind that
-    # exact refusal at that position and remove only this checked branch before
-    # checking the one ordinary after-start continuation.
+    # A malformed retained source policy refuses before either callback receives
+    # a mutable block. Keep the original reason and bind the refusal's position
+    # after source freezing, not merely its presence somewhere in the function.
     intrinsic_rejection = (
         "ifletSome(Err(error))=&sb.fastpq_source_quota{"
         "returnErr(StateBlockStartError::Policy(error.clone()));}"
@@ -1548,7 +1801,6 @@ def require_block_start_phase_call_order(state: str) -> None:
             < compact.find(intrinsic_rejection)
             < compact.find("letcontinuation=before_start(&mutsb)")):
         raise RuntimeError(f"{state_path}: start phases lost the original intrinsic source refusal")
-    compact = compact.replace(intrinsic_rejection, "", 1)
     ordered = (
         "letacquired=self.acquire_canonical_runtime_block(false)?;",
         "letmutsb=self.construct_acquired_block(acquired,curr_block,Box::new);",
@@ -1557,6 +1809,7 @@ def require_block_start_phase_call_order(state: str) -> None:
         "sb.freeze_fastpq_source_context();",
         "sb.require_storage_admission()?;",
         "sb.freeze_axt_block_start();",
+        intrinsic_rejection,
         "letcontinuation=before_start(&mutsb).map_err(StateBlockStartError::Stage)?;",
         "Self::apply_block_start_private_settlement_expiry(&mutsb,now_h).map_err(StateBlockStartError::Storage)?;",
         "crate::smartcontracts::isi::sccp::hook::begin_block(&mutsb).map_err(StateBlockStartError::Storage)?;",
@@ -2265,11 +2518,9 @@ def require_parliament_commit_publication(state: str) -> None:
     require_all(path, source_compact, (
         "pub(crate)fntry_publish(&mutself)->StatePublicationOutcome{self.try_publish_inner()}",
         "pub(super)fncommit_inner(mutself)->Result<(),TransactionsBlockError>{self.try_publish_inner().into_result()}",
-        # 2fa0fc9194 passes the block's capture policy to the one original owner;
-        # its new poisoned and diagnostic-reader refusals also put that owner back.
         "letmutoriginal=self.publication.take().unwrap_or_else(||StatePublication::new(self.state_ref,self.pipeline.state_capture));",
-        "iforiginal.poisoned{self.publication=Some(original);returnStatePublicationOutcome::RecoveryRequired(TransactionsBlockError::PublicationRecoveryRequired,);}",
         "iforiginal.published{self.publication=Some(original);returnStatePublicationOutcome::Published;}",
+        "iforiginal.poisoned{self.publication=Some(original);returnStatePublicationOutcome::RecoveryRequired(TransactionsBlockError::PublicationRecoveryRequired,);}",
         "letresult=self.attempt_original_publication(&mutoriginal);",
         "iforiginal.fields_frozen&&!original.irreversible{self.recover_original_publication_fields();self.retire_original_publication_notices();}",
         "self.publication=Some(original);ifterminal{mv::BlockRetirement::release_writers(self);}"
@@ -2277,6 +2528,15 @@ def require_parliament_commit_publication(state: str) -> None:
         '#[cfg(feature="telemetry")]lettelemetry_origin=this.committed_telemetry_origin().map_err(|_|TransactionsBlockError::WorldCommitPreparation)?;',
     ))
     require_publication_kura_cleanup(publication)
+    policy_owner = compact_rust(mask_rust(unconditional_rust_item(
+        publication, "fn new(", path, "impl<'state> StatePublication<'state>",
+    )))
+    if not policy_owner.startswith(
+        "fnnew(state:&'stateState,"
+        "capture_policy:iroha_config::parameters::actual::StateCapture,)->Self{"
+        "Self{capture_policy,geometry_cleanup:"
+    ) or policy_owner.count("capture_policy") != 2:
+        raise RuntimeError(f"{path}: original publication must retain its captured policy")
     constructor = section(source_compact, "impl<'state>StatePublication<'state>{", "impl<'state>StateBlock<'state>{", path)
     if not (0 <= constructor.find("effect_cleanup:effect_publication::StateEffectLocks::new(state)")
             < constructor.find("commit_fence:state.state_commit_lock.defer_notifications()")):
@@ -2307,9 +2567,8 @@ def require_parliament_commit_publication(state: str) -> None:
     # The retained World is validated in three ordered stages after its fields
     # freeze. The policy prefix reruns on every attempt. Each Musubi stage is
     # skipped only by its own retained success, granted by the one statement
-    # after that stage's propagated typed refusal. Tiered capture follows the
-    # last stage after only the retained Musubi capture pinned below, so nothing
-    # publishes from an unvalidated World.
+    # after that stage's propagated typed refusal. The original retained group
+    # capture and reader retirement follow validation, before tiered capture.
     validator = "world_commit::PreparedWorldCommit::validate_prepared_"
     state_pool = "(world,&state_ref.ivm_execution_budget(),)"
     typed_refusal = compact_rust("""
@@ -2327,31 +2586,37 @@ def require_parliament_commit_publication(state: str) -> None:
         f"if!*{marker}{{{validator}{stage}{state_pool}.map_err({typed_refusal})?;*{marker}=true;}}"
         for marker, stage in zip(markers, ("musubi_live", "musubi_universal"))
     )
-    freeze_end = "*fields_frozen=true;}"
-    validated = preparation_code.find(validation)
-    # Between the last stage and tiered capture, the validated World feeds only
-    # the retained three-table Musubi capture of this same publication
-    # (4c30873810): it propagates its own refusal, must retire every original
-    # reader before installation, and publishes nothing.
-    musubi_capture = compact_rust(mask_rust("""
+    group_capture = compact_rust("""
         retained_musubi_group::OriginalMusubiCapture {
-            state: state_ref,
-            world: &mut *world,
-            group: &mut *musubi_group_read,
-            policy: *capture_policy,
-            generation: current_generation,
-        }
-        .advance_for_publication()?;
+            state: state_ref, world: &mut *world, group: &mut *musubi_group_read,
+            policy: *capture_policy, generation: current_generation,
+        }.advance_for_publication()?;
         if musubi_group_read.as_ref().is_none_or(|plan| !plan.retired) {
             return Err(TransactionsBlockError::SnapshotObservationChanged);
         }
-    """))
+    """)
+    freeze_end = "*fields_frozen=true;}"
+    validated = preparation_code.find(validation)
     if (preparation_code.count(validation) != 1 or preparation_code.count(validator) != 3
             or preparation_code.count(freeze_end) != 1
             or not frozen < preparation_code.find(freeze_end) < validated
+            or preparation_code.count(group_capture) != 1
             or not preparation_code.startswith(
-                musubi_capture + "iftiered_snapshot.is_none()", validated + len(validation))):
+                group_capture + "iftiered_snapshot.is_none()", validated + len(validation))):
         raise RuntimeError(f"{path}: retained World validation must propagate refusal before publication")
+    # These are the original destructured inputs and the observed generation.
+    # The complete live owner is also pinned below: use counts alone would not
+    # reject replacing the source of an otherwise unchanged local binding.
+    require_ordered_once(path, "original capture inputs", preparation_code, (
+        "letStatePublication{capture_policy,geometry_cleanup,",
+        "refunds:_,}=original;letthis=self;",
+        "letstate_ref=this.state_ref;",
+        "}=this.fields.as_mut().expect();",
+        "letcurrent_generation=state_ref.state_view_generation();",
+    ))
+    original_attempt = unconditional_rust_item(
+        publication, "fn attempt_original_publication(", path, "impl<'state> StateBlock<'state>",
+    )
     # A success marker has no other live mention: it is declared, constructed
     # false, bound once from the original owner, and read and granted only in
     # its own stage above. Its one other write resets it to false.
@@ -2482,6 +2747,11 @@ def require_parliament_commit_publication(state: str) -> None:
         raise RuntimeError(f"{path}: Parliament telemetry must follow successful canonical publication")
     if compact.count(".record_committed_parliament_transition(") != 1:
         raise RuntimeError(f"{path}: Parliament commit must have one exact transition-metric publisher")
+    # Bind the complete reviewed defining owner after the specific explanatory
+    # checks. This covers substitutions, shadows and conditional bypasses while
+    # retaining literals, typed refusals and the original frozen journal sources.
+    if rust_token_digest(original_attempt) != "cca5ce3f63b777f930d7c3253689c35982d8ec36a90e4afd8065512c2b873cf0":
+        raise RuntimeError(f"{path}: original publication changed its complete live owner")
 
 
 EPOCH_BEACON_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon.rs"
@@ -3157,7 +3427,8 @@ def require_parliament_pulse_isolation_evidence(
         "assert_eq!(stored.commitment().beacon,None);",
     ))
     pinned_helper(execution_tests, path, "fn invalid(", (
-        "assert!(matches!(executor.execute(candidate,&hash,false),Ok(Some(ExecOutcome::Invalid))));",
+        "letoutcome=executor.execute(candidate,&hash,false);",
+        "assert!(matches!(outcome,Ok(Some(ExecOutcome::Invalid))),);",
         "assert_eq!(u64::try_from(view.height()).unwrap(),chain.height());",
         "assert!(view.world().global_beacon_pulses().is_empty());",
         "assert!(view.world().global_beacon_pulse_slots().is_empty());",
@@ -3189,9 +3460,11 @@ def require_parliament_pulse_isolation_evidence(
         "with_pulse.control_witness="
         "control::encode(Some(genuine_pulse_at_next_height(&custody,&custody.chain)).as_ref()).unwrap();"
         "letunrequested=custody.chain.author_payload(with_pulse,bytes.clone());"
-        "invalid(&mutexecutor_in(&custody.chain,ConsensusMode::Permissioned),"
+        "invalid(&mutexecutor_in(&custody.chain,ConsensusMode::Permissioned,"
+        "ninth.block().header().creation_time(),),"
         "&custody.chain,&unrequested,);",
-        "assert!(matches!(executor_in(&custody.chain,ConsensusMode::Permissioned)"
+        "assert!(matches!(executor_in(&custody.chain,ConsensusMode::Permissioned,"
+        "ninth.block().header().creation_time(),)"
         ".execute(&requested_nothing,&hash,false),Ok(Some(ExecOutcome::Valid{..}))),",
         "assert_sortition_awaits(&custody.chain,attempt_id,SLOT);",
         # Every later block likewise, far past the unserved slot.
@@ -3217,8 +3490,8 @@ def require_parliament_pulse_isolation_evidence(
     # Preserve the exact bodies as well as their explanatory assertion sequence.
     # Token presence alone would allow an intact assertion under `if false`.
     for declaration, attributes, expected in (
-        ("fn invalid(", (), "045a760fa0aa5154363c63fc4d47e6ba8d7738549082eda95a74e4b4317cc57a"),
-        (f"fn {HC224_KILL_TEST}() {{", ("#[test]",), "2099c082cc5bb3029f70eaa301552f9d78f9939b56eb13b0494b14c928da63b9"),
+        ("fn invalid(", (), "487d195192345c1710f0ffe7c66b000d1442c41459d84e335aed1bdc6e2e98f6"),
+        (f"fn {HC224_KILL_TEST}() {{", ("#[test]",), "a7f6814ad38d361ab9e76564378ef495f85efdfca06e6f0e8782fee21affefcf"),
     ):
         item = construction_rust_item(execution_tests, declaration, path, attributes=attributes)
         if rust_token_digest(item) != expected:
@@ -3859,7 +4132,8 @@ def require_beacon_parliament_pulse_fixtures(
     ))
     require_all(BEACON_EXECUTION_TESTS_PATH, refusals, (
         "letunrequested=same_predecessor(&fixture,false);",
-        "invalid(&mutexecutor(&unrequested),&unrequested,&unrequested_body);",
+        "invalid(&mutexecutor(&unrequested,ordinary.block().header().creation_time()),"
+        "&unrequested,&unrequested_body,);",
     ))
     # The replay State differs from the unrequested one only by its NPoS tip: 8 puts
     # the next height on the pre-boundary pulse, 7 on an ordinary height.
@@ -4211,8 +4485,6 @@ def require_signed_deferred_authority_and_native_fees(
 
     transfer = rust_item(asset, "impl PreparedNumericTransferPlan {", asset_path)
     prepare = item(transfer, "fn prepare(", asset_path)
-    # Privacy-pool deposits are customer payments too: they record the retail
-    # fee exactly like a User transfer. Protocol custody movements still do not.
     require(asset_path, prepare, (
         "retail_payment: matches!(source_policy, NumericAssetTransferSourcePolicy::User"
         " | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_))",
@@ -4336,78 +4608,6 @@ RETIRED_TLE_STARTUP_LOOKUPS = (
     "attest_partial_release_capability",
     "parliament_tle_partial_release_signer",
     "sign_partial_release",
-)
-# Daemon dependency items of the Parliament TLE partial-release signer, retired by
-# 3be383b0e7 with the coordinator wiring and its probe/inversion tests.
-RETIRED_TLE_DAEMON_IDENTIFIERS = (
-    "parliament_tle_partial_release_signer",
-    "with_parliament_tle_partial_release_signer",
-    "parliament_tle_release_coordinator",
-    "with_parliament_tle_release_coordinator",
-    "parliament_tle_release_tests",
-    "TlePartialReleaseSignerV1",
-    "TleReleaseCoordinatorV1",
-    "CapabilityProbeSigner",
-    "threshold_signer_startup_readiness_never_consults_parliament_tle_custody",
-)
-# The runtime-provider broker chain of that signer, retired with it: operations 124
-# and 125, their framed wire types, request/result validation, dispatch, backend
-# trait, software signer, broker tests and the daemon's coordinator wiring.
-RETIRED_TLE_BROKER_SURFACES = (
-    ("crates/irohad/src/runtime_provider_broker/protocol_primitives.rs", (
-        "OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1",
-        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
-        "ParliamentTleCapabilityAttestRequestWireV1",
-        "ParliamentTleCapabilityAttestResultWireV1",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/protocol_operation_validation.rs", (
-        "OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1",
-        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
-        "decode_parliament_tle_capability_attest_request",
-        "verify_parliament_tle_capability_attest_result",
-        "verify_parliament_tle_partial_release_result",
-        "ParliamentTlePartialReleaseSigner",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/validate_operation_payload.rs", (
-        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
-        "parliament_tle_partial_release_signer_slot",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/platform_operation_dispatch.rs", (
-        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
-        "parliament_tle_partial_release_signer_slot",
-        "parliament_tle_capability_attest",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/protocol/platform/operation_dispatch/consensus.rs", (
-        "parliament_tle_capability_attest",
-        "attest_partial_release_capability",
-        "parliament_tle_partial_release_signer",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/api.rs", (
-        "ParliamentTlePartialReleaseSignerBrokerBackendV1",
-        "ParliamentTlePartialReleaseSignerBrokerBackendErrorV1",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/platform_provider_clients_03.rs", (
-        "attest_partial_release_capability",
-        "sign_projected_partial_release",
-        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
-        "ParliamentTleCapabilityAttestResultWireV1",
-    )),
-    ("crates/irohad/src/external_software_signer/consensus_threshold.rs", (
-        "attest_partial_release_capability",
-        "TlePartialReleaseCapabilityErrorV1",
-        "ParliamentTlePartialReleaseSignerBrokerBackendErrorV1",
-    )),
-    ("crates/irohad/src/runtime_provider_broker/server_tests_04.rs", (
-        "parliament_tle_capability_attestation_round_trips_over_authenticated_broker",
-        "parliament_tle_capability_typed_proxy_requalifies_before_and_after_lookup",
-        "parliament_tle_partial_release_round_trips_over_authenticated_broker",
-        "ParliamentTleCapabilityResultFault",
-        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
-    )),
-    ("crates/irohad/src/main.rs", (
-        "parliament_tle_release_coordinator",
-        "with_parliament_tle_release_coordinator",
-    )),
 )
 
 
@@ -4571,25 +4771,19 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
             "consensus start"
         )
 
-    # 3be383b0e7 retired the Parliament TLE partial-release signer field and setter,
-    # the release coordinator and the TLE probe/inversion tests: no daemon dependency
-    # holds or attests Parliament TLE custody. Only the global-beacon signer remains.
     require_identifiers_absent(runtime_deps_path, live_file, RETIRED_TLE_DAEMON_IDENTIFIERS)
+    # Parliament TLE provider injection was removed from the daemon. The native
+    # beacon field/setter and its independent custody checks remain required.
     dependencies, _ = live_rust_item(runtime_deps, "pub struct IrohaRuntimeDeps {", runtime_deps_path)
     require_ordered_once(runtime_deps_path, "pub struct IrohaRuntimeDeps", dependencies, (
         "sumeragi_global_beacon_partial_signer:"
         "Option<Arc<dyniroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>>,",
     ))
-    require_ordered_once(
-        runtime_deps_path, "runtime dependency setters", re.sub(r"\s+", "", live_file), (
-            "with_sumeragi_global_beacon_partial_signer(signer:"
-            "Arc<dyniroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,)"
-            "=>sumeragi_global_beacon_partial_signer;",
-        ),
-    )
-
-    # The consensus-native custody test is a compiled test of its own test module
-    # (renamed from the retired parliament_tle_release_tests).
+    require_ordered_once(runtime_deps_path, "runtime dependency setters", compact_rust(live_file), (
+        "with_sumeragi_global_beacon_partial_signer(signer:"
+        "Arc<dyniroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,)"
+        "=>sumeragi_global_beacon_partial_signer;",
+    ))
     module_owner = "mod threshold_signer_startup_tests {"
     module = rust_item(runtime_deps, module_owner, runtime_deps_path)
     if live_item_attributes(live_file, module_owner, runtime_deps_path) != ("#[cfg(test)]",):
@@ -4598,11 +4792,17 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
 
     def compiled_test(declaration: str) -> tuple[str, str]:
         if live_item_attributes(live_module, declaration, runtime_deps_path) != ("#[test]",):
-            raise RuntimeError(
-                f"{runtime_deps_path}: {declaration!r} must be a compiled test of "
-                "threshold_signer_startup_tests"
-            )
+            raise RuntimeError(f"{runtime_deps_path}: {declaration!r} must be a compiled test of threshold_signer_startup_tests")
         return live_rust_item(module, declaration, runtime_deps_path)
+
+    probe_owner = "impl iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1 for BeaconCapabilityProbeSigner {"
+    _, probe = live_rust_item(module, probe_owner, runtime_deps_path)
+    require_ordered_once(runtime_deps_path, probe_owner, probe, (
+        "fnattest_partial_signing_capability(",
+        '.push((session.record().session_id,expected_signer_index));',
+        "fnsign_partial(",
+        "self.sign_calls.fetch_add(1,Ordering::AcqRel);",
+    ))
 
     # The consensus-native half still refuses a seated validator without exact custody.
     beacon_owner = (
@@ -4705,6 +4905,7 @@ def require_queue_signed_proposal_gas(executable: str, queue: str) -> None:
         "pub const fn require_transaction_gas_limit(": "pub const fn require_transaction_gas_limit(fee_payment: &FeePaymentIntent,) -> Result<u64, TransactionGasLimitError>",
         "fn signed_executable_proposal_gas_cost(": "fn signed_executable_proposal_gas_cost(signed: &iroha_data_model::transaction::SignedTransaction, zk_gas: &ConfidentialGas,) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>>",
         "pub(crate) fn compute_proposal_gas_cost(": "pub(crate) fn compute_proposal_gas_cost(tx: &AcceptedTransaction<'_>, zk_gas: &ConfidentialGas,) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>>",
+        "fn refused(": "fn refused(err: Error, checked: CheckedTransaction<'static>) -> Failure",
     }
 
     def exact_body(source: str, path: str, declaration: str, expected: str,
@@ -4764,6 +4965,11 @@ def require_queue_signed_proposal_gas(executable: str, queue: str) -> None:
     }""", "impl Queue")
     exact_body(queue, queue_path, "pub(crate) fn compute_proposal_gas_cost(", """{
         match tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => {
+                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ))
+            }
             iroha_data_model::transaction::TransactionEntrypoint::External(signed) => {
                 Self::signed_executable_proposal_gas_cost(signed, zk_gas)
             }
@@ -4775,13 +4981,18 @@ def require_queue_signed_proposal_gas(executable: str, queue: str) -> None:
             }
         }
     }""", "impl Queue")
+    # Refusal returns the exact accepted input by move and retains its typed
+    # reason. Pin the helper as well as the admission call sites that use it.
+    exact_body(queue, queue_path, "fn refused(", """{
+        Failure {
+            tx: Box::new(checked.into_accepted()),
+            err,
+        }
+    }""", "impl Queue")
 
     declaration = "fn prepare_checked_for_enqueue<C: QueueAdmissionStateAccess>("
     original_admission = unconditional_rust_item(queue, declaration, queue_path, "impl Queue")
     admission = mask_rust(original_admission)
-    # b88f6f5445 removed the unused gossip-payload argument; every refusal now
-    # moves the checked transaction into `Self::refused`, so it cannot be retained
-    # or recovered after the rejection.
     signature = """fn prepare_checked_for_enqueue<C: QueueAdmissionStateAccess>(
         &self, checked: CheckedTransaction<'static>, routing_plan: RoutingPlan,
         state_access: &mut C,
@@ -4789,14 +5000,6 @@ def require_queue_signed_proposal_gas(executable: str, queue: str) -> None:
     ) -> Result<PreparedQueueAdmission, Failure>"""
     if compact_rust(strip_rust_comments(original_admission[:original_admission.index("{")])) != compact_rust(signature):
         raise RuntimeError(f"{queue_path}: signed proposal gas admission signature changed")
-    refusal = mask_rust(unconditional_rust_item(queue, "fn refused(", queue_path, "impl Queue"))
-    if re.sub(r"\s+", "", refusal[refusal.index("{"):]) != re.sub(r"\s+", "", """{
-        Failure {
-            tx: Box::new(checked.into_accepted()),
-            err,
-        }
-    }"""):
-        raise RuntimeError(f"{queue_path}: signed proposal gas refusal changed")
     tail = """
         let zk_gas = state_access.verification_gas();
         let proposal_gas_cost =
@@ -4842,15 +5045,36 @@ def require_queue_signed_proposal_gas(executable: str, queue: str) -> None:
     # The pre-quote code may have early rejections, but textual `return Err`
     # alone cannot prove rejection: Err can be shadowed or recovered with
     # or_else. Pin the complete reviewed prefix instead of interpreting it.
-    # Reviewed again after b88f6f5445: every early rejection is a direct
-    # `return Err(Self::refused(..., checked))`, nothing recovers an Err, and the
-    # privacy registry is the cache keyed by this admission's manifest snapshot.
     quote = re.search(r"\blet\s+zk_gas\s*=", admission)
     if quote is None or rust_token_digest(original_admission[:quote.start()]) != "7b34fd1fc961c54f9b406a79822c4759f2fa4ebaac1712e29ce8cb5f4e40bb08":
         raise RuntimeError(f"{queue_path}: signed proposal gas admission prefix changed")
     literal_admission = re.sub(r"\s+", "", strip_rust_comments(original_admission))
     if not literal_admission.endswith(re.sub(r"\s+", "", tail)):
         raise RuntimeError(f"{queue_path}: signed proposal gas admission cfg changed")
+
+
+def require_parliament_attempt_read_bound(source: str) -> None:
+    """The live attempt-read owner bounds its original State projection."""
+    path = "crates/iroha_torii/src/gov.rs"
+    lint = "#![allow(unexpected_cfgs)]"
+    if source.count(lint) != 1:
+        raise RuntimeError(f"{path}: attempt-read changed its reviewed module lint")
+    item = unconditional_rust_item(
+        source.replace(lint, "", 1),
+        "pub async fn handle_gov_parliament_attempt_read(", path,
+    )
+    code = compact_rust(mask_rust(item))
+    require_ordered_once(path, "attempt-read", code, (
+        "letview=state.query_view();",
+        "letattempt=view.world().parliament_attempts().get(&governance_attempt_id)",
+        "letstate_payload=norito::core::to_bytes_bounded("
+        "attempt,MAX_PARLIAMENT_ATTEMPT_STATE_BYTES_V1,)",
+        "state_payload_hex:hex::encode(state_payload),",
+    ))
+    # Presence alone would accept a dead bounded call or a shadowed payload.
+    # Keep the entire reviewed handler, including its return and qualifiers.
+    if rust_token_digest(item) != "3da534aa6aa16c64f0615f60df91b6276eca276febf904653e233eee45715797":
+        raise RuntimeError(f"{path}: attempt-read changed its complete bounded response owner")
 
 
 def main() -> int:
@@ -5780,28 +6004,7 @@ def main() -> int:
 
     torii_gov_path = "crates/iroha_torii/src/gov.rs"
     torii_gov = read(torii_gov_path)
-    attempt_read = section(
-        torii_gov,
-        "pub async fn handle_gov_parliament_attempt_read(",
-        "/// Strict citizen registration draft request.",
-        torii_gov_path,
-    )
-    # 3be383b0e7 retired the four timed-OVN ballot routes (casting context and
-    # proof, release context, partial release) with their handlers. Nothing
-    # replaces them yet: anonymous-ballot casting has no Torii route.
-    for retired_route in RETIRED_TIMED_OVN_BALLOT_ROUTES:
-        if retired_route in torii_gov:
-            raise RuntimeError(
-                f"{torii_gov_path}: retired timed-OVN ballot route {retired_route} remains"
-            )
-    require_all(
-        torii_gov_path,
-        attempt_read,
-        (
-            "norito::core::to_bytes_bounded(",
-            "MAX_PARLIAMENT_ATTEMPT_STATE_BYTES_V1",
-        ),
-    )
+    require_parliament_attempt_read_bound(torii_gov)
 
     state_path = "crates/iroha_core/src/state.rs"
     state = read(state_path)
@@ -7091,8 +7294,7 @@ def main() -> int:
     torii = read(torii_path)
     route_catalog_path = "crates/iroha_torii_shared/src/route_catalog.rs"
     route_catalog = read(route_catalog_path)
-    # Retired, not replaced: see require_timed_ovn_release_routes_retired.
-    require_timed_ovn_release_routes_retired(torii, route_catalog)
+    require_retired_parliament_release_exposure()
 
     retired_public_parliament_identifiers = (
         "ParliamentTerm",
@@ -7290,13 +7492,7 @@ def main() -> int:
         read("crates/irohad/src/main/runtime_deps.rs"), read("crates/irohad/src/main.rs")
     )
 
-    # 3be383b0e7 retired the daemon's Parliament TLE partial-release signer chain
-    # end to end. Core still verifies timed-OVN releases inside lifecycle
-    # transitions, but no shipped node can produce the partial releases that path
-    # needs: it is retired here, not replaced, and nothing asserts an
-    # anonymous-ballot signer or relation (none exists yet; open P.8 work).
-    for relative, identifiers in RETIRED_TLE_BROKER_SURFACES:
-        require_identifiers_absent(relative, mask_rust(read(relative)), identifiers)
+    require_retired_parliament_broker_exposure()
 
     model_path = "formal/sora_parliament/SoraParliamentV1.tla"
     model = read(model_path)
