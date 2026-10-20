@@ -2,6 +2,7 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STD};
 use iroha_data_model::{isi::sorafs::RegisterCapacityDeclaration, prelude::InstructionBox};
+use iroha_test_samples::{ALICE_ID, BOB_ID};
 use norito::{
     decode_from_bytes,
     json::{self, Value},
@@ -187,7 +188,8 @@ fn tx_stdin_builder_emits_completion_instruction() {
         "--provider-id-hex=6666666666666666666666666666666666666666666666666666666666666666"
             .to_owned(),
         "--completion-epoch=777".to_owned(),
-        "--expected-owner=sorauﾛ1Pｶt8ｵgｷﾗﾗｸ5ﾕﾆヰﾁｳヱﾜｦヱLLﾉVｾﾕXｹｼﾘnﾉﾊjｸ9eQL2MVG9T".to_owned(),
+        format!("--expected-owner={}", *ALICE_ID),
+        format!("--expected-completion-signer={}", *BOB_ID),
         "--assignment-revision=3".to_owned(),
         format!("--signer-policy-id-hex={}", "33".repeat(32)),
         "--signer-policy-revision=2".to_owned(),
@@ -204,6 +206,16 @@ fn tx_stdin_builder_emits_completion_instruction() {
     assert_eq!(completion.completion_epoch, 777);
     assert_eq!(completion.order_id.as_bytes(), &[0x55; 32]);
     assert_eq!(completion.provider_id.as_bytes(), &[0x66; 32]);
+    assert_eq!(completion.expected_authority.provider_owner, *ALICE_ID);
+    assert_eq!(completion.expected_authority.completion_signer, *BOB_ID);
+    let signer_policy = &completion.expected_authority.signer_policy;
+    assert_eq!(signer_policy.policy_id, [0x33; 32]);
+    assert_eq!(signer_policy.revision, 2);
+    assert_eq!(signer_policy.predecessor_digest, Some([0x44; 32]));
+    assert_eq!(signer_policy.policy_digest, [0x55; 32]);
+    assert_eq!(completion.expected_assignment_revision, 3);
+    assert_eq!(completion.finalized_anchor.height, 19);
+    assert_eq!(completion.finalized_anchor.block_hash, [0x66; 32]);
 }
 #[test]
 fn tx_stdin_builder_emits_expiration_instruction() {
