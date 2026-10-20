@@ -140,10 +140,12 @@ fault, leakage, performance and release campaigns remain open. Earlier source or
 component observations do not qualify the final combined candidate.
 See the [protocol](specs/private_settlement.md).
 
-Focused runs on 2026-10-06 on `13343a33c1` with the upstream merge
-`23fae0094f` applied (the merge was not yet committed) pass `cargo check` for
-`iroha_core` and `iroha_torii`; the workspace gates were not run. The rest was
-measured before that merge and not re-run. On 2026-10-06, a complete
+`iroha_core` tests selected by `state::`, `query::`, `telemetry::`,
+`alias_setup::` and `torii::zk::proofs::` pass for the flattened-index
+candidate, as do `iroha_torii` explorer and collection-source tests. Repeated
+concurrent allocation and custody checks also pass. Full library and
+workspace gates have not been requalified; the older failures below remain
+unverified outside those focused modules. On 2026-10-06, a complete
 `iroha_core` lib run had 16 failing tests, each failing the same way on a
 binary built before the ZK-plan wave: two block-sequence rejections, two
 FASTPQ finalized-source and lane counters, a signer-check query, three MUSUBI

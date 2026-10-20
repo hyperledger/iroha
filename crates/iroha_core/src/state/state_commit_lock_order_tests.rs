@@ -46,6 +46,10 @@ fn state_commit_does_not_hold_tiered_backend_while_waiting_for_state_write_lock(
 }
 #[test]
 fn lane_lifecycle_and_commit_do_not_deadlock_on_lock_order() {
+    // The barrier establishes concurrent attempts. This deadline only detects
+    // deadlock; ordinary publication work can exceed two seconds under the
+    // full test runner's contention.
+    let timeout = Duration::from_secs(30);
     let kura = Kura::blank_kura_for_testing();
     let query = crate::query::store::LiveQueryStore::start_test();
     let state = Arc::new(State::new_for_testing(World::default(), kura, query));
@@ -80,12 +84,15 @@ fn lane_lifecycle_and_commit_do_not_deadlock_on_lock_order() {
         block.commit_empty_block_for_testing().expect("commit");
         let _ = commit_done.send(());
     });
+    // Only the workers retain senders, so a worker panic disconnects the
+    // channel once its peer exits instead of masquerading as a timeout.
+    drop(done_tx);
     barrier.wait();
     done_rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(timeout)
         .expect("first serialized operation completion");
     done_rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(timeout)
         .expect("second serialized operation completion");
     lane_handle.join().expect("lane lifecycle thread");
     commit_handle.join().expect("commit thread");
@@ -382,6 +389,9 @@ fn heavy_world_commit_bench_helper_commits_accounts() {
 
 #[test]
 fn infallible_state_block_refuses_capacity_without_waiting_or_changing_state() {
+    // Keep retired fixture cells fixed while saturating and checking the
+    // original State pool's exact reservation.
+    let _state_retirement = crossbeam_epoch::pin();
     let state = State::new_for_testing(
         World::default(),
         Kura::blank_kura_for_testing(),
