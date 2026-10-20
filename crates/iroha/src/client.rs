@@ -14306,6 +14306,7 @@ pub enum FeeQuoteRequest<'a> {
 /// Bounded direct-account quotes retry this hint within their original deadline,
 /// with fresh HTTP authentication for the same unsigned payload. A refusal whose
 /// delay cannot fit remains an error with this hint and its original response.
+/// Quotes without a deadline return this hint without automatically retrying.
 /// Callers must never repeat a signed submission because of this hint.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("fee quote capacity backpressure; retry after {retry_after:?}")]
@@ -28676,6 +28677,7 @@ mod tests {
     #[tokio::test]
     async fn fee_quote_backpressure_unbounded_direct_quotes_remain_one_shot_for_both_formats() {
         let mut client = client_with_base_url(base_url());
+        // A zero timeout without an inherited deadline selects one quote dispatch.
         client.torii_request_timeout = Duration::ZERO;
         let payload = account_context(&client)
             .prepare_transaction(AccountTransactionDraft::new(
