@@ -542,6 +542,18 @@ pub const SYSCALL_ACCOUNT_RECOVERY_CANCEL: u32 = 0x01_0212;
 ///
 /// Args: `r10 = &Blob(alias literal)`, `r11 = request_generation` (nonzero).
 pub const SYSCALL_ACCOUNT_RECOVERY_FINALIZE: u32 = 0x01_0213;
+
+/// Open a controller-bound native lock from a fixed eight-word public heap table in r10.
+/// Words: &Blob(key), &AccountId(source), &AccountId(destination), &AssetDefinitionId,
+/// &Quantity(amount), release_until_ms:u64, cancel_not_before_ms:u64, expires_at_ms:u64.
+/// Zero timestamps mean absent; the authenticated active contract supplies the controller.
+pub const SYSCALL_ASSET_LOCK_OPEN: u32 = 0x01_0220;
+/// Draw a controlled lock: r10=&Blob(key), r11=&Quantity(amount), r12=&Quantity(expected_remaining).
+pub const SYSCALL_ASSET_LOCK_DRAWDOWN: u32 = 0x01_0221;
+/// Cancel a controlled lock: r10=&Blob(key), r11=&Quantity(expected_remaining).
+pub const SYSCALL_ASSET_LOCK_CANCEL: u32 = 0x01_0222;
+/// Expire a controlled lock: r10=&Blob(key).
+pub const SYSCALL_ASSET_LOCK_EXPIRE: u32 = 0x01_0223;
 // Kotodama V1 exact numeric families. These numbers are deliberately grouped
 // by value domain so admission, host dispatch, and generated SDK tables can
 // classify them without depending on source-language spellings.
@@ -817,6 +829,10 @@ pub const GENERIC_PROGRAM_DENIED_SYSCALLS_V1: &[u32] = &[
     SYSCALL_STATE_LEN,
     SYSCALL_STATE_COUNT,
     SYSCALL_STATE_SCAN,
+    SYSCALL_ASSET_LOCK_OPEN,
+    SYSCALL_ASSET_LOCK_DRAWDOWN,
+    SYSCALL_ASSET_LOCK_CANCEL,
+    SYSCALL_ASSET_LOCK_EXPIRE,
 ];
 /// Return whether an ABI syscall is available to a contract-less program.
 ///
@@ -978,6 +994,10 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
             | SYSCALL_ACCOUNT_RECOVERY_APPROVE
             | SYSCALL_ACCOUNT_RECOVERY_CANCEL
             | SYSCALL_ACCOUNT_RECOVERY_FINALIZE
+            | SYSCALL_ASSET_LOCK_OPEN
+            | SYSCALL_ASSET_LOCK_DRAWDOWN
+            | SYSCALL_ASSET_LOCK_CANCEL
+            | SYSCALL_ASSET_LOCK_EXPIRE
     ) {
         return Some(SyscallAccess::LedgerWrite);
     }
@@ -1397,6 +1417,10 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
         SYSCALL_ACCOUNT_RECOVERY_FINALIZE,
         "ACCOUNT_RECOVERY_FINALIZE",
     ),
+    (SYSCALL_ASSET_LOCK_OPEN, "ASSET_LOCK_OPEN"),
+    (SYSCALL_ASSET_LOCK_DRAWDOWN, "ASSET_LOCK_DRAWDOWN"),
+    (SYSCALL_ASSET_LOCK_CANCEL, "ASSET_LOCK_CANCEL"),
+    (SYSCALL_ASSET_LOCK_EXPIRE, "ASSET_LOCK_EXPIRE"),
 ];
 const ABI_V1_SYSCALL_COUNT: usize = ABI_V1_SYSCALL_METADATA.len();
 const fn abi_v1_syscall_numbers() -> [u32; ABI_V1_SYSCALL_COUNT] {
@@ -3269,6 +3293,10 @@ mod tests {
                 SYSCALL_STATE_LEN,
                 SYSCALL_STATE_COUNT,
                 SYSCALL_STATE_SCAN,
+                SYSCALL_ASSET_LOCK_OPEN,
+                SYSCALL_ASSET_LOCK_DRAWDOWN,
+                SYSCALL_ASSET_LOCK_CANCEL,
+                SYSCALL_ASSET_LOCK_EXPIRE,
             ]
         );
         for &syscall in GENERIC_PROGRAM_DENIED_SYSCALLS_V1 {

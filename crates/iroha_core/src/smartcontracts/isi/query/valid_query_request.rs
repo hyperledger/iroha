@@ -621,6 +621,16 @@ impl ValidQueryRequest {
                         params,
                         stored_cursor_budget
                     ),
+                    QueryItemKind::AssetUidPolicyViewV1 => run_query!(
+                        iroha_data_model::asset::uid::AssetUidPolicyViewV1,
+                        iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,
                         iroha_data_model::query::oracle::prelude::FindOracleFeeds,
@@ -1179,6 +1189,15 @@ impl ValidQueryRequest {
                     QueryItemKind::BondRecord => run_query!(
                         iroha_data_model::bond::BondRecord,
                         iroha_data_model::query::bond::prelude::FindBonds,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::AssetUidPolicyViewV1 => run_query!(
+                        iroha_data_model::asset::uid::AssetUidPolicyViewV1,
+                        iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1,
                         decoder,
                         predicate_bytes,
                         selector_bytes,

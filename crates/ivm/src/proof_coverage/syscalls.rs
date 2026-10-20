@@ -379,7 +379,7 @@ macro_rules! sc {
 }
 
 /// Number of ABI V1 syscalls.
-pub const SYSCALL_COUNT: usize = 232;
+pub const SYSCALL_COUNT: usize = 236;
 
 /// Every ABI V1 syscall in ascending number order.
 pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
@@ -492,6 +492,10 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_AXT_COMMIT, Axt),
     sc!(SYSCALL_VERIFY_DS_PROOF, Axt),
     sc!(SYSCALL_AXT_STAGE_ANCHORED_SPEND, Axt),
+    sc!(SYSCALL_ASSET_LOCK_OPEN, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_DRAWDOWN, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_CANCEL, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_EXPIRE, LedgerEffect),
     sc!(SYSCALL_ESCROW_OPEN_OFFER, LedgerEffect),
     sc!(SYSCALL_ESCROW_ACCEPT, LedgerEffect),
     sc!(SYSCALL_ESCROW_MARK_PAYMENT_SENT, LedgerEffect),

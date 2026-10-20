@@ -69,6 +69,7 @@ fn every_empty_batch_variant() -> Vec<QueryOutputBatchBox> {
         QueryOutputBatchBox::FeeSponsorProgram(Vec::new()),
         QueryOutputBatchBox::FeeSponsorProgramId(Vec::new()),
         QueryOutputBatchBox::BondRecord(Vec::new()),
+        QueryOutputBatchBox::AssetUidPolicyViewV1(Vec::new()),
     ]
 }
 #[test]

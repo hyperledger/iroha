@@ -249,6 +249,10 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         SyscallTrap: [CallDepthExceeded, DecodeError, InvalidMetadata, Metered, OutOfGas, PermissionDenied, ReentrantCall],
     ),
     producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/controlled_asset_locks.rs",
+        SyscallTrap: [DecodeError, PermissionDenied, UnknownSyscall],
+    ),
+    producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/contract_event.rs",
         SyscallTrap: [DecodeError],
         LocalDeferral: [AllocationDeferred, ExecutionDeferred],

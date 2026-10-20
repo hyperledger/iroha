@@ -13,7 +13,7 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
             """
             {
               "schema":"iroha.detached_transaction_scaffold.v1",
-              "payload_signing_hash_hex":"\(hashA)",
+              "payload_signing_hash_hex":"\(hashA)","payload_hash_hex":"\(hashC)","fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},
               "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
               "network_id":"\(networkId.literal)",
               "creation_time_ms":18446744073709551615,
@@ -47,7 +47,7 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
         ] {
             let json = Data(
                 """
-                {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)","authority":"source","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,"metadata":{},"entrypoint_hash_hex":"\(hashB)","executable":{"kind":"asset_transfer","asset_definition_id":"asset","asset_scope":\(scopeJSON),"source_asset_id":"asset#source","source_account_id":"source","destination_account_id":"destination","amount":"1.25"}}
+                {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)","payload_hash_hex":"\(hashC)","fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},"authority":"source","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,"metadata":{},"entrypoint_hash_hex":"\(hashB)","executable":{"kind":"asset_transfer","asset_definition_id":"asset","asset_scope":\(scopeJSON),"source_asset_id":"asset#source","source_account_id":"source","destination_account_id":"destination","amount":"1.25"}}
                 """.utf8
             )
             let inspection = try DetachedTransactionBridgeJSONCodec.decodeInspection(json)
@@ -65,20 +65,20 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
         """
         let fee = principal.replacingOccurrences(of: "principal", with: "fee").replacingOccurrences(of: "recipient", with: "treasury").replacingOccurrences(of: "\"amount\":\"10\"", with: "\"amount\":\"1\"")
         func json(_ legs: String) -> Data { Data("""
-        {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)","authority":"source","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,"metadata":{"fee_instruction_index":1},"entrypoint_hash_hex":"\(hashB)","executable":{"kind":"asset_transfer_batch","transfers":[\(legs)]}}
+        {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)","payload_hash_hex":"\(hashC)","fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},"authority":"source","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,"metadata":{"fee_instruction_index":1},"entrypoint_hash_hex":"\(hashB)","executable":{"kind":"atomic_transfer_sequence","transfers":[\(legs)]}}
         """.utf8) }
         let result = try DetachedTransactionBridgeJSONCodec.decodeInspection(json(principal + "," + fee))
-        guard case let .assetTransferBatch(transfers) = result.executable else { return XCTFail("batch") }
+        guard case let .atomicTransferSequence(transfers) = result.executable else { return XCTFail("batch") }
         XCTAssertEqual(transfers.map(\.destinationAccountId), ["recipient", "treasury"])
         XCTAssertEqual(transfers[0].assetScope, .dataspace(UInt64.max))
-        for legs in ["", principal, principal + "," + fee + "," + fee, principal + "," + fee.replacingOccurrences(of: "asset_transfer", with: "asset_transfer_batch"), principal + "," + fee.replacingOccurrences(of: "\"amount\":", with: "\"extra\":true,\"amount\":")] {
+        for legs in ["", principal, principal + "," + fee + "," + fee, principal + "," + fee.replacingOccurrences(of: "asset_transfer", with: "atomic_transfer_sequence"), principal + "," + fee.replacingOccurrences(of: "\"amount\":", with: "\"extra\":true,\"amount\":")] {
             XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(json(legs)))
         }
     }
 
     func testInspectionRejectsSchemaHashBase64AndScopeSubstitution() {
         let valid = """
-        {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)","authority":"a","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,"metadata":{},"entrypoint_hash_hex":"\(hashB)","executable":{"kind":"contract_call","contract_address":"x","expected_code_hash":"hash:contract","entrypoint":"y","arguments_b64":null}}
+        {"schema":"iroha.detached_transaction_scaffold.v1","payload_signing_hash_hex":"\(hashA)","payload_hash_hex":"\(hashC)","fee_payment":{"payer":"authority","value":{"charge_limits":[],"gas_limit":null}},"authority":"a","network_id":"\(networkId.literal)","creation_time_ms":1,"time_to_live_ms":60000,"metadata":{},"entrypoint_hash_hex":"\(hashB)","executable":{"kind":"contract_call","contract_address":"x","expected_code_hash":"hash:contract","entrypoint":"y","arguments_b64":null}}
         """
         let hostile = [
             valid.replacingOccurrences(of: "iroha.detached_transaction_scaffold.v1", with: "other"),

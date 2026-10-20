@@ -1396,3 +1396,28 @@ number = "0x010053"
 args = "r10=&NoritoBytes(scalar EntrypointValueTypeV1), r11=owned public heap table, r12=1"
 ret = "r10=&Blob(canonical scalar text)"
 gas = "32 + 1 per schema byte + value quote + 1 per UTF-8 output byte"
+
+# Typed controller-bound native lock operations. Milliseconds use zero for no deadline.
+[[syscall]]
+number = "0x010220"
+args = "r10=owned public 8-word heap table [&Blob(key:1..4096 bytes), &AccountId(source), &AccountId(destination), &AssetDefinitionId, &Quantity, release_until_ms:u64, cancel_not_before_ms:u64, expires_at_ms:u64]; controller=authenticated frame"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010221"
+args = "r10=&Blob(key:1..4096 bytes), r11=&Quantity(amount), r12=&Quantity(expected_remaining); controller=authenticated frame"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010222"
+args = "r10=&Blob(key:1..4096 bytes), r11=&Quantity(expected_remaining); controller=authenticated frame"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010223"
+args = "r10=&Blob(key:1..4096 bytes); controller=authenticated frame"
+ret = "u64=0"
+gas = "G_sci + bytes"

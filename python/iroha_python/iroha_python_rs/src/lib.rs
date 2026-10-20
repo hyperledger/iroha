@@ -15,6 +15,8 @@ pub mod privacy_native_actions;
 pub mod privacy_wallet_bundle;
 pub mod privacy_wallet_worker;
 mod public_finality_checkpoint;
+mod scheduled_contract_trigger;
+mod scheduled_execution_verification;
 mod sorafs_orderbook_submission;
 mod transaction_details;
 mod zk_vk_draft;
@@ -5591,6 +5593,7 @@ mod tests {
     }
     include!("tests/python_crypto_boundary_tests.rs");
     include!("tests/python_transaction_account_context_tests.rs");
+    include!("tests/python_ensure_alias_tests.rs");
     #[test]
     fn native_sdk_bridge_abi_version_is_exactly_twenty_two() {
         assert_eq!(connect_norito_bridge_abi_version_py(), 31);
@@ -9355,6 +9358,32 @@ impl Instruction {
             .map_err(|err| PyValueError::new_err(format!("invalid instruction JSON: {err}")))?;
         Ok(Instruction::new(instruction))
     }
+    /// Construct only EnsureAlias from independently selected typed V1 components.
+    /// The caller supplies the intent and quote constraints; consensus validates live policy.
+    #[classmethod]
+    #[pyo3(signature = (intent_json, acquisition_json, quote_guard_json, *, chain_discriminant))]
+    fn ensure_alias(
+        _cls: &Bound<'_, PyType>,
+        intent_json: &str,
+        acquisition_json: &str,
+        quote_guard_json: &str,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
+        let intent = json::from_str::<AliasIntentV1>(intent_json)
+            .map_err(|err| PyValueError::new_err(format!("invalid AliasIntentV1 JSON: {err}")))?;
+        let acquisition =
+            json::from_str::<AliasLeaseAcquisitionV1>(acquisition_json).map_err(|err| {
+                PyValueError::new_err(format!("invalid AliasLeaseAcquisitionV1 JSON: {err}"))
+            })?;
+        let quote_guard = json::from_str::<AliasQuoteGuardV1>(quote_guard_json).map_err(|err| {
+            PyValueError::new_err(format!("invalid AliasQuoteGuardV1 JSON: {err}"))
+        })?;
+        Ok(Self::new(
+            iroha_data_model::isi::alias_setup::EnsureAlias::new(intent, acquisition, quote_guard)
+                .into(),
+        ))
+    }
     /// Load exact canonical InstructionBox bytes, whose controller identities are prefix-neutral.
     /// This cannot authenticate a presentation prefix discarded by an earlier encoder.
     #[classmethod]
@@ -10786,6 +10815,34 @@ impl Instruction {
             .map_err(|err| PyValueError::new_err(format!("invalid metadata key `{key}`: {err}")))?;
         let instruction = RemoveKeyValue::rwa(rwa_id, key);
         Ok(Instruction::new(instruction.into()))
+    }
+    #[classmethod]
+    #[pyo3(signature = (trigger_id, authority, contract_address, expected_code_hash_hex, entrypoint, arguments, *, start_ms, period_ms, max_retries, retry_after_ms, chain_discriminant))]
+    fn register_scheduled_contract_call(
+        _cls: &Bound<'_, PyType>,
+        trigger_id: &str,
+        authority: &str,
+        contract_address: &str,
+        expected_code_hash_hex: &str,
+        entrypoint: &str,
+        arguments: &Bound<'_, PyBytes>,
+        #[pyo3(from_py_with = scheduled_contract_trigger::positive_u64)] start_ms: u64,
+        #[pyo3(from_py_with = scheduled_contract_trigger::positive_u64)] period_ms: u64,
+        #[pyo3(from_py_with = scheduled_contract_trigger::positive_u32)] max_retries: u32,
+        #[pyo3(from_py_with = scheduled_contract_trigger::positive_u64)] retry_after_ms: u64,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
+    ) -> PyResult<Self> {
+        if !arguments.is_exact_instance_of::<PyBytes>() {
+            return Err(PyTypeError::new_err("arguments must be exact immutable bytes"));
+        }
+        let authority = parse_selected_account_id(authority, "authority", chain_discriminant)?;
+        let instruction = scheduled_contract_trigger::build(
+            scheduled_contract_trigger::ScheduledContractCall {
+                trigger_id, authority, contract_address, expected_code_hash_hex, entrypoint,
+                arguments: arguments.as_bytes(), start_ms, period_ms, max_retries, retry_after_ms,
+            },
+        ).map_err(PyValueError::new_err)?;
+        Ok(Self::new(instruction))
     }
     #[classmethod]
     #[pyo3(signature = (trigger_id, authority, instructions, *, start_ms, **kwargs))]
@@ -15736,6 +15793,7 @@ fn _crypto(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
         verify_committed_transaction_inclusion_py,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(scheduled_execution_verification::verify, module)?)?;
     module.add_function(wrap_pyfunction!(verify_py, module)?)?;
     module.add_function(wrap_pyfunction!(public_key_multihash_py, module)?)?;
     module.add_function(wrap_pyfunction!(private_key_multihash_py, module)?)?;
