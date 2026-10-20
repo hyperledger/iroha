@@ -370,8 +370,8 @@ impl SnsError {
     }
 }
 
-fn sns_decode_error(error: norito::Error, context: &'static str) -> SnsError {
-    match crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+fn sns_decode_error(error: norito::core::DecodeAttemptError, context: &'static str) -> SnsError {
+    match crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
         SnsError::Internal(format!("{context}: {error}"))
     }) {
         crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
@@ -530,8 +530,9 @@ pub fn alias_auto_renew_state(
         return Ok(None);
     };
     let mut cursor = bytes.as_slice();
-    let state = AliasAutoRenewStateV1::decode(&mut cursor)
-        .map_err(|error| sns_decode_error(error, "failed to decode alias auto-renew state"))?;
+    let state =
+        norito::core::classify_decode_attempt(|| AliasAutoRenewStateV1::decode(&mut cursor))
+            .map_err(|error| sns_decode_error(error, "failed to decode alias auto-renew state"))?;
     if !cursor.is_empty() {
         return Err(SnsError::Internal(
             "alias auto-renew state contains trailing bytes".to_owned(),
@@ -561,8 +562,9 @@ fn alias_auto_renew_cursor(
         return Ok(None);
     };
     let mut cursor = bytes.as_slice();
-    let state = AliasAutoRenewCursorV1::decode(&mut cursor)
-        .map_err(|error| sns_decode_error(error, "failed to decode alias auto-renew cursor"))?;
+    let state =
+        norito::core::classify_decode_attempt(|| AliasAutoRenewCursorV1::decode(&mut cursor))
+            .map_err(|error| sns_decode_error(error, "failed to decode alias auto-renew cursor"))?;
     if !cursor.is_empty() {
         return Err(SnsError::Internal(
             "alias auto-renew cursor contains trailing bytes".to_owned(),
@@ -655,8 +657,9 @@ fn decode_alias_auto_renew_state(
     storage_key: &StatePath,
 ) -> Result<AliasAutoRenewStateV1, SnsError> {
     let mut cursor = bytes;
-    let state = AliasAutoRenewStateV1::decode(&mut cursor)
-        .map_err(|error| sns_decode_error(error, "failed to decode alias auto-renew state"))?;
+    let state =
+        norito::core::classify_decode_attempt(|| AliasAutoRenewStateV1::decode(&mut cursor))
+            .map_err(|error| sns_decode_error(error, "failed to decode alias auto-renew state"))?;
     if !cursor.is_empty() {
         return Err(SnsError::Internal(format!(
             "alias auto-renew state `{storage_key}` contains trailing bytes"
@@ -1202,33 +1205,42 @@ fn decode_record_for_selector(
     bytes: &[u8],
     selector: &NameSelectorV1,
 ) -> Result<NameRecordV1, SnsError> {
-    let decode = || {
-        let record: NameRecordV1 = norito::codec::decode_adaptive(bytes)
-            .map_err(|error| sns_decode_error(error, "failed to decode an SNS record"))?;
-        if record.selector != *selector || record.name_hash != selector.name_hash() {
-            return Err(SnsError::Internal(
-                "SNS record identity mismatch".to_owned(),
-            ));
-        }
-        Ok(record)
+    let limits = if crate::smartcontracts::isi::query::singular_query_limits_active() {
+        let elements = bytes.len().checked_mul(8).ok_or_else(|| {
+            SnsError::Internal("SNS record exceeds query memory limits".to_owned())
+        })?;
+        Some(
+            crate::smartcontracts::isi::query::singular_query_decode_limits(
+                bytes.len(),
+                norito::DecodeLimits::new(elements, bytes.len(), elements, usize::MAX, 64),
+            )
+            .map_err(|_| SnsError::Internal("SNS record exceeds query memory limits".to_owned()))?,
+        )
+    } else {
+        None
     };
-    if !crate::smartcontracts::isi::query::singular_query_limits_active() {
-        return decode();
+    let record: NameRecordV1 = norito::core::classify_decode_attempt(|| {
+        let decode = || norito::codec::decode_adaptive(bytes);
+        // The caller's resource scope encloses this boundary. Query policy limits
+        // remain inside it, so exceeding those limits is a completed rejection.
+        if let Some(limits) = limits {
+            norito::with_decode_limits_scope(limits, decode)
+        } else {
+            decode()
+        }
+    })
+    .map_err(|error| sns_decode_error(error, "failed to decode an SNS record"))?;
+    if record.selector != *selector || record.name_hash != selector.name_hash() {
+        return Err(SnsError::Internal(
+            "SNS record identity mismatch".to_owned(),
+        ));
     }
-    let elements = bytes
-        .len()
-        .checked_mul(8)
-        .ok_or_else(|| SnsError::Internal("SNS record exceeds query memory limits".to_owned()))?;
-    let limits = crate::smartcontracts::isi::query::singular_query_decode_limits(
-        bytes.len(),
-        norito::DecodeLimits::new(elements, bytes.len(), elements, usize::MAX, 64),
-    )
-    .map_err(|_| SnsError::Internal("SNS record exceeds query memory limits".to_owned()))?;
-    norito::with_decode_limits_scope(limits, decode)
+    Ok(record)
 }
+
 fn decode_policy_for_suffix(bytes: &[u8], suffix_id: SuffixId) -> Result<SuffixPolicyV1, SnsError> {
     let mut slice = bytes;
-    let policy = SuffixPolicyV1::decode(&mut slice)
+    let policy = norito::core::classify_decode_attempt(|| SuffixPolicyV1::decode(&mut slice))
         .map_err(|error| sns_decode_error(error, "failed to decode SNS suffix policy"))?;
     if !slice.is_empty() {
         return Err(SnsError::Internal(format!(
@@ -1367,9 +1379,10 @@ pub(crate) fn prepare_all_account_alias_lease_rekeys(
             break;
         }
         let mut slice = bytes.as_slice();
-        let mut record = NameRecordV1::decode(&mut slice).map_err(|error| {
-            sns_decode_error(error, "failed to decode account-alias SNS record")
-        })?;
+        let mut record = norito::core::classify_decode_attempt(|| NameRecordV1::decode(&mut slice))
+            .map_err(|error| {
+                sns_decode_error(error, "failed to decode account-alias SNS record")
+            })?;
         if !slice.is_empty() {
             return Err(SnsError::Internal(format!(
                 "account-alias SNS record `{storage_key}` contains trailing bytes"
@@ -2973,10 +2986,25 @@ fn resolve_active_dataspace_by_id(
         if !storage_key.as_ref().starts_with(&prefix_literal) {
             break;
         }
-        let decode_candidate = || {
-            let record: NameRecordV1 = norito::codec::decode_adaptive(bytes).map_err(|error| {
-                sns_decode_error(error, "failed to decode a dataspace SNS record")
+        let limits = if crate::smartcontracts::isi::query::singular_query_limits_active() {
+            let elements = bytes.len().checked_mul(8).ok_or_else(|| {
+                SnsError::Internal("dataspace SNS record exceeds query memory limits".to_owned())
             })?;
+            Some(
+                crate::smartcontracts::isi::query::singular_query_decode_limits(
+                    bytes.len(),
+                    norito::DecodeLimits::new(elements, bytes.len(), elements, usize::MAX, 64),
+                )
+                .map_err(|_| {
+                    SnsError::Internal(
+                        "dataspace SNS record exceeds query memory limits".to_owned(),
+                    )
+                })?,
+            )
+        } else {
+            None
+        };
+        let validate_candidate = |record: NameRecordV1| {
             if record.selector.label.len() > iroha_model_base::name::MAX_NAME_BYTES {
                 return Err(SnsError::Internal(
                     "dataspace SNS record label exceeds the canonical name limit".to_owned(),
@@ -3008,21 +3036,20 @@ fn resolve_active_dataspace_by_id(
             }
             Ok(Some(record.selector.label))
         };
-        let candidate = if crate::smartcontracts::isi::query::singular_query_limits_active() {
-            let elements = bytes.len().checked_mul(8).ok_or_else(|| {
-                SnsError::Internal("dataspace SNS record exceeds query memory limits".to_owned())
-            })?;
-            let limits = crate::smartcontracts::isi::query::singular_query_decode_limits(
-                bytes.len(),
-                norito::DecodeLimits::new(elements, bytes.len(), elements, usize::MAX, 64),
-            )
-            .map_err(|_| {
-                SnsError::Internal("dataspace SNS record exceeds query memory limits".to_owned())
-            })?;
-            norito::with_decode_limits_scope(limits, decode_candidate)
-        } else {
-            decode_candidate()
-        }?;
+        let candidate = norito::core::classify_decode_attempt(|| {
+            let decode_candidate = || {
+                let record = norito::codec::decode_adaptive(bytes)?;
+                Ok::<_, norito::Error>(validate_candidate(record))
+            };
+            if let Some(limits) = limits {
+                // The record's numeric metadata is parsed during validation too, so
+                // the complete candidate must retain this query-owned decode scope.
+                norito::with_decode_limits_scope(limits, decode_candidate)
+            } else {
+                decode_candidate()
+            }
+        })
+        .map_err(|error| sns_decode_error(error, "failed to decode a dataspace SNS record"))??;
         if let Some(alias) = candidate {
             match &mut resolution {
                 None => {

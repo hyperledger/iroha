@@ -376,9 +376,14 @@ pub fn canonicalize_collection_query(
             target.endpoint(),
         )
         .map_err(|err| {
+            let message = match err {
+                Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+                    iroha_data_model::query::error::QueryExecutionFail::Conversion(message),
+                )) => message,
+                other => other.to_string(),
+            };
             Error::from(
-                CollectionError::new("invalid_filter", "filter", err.to_string())
-                    .with_actual(field),
+                CollectionError::new("invalid_filter", "filter", message).with_actual(field),
             )
         })?;
     }

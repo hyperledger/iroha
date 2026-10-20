@@ -338,14 +338,42 @@ fn genuine_and_cheaply_invalid_sources_never_install_seen_state() {
 
 #[test]
 fn no_new_slashable_g6_member_is_duplicate_before_lru_and_pairing() {
-    use forgery::tests::{active_chain, future};
-    let (chain, keys) = active_chain();
+    use crate::state::WorldReadOnly as _;
+    use forgery::tests::{active_member_chain_with_penalty_delay, future};
+    let (mut chain, keys, ordinary) = active_member_chain_with_penalty_delay(2);
+    let evidence = future(&chain, &keys);
+    let created_ms = chain
+        .state()
+        .view()
+        .native_execution_tip()
+        .unwrap()
+        .creation_time_ms()
+        + 1;
+    let signed = chain.sign(&ordinary, [evidence.into()], created_ms);
+    assert_eq!(chain.commit(vec![signed]), [true]);
+    assert_eq!(
+        chain.state().view().world().sccp_forgery_offences().len(),
+        3,
+        "the genuine exact quorum already has permanent offences"
+    );
+
+    // All G6 members are registered by the signed genesis. Record their actual
+    // offences first, then prove that another claim by the same quorum is cheap
+    // Duplicate even with an invalid signature, before LRU admission or pairing.
     let mut evidence = future(&chain, &keys);
     evidence.aggregate_signature = [0; 96];
+    let created_ms = chain
+        .state()
+        .view()
+        .native_execution_tip()
+        .unwrap()
+        .creation_time_ms()
+        + 1;
+    let transaction = chain.sign(&ordinary, [evidence.into()], created_ms);
     let view = chain.state().view();
     let queue = queue();
     assert!(matches!(
-        queue.admit_forgery(&view, &signed_evidence(&view, evidence)),
+        queue.admit_forgery(&view, &transaction),
         Err(Error::SccpForgeryIngress(ForgeryIngressError::Duplicate))
     ));
     assert!(queue.forgery_ingress.lock().is_none());

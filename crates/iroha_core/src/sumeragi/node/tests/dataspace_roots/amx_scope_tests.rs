@@ -98,15 +98,33 @@ fn signed_private_genesis_cannot_install_global_amx_coordinator() {
 #[test]
 fn signed_global_genesis_keeps_original_amx_coordinator_authority() {
     let mut config = TestChainConfig::new(World::new(), 1_000);
-    let (instructions, tx) = coordinator_instructions(
+    let (mut instructions, tx) = coordinator_instructions(
         config.genesis_time_ms,
         config.genesis_block_cadence_ms.get(),
     );
+    // Signed global genesis installs coordinator authority. Relayable Begin records need
+    // a non-genesis quorum-certified carrier, as required by the native AMX proof reader.
+    let begin = instructions
+        .pop()
+        .expect("the final instruction begins the AMX");
     config.genesis_instructions = instructions;
-    let chain = CertifiedTestChain::start(config).unwrap();
+    let genesis_key = config.genesis_key.clone();
+    let mut chain = CertifiedTestChain::start(config).unwrap();
     let view = chain.state().view();
     assert_eq!(view.height(), 1);
     assert_eq!(chain.kura().blocks_count(), 1);
     assert_eq!(view.world().sumeragi_amx().dataspaces.len(), 2);
-    assert!(view.world().sumeragi_amx().transaction(&tx).is_some());
+    assert!(view.world().sumeragi_amx().transaction(&tx).is_none());
+    drop(view);
+    let begin = chain.sign(&genesis_key, [begin], 1_099);
+    assert_eq!(chain.commit_at(1_100, vec![begin]), [true]);
+    let view = chain.state().view();
+    assert_eq!(view.height(), 2);
+    assert_eq!(chain.kura().blocks_count(), 2);
+    assert_eq!(view.world().sumeragi_amx().dataspaces.len(), 2);
+    let amx = view.world().sumeragi_amx();
+    let entry = amx
+        .transaction(&tx)
+        .expect("certified Begin retains the transaction");
+    assert_eq!(entry.begun_at, 2);
 }

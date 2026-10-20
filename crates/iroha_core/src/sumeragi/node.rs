@@ -1381,7 +1381,7 @@ mod tests {
     };
     use iroha_data_model::{
         isi::Log,
-        transaction::{FeePaymentIntent, TransactionEntrypoint},
+        transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionEntrypoint},
     };
     use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
     use iroha_model_base::{chain::ChainId, peer::PeerId};
@@ -1631,8 +1631,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let extra = extra(&keys);
-        let fee_asset = iroha_config::parameters::defaults::nexus::fees::genesis_policy()
-            .fee_asset_id;
+        let fee_asset =
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
         // Ordinary fixture work pays the committed fee policy. Establish its funds
         // in the original signed genesis so replay reconstructs the same supply.
         let mut builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
@@ -2041,9 +2041,15 @@ mod tests {
         // Quote the original payload against the actual committed parent, then put
         // its exact native bounds into the payload before the submitted signature.
         let draft = builder.clone().sign(key.private_key());
-        let view = validators.first().expect("a running validator").state.view();
+        let view = validators
+            .first()
+            .expect("a running validator")
+            .state
+            .view();
         let horizon = draft.creation_time().saturating_add(
-            draft.time_to_live().expect("fixture input has a bounded lifetime"),
+            draft
+                .time_to_live()
+                .expect("fixture input has a bounded lifetime"),
         );
         let quote = crate::executor::quote_nexus_fee_admission_draft(
             view.world(),
@@ -2059,7 +2065,11 @@ mod tests {
         )
         .expect("original genesis funds the ordinary native fee quote");
         assert!(
-            quote.quote.charges.iter().any(|charge| !charge.max_bound.is_zero()),
+            quote
+                .quote
+                .charges
+                .iter()
+                .any(|charge| !charge.max_bound.is_zero()),
             "ordinary fixture input must pay its positive committed fee"
         );
         drop(view);
@@ -2271,7 +2281,10 @@ mod tests {
         shutdown(validators);
     }
 
-    const ELASTIC_BURST_INPUTS: u32 = 256;
+    // At the unchanged sixty-second burst deadline, 32 admitted inputs supply
+    // at least 0.533 TPS: above the signed 0.3 TPS scale-out threshold. A smaller
+    // paid batch keeps real four-validator execution bounded in debug builds.
+    const ELASTIC_BURST_INPUTS: u32 = 32;
 
     /// A lane policy that autoscales one elastic lane (16) over the whole validator set.
     fn elastic_lane_policy(_keys: &[KeyPair]) -> Vec<Parameter> {
@@ -2312,7 +2325,7 @@ mod tests {
                 max_lane_exclusive: iroha_model_base::topology::LaneId::new(17),
                 dataspace: iroha_model_base::topology::DataSpaceId::new(0),
                 committee_size: 4,
-                per_lane_target_tps: 10,
+                per_lane_target_tps: 1,
                 window: 3,
                 scale_out_permille: 300,
                 scale_in_permille: 150,
@@ -2401,8 +2414,8 @@ mod tests {
             if running(&validators) == vec![1; 4] {
                 break;
             }
-            // Amortize real proposal/QC work with a bounded queue of ordinary signed inputs.
-            // Six inputs per several-second commit do not supply the policy's 3 TPS threshold.
+            // Amortize real proposal/QC work with a bounded queue of ordinary paid inputs.
+            // Even a burst at the finite wait bound crosses the signed 0.3 TPS threshold.
             burst(
                 &validators,
                 usize::try_from(ELASTIC_BURST_INPUTS).expect("bounded burst"),
@@ -2445,12 +2458,14 @@ mod tests {
                 .iter()
                 .all(|merged| *merged >= 1)
         );
-        // Idle: spaced transactions show low utilization and the lane closes.
+        // Idle: with both default-route lanes active, one input per four seconds
+        // offers at most 125 permille of the signed 1 TPS per-lane capacity, below
+        // the 150-permille scale-in threshold even on a fast host.
         for index in 0..12 {
             if lane_record(&validators[0], elastic).is_none_or(|record| record.closing.is_some()) {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(1_600));
+            std::thread::sleep(Duration::from_secs(4));
             let hash = submit(&chain, &validators, &format!("idle {index}"));
             wait_until(
                 &validators,
@@ -2492,6 +2507,30 @@ mod tests {
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
+        let fee_asset =
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
+        let fee_balances = |validators: &[Validator]| {
+            validators
+                .iter()
+                .map(|validator| {
+                    let view = validator.state.view();
+                    [ALICE_ID.clone(), second_shard_account()].map(|payer| {
+                        view.world()
+                            .assets()
+                            .get(&AssetId::new(fee_asset.clone(), payer))
+                            .expect("signer funded by the original genesis")
+                            .as_ref()
+                            .clone()
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let initial_balance = iroha_primitives::numeric::Quantity::from(1_000_000_u32);
+        assert_eq!(
+            fee_balances(&validators),
+            vec![[initial_balance.clone(), initial_balance.clone()]; 4],
+            "genesis funds each workload signer exactly once"
+        );
         assert_eq!(committed_heights(&validators), vec![GENESIS_HEIGHT; 4]);
         assert_idle_height_unchanged(&validators, Duration::from_millis(750));
         let hash = submit(&chain, &validators, "after idle");
@@ -2505,6 +2544,10 @@ mod tests {
         // Every validator holds the same complete World.
         let roots = world_state_roots(&validators);
         assert!(roots[0].is_ok() && roots.iter().all(|root| *root == roots[0]));
+        let balances = fee_balances(&validators);
+        assert!(balances.iter().all(|balance| {
+            balance == &balances[0] && balance[0] < initial_balance && balance[1] == initial_balance
+        }));
         shutdown(validators);
         let committed = disks
             .iter()
@@ -2518,6 +2561,7 @@ mod tests {
         // the one before shutdown.
         let validators = start_all(&chain, &disks, false);
         assert_eq!(world_state_roots(&validators), roots);
+        assert_eq!(fee_balances(&validators), balances);
         assert_idle_height_unchanged(&validators, Duration::from_millis(750));
         let hash = submit(&chain, &validators, "after idle restart");
         wait_until(
@@ -2527,6 +2571,11 @@ mod tests {
             || committed_everywhere(&validators, hash),
         );
         assert_eq!(committed_heights(&validators), vec![3; 4]);
+        assert!(
+            fee_balances(&validators)
+                .iter()
+                .all(|balance| { balance[0] < balances[0][0] && balance[1] == initial_balance })
+        );
         shutdown(validators);
         assert_same_certified_blocks(&disks, 3);
     }

@@ -3824,12 +3824,39 @@ mod tests {
             task::{Context, Poll},
         };
 
+        // Keep retired fixture World versions from refunding this exact pool
+        // while the test deliberately fills each original verification corridor.
+        let _epoch = crossbeam_epoch::pin();
         let chain = native_push_chain(false);
         let state = chain.state();
         let pool = state.ivm_execution_budget();
         let baseline = pool.reserved_bytes();
-        let frame_bytes = chain.committed(1).block().encode_wire().unwrap().len();
+        let wire = chain.committed(1).block().encode_wire().unwrap();
+        let frame_bytes = wire.len();
+        // Census model-owned decode custody independently of the replay being
+        // tested. Native acquisition retains these controls and children beside
+        // the original frame until the complete verification retires.
+        let decoded_bytes = {
+            let census = iroha_allocation::AllocationBudget::new(pool.limit_bytes());
+            let mut source = iroha_allocation::ChargedBuffer::new(frame_bytes, &census).unwrap();
+            source.append(&wire).unwrap();
+            let mut decoder =
+                iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&census).unwrap();
+            let decoded = decoder
+                .decode(
+                    &source,
+                    norito::core::SequenceSpan {
+                        start: 0,
+                        end: frame_bytes,
+                    },
+                    norito::canonical_decode_limits(frame_bytes),
+                )
+                .unwrap();
+            assert_eq!(decoded.encode_wire().unwrap(), wire);
+            census.reserved_bytes() - frame_bytes
+        };
         let shell_bytes = SharedSignedBlock::allocation_layout().size();
+        let carrier_bytes = frame_bytes + decoded_bytes + shell_bytes;
         let prefix_bytes = size_of::<CertifiedPrefix>();
         let committed_bytes = size_of::<CommittedBlock>();
         let result_bytes = size_of::<CertifiedResultV1>();
@@ -3837,15 +3864,15 @@ mod tests {
         // last case admits the receipt slot before its result slot refuses, so
         // retaining only the wire, shell and prefix would still self-wake.
         for (stage, retained_bytes, requested) in [
-            ("prefix", frame_bytes + shell_bytes, prefix_bytes),
+            ("prefix", carrier_bytes, prefix_bytes),
             (
                 "committed frame",
-                frame_bytes + shell_bytes + prefix_bytes,
+                carrier_bytes + prefix_bytes,
                 committed_bytes,
             ),
             (
                 "execution result",
-                frame_bytes + shell_bytes + prefix_bytes + committed_bytes,
+                carrier_bytes + prefix_bytes + committed_bytes,
                 result_bytes,
             ),
         ] {

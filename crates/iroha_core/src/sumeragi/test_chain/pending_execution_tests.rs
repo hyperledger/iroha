@@ -195,7 +195,30 @@ fn original_wire_witness_and_world_tampering_fail_before_durable_staging() {
                             write.value.push(0xFF);
                         });
                     }
-                    2 => original.state.world.sumeragi_lanes.get_mut().incarnations += 1,
+                    2 => {
+                        // A completed World rejects mutation before changing its original cut.
+                        let rejected =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                original.state.world.sumeragi_lanes.get_mut().incarnations += 1;
+                            }))
+                            .expect_err("completed World refuses mutation");
+                        let message = rejected
+                            .downcast_ref::<&str>()
+                            .copied()
+                            .or_else(|| rejected.downcast_ref::<String>().map(String::as_str));
+                        assert_eq!(
+                            message,
+                            Some("completed execution retains immutable original State")
+                        );
+                        original
+                            .state
+                            .verify_sumeragi_execution_witness(
+                                original.block.as_ref(),
+                                original.witness.wire(),
+                            )
+                            .expect("refused mutation preserves the original witness");
+                        return;
+                    }
                     _ => {
                         let hash = original.block.as_ref().hash();
                         let wire = original.block.as_ref().encode_wire().unwrap();
@@ -252,8 +275,14 @@ fn original_wire_witness_and_world_tampering_fail_before_durable_staging() {
                 );
             })
             .unwrap();
-        assert!(pending.prepare(Signers::Quorum).is_err());
-        assert!(pending.publish(Signers::Quorum).is_err());
+        if mutation == 2 {
+            pending
+                .prepare(Signers::Quorum)
+                .expect("the unchanged original still prepares");
+        } else {
+            assert!(pending.prepare(Signers::Quorum).is_err());
+            assert!(pending.publish(Signers::Quorum).is_err());
+        }
         assert_eq!(
             pending.result(),
             original_result,
@@ -367,9 +396,20 @@ fn prepared_genesis_derives_then_enforces_both_signed_native_policies() {
 fn changed_original_genesis_configuration_is_rejected_before_publication() {
     let mut prepared =
         CertifiedTestChain::prepare(TestChainConfig::new(World::new(), 1000)).unwrap();
+    // The catalog is authenticated genesis policy; node-local pipeline settings are not.
+    let catalog = iroha_data_model::nexus::DataSpaceCatalog::new(vec![
+        iroha_data_model::nexus::DataSpaceMetadata::default(),
+        iroha_data_model::nexus::DataSpaceMetadata {
+            id: iroha_model_base::topology::DataSpaceId::new(7),
+            alias: "changed-original-catalog".to_owned(),
+            description: None,
+            fault_tolerance: 1,
+        },
+    ])
+    .unwrap();
     Arc::get_mut(&mut prepared.state)
         .unwrap()
-        .edit_pipeline_for_testing(|pipeline| pipeline.amx_group_budget_ms += 1);
+        .set_dataspace_catalog_for_testing(catalog);
     let topology = super::super::super::network_topology::Topology::new(
         prepared
             .validator_keys

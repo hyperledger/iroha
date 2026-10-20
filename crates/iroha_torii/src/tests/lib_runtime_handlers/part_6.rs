@@ -722,8 +722,7 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
         .lines()
         .filter(|line| {
             let line = line.trim_start();
-            line.starts_with("pub(crate) async fn handle_v1_explorer_")
-                && line.contains("_admitted(")
+            line.starts_with("pub async fn handle_v1_explorer_") && line.contains("_admitted(")
         })
         .count();
     assert_eq!(

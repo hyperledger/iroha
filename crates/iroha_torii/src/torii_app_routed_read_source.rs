@@ -1189,9 +1189,11 @@ mod service_source_depth_tests {
     fn original_asset_alias_projection_keeps_actual_lease_status_and_refusal_depth() {
         let binding = binding();
         for observed in [10, 60, 76] {
-            let expected =
-                norito::json::to_json(&routing::asset_alias_binding_dto(&binding, observed))
-                    .unwrap();
+            let expected = norito::json::to_json(
+                &norito::json::to_value(&routing::asset_alias_binding_dto(&binding, observed))
+                    .unwrap(),
+            )
+            .unwrap();
             audit(&expected, |sink| {
                 write_torii_asset_alias_binding_json(&binding, observed, sink)
             });

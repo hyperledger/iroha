@@ -384,7 +384,19 @@ fn native_record_binding_rejects_scope_revision_config_and_key_substitution() {
                 .unwrap_err()
         },
     );
-    assert!(matches!(deferred, SnsError::Deferred(_)));
+    let original = deferred
+        .deferral()
+        .expect("the caller's zero decode quota must defer the native read")
+        .decode_refusal()
+        .expect("the original decoder refusal must survive its caller scope");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert!(matches!(
+        original.clone().into_error(),
+        norito::Error::ScopedDecodeResource(_)
+    ));
     permit().authenticate_source_record(&transaction).unwrap();
     assert!(
         permit().authenticate(&transaction).is_err(),

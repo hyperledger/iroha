@@ -52,12 +52,12 @@ fn explicit_fixture_clock_preserves_parent_due_work_refusal_and_original_retry()
     );
     let proposal = roots.global.proposal(Some(3_000), vec![signed]);
     let original_inputs = proposal.external_entrypoints_slice().to_vec();
+    let available = roots
+        .global
+        .author_proposal(proposal, iroha_sumeragi::types::ControlWitness::default());
     let refusal = roots
         .global
-        .begin_proposal(
-            proposal.clone(),
-            iroha_sumeragi::types::ControlWitness::default(),
-        )
+        .begin_available_proposal(available.clone())
         .err()
         .expect("an explicit stale clock must keep the original due-work refusal");
     // The shared parent clock is checked before executing Begin. Its Parliament
@@ -88,11 +88,12 @@ fn explicit_fixture_clock_preserves_parent_due_work_refusal_and_original_retry()
     // allowance the same original proposal can execute with no timestamp rewrite.
     let boundary = Duration::from_millis(3_000 + lag);
     clock.set(boundary);
-    let committed = roots.global.commit_proposal(
-        proposal,
-        crate::sumeragi::test_chain::Signers::Quorum,
-        iroha_sumeragi::types::ControlWitness::default(),
-    );
+    let committed = roots
+        .global
+        .begin_available_proposal(available)
+        .expect("the same original source and decoded graph retry at the inclusive clock boundary")
+        .publish(crate::sumeragi::test_chain::Signers::Quorum)
+        .expect("the original execution publishes");
     assert_eq!(source.now(), boundary);
     assert_eq!(committed.block_time_ms(), 3_000);
     assert_eq!(

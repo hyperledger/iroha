@@ -2481,13 +2481,21 @@ seiyaku LifecycleAba { permission CanRunLifecycleAba;
         );
     }
     #[test]
-    fn register_code_rejects_cycle_ceiling_above_node_policy() {
-        let (mut state, authority, _kp) = test_state();
-        let mut pipeline = state.installed_pipeline().clone();
-        pipeline.ivm_max_cycles_upper_bound =
-            core::num::NonZeroU64::new(1).expect("test ceiling is non-zero");
-        state.set_pipeline(pipeline);
+    fn register_code_rejects_cycle_ceiling_above_committed_policy() {
+        let (state, authority, _kp) = test_state();
+        let mut policy =
+            iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default(
+            );
+        policy.ivm_max_cycles_upper_bound = 1;
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter(),
+            ))
+            .expect("valid committed admission ceiling");
+        parameters.commit();
         let mut block = state.block(default_header(1));
+        assert_eq!(block.pipeline.ivm_max_cycles_upper_bound.get(), 1);
         let mut stx = block.transaction();
         let (mut code, _) = minimal_contract_artifact(1);
         code[8..16].copy_from_slice(&2_u64.to_le_bytes());

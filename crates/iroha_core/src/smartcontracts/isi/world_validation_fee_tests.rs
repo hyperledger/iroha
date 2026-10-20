@@ -3075,16 +3075,20 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
     use crate::execution_attempt::ExecutionAttemptError;
     use crate::state::StateBlockStartError;
     use iroha_data_model::governance::types::ValidationFeePayoutLifecycleProposal;
+    // Fee execution derives Honiara month bounds. January 1970 starts before
+    // the unsigned Unix epoch there, so use February for the real signed clock.
+    const FEBRUARY_1970_MS: u64 = 2_678_400_000;
+    const DUE_TIME_MS: u64 = FEBRUARY_1970_MS + 60_000;
     let (mut chain, binding) =
         crate::validation_fee::tests::signed_payout_lifecycle_registry_fixture();
     // Every predecessor is a real signed/certified nonempty block. The due-certificate reducer
     // fixture supplies the original retained governance state, not a height-only root identity.
     while chain.state().view().height() < 59 {
         let height = u64::try_from(chain.state().view().height()).unwrap() + 1;
-        chain.commit_at(height * 1_000, Vec::new());
+        chain.commit_at(FEBRUARY_1970_MS + height * 1_000, Vec::new());
     }
     let mut fixture = None;
-    chain.setup_world_at(60_000, |transaction| {
+    chain.setup_world_at(DUE_TIME_MS, |transaction| {
         const CEILING: usize = 1 << 20;
 
         crate::validation_fee::tests::register_bound_payout_time_trigger(
@@ -3190,7 +3194,7 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
         60_u64.try_into().unwrap(),
         state.view().latest_block_hash(),
         None,
-        60_000,
+        DUE_TIME_MS,
         0,
     );
     let refused = norito::with_decode_limits_scope(
@@ -3224,7 +3228,7 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
         );
     }
     // A fresh attempt over the same original State enacts and publishes once funding returns.
-    chain.commit_at(60_000, Vec::new());
+    chain.commit_at(DUE_TIME_MS, Vec::new());
     let view = state.view();
     assert_eq!(view.height(), 60);
     assert_eq!(chain.kura().blocks_count(), 60);

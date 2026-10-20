@@ -772,14 +772,14 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
 }
 
 /// Exercise the actual validator-to-Worker handoff, including the source guard's refusal.
-/// Faults use the existing one-shot accessor and transaction application API; they do not
-/// mutate the funded witness, fabricate a source or add a production injection hook.
+/// The one-shot accessor consumes the witness; the transaction API rejects attempts to
+/// mutate the completed source. Both checks retain the real funded execution owners.
 #[test]
 fn validated_witness_guard_failure_requires_recovery_without_reexecuting_original_source() {
     use crate::sumeragi::driver::traits::BlockStore as _;
 
     // Zero is the ordinary publication control. One is prior one-shot extraction;
-    // two is a genuine empty application after the original output seal completed.
+    // two attempts an empty application after the original output seal completed.
     for fault in 0..3 {
         publication_tests::with_worker(move |chain, worker, blocks, events| {
             let block = publication_tests::proposal(chain, worker);
@@ -871,13 +871,20 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
             if fault == 2 {
                 // This normal State API rejects any application after the output seal.
                 // An empty transaction cannot change the original transaction or wire graph.
-                overlay.transaction().apply();
-                assert_eq!(overlay.committed_fragment_count(), original_fragments);
-                assert!(
-                    overlay
-                        .verify_execution_output_seal(valid.as_ref())
-                        .is_err()
+                let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    overlay.transaction().apply();
+                }));
+                let panic = rejected.expect_err("the completed source refuses mutation");
+                let message = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(String::as_str));
+                assert_eq!(
+                    message,
+                    Some("completed execution retains immutable original State")
                 );
+                assert_eq!(overlay.committed_fragment_count(), original_fragments);
+                assert!(overlay.verify_execution_output_seal(valid.as_ref()).is_ok());
             }
             let outcome = worker.retain_validated_execution(
                 &block,
@@ -890,7 +897,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 max_clock_drift_ms,
                 None, // This isolated handoff does not return an execution verdict.
             );
-            if fault == 0 {
+            if fault != 1 {
                 assert!(outcome.unwrap().is_some());
                 let original = worker.finishing.as_ref().unwrap();
                 assert_eq!(

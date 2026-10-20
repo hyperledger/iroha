@@ -43,7 +43,10 @@ fn fixture_with_assignment(assignment: bool) -> (CertifiedTestChain, PrivateSett
     if assignment {
         use iroha_data_model::{
             consensus::{ConsensusKeyId, ConsensusKeyRecord, ConsensusKeyRole, ConsensusKeyStatus},
-            sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember, SumeragiLaneRecord},
+            sumeragi_lanes::{
+                SumeragiFixedLane, SumeragiLaneFrontier, SumeragiLaneMember, SumeragiLanePolicy,
+                SumeragiLaneRecord,
+            },
         };
         use iroha_model_base::peer::PeerId;
         let mut keys = (0..4)
@@ -80,7 +83,26 @@ fn fixture_with_assignment(assignment: bool) -> (CertifiedTestChain, PrivateSett
                     pop,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        // The genuine genesis lane step closes assignments absent from policy.
+        // Commit this exact fixed committee so the selected H2 route stays live.
+        let mut policy = SumeragiLanePolicy::for_chain(
+            Default::default(),
+            iroha_sumeragi::availability::recommended_data_availability_layout(),
+        );
+        policy.fixed.push(SumeragiFixedLane {
+            lane: key.route.lane_id,
+            dataspace: key.route.dataspace_id,
+            committee: members.clone(),
+        });
+        policy
+            .validate()
+            .expect("canonical fixed-lane fixture policy");
+        config
+            .genesis_parameters
+            .push(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter(),
+            ));
         let mut lanes = config.world.sumeragi_lanes.view().get().clone();
         lanes.upsert(SumeragiLaneRecord {
             da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
@@ -197,8 +219,8 @@ fn verified_tip(chain: &CertifiedTestChain) -> VerifiedSumeragiBlock {
 
 #[test]
 fn private_pool_cut_borrows_real_paid_native_world_and_authenticates_selected_rows() {
-    let (chain, key) = fixture();
     let _epoch = crossbeam_epoch::pin();
+    let (chain, key) = fixture();
     let state = chain.state();
     let tip = chain.committed(chain.height());
     let execution = state.ivm_execution_budget();
@@ -280,8 +302,8 @@ fn private_pool_cut_borrows_real_paid_native_world_and_authenticates_selected_ro
 
 #[test]
 fn private_pool_cut_preserves_original_pool_refusal_and_refunds_exact_retry() {
-    let (chain, key) = fixture();
     let _epoch = crossbeam_epoch::pin();
+    let (chain, key) = fixture();
     let state = chain.state();
     let tip = chain.committed(chain.height());
     let execution = state.ivm_execution_budget();
@@ -349,9 +371,9 @@ fn private_context_borrows_same_paid_world_assignment_and_refuses_local_capacity
     use iroha_data_model::nexus::{
         PrivateSettlementContextRequestV1, PrivateSettlementContextsProofV1,
     };
+    let _epoch = crossbeam_epoch::pin();
     let (chain, key) = fixture_with_assignment(true);
     let selectors = PrivateSettlementContextRequestV1 { pools: vec![key] };
-    let _epoch = crossbeam_epoch::pin();
     let state = chain.state();
     let tip = chain.committed(chain.height());
     let execution = state.ivm_execution_budget();
@@ -440,8 +462,8 @@ fn private_context_full_world_hashes_reveal_unselected_native_paid_balance() {
         nexus::{PrivateSettlementContextRequestV1, PrivateSettlementContextsProofV1},
         sumeragi_finality::world_state_value_hash_v1,
     };
-    let (chain, key) = fixture_with_assignment(true);
     let _epoch = crossbeam_epoch::pin();
+    let (chain, key) = fixture_with_assignment(true);
     let tip = chain.committed(chain.height());
     let budget = AllocationBudget::new(32 * 1024 * 1024);
     let selectors = PrivateSettlementContextRequestV1 { pools: vec![key] };

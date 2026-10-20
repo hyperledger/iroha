@@ -437,6 +437,9 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
         task::{Context, Waker},
     };
 
+    // Retired fixture World versions must not refund this exact pool while
+    // the original evidence reader deliberately saturates its admission corridor.
+    let _epoch = crossbeam_epoch::pin();
     let config =
         crate::sumeragi::test_chain::TestChainConfig::new(crate::state::World::new(), 1_000);
     let work_key = config.genesis_key.clone();
@@ -451,9 +454,39 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
             .wire_len(),
     )
     .unwrap();
-    // Real signed work, rather than frame padding, makes the durable successor
-    // larger than the original genesis. Canonical SignedBlockWire is uncompressed.
-    let message_bytes = genesis_wire_bytes.checked_add(1).unwrap();
+    // Census model decode custody independently of the native reader. The
+    // decoder's temporary workspace and the immutable children retained by the
+    // returned block have different lifetimes; both consume the original pool.
+    let (decode_peak_bytes, decoded_retained_bytes) = {
+        let wire = chain.committed(1).block().encode_wire().unwrap();
+        assert_eq!(wire.len(), genesis_wire_bytes);
+        let census = AllocationBudget::new(chain.state().ivm_execution_budget().limit_bytes());
+        let mut source = iroha_allocation::ChargedBuffer::new(wire.len(), &census).unwrap();
+        source.append(&wire).unwrap();
+        let mut decoder =
+            iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&census).unwrap();
+        let decoded = decoder
+            .decode(
+                &source,
+                norito::core::SequenceSpan {
+                    start: 0,
+                    end: wire.len(),
+                },
+                norito::canonical_decode_limits(wire.len()),
+            )
+            .unwrap();
+        assert_eq!(decoded.encode_wire().unwrap(), wire);
+        let peak = census.peak_reserved_bytes() - wire.len();
+        drop(decoder);
+        let retained = census.reserved_bytes() - wire.len();
+        assert!(peak >= retained);
+        (peak, retained)
+    };
+    let released_decode_bytes = decode_peak_bytes - decoded_retained_bytes;
+    let reader_headroom = genesis_wire_bytes + released_decode_bytes;
+    // Real signed work makes the durable successor larger than the space freed
+    // by the genesis frame and temporary decoder. Canonical wire is uncompressed.
+    let message_bytes = reader_headroom.checked_add(1).unwrap();
     let signed = chain.sign(
         &work_key,
         [Log::new(Level::INFO, "x".repeat(message_bytes)).into()],
@@ -487,7 +520,9 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
     };
     let genesis_frame = frame_layout(1);
     let successor_frame = frame_layout(2);
-    assert!(successor_frame.size() > genesis_frame.size());
+    assert_eq!(genesis_frame.size(), genesis_wire_bytes);
+    assert!(successor_frame.size() > reader_headroom);
+    let genesis_admission_bytes = genesis_frame.size() + layout.size() + decode_peak_bytes;
     let baseline = budget.reserved_bytes();
     let ceiling = budget.limit_bytes();
     let original_tip = chain.state().latest_block_hash_fast();
@@ -497,9 +532,7 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
         .unwrap();
     for admitted_controls in [0, 1] {
         let occupied = budget
-            .try_reserve_bytes(
-                ceiling - baseline - admitted_controls * (genesis_frame.size() + layout.size()),
-            )
+            .try_reserve_bytes(ceiling - baseline - admitted_controls * genesis_admission_bytes)
             .unwrap();
         if admitted_controls == 1 {
             let original_reader = CertifiedChain::from_pinned(
@@ -509,8 +542,8 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
                 chain.kura(),
                 &budget,
             )
-            .expect("the exact prepaid frame and shared shell admit the original genesis reader");
-            assert_eq!(budget.reserved_bytes(), ceiling - genesis_frame.size());
+            .expect("the exact prepaid frame, shell and model custody admit the original genesis reader");
+            assert_eq!(budget.reserved_bytes(), ceiling - reader_headroom);
             assert!(matches!(
                 original_reader.certified(2),
                 Err(ExecutionAttemptError::Deferred(_))
@@ -540,7 +573,7 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
                 } else {
                     successor_frame.size()
                 },
-                ceiling - admitted_controls * genesis_frame.size(),
+                ceiling - admitted_controls * reader_headroom,
                 ceiling,
             )
         );
@@ -552,7 +585,8 @@ async fn snapshot_commit_evidence_refusal_retains_original_pool_and_captured_pub
             drop(unrelated.try_reserve(layout).unwrap());
             assert!(released.as_mut().poll(&mut context).is_pending());
         } else {
-            // Dropping the admitted genesis reader refunds its exact original control.
+            // Retiring the decoder workspace and admitted genesis reader refunds
+            // their exact original controls and immutable decoded children.
             assert!(released.as_mut().poll(&mut context).is_ready());
         }
         assert!(matches!(

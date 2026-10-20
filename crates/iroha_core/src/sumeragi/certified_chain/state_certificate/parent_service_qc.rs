@@ -38,11 +38,11 @@ impl ParentServiceQcPreparation {
             .original
             .as_ref()
             .ok_or_else(|| parent_source_failure("parent-service QC preparation is absent"))?;
-        if *hash != proposal.hash()
-            || !ChargedShared::ptr_eq(original, offered)
+        if !ChargedShared::ptr_eq(original, offered)
             || !pool.same_pool(budget)
             || !offered.belongs_to(pool)
             || !ChargedBuffer::belongs_to(offered, pool)
+            || *hash != parent_service_proposal_hash(proposal)?
         {
             return Err(parent_source_failure(
                 "parent-service QC replaced its original proposal, source or pool",
@@ -65,7 +65,11 @@ impl ParentServiceQcPreparation {
                 .ok_or_else(|| {
                     parent_source_failure("parent-service QC has no admitted original source")
                 })?;
-            self.original = Some((proposal.hash(), offered.clone(), pool.clone()));
+            self.original = Some((
+                parent_service_proposal_hash(proposal)?,
+                offered.clone(),
+                pool.clone(),
+            ));
         }
         let source = self.require_original(proposal, pool)?.clone();
         if self.complete.is_some() {

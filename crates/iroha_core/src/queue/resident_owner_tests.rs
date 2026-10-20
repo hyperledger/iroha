@@ -64,6 +64,8 @@ fn resident_shell_layout() -> std::alloc::Layout {
 
 #[test]
 fn removed_pending_owner_retains_original_resident_credit_until_last_reader() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut state, time) = resident_fixture();
     let first = resident_signed_input(&time, 256);
     let second = resident_signed_input(&time, 257);
@@ -140,6 +142,8 @@ fn removed_pending_owner_retains_original_resident_credit_until_last_reader() {
 
 #[test]
 fn original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut state, time) = resident_fixture();
     let queue = Queue::test(config_factory(), &time);
     let warm = resident_signed_input(&time, 256);
@@ -207,6 +211,8 @@ fn original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries()
 
 #[test]
 fn first_queue_resident_ledger_refusal_keeps_original_input_and_retry_pool() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut state, time) = resident_fixture();
     let queue = Queue::test(config_factory(), &time);
     let original = resident_signed_input(&time, 256);
@@ -279,6 +285,8 @@ impl std::task::Wake for ResidentFenceWake {
 
 #[test]
 fn every_queue_retirement_defers_original_refund_until_its_mutation_fence_releases() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     for boundary in 0..4 {
         let (mut state, _) = resident_fixture();
         let (clock, time) = TimeSource::new_mock(Duration::default());
@@ -359,6 +367,8 @@ fn every_queue_retirement_defers_original_refund_until_its_mutation_fence_releas
 
 #[test]
 fn equal_limit_foreign_state_cannot_replace_original_queue_resident_pool() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut original_state, time) = resident_fixture();
     let (mut foreign_state, _) = resident_fixture();
     let first = resident_signed_input(&time, 256);
@@ -399,6 +409,8 @@ fn equal_limit_foreign_state_cannot_replace_original_queue_resident_pool() {
 
 #[test]
 fn queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut state, time) = resident_fixture();
     let original = resident_signed_input(&time, 256);
     register_accepted_tx_authority_for_queue_test(&mut state, &original);
@@ -437,6 +449,8 @@ fn queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner(
 
 #[test]
 fn cold_queue_retirement_holds_original_fence_until_first_admission_can_publish() {
+    // Whole-State pool assertions exclude unrelated deferred-generation refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let (mut state, time) = resident_fixture();
     let original = resident_signed_input(&time, 256);
     register_accepted_tx_authority_for_queue_test(&mut state, &original);

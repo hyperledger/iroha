@@ -939,6 +939,15 @@ fn parent_proof_decode_failure(error: norito::core::DecodeAttemptError) -> Paren
     }
 }
 
+/// Bind custody to the checked original proposal, including after authenticated lane expansion.
+fn parent_service_proposal_hash(
+    proposal: &SignedBlock,
+) -> Result<HashOf<IrohaHeader>, ParentServiceError> {
+    norito::core::classify_decode_attempt(|| proposal.canonical_resultless_header())
+        .map(|header| header.hash())
+        .map_err(parent_proof_decode_failure)
+}
+
 fn parent_source_attempt(
     error: crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
 ) -> ParentServiceError {

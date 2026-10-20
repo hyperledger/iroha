@@ -339,14 +339,23 @@ async fn interval_outer_frame_refusal_has_no_partial_body_and_refunds_original_d
         deadline(),
     )
     .await;
-    assert!(
-        matches!(
-            result,
-            Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::CapacityLimit,
-            )))
-        ),
-        "outer canonical header and sequence must fit the original response admission"
+    let error = result
+        .err()
+        .expect("outer canonical header and sequence exceed the original response admission");
+    // Exceeding the fixed response contract is terminal, unlike an occupied
+    // allocation pool. Preserve the exact outer-frame demand and limit.
+    let Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+        iroha_data_model::query::error::QueryExecutionFail::Conversion(message),
+    )) = error
+    else {
+        panic!("fixed outer-frame limit lost its original classification: {error}");
+    };
+    assert_eq!(
+        message,
+        format!(
+            "native response requires {extent} bytes, exceeding its {}-byte bound",
+            extent - 1
+        )
     );
     assert_eq!(frames.reserved_bytes(), 0);
     assert!(pool.try_acquire_parts([48_000_000]).is_some());

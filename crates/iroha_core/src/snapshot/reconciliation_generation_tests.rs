@@ -760,17 +760,49 @@ async fn snapshot_restore_refuses_a_malformed_committed_zk_policy() {
     let tmp_root = tempdir().unwrap();
     let store_dir = tmp_root.path().join("snapshot");
     let state = state_factory();
-    // State no valid transition produces: the restore boundary reports it
-    // instead of falling back to another policy.
     commit_custom_parameter_for_snapshot(
         &state,
-        iroha_data_model::parameter::CustomParameter::new(
-            ZkValidityPolicyV1::parameter_id(),
-            iroha_primitives::json::Json::new("not a policy"),
-        ),
+        ZkValidityPolicyV1::protocol_default().into_custom_parameter(),
     );
     let key_pair = checked_random_snapshot_keypair();
     try_write_snapshot(&state, &store_dir, &key_pair, TEST_CHUNK_SIZE).unwrap();
+    read_snapshot_with_node_zk(
+        &state,
+        &store_dir,
+        &key_pair,
+        &crate::state::default_zk_config(),
+    )
+    .expect("the authentic unmodified policy snapshot restores");
+
+    // The live parameter owner correctly refuses malformed policy writes. Put
+    // this impossible value into the signed snapshot bytes themselves, retaining
+    // the canonical schema order, to exercise the restore boundary instead.
+    let original = CapturedStateSnapshot::capture(&state).unwrap().json;
+    let mut snapshot: json::Value = json::from_str(&original).unwrap();
+    let parameter_id = ZkValidityPolicyV1::parameter_id().to_string();
+    let mut payload = &mut snapshot;
+    for field in [
+        "world",
+        "parameters",
+        "blocks",
+        "custom",
+        &parameter_id,
+        "payload",
+    ] {
+        payload = payload
+            .as_object_mut()
+            .expect("canonical policy object")
+            .get_mut(field)
+            .expect("canonical policy field");
+    }
+    let malformed = iroha_primitives::json::Json::new("not a policy");
+    let expected_diagnostic = malformed
+        .try_into_any_norito::<ZkValidityPolicyV1>()
+        .unwrap_err()
+        .to_string();
+    *payload = json::to_value(&malformed).unwrap();
+    let serialized = snapshot_json_with_mutation(&original, &snapshot);
+    write_snapshot_bundle_from_bytes(&store_dir, serialized.as_bytes(), &key_pair);
     let Err(error) = read_snapshot_with_node_zk(
         &state,
         &store_dir,
@@ -782,9 +814,8 @@ async fn snapshot_restore_refuses_a_malformed_committed_zk_policy() {
     assert!(
         matches!(
             error,
-            TryReadError::ZkConfigInstall(
-                crate::state::ZkConfigInstallError::MalformedCommittedPolicy
-            )
+            TryReadError::Serialization(json::Error::InvalidField { ref field, ref message })
+                if field == "parameters" && message == &expected_diagnostic
         ),
         "{error:?}"
     );

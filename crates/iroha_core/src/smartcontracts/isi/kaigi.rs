@@ -1,6 +1,6 @@
 //! Host-side execution of Kaigi instruction family.
 use crate::{
-    execution_attempt::{ExecutionAttemptError, norito_decode_attempt_error},
+    execution_attempt::{ExecutionAttemptError, canonical_decode_attempt_error},
     smartcontracts::limits,
     state::{StateReadOnly, StateTransaction, World, WorldReadOnly},
 };
@@ -669,9 +669,9 @@ impl Execute for RegisterKaigiRelay {
                 "Kaigi relay registry is at its {KAIGI_RELAY_REGISTRY_MAX_ENTRIES_V1}-entry limit"
             )));
         }
-        let value = Json::try_new(registration.clone())
+        let value = norito::core::classify_decode_attempt(|| Json::try_new(registration.clone()))
             .map_err(|error| {
-                norito_decode_attempt_error(error, |error| Error::Conversion(error.to_string()))
+                canonical_decode_attempt_error(error, |error| Error::Conversion(error.to_string()))
             })
             .map_err(|error| {
                 state_transaction
@@ -1104,9 +1104,9 @@ fn store_record_with_previous_dependencies(
     validate_kaigi_record_v1(record).map_err(|message| {
         Error::InvalidParameter(InvalidParameterError::SmartContract(message))
     })?;
-    let value = Json::try_new(record.clone())
+    let value = norito::core::classify_decode_attempt(|| Json::try_new(record.clone()))
         .map_err(|error| {
-            norito_decode_attempt_error(error, |error| Error::Conversion(error.to_string()))
+            canonical_decode_attempt_error(error, |error| Error::Conversion(error.to_string()))
         })
         .map_err(|error| {
             state_transaction
@@ -1384,13 +1384,14 @@ fn decode_stored_kaigi_record(
     // diagnostic projection or caller unwind. The current caller owns the codec scope.
     // TODO(S6): ordinary KaigiRecord/index graphs still need original-pool physical
     // ownership; cumulative codec accounting does not admit their nested allocations.
-    let record: KaigiRecord = value.try_into_any_norito().map_err(|error| {
-        norito_decode_attempt_error(error, |error| {
-            Error::InvariantViolation(
-                format!("malformed Kaigi record in domain {domain_id}: {error}").into(),
-            )
-        })
-    })?;
+    let record: KaigiRecord = norito::core::classify_decode_attempt(|| value.try_into_any_norito())
+        .map_err(|error| {
+            canonical_decode_attempt_error(error, |error| {
+                Error::InvariantViolation(
+                    format!("malformed Kaigi record in domain {domain_id}: {error}").into(),
+                )
+            })
+        })?;
     let expected_key = metadata_key(&record.id).map_err(|error| {
         Error::InvariantViolation(format!("invalid stored Kaigi identity: {error}").into())
     })?;
@@ -1424,9 +1425,9 @@ fn store_relay_feedback(
     let key = kaigi_relay_feedback_key(&feedback.relay_id).map_err(|err| {
         Error::InvalidParameter(InvalidParameterError::SmartContract(err.to_string()))
     })?;
-    let value = Json::try_new(feedback.clone())
+    let value = norito::core::classify_decode_attempt(|| Json::try_new(feedback.clone()))
         .map_err(|error| {
-            norito_decode_attempt_error(error, |error| Error::Conversion(error.to_string()))
+            canonical_decode_attempt_error(error, |error| Error::Conversion(error.to_string()))
         })
         .map_err(|error| {
             state_transaction
@@ -2338,13 +2339,15 @@ fn decode_stored_relay_registration(
 ) -> Result<KaigiRelayRegistration, ExecutionAttemptError<Error>> {
     // TODO(S6): relay/index graphs still require original-pool physical custody;
     // preserving the caller's codec refusal does not admit their nested allocations.
-    let registration: KaigiRelayRegistration = value.try_into_any_norito().map_err(|error| {
-        norito_decode_attempt_error(error, |error| {
-            Error::InvariantViolation(
-                format!("malformed Kaigi relay registration in domain {domain_id}: {error}").into(),
-            )
-        })
-    })?;
+    let registration: KaigiRelayRegistration =
+        norito::core::classify_decode_attempt(|| value.try_into_any_norito()).map_err(|error| {
+            canonical_decode_attempt_error(error, |error| {
+                Error::InvariantViolation(
+                    format!("malformed Kaigi relay registration in domain {domain_id}: {error}")
+                        .into(),
+                )
+            })
+        })?;
     let expected_key = kaigi_relay_metadata_key(&registration.relay_id).map_err(|err| {
         Error::InvariantViolation(
             format!("invalid stored Kaigi relay registration identity: {err}").into(),
@@ -2379,13 +2382,14 @@ fn decode_stored_relay_feedback(
         "stored Kaigi relay feedback",
     )
     .map_err(|message| Error::InvariantViolation(message.into()))?;
-    let feedback: KaigiRelayFeedback = value.try_into_any_norito().map_err(|error| {
-        norito_decode_attempt_error(error, |error| {
-            Error::InvariantViolation(
-                format!("malformed Kaigi relay feedback in domain {domain_id}: {error}").into(),
-            )
-        })
-    })?;
+    let feedback: KaigiRelayFeedback =
+        norito::core::classify_decode_attempt(|| value.try_into_any_norito()).map_err(|error| {
+            canonical_decode_attempt_error(error, |error| {
+                Error::InvariantViolation(
+                    format!("malformed Kaigi relay feedback in domain {domain_id}: {error}").into(),
+                )
+            })
+        })?;
     let expected_key = kaigi_relay_feedback_key(&feedback.relay_id).map_err(|err| {
         Error::InvariantViolation(
             format!("invalid retained Kaigi relay feedback identity: {err}").into(),
@@ -3029,11 +3033,12 @@ fn decode_kaigi_relay_allowlist(
         KAIGI_METADATA_VALUE_MAX_JSON_BYTES_V1,
         "Kaigi relay allowlist",
     )?;
-    let allowlist: KaigiRelayAllowlist = value.try_into_any_norito().map_err(|error| {
-        norito_decode_attempt_error(error, |error| {
-            format!("malformed Kaigi relay allowlist: {error}")
-        })
-    })?;
+    let allowlist: KaigiRelayAllowlist =
+        norito::core::classify_decode_attempt(|| value.try_into_any_norito()).map_err(|error| {
+            canonical_decode_attempt_error(error, |error| {
+                format!("malformed Kaigi relay allowlist: {error}")
+            })
+        })?;
     if allowlist.allowed_relays.len() > KAIGI_RELAY_ALLOWLIST_MAX_ENTRIES_V1 {
         return Err(format!(
             "Kaigi relay allowlist exceeds the {KAIGI_RELAY_ALLOWLIST_MAX_ENTRIES_V1}-entry limit"

@@ -25704,12 +25704,15 @@ AccountEvent::PermissionRemoved(change))
             let final_quantum = ballot("AAE=")
                 .expect_execute_err(&ALICE_ID, &mut state_transaction, "equal encoded quantum must reach exact decoded-length check");
             assert_err!(format!("{final_quantum:?}"), "proof exceeds configured max bytes");
-            assert_eq!(state_transaction.zk_proof_bytes_in_tx, 2);
+            assert_eq!(state_transaction.zk_proof_bytes_in_tx, 0);
 
             let malformed = ballot("!")
                 .expect_execute_err(&ALICE_ID, &mut state_transaction, "short malformed base64 must retain its decode error");
             assert_err!(format!("{malformed:?}"), "invalid or empty proof");
-            assert_eq!(state_transaction.zk_proof_bytes_in_tx, 2);
+            assert_eq!(state_transaction.zk_proof_bytes_in_tx, 0);
+            // A decoded but rejected proof never reaches completed verification work.
+            assert_eq!(state_transaction.zk_confidential_ops_in_tx, 0);
+            assert_eq!(state_transaction.zk_verify_calls_in_tx, 0);
             assert!(state_transaction.world.elections.get(&election_id).is_none());
         });
         world_test!(low_level_zk_ballot_rejects_full_corpus_without_mutation {
@@ -27394,29 +27397,36 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     let mut wait = pin!(release.clone().wait_for_release(&mut registration));
                     let before_release =
                         wait.as_mut().poll(&mut Context::from_waker(Waker::noop()));
-                    // A frame refusal retires the real counter before this call returns.
-                    assert_eq!(
-                        before_release,
-                        if available == 0 {
-                            Poll::Pending
-                        } else {
-                            Poll::Ready(())
-                        }
-                    );
+                    // Counter and blocker credits return immediately, but callbacks
+                    // cannot run while the original World still owns its field writers.
+                    assert_eq!(before_release, Poll::Pending);
                     drop(occupied);
+                    assert_eq!(budget.reserved_bytes(), baseline);
+                    assert!(
+                        wait.as_mut()
+                            .poll(&mut Context::from_waker(Waker::noop()))
+                            .is_pending()
+                    );
+                    drop(transaction);
+                    assert!(
+                        wait.as_mut()
+                            .poll(&mut Context::from_waker(Waker::noop()))
+                            .is_pending()
+                    );
+                    drop(block);
                     assert!(
                         wait.as_mut()
                             .poll(&mut Context::from_waker(Waker::noop()))
                             .is_ready()
                     );
                 }
-                assert_eq!(budget.reserved_bytes(), baseline);
-                drop(transaction);
-                let retry = block.transaction();
+                let mut retry_block = state.block(first_test_block_header());
+                let retry = retry_block.transaction();
+                let retry_baseline = budget.reserved_bytes();
                 super::ensure_manifest_signature(&manifest, &retry.world, &budget)
-                    .expect("the same original manifest verifies after original credit is freed");
+                    .expect("the same original manifest verifies after original writer retirement");
                 assert!(!retry.is_execution_deferred());
-                assert_eq!(budget.reserved_bytes(), baseline);
+                assert_eq!(budget.reserved_bytes(), retry_baseline);
             }
         }
 
@@ -29979,7 +29989,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let err = Unregister::domain(domain_id.clone())
                 .expect_execute_err(&ALICE_ID, &mut stx, "domain unregister must reject nexus fee asset-definition removal");
             let err_string = format!("{err:?}");
-            assert_contains!(err_string, "nexus fee asset definition", "error should explain nexus fee-asset conflict: {err_string}");
+            assert_contains!(err_string, "immutable committed root fee currency", "error should explain committed root fee-currency conflict: {err_string}");
             assert!(
                 stx.world.domains.get(&domain_id).is_some(),
                 "cleanup domain should remain after rejected unregister"

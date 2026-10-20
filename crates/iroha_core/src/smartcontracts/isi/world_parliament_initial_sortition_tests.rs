@@ -457,7 +457,10 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
     const ROTATION_HEIGHT: u64 = 10;
     const EXECUTION_HEIGHT: u64 = 12;
 
-    let state = blank_test_state();
+    let mut state = blank_test_state();
+    // The retained requests freeze three seats per body, matching the other
+    // permissionless-progress controls rather than the operator defaults.
+    configure_parliament_permissionless_progress(&mut state);
     let block =
         new_dummy_block_at_height(NonZeroU64::new(EXECUTION_HEIGHT).expect("nonzero height"));
     let mut state_block = state.block(block.as_ref().header());
