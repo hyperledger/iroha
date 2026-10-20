@@ -1103,6 +1103,7 @@ _CRYPTO_EXPORTS: List[str] = [
     "build_find_block_by_hash_query",
     "committed_transaction_carrier_block_hash",
     "verify_committed_transaction_inclusion",
+    "verify_scheduled_trigger_execution_v1",
     "authenticate_public_finality_checkpoint_v1",
     "advance_public_finality_checkpoint_v1",
     "PublicFinalityReadError",
@@ -1251,6 +1252,7 @@ from .nexus_app import (
     NexusTransferReceipt,
     NexusWalletSignature,
 )
+from .scheduled_execution import verify_scheduled_trigger_execution_v1
 from .crypto import (
     ED25519_ALGORITHM,
     SECP256K1_ALGORITHM,

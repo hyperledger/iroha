@@ -8526,6 +8526,50 @@ def _normalize_ivm_fault(value: Any) -> Mapping[str, Any]:
     return {"kind": dict(kind), "site": {"code_hash": code_hash, "selector": dict(selector), "position": dict(position)}}
 
 
+def _normalize_verified_execution_context(
+    value: Any, transaction_hash: str
+) -> Mapping[str, Any]:
+    """Validate and copy the complete native route projection, without proving finality."""
+    def record(item: Any, fields: set[str], label: str) -> Mapping[str, Any]:
+        if not isinstance(item, Mapping) or set(item) != fields:
+            raise ValueError(f"verified execution context {label} must contain exactly {sorted(fields)}")
+        return item
+
+    def unsigned(item: Any, bits: int, label: str) -> None:
+        if type(item) is not int or not 0 <= item < 1 << bits:
+            raise ValueError(f"verified execution context {label} must be an exact u{bits}")
+
+    context = record(value, {"bundle_version", "input_index", "route"}, "bundle")
+    if type(context["bundle_version"]) is not int or context["bundle_version"] != 1:
+        raise ValueError("verified execution context requires bundle version 1")
+    unsigned(context["input_index"], 32, "input_index")
+    route = record(context["route"], {
+        "entrypoint_hash", "lane_id", "dataspace_id", "routing_plan_digest", "routing_plan_legs",
+    }, "route")
+    entrypoint = _contract_canonical_hash_hex(route["entrypoint_hash"], "execution context entrypoint")
+    if entrypoint != transaction_hash:
+        raise ValueError("verified execution context belongs to a different transaction")
+    if _contract_canonical_hash_hex(route["routing_plan_digest"], "execution context route digest") is None:
+        raise ValueError("verified execution context requires its original route digest")
+    unsigned(route["lane_id"], 32, "lane_id")
+    unsigned(route["dataspace_id"], 64, "dataspace_id")
+    legs = route["routing_plan_legs"]
+    if type(legs) is not list:
+        raise TypeError("verified execution context routing_plan_legs must be an ordered list")
+    copied_legs = []
+    for leg in legs:
+        leg = record(leg, {"lane_id", "dataspace_id", "role"}, "leg")
+        unsigned(leg["lane_id"], 32, "leg lane_id")
+        unsigned(leg["dataspace_id"], 64, "leg dataspace_id")
+        role = record(leg["role"], {"role", "detail"}, "leg role")
+        if role["role"] not in ("coordinator", "participant") or role["detail"] is not None:
+            raise ValueError("verified execution context has an unknown route role")
+        copied_legs.append({**leg, "role": dict(role)})
+    # All original legs and their order remain available to application policy.
+    # No physical lane or public/private scope is inferred from a data-space ID.
+    return {**context, "route": {**route, "routing_plan_legs": copied_legs}}
+
+
 @dataclass(frozen=True)
 class VerifiedCommittedTransaction:
     """A selected full output authenticated by a rooted consensus finality chain.
@@ -8543,6 +8587,7 @@ class VerifiedCommittedTransaction:
     context_id: str
     promoted_checkpoint: bytes
     execution_commitment: Mapping[str, Any]
+    execution_context: Mapping[str, Any]
     executed_block_wire_hash: str
     executed_block_wire_len: int
     entrypoint_kind: str
@@ -8575,6 +8620,7 @@ class VerifiedCommittedTransaction:
             "context_id",
             "promoted_checkpoint",
             "execution_commitment",
+            "execution_context",
             "executed_block_wire_hash",
             "executed_block_wire_len",
             "entrypoint_kind",
@@ -8625,6 +8671,7 @@ class VerifiedCommittedTransaction:
             raise ValueError("verified promoted_checkpoint must contain 1..68 MiB")
         if payload["proof_kind"] != "selective-v1":
             raise ValueError("current selective proof_kind required")
+        execution_context = _normalize_verified_execution_context(payload["execution_context"], transaction_hash)
         execution_commitment = payload["execution_commitment"]
         if not isinstance(execution_commitment, Mapping):
             raise TypeError("verified execution_commitment must be an object")
@@ -8859,6 +8906,7 @@ class VerifiedCommittedTransaction:
             context_id=context_id,
             promoted_checkpoint=promoted_checkpoint,
             execution_commitment=dict(execution_commitment),
+            execution_context=execution_context,
             executed_block_wire_hash=executed_block_wire_hash,
             executed_block_wire_len=executed_block_wire_len,
             entrypoint_kind=entrypoint_kind,

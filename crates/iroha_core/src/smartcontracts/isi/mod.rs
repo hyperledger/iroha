@@ -3,6 +3,8 @@
 pub mod account;
 mod account_admission;
 pub mod asset;
+/// Aggregate UID holding and activity policy handlers.
+pub mod asset_uid;
 pub mod block;
 /// Native bond-servicing kernel handlers.
 pub mod bond;
@@ -380,6 +382,7 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::SetAssetTransferControl>,
     dispatch_instruction::<iroha_data_model::isi::SetAssetHoldingLimit>,
     dispatch_instruction::<iroha_data_model::isi::retail_daily_limit::ActivateRetailDailyLimitV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_instruction::<iroha_data_model::isi::asset_uid::SetAssetUidPolicyV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::retail_daily_limit::BindRetailIdentityV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::retail_daily_limit::RetailMonetaryMovementV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
     // Native AMX two-phase commit retains exact signed-root transitions and monetary custody.
@@ -576,6 +579,10 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::escrow::OpenEscrowDispute>,
     dispatch_instruction::<iroha_data_model::isi::escrow::ResolveEscrowDispute>,
     dispatch_instruction::<iroha_data_model::isi::escrow::OpenAssetLock>,
+    dispatch_instruction::<iroha_data_model::isi::escrow_control::OpenControlledAssetLockV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::escrow_control::DrawdownControlledAssetLockV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::escrow_control::CancelControlledAssetLockV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::escrow_control::ExpireControlledAssetLockV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::escrow::OpenConditionalEscrow>,
     dispatch_instruction::<iroha_data_model::isi::escrow::AttestEscrowCondition>,
     dispatch_instruction::<iroha_data_model::isi::escrow::ExpireConditionalEscrow>,

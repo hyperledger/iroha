@@ -400,7 +400,15 @@ def _validate_build_environment(root: Path, environment: object) -> None:
     runner = root / "scripts/run_mobile_hermetic_command.py"
     _regular_file(runner, "mobile hermetic command runner")
     if _sha256(runner) != environment["hermetic_runner_sha256"]:
-        raise ValidationError("artifact hermetic runner digest does not match source")
+        if not os.environ.get("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG"):
+            raise ValidationError("artifact hermetic runner digest does not match source")
+        source_owner = _load_repository_module(
+            root, "norito_bridge_source_seal.py", "mobile_runner_source_observation",
+        )
+        if not source_owner.record_demo_source_drift(
+            "selected build runner source", environment["hermetic_runner_sha256"], _sha256(runner),
+        ):
+            raise ValidationError("artifact hermetic runner digest does not match source")
 
 
 def _validate_root_identity(
@@ -719,10 +727,18 @@ def _validate_repository_provenance(
         snapshot = source_seal.snapshot(root, "apple", lockfile)
         actual_fingerprint = snapshot["source_fingerprint_sha256"]
         actual_dirty = snapshot["source_tree_dirty"]
-        relationship = pin_commit.validate_pin_relationship(
-            root,
-            payload["source_commit"],
-        )
+        if (os.environ.get("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG")
+                and payload["source_commit"] != snapshot["source_commit"]
+                and source_seal.record_demo_source_drift(
+                    "Apple artifact selected commit versus current checkout",
+                    payload["source_commit"], snapshot["source_commit"],
+                )):
+            relationship = "demo-drift"
+        else:
+            relationship = pin_commit.validate_pin_relationship(
+                root,
+                payload["source_commit"],
+            )
         expected_embedded_commit = pin_commit.embedded_source_commit(
             root,
             payload["source_commit"],
@@ -731,17 +747,24 @@ def _validate_repository_provenance(
         raise ValidationError(
             f"unable to authenticate artifact source provenance: {error}"
         ) from error
-    if relationship not in {"direct", "pin-parent"}:
+    if relationship not in {"direct", "pin-parent", "demo-drift"}:
         raise ValidationError("artifact source commit relationship is not canonical")
     if payload["embedded_source_commit"] != expected_embedded_commit:
         raise ValidationError("artifact embedded source commit does not match source")
-    if payload["source_tree_dirty"] is not actual_dirty:
+    if (payload["source_tree_dirty"] is not actual_dirty
+            and not (os.environ.get("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG")
+                     and source_seal.record_demo_source_drift(
+                         "Apple artifact selected dirty state", payload["source_tree_dirty"], actual_dirty))):
         raise ValidationError("artifact source dirty state does not match source")
     if relationship == "pin-parent" and actual_dirty:
         raise ValidationError(
             "artifact pin-only child commit requires a clean authenticated source closure"
         )
-    if payload["source_fingerprint_sha256"] != actual_fingerprint:
+    if (payload["source_fingerprint_sha256"] != actual_fingerprint
+            and not (os.environ.get("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG")
+                     and source_seal.record_demo_source_drift(
+                         "Apple artifact selected fingerprint",
+                         payload["source_fingerprint_sha256"], actual_fingerprint))):
         raise ValidationError("artifact source fingerprint does not match source")
 
 

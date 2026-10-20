@@ -9,6 +9,7 @@ pub mod instructions;
 pub mod policy;
 pub mod retail_daily_limit;
 pub mod transfer_control;
+pub mod uid;
 pub mod value;
 pub use alias::{AssetDefinitionAlias, ResolvedAssetDefinitionAliasV1};
 pub use dataspace_definition::{AssetDefinitionDirectHomeV1, AssetDefinitionHome};

@@ -9271,6 +9271,18 @@ fn parse_world(
     proof_tag_index::rebuild(&mut world)?;
     verifying_key_index::validate_verifying_key_index(&world)?;
     validate_asset_transfer_control_persistence_v1(&world)?;
+    crate::smartcontracts::isi::escrow::controlled::validate_persistence(&world.view()).map_err(|error| {
+        json::Error::InvalidField {
+            field: "world.smart_contract_state.asset_lock_control_v1".to_owned(),
+            message: error.to_string(),
+        }
+    })?;
+    super::asset_uid::validate_persistence(&world.view()).map_err(|error| {
+        json::Error::InvalidField {
+            field: "world.smart_contract_state.asset_uid_v1".to_owned(),
+            message: error.to_string(),
+        }
+    })?;
     super::retail_daily_limit_state::validate_persistence(&mut world).map_err(|message| {
         json::Error::InvalidField {
             field: "world.smart_contract_state.retail_day_v1".to_owned(),

@@ -3,6 +3,8 @@
 //! journal adds no fragment when the Time phase starts.
 
 use super::*;
+#[path = "output_scheduled_contract_tests.rs"]
+mod scheduled_contract_callbacks;
 use crate::exec_witness;
 use crate::state::WorldReadOnly;
 use iroha_data_model::{

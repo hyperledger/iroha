@@ -236,8 +236,8 @@
     },
     {
       "path": "split_app_vault_contract_ko.tmpl",
-      "byte_length": 1960,
-      "sha256": "f95c26349d4c05537410d5364455add096faba05e46467f2530d0a3af2292067",
+      "byte_length": 2104,
+      "sha256": "6975f4eaf56f401acbcb43983f594c3a5747b4c85b6c2135897ec11ccbc3cc1d",
       "layout": "UTF-8 Soracloud format template bytes with symbolic placeholders and LF endings",
       "source_preimages": [
         {

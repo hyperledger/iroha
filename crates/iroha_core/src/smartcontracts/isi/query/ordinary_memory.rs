@@ -751,6 +751,7 @@ fn iterable_query_name(
         QueryItemKind::FeeSponsorProgram => "FindFeeSponsorPrograms",
         QueryItemKind::FeeSponsorProgramId => "FindFeeSponsorProgramIds",
         QueryItemKind::BondRecord => "FindBonds",
+        QueryItemKind::AssetUidPolicyViewV1 => "FindAssetUidPoliciesV1",
     }
 }
 fn ensure_world_state_start_shape(

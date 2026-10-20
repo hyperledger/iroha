@@ -84,13 +84,18 @@ public struct DetachedAssetTransferInspection: Sendable, Equatable {
 public enum DetachedTransactionExecutableInspection: Sendable, Equatable {
     case contractCall(DetachedContractCallInspection)
     case assetTransfer(DetachedAssetTransferInspection)
-    case assetTransferBatch([DetachedAssetTransferInspection])
+    case atomicTransferSequence([DetachedAssetTransferInspection])
+    case assetTransferBatch(DetachedAssetTransferBatchInspection)
+    case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
 }
 
 public struct DetachedTransactionScaffoldInspection: Sendable, Equatable {
     public static let schema = "iroha.detached_transaction_scaffold.v1"
 
     public let payloadSigningHash: Data
+    /// Hash of the canonical unsigned payload wire, independently derived by Rust.
+    public let payloadHash: Data
+    public let feePayment: FeePaymentIntent
     public let authority: String
     public let networkId: NetworkId
     public let creationTimeMs: UInt64
@@ -121,6 +126,8 @@ public struct CanonicalJSONBlake3Result: Sendable, Equatable {
 private struct ScaffoldDTO: Decodable {
     let schema: String
     let payloadSigningHashHex: String
+    let payloadHashHex: String
+    let feePayment: FeePaymentIntent
     let authority: String
     let networkId: NetworkId
     let creationTimeMs: UInt64
@@ -132,6 +139,8 @@ private struct ScaffoldDTO: Decodable {
     enum CodingKeys: String, CodingKey {
         case schema
         case payloadSigningHashHex = "payload_signing_hash_hex"
+        case payloadHashHex = "payload_hash_hex"
+        case feePayment = "fee_payment"
         case authority
         case networkId = "network_id"
         case creationTimeMs = "creation_time_ms"
@@ -145,7 +154,9 @@ private struct ScaffoldDTO: Decodable {
 private enum ExecutableDTO: Decodable {
     case contractCall(ContractCallDTO)
     case assetTransfer(AssetTransferDTO)
-    case assetTransferBatch([AssetTransferDTO])
+    case atomicTransferSequence([AssetTransferDTO])
+    case assetTransferBatch(DetachedAssetTransferBatchInspection)
+    case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
 
     private enum CodingKeys: String, CodingKey {
         case kind, transfers
@@ -158,8 +169,12 @@ private enum ExecutableDTO: Decodable {
             self = .contractCall(try ContractCallDTO(from: decoder))
         case "asset_transfer":
             self = .assetTransfer(try AssetTransferDTO(from: decoder))
+        case "atomic_transfer_sequence":
+            self = .atomicTransferSequence(try container.decode([AssetTransferDTO].self, forKey: .transfers))
         case "asset_transfer_batch":
-            self = .assetTransferBatch(try container.decode([AssetTransferDTO].self, forKey: .transfers))
+            self = .assetTransferBatch(try DetachedAssetTransferBatchInspection(from: decoder))
+        case "conditional_escrow_open":
+            self = .conditionalEscrowOpen(try DetachedConditionalEscrowInspection(from: decoder))
         case let kind:
             throw DecodingError.dataCorruptedError(
                 forKey: .kind,
@@ -293,12 +308,18 @@ enum DetachedTransactionBridgeJSONCodec {
             )
         case let .assetTransfer(transfer):
             executable = .assetTransfer(try transferInspection(transfer))
-        case let .assetTransferBatch(transfers):
+        case let .atomicTransferSequence(transfers):
             guard transfers.count == 2 else { throw NativeBridgeError.invalidDetachedTransactionOutput }
-            executable = .assetTransferBatch(try transfers.map(transferInspection))
+            executable = .atomicTransferSequence(try transfers.map(transferInspection))
+        case let .assetTransferBatch(batch):
+            executable = .assetTransferBatch(batch)
+        case let .conditionalEscrowOpen(escrow):
+            executable = .conditionalEscrowOpen(escrow)
         }
         return DetachedTransactionScaffoldInspection(
             payloadSigningHash: try decodeHash(dto.payloadSigningHashHex),
+            payloadHash: try decodeHash(dto.payloadHashHex),
+            feePayment: dto.feePayment,
             authority: dto.authority,
             networkId: dto.networkId,
             creationTimeMs: dto.creationTimeMs,
@@ -345,7 +366,7 @@ enum DetachedTransactionBridgeJSONCodec {
     private static func validateInspectionShape(_ data: Data) throws {
         let root = try strictObject(data)
         guard Set(root.keys) == [
-            "schema", "payload_signing_hash_hex", "authority", "network_id",
+            "schema", "payload_signing_hash_hex", "payload_hash_hex", "fee_payment", "authority", "network_id",
             "creation_time_ms", "time_to_live_ms", "metadata",
             "entrypoint_hash_hex", "executable",
         ], root["metadata"] is [String: Any],
@@ -362,7 +383,7 @@ enum DetachedTransactionBridgeJSONCodec {
             }
         case "asset_transfer":
             try validateTransferShape(executable)
-        case "asset_transfer_batch":
+        case "atomic_transfer_sequence":
             guard Set(executable.keys) == ["kind", "transfers"],
                   let transfers = executable["transfers"] as? [[String: Any]],
                   transfers.count == 2 else { throw NativeBridgeError.invalidDetachedTransactionOutput }
@@ -370,6 +391,9 @@ enum DetachedTransactionBridgeJSONCodec {
                 guard transfer["kind"] as? String == "asset_transfer" else { throw NativeBridgeError.invalidDetachedTransactionOutput }
                 try validateTransferShape(transfer)
             }
+        case "asset_transfer_batch", "conditional_escrow_open":
+            // Each native monetary DTO rejects unknown fields recursively.
+            break
         default:
             throw NativeBridgeError.invalidDetachedTransactionOutput
         }

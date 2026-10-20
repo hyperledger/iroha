@@ -496,6 +496,14 @@ pub enum Builtin {
     GrantContractPermission,
     /// Revoke an account's declared permission of the executing seiyaku instance.
     RevokeContractPermission,
+    /// Open a native asset lock controlled by the executing contract, retaining its payer.
+    AssetLockOpen,
+    /// Draw down a controlled native lock using an exact expected remainder.
+    AssetLockDrawdown,
+    /// Cancel a controlled native lock using an exact expected remainder.
+    AssetLockCancel,
+    /// Refund an expired controlled native lock.
+    AssetLockExpire,
     /// Open an escrow offer with an asset quantity and optional evidence.
     EscrowOpenOffer,
     /// Accept a named escrow offer.
@@ -920,6 +928,10 @@ impl Builtin {
             "revoke_permission" => Self::RevokePermission,
             "grant_contract_permission" => Self::GrantContractPermission,
             "revoke_contract_permission" => Self::RevokeContractPermission,
+            "asset_lock_open" => Self::AssetLockOpen,
+            "asset_lock_drawdown" => Self::AssetLockDrawdown,
+            "asset_lock_cancel" => Self::AssetLockCancel,
+            "asset_lock_expire" => Self::AssetLockExpire,
             "escrow_open_offer" => Self::EscrowOpenOffer,
             "escrow_accept" => Self::EscrowAccept,
             "escrow_mark_payment_sent" => Self::EscrowMarkPaymentSent,
@@ -1167,6 +1179,10 @@ impl Builtin {
             Self::RevokePermission => "revoke_permission",
             Self::GrantContractPermission => "grant_contract_permission",
             Self::RevokeContractPermission => "revoke_contract_permission",
+            Self::AssetLockOpen => "asset_lock_open",
+            Self::AssetLockDrawdown => "asset_lock_drawdown",
+            Self::AssetLockCancel => "asset_lock_cancel",
+            Self::AssetLockExpire => "asset_lock_expire",
             Self::EscrowOpenOffer => "escrow_open_offer",
             Self::EscrowAccept => "escrow_accept",
             Self::EscrowMarkPaymentSent => "escrow_mark_payment_sent",
@@ -1497,6 +1513,10 @@ impl Builtin {
             Self::RevokePermission => "ledger::permission::revoke",
             Self::GrantContractPermission => "ledger::seiyaku::grant_permission",
             Self::RevokeContractPermission => "ledger::seiyaku::revoke_permission",
+            Self::AssetLockOpen => "ledger::asset_lock::open",
+            Self::AssetLockDrawdown => "ledger::asset_lock::drawdown",
+            Self::AssetLockCancel => "ledger::asset_lock::cancel",
+            Self::AssetLockExpire => "ledger::asset_lock::expire",
             Self::EscrowOpenOffer => "ledger::escrow::open_offer",
             Self::EscrowAccept => "ledger::escrow::accept",
             Self::EscrowMarkPaymentSent => "ledger::escrow::mark_payment_sent",
@@ -1689,6 +1709,10 @@ impl Builtin {
             | Self::RevokePermission
             | Self::GrantContractPermission
             | Self::RevokeContractPermission
+            | Self::AssetLockOpen
+            | Self::AssetLockDrawdown
+            | Self::AssetLockCancel
+            | Self::AssetLockExpire
             | Self::EscrowOpenOffer
             | Self::EscrowAccept
             | Self::EscrowMarkPaymentSent
@@ -2057,6 +2081,10 @@ impl Builtin {
             Self::RevokePermission => &[s::SYSCALL_REVOKE_PERMISSION],
             Self::GrantContractPermission => &[s::SYSCALL_GRANT_CONTRACT_PERMISSION],
             Self::RevokeContractPermission => &[s::SYSCALL_REVOKE_CONTRACT_PERMISSION],
+            Self::AssetLockOpen => &[s::SYSCALL_ASSET_LOCK_OPEN],
+            Self::AssetLockDrawdown => &[s::SYSCALL_ASSET_LOCK_DRAWDOWN],
+            Self::AssetLockCancel => &[s::SYSCALL_ASSET_LOCK_CANCEL],
+            Self::AssetLockExpire => &[s::SYSCALL_ASSET_LOCK_EXPIRE],
             Self::EscrowOpenOffer => &[s::SYSCALL_ESCROW_OPEN_OFFER],
             Self::EscrowAccept => &[s::SYSCALL_ESCROW_ACCEPT],
             Self::EscrowMarkPaymentSent => &[s::SYSCALL_ESCROW_MARK_PAYMENT_SENT],
@@ -2459,6 +2487,13 @@ impl Builtin {
             Self::GrantContractPermission | Self::RevokeContractPermission => {
                 S::new(&["AccountId", "Permission"], "()")
             }
+            Self::AssetLockOpen => S::new(
+                &["bytes", "AccountId", "AccountId", "AssetDefinitionId", "quantity", "int", "int", "int"],
+                "()",
+            ),
+            Self::AssetLockDrawdown => S::new(&["bytes", "quantity", "quantity"], "()"),
+            Self::AssetLockCancel => S::new(&["bytes", "quantity"], "()"),
+            Self::AssetLockExpire => S::new(&["bytes"], "()"),
             Self::EscrowOpenOffer => {
                 S::new(&["Name", "AssetDefinitionId", "quantity", "bytes?"], "()")
             }
@@ -2708,6 +2743,13 @@ impl Builtin {
             | Self::RevokePermission
             | Self::GrantContractPermission
             | Self::RevokeContractPermission => signature.with_names(&["account", "permission"]),
+            Self::AssetLockOpen => signature.with_names(&[
+                "key", "source", "destination", "asset_definition", "amount",
+                "release_until_ms", "cancel_not_before_ms", "expires_at_ms",
+            ]),
+            Self::AssetLockDrawdown => signature.with_names(&["key", "amount", "expected_remaining"]),
+            Self::AssetLockCancel => signature.with_names(&["key", "expected_remaining"]),
+            Self::AssetLockExpire => signature.with_names(&["key"]),
             Self::EscrowOpenOffer => {
                 signature.with_names(&["offer", "asset_definition", "amount", "evidence"])
             }

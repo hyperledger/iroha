@@ -4965,7 +4965,34 @@ fn lower_surface_builtin_call(
         | Builtin::NumericGeDirect
         | Builtin::SetAssetTransferDailyLimit
         | Builtin::SetAssetHoldingLimit
+        | Builtin::AssetLockDrawdown
+        | Builtin::AssetLockCancel
+        | Builtin::AssetLockExpire
         | Builtin::ContractSubject => lower_direct_helper_call(ctx, builtin, args, vars),
+        Builtin::AssetLockOpen => {
+            // Evaluate each source argument once before allocating the fixed public table.
+            // Times are checked u64 values; zero denotes an absent native deadline.
+            let mut values = Vec::with_capacity(8);
+            for (index, argument) in args.iter().enumerate() {
+                values.push(if index >= 5 {
+                    lower_expr_as_u64(ctx, argument, vars)
+                } else {
+                    lower_expr(ctx, argument, vars)
+                });
+            }
+            let bytes = emit_i64_const(ctx, 64);
+            let table = emit_alloc(ctx, bytes);
+            for (index, value) in values.into_iter().enumerate() {
+                emit_store64_imm(ctx, table, (index * 8) as i16, value);
+            }
+            let dest = ctx.new_temp();
+            ctx.current_instr(Instr::DirectHelperSyscall {
+                dest,
+                syscall: direct_builtin_syscall(builtin),
+                args: vec![table],
+            });
+            dest
+        }
         Builtin::AccountRecoveryPropose
         | Builtin::AccountRecoveryApprove
         | Builtin::AccountRecoveryCancel

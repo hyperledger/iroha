@@ -1,4 +1,5 @@
 //! Native asset escrow instruction handlers.
+pub(crate) mod controlled;
 use super::{Error, Execute, asset::isi::assert_numeric_spec_with};
 use crate::smartcontracts::isi::helpers::ensure_custody_account;
 use crate::smartcontracts::isi::query::json_predicate::intersect_candidate_ids;
@@ -1333,6 +1334,7 @@ impl Execute for AcceptAssetEscrow {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         state_transaction.world.account(authority)?;
         let Some(mut record) = state_transaction
             .world
@@ -1366,6 +1368,7 @@ impl Execute for MarkEscrowPaymentSent {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         let Some(mut record) = state_transaction
             .world
             .asset_escrows
@@ -1397,6 +1400,7 @@ impl Execute for ReleaseAssetEscrow {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         let Some(mut record) = state_transaction
             .world
             .asset_escrows
@@ -1444,6 +1448,7 @@ impl Execute for CancelAssetEscrow {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         let Some(mut record) = state_transaction
             .world
             .asset_escrows
@@ -1492,6 +1497,7 @@ impl Execute for OpenEscrowDispute {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         let Some(mut record) = state_transaction
             .world
             .asset_escrows
@@ -1539,6 +1545,7 @@ impl Execute for ResolveEscrowDispute {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         if !has_permission(state_transaction, authority, CAN_RESOLVE_ESCROW_DISPUTE) {
             return Err(validation_err("not permitted: CanResolveEscrowDispute"));
         }
@@ -1704,71 +1711,86 @@ impl Execute for DrawdownAssetLock {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        ensure_positive(&self.amount)?;
-        let Some(mut record) = state_transaction
-            .world
-            .asset_escrows
-            .get(&self.escrow_id)
-            .cloned()
-        else {
-            return Err(validation_err("escrow not found"));
-        };
-        ensure_asset_lock(&record)?;
-        reject_native_orderbook_lock(state_transaction.world(), &self.escrow_id, "drawn down")?;
-        if record.status != AssetEscrowStatus::Locked {
-            return Err(validation_err("only locked asset locks can be drawn down"));
-        }
-        if let Some(release_authority) = record.release_authority.as_ref() {
-            if release_authority != authority {
-                return Err(validation_err("only release authority may draw down lock"));
-            }
-        } else if record.buyer.as_ref() != Some(authority) {
-            return Err(validation_err("only lock destination may draw down lock"));
-        }
-        let spec = state_transaction
-            .numeric_spec_for(&record.asset_definition)
-            .map_err(Error::from)?;
-        assert_numeric_spec_with(self.amount.as_numeric(), spec)?;
-        assert_numeric_spec_with(self.expected_remaining_amount.as_numeric(), spec)?;
-        if record.remaining_amount != self.expected_remaining_amount {
-            return Err(validation_err(
-                "asset lock remaining amount changed since the drawdown was prepared",
-            ));
-        }
-        if self.amount > record.remaining_amount {
-            return Err(validation_err("lock drawdown exceeds remaining amount"));
-        }
-        let destination = record
-            .buyer
-            .clone()
-            .ok_or_else(|| validation_err("lock destination missing"))?;
-        let custody_asset = custody_asset(&record);
-        let destination_asset = party_asset(&record, &destination);
-        transfer_numeric_asset_for_escrow(
-            state_transaction,
-            VerifiedNativeEscrowMovement::retained(
-                record.id.clone(),
-                custody_asset,
-                destination_asset,
-                self.amount.clone(),
-            ),
-        )?;
-        record.remaining_amount = record
-            .remaining_amount
-            .checked_sub(&self.amount)
-            .map_err(|_| validation_err("lock remaining amount underflow"))?;
-        if record.remaining_amount.is_zero() {
-            record.status = AssetEscrowStatus::DrawnDown;
-            record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
-        }
-        state_transaction
-            .world
-            .insert_asset_escrow_entry(record.clone());
-        state_transaction
-            .world
-            .emit_events(Some(EscrowEvent::Released(record)));
-        Ok(())
+        execute_drawdown_asset_lock(self, authority, state_transaction, false)
     }
+}
+fn execute_drawdown_asset_lock(
+    instruction: DrawdownAssetLock,
+    authority: &AccountId,
+    state_transaction: &mut StateTransaction<'_, '_>,
+    controlled: bool,
+) -> Result<(), Error> {
+    if !controlled {
+        controlled::reject_generic_mutation(state_transaction.world(), &instruction.escrow_id)?;
+    }
+    ensure_positive(&instruction.amount)?;
+    let Some(mut record) = state_transaction
+        .world
+        .asset_escrows
+        .get(&instruction.escrow_id)
+        .cloned()
+    else {
+        return Err(validation_err("escrow not found"));
+    };
+    ensure_asset_lock(&record)?;
+    reject_native_orderbook_lock(
+        state_transaction.world(),
+        &instruction.escrow_id,
+        "drawn down",
+    )?;
+    if record.status != AssetEscrowStatus::Locked {
+        return Err(validation_err("only locked asset locks can be drawn down"));
+    }
+    if let Some(release_authority) = record.release_authority.as_ref() {
+        if release_authority != authority {
+            return Err(validation_err("only release authority may draw down lock"));
+        }
+    } else if record.buyer.as_ref() != Some(authority) {
+        return Err(validation_err("only lock destination may draw down lock"));
+    }
+    let spec = state_transaction
+        .numeric_spec_for(&record.asset_definition)
+        .map_err(Error::from)?;
+    assert_numeric_spec_with(instruction.amount.as_numeric(), spec)?;
+    assert_numeric_spec_with(instruction.expected_remaining_amount.as_numeric(), spec)?;
+    if record.remaining_amount != instruction.expected_remaining_amount {
+        return Err(validation_err(
+            "asset lock remaining amount changed since the drawdown was prepared",
+        ));
+    }
+    if instruction.amount > record.remaining_amount {
+        return Err(validation_err("lock drawdown exceeds remaining amount"));
+    }
+    let destination = record
+        .buyer
+        .clone()
+        .ok_or_else(|| validation_err("lock destination missing"))?;
+    let custody_asset = custody_asset(&record);
+    let destination_asset = party_asset(&record, &destination);
+    transfer_numeric_asset_for_escrow(
+        state_transaction,
+        VerifiedNativeEscrowMovement::retained(
+            record.id.clone(),
+            custody_asset,
+            destination_asset,
+            instruction.amount.clone(),
+        ),
+    )?;
+    record.remaining_amount = record
+        .remaining_amount
+        .checked_sub(&instruction.amount)
+        .map_err(|_| validation_err("lock remaining amount underflow"))?;
+    if record.remaining_amount.is_zero() {
+        record.status = AssetEscrowStatus::DrawnDown;
+        record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
+    }
+    state_transaction
+        .world
+        .insert_asset_escrow_entry(record.clone());
+    state_transaction
+        .world
+        .emit_events(Some(EscrowEvent::Released(record)));
+    Ok(())
 }
 impl Execute for CancelAssetLock {
     fn execute(
@@ -1776,102 +1798,128 @@ impl Execute for CancelAssetLock {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        ensure_positive(&self.expected_remaining_amount)?;
-        let Some(mut record) = state_transaction
-            .world
-            .asset_escrows
-            .get(&self.escrow_id)
-            .cloned()
-        else {
-            return Err(validation_err("escrow not found"));
-        };
-        ensure_asset_lock(&record)?;
-        reject_native_orderbook_lock(state_transaction.world(), &self.escrow_id, "cancelled")?;
-        if record.status != AssetEscrowStatus::Locked {
-            return Err(validation_err("only locked asset locks can be cancelled"));
-        }
-        if &record.seller != authority {
-            return Err(validation_err("only lock opener may cancel lock"));
-        }
-        let spec = state_transaction
-            .numeric_spec_for(&record.asset_definition)
-            .map_err(Error::from)?;
-        assert_numeric_spec_with(self.expected_remaining_amount.as_numeric(), spec)?;
-        if record.remaining_amount != self.expected_remaining_amount {
-            return Err(validation_err(
-                "asset lock remaining amount changed since the cancellation was prepared",
-            ));
-        }
-        let custody_asset = custody_asset(&record);
-        let seller_asset = party_asset(&record, &record.seller);
-        transfer_numeric_asset_for_escrow(
-            state_transaction,
-            VerifiedNativeEscrowMovement::retained(
-                record.id.clone(),
-                custody_asset,
-                seller_asset,
-                record.remaining_amount.clone(),
-            ),
-        )?;
-        record.status = AssetEscrowStatus::Cancelled;
-        record.remaining_amount = Quantity::zero();
-        record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
-        state_transaction
-            .world
-            .insert_asset_escrow_entry(record.clone());
-        state_transaction
-            .world
-            .emit_events(Some(EscrowEvent::Cancelled(record)));
-        Ok(())
+        execute_cancel_asset_lock(self, authority, state_transaction, false)
     }
+}
+fn execute_cancel_asset_lock(
+    instruction: CancelAssetLock,
+    authority: &AccountId,
+    state_transaction: &mut StateTransaction<'_, '_>,
+    controlled: bool,
+) -> Result<(), Error> {
+    if !controlled {
+        controlled::reject_generic_mutation(state_transaction.world(), &instruction.escrow_id)?;
+    }
+    ensure_positive(&instruction.expected_remaining_amount)?;
+    let Some(mut record) = state_transaction
+        .world
+        .asset_escrows
+        .get(&instruction.escrow_id)
+        .cloned()
+    else {
+        return Err(validation_err("escrow not found"));
+    };
+    ensure_asset_lock(&record)?;
+    reject_native_orderbook_lock(
+        state_transaction.world(),
+        &instruction.escrow_id,
+        "cancelled",
+    )?;
+    if record.status != AssetEscrowStatus::Locked {
+        return Err(validation_err("only locked asset locks can be cancelled"));
+    }
+    if !controlled && &record.seller != authority {
+        return Err(validation_err("only lock opener may cancel lock"));
+    }
+    let spec = state_transaction
+        .numeric_spec_for(&record.asset_definition)
+        .map_err(Error::from)?;
+    assert_numeric_spec_with(instruction.expected_remaining_amount.as_numeric(), spec)?;
+    if record.remaining_amount != instruction.expected_remaining_amount {
+        return Err(validation_err(
+            "asset lock remaining amount changed since the cancellation was prepared",
+        ));
+    }
+    let custody_asset = custody_asset(&record);
+    let seller_asset = party_asset(&record, &record.seller);
+    transfer_numeric_asset_for_escrow(
+        state_transaction,
+        VerifiedNativeEscrowMovement::retained(
+            record.id.clone(),
+            custody_asset,
+            seller_asset,
+            record.remaining_amount.clone(),
+        ),
+    )?;
+    record.status = AssetEscrowStatus::Cancelled;
+    record.remaining_amount = Quantity::zero();
+    record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
+    state_transaction
+        .world
+        .insert_asset_escrow_entry(record.clone());
+    state_transaction
+        .world
+        .emit_events(Some(EscrowEvent::Cancelled(record)));
+    Ok(())
 }
 impl Execute for ExpireAssetLock {
     fn execute(
         self,
-        _authority: &AccountId,
+        authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        let Some(mut record) = state_transaction
-            .world
-            .asset_escrows
-            .get(&self.escrow_id)
-            .cloned()
-        else {
-            return Err(validation_err("escrow not found"));
-        };
-        ensure_asset_lock(&record)?;
-        reject_native_orderbook_lock(state_transaction.world(), &self.escrow_id, "expired")?;
-        if record.status != AssetEscrowStatus::Locked {
-            return Err(validation_err("only locked asset locks can expire"));
-        }
-        let expires_at_ms = record
-            .expires_at_ms
-            .ok_or_else(|| validation_err("asset lock has no expiry"))?;
-        if state_transaction.block_unix_timestamp_ms() < expires_at_ms {
-            return Err(validation_err("asset lock expiry has not been reached"));
-        }
-        let custody_asset = custody_asset(&record);
-        let seller_asset = party_asset(&record, &record.seller);
-        transfer_numeric_asset_for_escrow(
-            state_transaction,
-            VerifiedNativeEscrowMovement::retained(
-                record.id.clone(),
-                custody_asset,
-                seller_asset,
-                record.remaining_amount.clone(),
-            ),
-        )?;
-        record.status = AssetEscrowStatus::Expired;
-        record.remaining_amount = Quantity::zero();
-        record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
-        state_transaction
-            .world
-            .insert_asset_escrow_entry(record.clone());
-        state_transaction
-            .world
-            .emit_events(Some(EscrowEvent::Expired(record)));
-        Ok(())
+        execute_expire_asset_lock(self, authority, state_transaction, false)
     }
+}
+fn execute_expire_asset_lock(
+    instruction: ExpireAssetLock,
+    _authority: &AccountId,
+    state_transaction: &mut StateTransaction<'_, '_>,
+    controlled: bool,
+) -> Result<(), Error> {
+    if !controlled {
+        controlled::reject_generic_mutation(state_transaction.world(), &instruction.escrow_id)?;
+    }
+    let Some(mut record) = state_transaction
+        .world
+        .asset_escrows
+        .get(&instruction.escrow_id)
+        .cloned()
+    else {
+        return Err(validation_err("escrow not found"));
+    };
+    ensure_asset_lock(&record)?;
+    reject_native_orderbook_lock(state_transaction.world(), &instruction.escrow_id, "expired")?;
+    if record.status != AssetEscrowStatus::Locked {
+        return Err(validation_err("only locked asset locks can expire"));
+    }
+    let expires_at_ms = record
+        .expires_at_ms
+        .ok_or_else(|| validation_err("asset lock has no expiry"))?;
+    if state_transaction.block_unix_timestamp_ms() < expires_at_ms {
+        return Err(validation_err("asset lock expiry has not been reached"));
+    }
+    let custody_asset = custody_asset(&record);
+    let seller_asset = party_asset(&record, &record.seller);
+    transfer_numeric_asset_for_escrow(
+        state_transaction,
+        VerifiedNativeEscrowMovement::retained(
+            record.id.clone(),
+            custody_asset,
+            seller_asset,
+            record.remaining_amount.clone(),
+        ),
+    )?;
+    record.status = AssetEscrowStatus::Expired;
+    record.remaining_amount = Quantity::zero();
+    record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
+    state_transaction
+        .world
+        .insert_asset_escrow_entry(record.clone());
+    state_transaction
+        .world
+        .emit_events(Some(EscrowEvent::Expired(record)));
+    Ok(())
 }
 const MAX_CONDITIONAL_ESCROW_CONDITIONS: usize = 64;
 const MAX_CONDITIONAL_ESCROW_EVIDENCE_HASHES: usize = 64;
@@ -1923,6 +1971,7 @@ pub(crate) struct ConditionalEscrowTerms {
 pub(crate) struct ConditionalEscrowOpening {
     record: AssetEscrowRecord,
     source: AssetId,
+    uid_holding_ceiling: Option<Quantity>,
 }
 impl ConditionalEscrowOpening {
     /// Exact source bucket debited by the funding movement.
@@ -1952,13 +2001,22 @@ impl ConditionalEscrowOpening {
         &self.record.custody
     }
     /// Insert the retained record after the caller funded custody in the same transaction.
-    pub(crate) fn record_funded(self, state_transaction: &mut StateTransaction<'_, '_>) {
+    pub(crate) fn record_funded(
+        self,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        crate::state::asset_uid::check_opening(
+            state_transaction.world(),
+            &self.record,
+            self.uid_holding_ceiling.as_ref(),
+        )?;
         state_transaction
             .world
             .insert_asset_escrow_entry(self.record.clone());
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Opened(self.record)));
+        Ok(())
     }
     /// Fund custody from the opener's exact bucket with the single-movement capability.
     fn fund_from_opener_and_record(
@@ -1980,8 +2038,7 @@ impl ConditionalEscrowOpening {
             remove_created_custody_account(state_transaction, self.custody_account());
         }
         transfer_result?;
-        self.record_funded(state_transaction);
-        Ok(())
+        self.record_funded(state_transaction)
     }
 }
 /// Remove a custody account created for a funding attempt that failed.
@@ -2141,6 +2198,10 @@ pub(crate) fn prepare_conditional_escrow_opening(
             closed_at_ms: None,
             resolution: None,
         },
+        uid_holding_ceiling: crate::state::asset_uid::opening_holding_ceiling(
+            state_transaction.world(),
+            &source,
+        )?,
         source,
     })
 }
@@ -2172,6 +2233,7 @@ impl Execute for AttestEscrowCondition {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         let Some(mut record) = state_transaction
             .world
             .asset_escrows
@@ -2316,6 +2378,7 @@ impl Execute for ExpireConditionalEscrow {
         _authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        controlled::reject_generic_mutation(state_transaction.world(), &self.escrow_id)?;
         let Some(mut record) = state_transaction
             .world
             .asset_escrows
