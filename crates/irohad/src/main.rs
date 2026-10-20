@@ -5519,6 +5519,20 @@ pub enum ConfigError {
         /// Configured encrypted frame cap from which the plaintext ceiling is derived.
         encrypted_cap: usize,
     },
+    /// The block-sync topic cap cannot carry this node's own largest sync response.
+    NetworkBlockSyncFrameBelowSyncBudget {
+        /// Configured `network.max_frame_bytes_block_sync` in bytes.
+        configured: usize,
+        /// Complete P2P frame of the largest sync response the local budget requests.
+        required: usize,
+    },
+    /// The control topic cap cannot carry the longest consensus control frame.
+    NetworkControlFrameBelowControlMaximum {
+        /// Configured `network.max_frame_bytes_control` in bytes.
+        configured: usize,
+        /// Complete P2P frame of the longest control frame the consensus core decodes.
+        required: usize,
+    },
     /// Failed to bind a configured address.
     CannotBindAddress {
         /// Address that could not be bound.
@@ -5577,6 +5591,20 @@ impl core::fmt::Display for ConfigError {
             } => write!(
                 f,
                 "{path} ({configured}) exceeds the AEAD-specific plaintext ceiling of {plaintext_ceiling} bytes derived from network.max_frame_bytes ({encrypted_cap})",
+            ),
+            Self::NetworkBlockSyncFrameBelowSyncBudget {
+                configured,
+                required,
+            } => write!(
+                f,
+                "network.max_frame_bytes_block_sync ({configured}) cannot carry the largest sync response of sumeragi.sync_max_bytes, a {required}-byte P2P frame",
+            ),
+            Self::NetworkControlFrameBelowControlMaximum {
+                configured,
+                required,
+            } => write!(
+                f,
+                "network.max_frame_bytes_control ({configured}) cannot carry the largest consensus control frame, a {required}-byte P2P frame",
             ),
             Self::CannotBindAddress { addr } => {
                 write!(f, "Network error: cannot listen to address `{addr}`")
@@ -7509,6 +7537,33 @@ fn validate_network_frame_runtime_limit(config: &Config) -> ReportResult<(), Con
                 },
             ));
         }
+    }
+    // Sync responses, proposals and payload rows share the block-sync topic. A node requests
+    // responses of its own `sync_max_bytes`, so a smaller topic cap would drop its own sync.
+    let required = iroha_core::sumeragi::net::minimum_block_sync_frame_bytes(
+        config.common.trusted_peers.value().myself.id(),
+        &config.sumeragi.local,
+    );
+    if config.network.max_frame_bytes_block_sync < required {
+        return Err(Report::new(
+            ConfigError::NetworkBlockSyncFrameBelowSyncBudget {
+                configured: config.network.max_frame_bytes_block_sync,
+                required,
+            },
+        ));
+    }
+    // Votes, certificates, timeouts, status and requests share the consensus-safety topic, so a
+    // cap below the longest control frame the core decodes would drop consensus traffic.
+    let required = iroha_core::sumeragi::net::minimum_control_frame_bytes(
+        config.common.trusted_peers.value().myself.id(),
+    );
+    if config.network.max_frame_bytes_control < required {
+        return Err(Report::new(
+            ConfigError::NetworkControlFrameBelowControlMaximum {
+                configured: config.network.max_frame_bytes_control,
+                required,
+            },
+        ));
     }
     Ok(())
 }

@@ -169,7 +169,27 @@ fn privacy_pool_bridge_requires_exact_owner_and_direction_before_reserve_debit()
     block.admit_fastpq_source_for_testing(Hash::prehashed([0xD4; Hash::LENGTH]));
     let mut transaction = block.transaction();
     seed_test_call_hash(&mut transaction, 0xD4);
+    execute_user_numeric_asset_transfer(
+        &mut transaction,
+        &ALICE_ID,
+        reserve_asset_id.clone(),
+        BOB_ID.clone(),
+        Quantity::from(10_u32),
+    )
+    .unwrap();
     let owner = seed_test_orchard_public_reserve(&mut transaction, &reserve_asset_id);
+    execute_verified_privacy_pool_public_balance_transfer(
+        &mut transaction,
+        &BOB_ID,
+        PrivacyStatementDigestV1::new([0xEE; 32]),
+        owner,
+        &definition_id,
+        iroha_data_model::asset::AssetBalanceScope::Global,
+        &ALICE_ID,
+        PrivacyValueBalanceDirectionV1::IntoPool,
+        Quantity::from(10_u32),
+    )
+    .unwrap();
     let forged_owner = match owner {
         PrivacyPublicReserveOwnerV1::Orchard { namespace, .. } => {
             PrivacyPublicReserveOwnerV1::Orchard {

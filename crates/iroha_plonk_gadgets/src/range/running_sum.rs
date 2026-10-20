@@ -20,7 +20,7 @@
 //! still lays out `floor(v / 2^(b i))`, which a table lookup rejects.
 //!
 //! The lookup input is `q_step (z - 2^b z_next) + q_limb z` (degree 2, so the
-//! lookup needs degree 5) and the shift gate is
+//! degree-one table gives norm argument degree 8) and the shift gate is
 //! `q_shift (z - z_prev shift)` (degree 3) with the factor `2^(b-t)` in a
 //! fixed column, so one chip checks any width. The column is queried at
 //! rotations `-1, 0, 1`, inside the default blinding budget.
@@ -382,8 +382,9 @@ impl RunningSumConfig {
     /// memberships. On idle rows the factor column may carry another
     /// circuit-fixed pattern, provided that consumer is disabled on range rows.
     /// This replaces three selectors and a shift column without dropping any
-    /// range premise. Lookup inputs have degree three (argument degree ten);
-    /// [`Self::configure_bank`] stores the two indicators instead.
+    /// range premise. Lookup inputs have degree three; with the degree-one
+    /// table, the norm argument has degree ten. [`Self::configure_bank`] stores
+    /// the two indicators instead.
     pub fn configure_compact<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         z: Column<Advice>,

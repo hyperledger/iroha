@@ -11457,12 +11457,8 @@ async fn handler_explorer_instruction_contract_view(
     {
         return Ok(explorer_json_error_response(error));
     }
-    match crate::contract_sources::handle_get_instruction_contract_view(
-        app.state.clone(),
-        hash,
-        index,
-    )
-    .await
+    match crate::contract_sources::handle_get_instruction_contract_view(app.clone(), hash, index)
+        .await
     {
         Ok(response) => Ok(response.into_response()),
         Err(error) => Ok(explorer_json_error_response(error)),
@@ -43005,6 +43001,16 @@ pub enum Error {
         /// Human-readable error message.
         message: String,
     },
+    /// Committed history read needs at least {required} {resource}, above this request's own budget {limit}
+    HistoryReadExceedsBudget {
+        /// Exhausted resource of the request's own finite read budget.
+        resource: &'static str,
+        /// Quantity at which the deterministic read is refused: one item's exact size, or the
+        /// cumulative amount it reached. Every retry of the same request reaches the same.
+        required: u64,
+        /// The request's own finite limit for that resource.
+        limit: u64,
+    },
     /// Proof endpoint `{endpoint}` throttled the request; retry after {retry_after_secs}s
     ProofRateLimited {
         /// Logical endpoint label.
@@ -43541,6 +43547,11 @@ impl Error {
             Self::AppNotFound { code, message } => ErrorEnvelope::new(code, message),
             Self::AppConflict { code, message } => ErrorEnvelope::new(code, message),
             Self::AppServiceUnavailable { code, message } => ErrorEnvelope::new(code, message),
+            Self::HistoryReadExceedsBudget {
+                resource,
+                required,
+                limit,
+            } => canonical_history::history_read_budget_envelope(resource, required, limit),
             Self::ProofRateLimited {
                 endpoint,
                 retry_after_secs,
@@ -43611,6 +43622,7 @@ impl Error {
             AppNotFound { .. } => StatusCode::NOT_FOUND,
             AppConflict { .. } => StatusCode::CONFLICT,
             AppServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            HistoryReadExceedsBudget { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             #[cfg(feature = "app_api")]
             SorafsModerationStartup { .. } => StatusCode::SERVICE_UNAVAILABLE,
             #[cfg(feature = "app_api")]

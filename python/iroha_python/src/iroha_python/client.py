@@ -8778,7 +8778,6 @@ class VerifiedCommittedTransaction:
             if not isinstance(raw_outcome, Mapping):
                 raise TypeError(f"verified batch outcome {index} must be an object")
             required_fields = {
-            "proof_kind",
                 "leg_index",
                 "leg_id",
                 "asset",
@@ -12468,6 +12467,8 @@ class ToriiClient(
                 "Content-Type": "application/x-norito",
                 "Accept": "application/x-norito",
             },
+            allow_retry=False,
+            allow_redirects=False,
         )
         self._expect_status(transaction_response, {200})
         transaction_response_bytes = self._native_query_response_bytes(

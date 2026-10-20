@@ -1838,6 +1838,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Roots(&["state_table_substrate"]),
     },
     ConstructionUse {
+        path: "crates/iroha_core/src/state/canonical_history/committed_outcome.rs",
+        uses: &[("MerkleTree", 6)],
+        owner: UseOwner::Other(
+            Use::BlockContent,
+            "Recomputes a committed block's Network input and output Merkle roots from authenticated frame windows and checks them against the header and certified result: block content, not a State-content root",
+        ),
+    },
+    ConstructionUse {
         path: "crates/iroha_core/src/state/output_capacity.rs",
         uses: &[("MerkleTree", 2)],
         owner: UseOwner::Other(
@@ -6590,6 +6598,23 @@ const DEFECTS: &[Defect] = &[
         ],
     },
     Defect {
+        id: "G1-D8",
+        title: "Root-valued canonical World cells have no writer",
+        assigned: "G.3",
+        related: &[],
+        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. Their unused writer was removed; without a committed writer they remain permanently default root-named values in the keyed schema.",
+        evidence: &[
+            (
+                "crates/iroha_core/src/state/authority_registry/world.rs",
+                "merge_global_state_root: Cell<Option<Hash>> => (\"world.merge_global_state_root\",",
+            ),
+            (
+                "crates/iroha_core/src/state/authority_registry/world.rs",
+                "merge_hint_roots: Cell<Vec<Hash>> => (\"world.merge_hint_roots\",",
+            ),
+        ],
+    },
+    Defect {
         id: "G1-D9",
         title: "A certified per-table root authenticates the retail fee receipt heads",
         assigned: "G.3",
@@ -6688,6 +6713,7 @@ fn defect_fields(id: &str, rows: &[Row]) -> Vec<String> {
         "G1-D5" => named(&["world.state_accumulator"]),
         "G1-D6" => with(Commitment::History),
         "G1-D7" => named(&["world.smart_contract_state"]),
+        "G1-D8" => named(&["world.merge_hint_roots", "world.merge_global_state_root"]),
         "G1-D9" => named(&["world.smart_contract_state"]),
         "G1-D10" => named(&[
             "world.verifying_keys",
@@ -7991,6 +8017,8 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(soradns_directory_latest, Some([3_u8; 32]));
     typed_cell!(soracloud_sequence_watermark, 9_u64);
     typed_cell!(governance_last_unlock_sweep_height, 3_u64);
+    typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
+    typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
     typed_cell!(sccp_forgery_max_generation, Some(7_u64));
     typed_cell!(sccp_committee_current, 7_u64);
@@ -8126,6 +8154,8 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         "world.domains_by_owner",
         "world.global_beacon_active_session",
         "world.governance_last_unlock_sweep_height",
+        "world.merge_global_state_root",
+        "world.merge_hint_roots",
         "world.musubi_domain_ownership_generations",
         "world.proofs_by_tag",
         "world.provider_owners",
@@ -8238,7 +8268,20 @@ fn state_level_canonical_fields_have_no_accumulator_slot_and_no_witness_family()
             .all(|id| id.starts_with("state.") || id.starts_with("runtime."))
     );
     let configured = node_configuration_cells();
-    assert_eq!(configured.len(), 8);
+    assert_eq!(
+        configured.iter().map(String::as_str).collect::<Vec<_>>(),
+        [
+            "state.pipeline",
+            "state.oracle",
+            "state.crypto",
+            "state.nexus",
+            "state.zk",
+            "state.gov",
+            "state.content",
+            "state.settlement",
+        ],
+        "exactly the canonical policy owners installed from node configuration"
+    );
     for id in &configured {
         assert!(uncommitted.contains(&id.as_str()), "{id}");
     }
@@ -9500,6 +9543,180 @@ fn enrollment_expiry_domains_bind_records_without_state_authority() {
     );
 }
 
+/// The anonymous-ballot frame tags of the data model hash supplied records and messages,
+/// and its corpus chain is recomputed from supplied entries. Their record classification
+/// requires no registered authoritative ballot State owner. Admission refusal paths and
+/// their fixtures may name the model without creating that owner. A new canonical ballot
+/// table or cell requires review of its corpus, roster and result commitments.
+#[test]
+fn anonymous_ballot_tags_hash_records_without_an_authoritative_state_owner() {
+    const MODULE: &str = "crates/iroha_data_model/src/governance/anonymous_ballot";
+    let record = DomainOwner::Other(Use::Record);
+    let test = DomainOwner::Other(Use::Test);
+    let tags: Vec<(&str, DomainOwner)> = domain_owners()
+        .into_iter()
+        .filter(|(literal, _)| literal.starts_with("PARL/"))
+        .collect();
+    assert_eq!(
+        tags,
+        [
+            ("PARL/AUTHORITY/v1", record),
+            ("PARL/CORPUS-APPEND/v1", record),
+            ("PARL/CORPUS-EMPTY/v1", record),
+            ("PARL/CORPUS-ENTRY/v1", record),
+            ("PARL/ENVELOPE/v1", record),
+            ("PARL/PROPOSAL/v1", record),
+            ("PARL/QUALIFICATION/v1", record),
+            ("PARL/REGMAP/v1", record),
+            ("PARL/RESULT/v1", record),
+            ("PARL/ROSTER/v1", record),
+            ("PARL/STAMP-PAYLOAD/v1", record),
+            ("PARL/STAMP-WORK/v1", record),
+            ("PARL/TEST/v1", test),
+            ("PARL/TEST/v2", test),
+        ]
+    );
+    let sources: Vec<(String, String)> = rust_sources(&[MODULE])
+        .into_iter()
+        .map(|path| {
+            let text = source(&path);
+            (path, text)
+        })
+        .collect();
+    let scan = scan_sources(
+        sources
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    assert!(scan.unlisted_domains.is_empty());
+    for (tag, _) in &tags {
+        assert!(
+            scan.literal_uses.contains_key(tag),
+            "{tag} is held by the anonymous-ballot module"
+        );
+    }
+    let path = format!("{MODULE}/digests.rs");
+    let text = source(&path);
+    let shadow = "PARL/SHADOW/v1";
+    let changed = format!("{text}\nconst SHADOW: &[u8] = b\"{shadow}\";\n");
+    assert_eq!(
+        scan_sources([(path.as_str(), changed.as_str())])
+            .unlisted_domains
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{shadow} in {path}")],
+        "the reviewed tags cannot exempt another tag under their prefix"
+    );
+    // Pin registered State ownership rather than unrelated routing/refusal symbols or
+    // test imports. The exhaustive registry also checks each canonical schema's nominal
+    // identity, including nested generic types, independently of its chosen field name.
+    let names_ballot_schema = |identity: &str| {
+        identity.contains("anonymous_ballot::")
+            || identity.contains("AnonymousBallot")
+            || identity.contains("AnonymousParliament")
+    };
+    assert!(names_ballot_schema(
+        "norito:iroha_data_model::governance::anonymous_ballot::BallotClosureRecordV1@0.0.2"
+    ));
+    assert!(!names_ballot_schema(
+        "norito:iroha_data_model::parliament_types::BallotAttemptId@0.0.2"
+    ));
+    let mut fields = Vec::new();
+    flatten(STATE_FIELDS, &mut fields);
+    for field in fields {
+        let schemas = match field.role {
+            Role::Canonical(Canonical::Table { key, value }) => vec![key, value],
+            Role::Canonical(Canonical::Cell(value)) => vec![value],
+            _ => continue,
+        };
+        assert!(
+            !field.id.contains("ballot"),
+            "{} introduces ballot State: classify its corpus, roster and result commitments",
+            field.id,
+        );
+        for schema in schemas {
+            let identity = codec_identity(field.id, schema).expect("the registry is complete");
+            assert!(
+                !names_ballot_schema(&identity),
+                "{} retains ballot schema {identity}: review the anonymous-ballot commitments",
+                field.id,
+            );
+        }
+    }
+    assert!(
+        !source("crates/iroha_core/Cargo.toml").contains("iroha_parliament_ballot"),
+        "the node depends on a ballot crate: review the anonymous-ballot tag classification"
+    );
+}
+
+/// The expiry journal schema and filename digest retain exact local storage roles.
+#[test]
+fn enrollment_expiry_journal_domains_are_exact_local_storage_names() {
+    let path = "crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/expiry.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert!(scan.unlisted_domains.is_empty());
+    let owners = domain_owners();
+    for (literal, usage) in [
+        (
+            "iroha_core.kagemusha.enrollment.journal_expiry.v1",
+            Use::Name,
+        ),
+        (r"iroha:kagemusha:issuer-expiry-dispatch:v1\0", Use::Seed),
+    ] {
+        assert_eq!(owners.get(literal), Some(&DomainOwner::Other(usage)));
+        assert_eq!(
+            scan.literal_uses.get(literal),
+            Some(&BTreeMap::from([(path.to_owned(), 1)]))
+        );
+        let shadow = format!("{literal}:shadow");
+        let changed = format!("{text}\nconst SHADOW: &str = r\"{shadow}\";\n");
+        assert!(
+            scan_sources([(path, changed.as_str())])
+                .unlisted_domains
+                .contains(&format!("{shadow} in {path}")),
+            "classification must not exempt other literals under the same prefix"
+        );
+    }
+}
+
+/// The configured catalog record digest is nested in the existing policy fingerprint.
+#[test]
+fn configured_lane_catalog_domain_is_a_nested_policy_fingerprint() {
+    let path = "crates/iroha_core/src/state/authority_registry/nexus_policy.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    let literal = r"iroha:nexus:configured-lane-catalog:v1\0";
+    assert!(scan.unlisted_domains.is_empty());
+    assert_eq!(
+        domain_owners().get(literal),
+        Some(&DomainOwner::Other(Use::Record))
+    );
+    assert_eq!(
+        scan.literal_uses.get(literal),
+        Some(&BTreeMap::from([(path.to_owned(), 1)]))
+    );
+    let root = ROOTS
+        .iter()
+        .find(|root| root.id == "execution_policy_digest")
+        .unwrap();
+    assert_eq!(root.class, RootClass::ProtocolFingerprint);
+    assert_eq!(root.defect, Some("G1-D3"));
+    assert!(!root.keyed && !root.class.certified());
+    assert!(
+        !root.domains.contains(&literal),
+        "the nested catalog record must not acquire its enclosing policy root classification"
+    );
+    assert!(text.contains("Raw(&self.configured_lane_catalog_hash)"));
+    let shadow = r"iroha:nexus:configured-lane-catalog:shadow:v1\0";
+    let changed = format!("{text}\nconst SHADOW: &str = r\"{shadow}\";\n");
+    assert!(
+        scan_sources([(path, changed.as_str())])
+            .unlisted_domains
+            .contains(&format!("{shadow} in {path}"))
+    );
+}
+
 /// Receipt identifiers remain records; the private State-byte comparison is a local digest.
 #[test]
 fn retail_native_entries_keep_record_and_local_binding_classifications() {
@@ -9604,30 +9821,62 @@ fn state_hash_scan_carrier_fixture_keeps_production_alias_and_visitor_visible() 
     }));
 }
 
-/// Current execution proofs serve an existing certified identity and result.
+/// Current execution and attestation proofs serve existing certified identities and results.
 #[test]
 fn state_hash_scan_current_execution_proof_classifies_certified_identity() {
     let path = "crates/iroha_core/src/sumeragi/finality.rs";
     let (_, code) = split_source(&source(path));
-    let name = "current_execution_proof";
-    assert_eq!(
-        fn_signatures(&code)
+    for name in ["attestation_proofs", "current_execution_proof"] {
+        assert_eq!(
+            fn_signatures(&code)
+                .iter()
+                .filter(|entry| entry.name == name && entry.reads_state && entry.returns_hash)
+                .count(),
+            1,
+            "the actual {name} producer must remain scanned"
+        );
+        let listed: Vec<_> = STATE_HASH_FUNCTIONS
             .iter()
-            .filter(|entry| entry.name == name && entry.reads_state && entry.returns_hash)
-            .count(),
-        1,
-        "the actual current execution proof producer must remain scanned"
-    );
-    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+            .filter(|entry| entry.path == path && entry.name == name)
+            .collect();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].count, 1);
+        assert!(matches!(
+            listed[0].owner,
+            UseOwner::Other(Use::ResultBinding, _)
+        ));
+    }
+}
+
+/// Reading committed outcomes authenticates block content without introducing a State root.
+#[test]
+fn committed_outcome_merkle_constructions_keep_exact_block_content_roles() {
+    let path = "crates/iroha_core/src/state/canonical_history/committed_outcome.rs";
+    let listed = CONSTRUCTION_USES
         .iter()
-        .filter(|entry| entry.path == path && entry.name == name)
-        .collect();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].count, 1);
+        .find(|listed| listed.path == path)
+        .expect("the committed outcome reader must be classified");
+    assert_eq!(listed.uses, &[("MerkleTree", 6)]);
     assert!(matches!(
-        listed[0].owner,
-        UseOwner::Other(Use::ResultBinding, _)
+        listed.owner,
+        UseOwner::Other(Use::BlockContent, _)
     ));
+    let text = source(path);
+    assert!(
+        scan_sources([(path, text.as_str())])
+            .unlisted_uses
+            .is_empty()
+    );
+    let changed =
+        format!("{text}\nfn extra_history_tree() -> MerkleTree<[u8; 32]> {{ todo!() }}\n");
+    let changed = scan_sources([(path, changed.as_str())]);
+    assert_eq!(changed.unlisted_uses.len(), 1);
+    assert!(
+        changed
+            .unlisted_uses
+            .iter()
+            .all(|report| report.starts_with(path))
+    );
 }
 
 /// A test-only enum variant cannot hide the production World-root producers after it.

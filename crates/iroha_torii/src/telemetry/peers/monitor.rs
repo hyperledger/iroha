@@ -1523,13 +1523,21 @@ mod tests {
             .await
             .expect("bind listener");
         let addr = listener.local_addr().expect("listener addr");
+        // TLS/client construction belongs to monitor startup, before the polling
+        // deadline. Loading local roots can be slow while the full suite is busy.
+        let client = peer_monitor_http_client().expect("peer monitor HTTP client");
+        let (response_ready, first_response) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(async move {
+            let mut response_ready = Some(response_ready);
             loop {
                 let (mut socket, _) = listener.accept().await.expect("accept socket");
                 let mut buf = [0u8; 1024];
                 let _ = socket.read(&mut buf).await;
                 let response = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                let _ = socket.write_all(response).await;
+                socket.write_all(response).await.expect("write actual 503");
+                if let Some(response_ready) = response_ready.take() {
+                    let _ = response_ready.send(());
+                }
             }
         });
         let url: ToriiUrl = format!("http://{addr}").parse().expect("valid torii url");
@@ -1537,17 +1545,15 @@ mod tests {
         let shutdown = ShutdownSignal::new();
         let worker_shutdown = shutdown.clone();
         let metrics_task = tokio::spawn(async move {
-            get_metrics_periodic_timeout(
-                &peer_monitor_http_client().unwrap(),
-                &url,
-                tx,
-                &worker_shutdown,
-            )
-            .await;
+            get_metrics_periodic_timeout(&client, &url, tx, &worker_shutdown).await;
         });
-        let timeout =
-            TELEMETRY_UNSUPPORTED_CHECK_INTERVAL + GET_STATUS_INTERVAL + GET_STATUS_INTERVAL;
-        let update = tokio::time::timeout(timeout, rx.recv())
+        // Begin the semantic assertion only after the real loopback response.
+        // These safety bounds do not alter the monitor's request or retry timers.
+        tokio::time::timeout(Duration::from_secs(5), first_response)
+            .await
+            .expect("first telemetry response timeout")
+            .expect("server sends the original 503");
+        let update = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await
             .expect("telemetry update timeout")
             .expect("telemetry update");

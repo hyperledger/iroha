@@ -102,6 +102,103 @@ class NoritoBridgeAndroidConsumerRuleResourceTests(unittest.TestCase):
                     seal._public_source_relative(relative)
 
 
+class NoritoBridgeBallotPublicFixtureTests(unittest.TestCase):
+    """Public test originals retain byte identity and ordinary source custody."""
+
+    PREFIX = "crates/iroha_parliament_ballot_proof/"
+    INPUTS = (
+        "fuzz/evidence/corpus.tar.xz",
+        "tests/fixtures/SHA256SUMS",
+        "tests/fixtures/reg_comparator.proof",
+        "tests/fixtures/reg_fast.proof",
+        "tests/fixtures/vote_S1000_i500_comparator.proof",
+        "tests/fixtures/vote_S1000_i500_fast.proof",
+        "tests/fixtures/vote_S3_i1_comparator.proof",
+        "tests/fixtures/vote_S3_i1_fast.proof",
+        "tests/fixtures/vote_S500_i250_comparator.proof",
+        "tests/fixtures/vote_S500_i250_fast.proof",
+        "tests/reference/SHA256SUMS",
+    )
+
+    def test_only_exact_reviewed_ballot_names_are_admitted(self) -> None:
+        expected = {self.PREFIX + name for name in self.INPUTS}
+        self.assertEqual(
+            {name for name in seal._REVIEWED_PUBLIC_FIXTURE_INPUTS
+             if name.startswith(self.PREFIX)}, expected,
+        )
+        for name in expected:
+            self.assertEqual(seal._public_source_relative(name).as_posix(), name)
+            for changed in (name + ".bak", name.replace(self.PREFIX, "crates/unreviewed/")):
+                with self.subTest(changed=changed):
+                    with self.assertRaisesRegex(RuntimeError, "not an admitted public filename"):
+                        seal._public_source_relative(changed)
+        for name in ("tests/fixtures/other.proof", "tests/other/SHA256SUMS",
+                     "fuzz/evidence/other.tar.xz"):
+            with self.assertRaisesRegex(RuntimeError, "not an admitted public filename"):
+                seal._public_source_relative(self.PREFIX + name)
+
+    def test_every_original_byte_changes_the_fingerprint_and_symlinks_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            lockfile = root / "Cargo.lock"
+            lockfile.write_bytes(b"public synthetic lock\n")
+            for name in self.INPUTS:
+                relative = self.PREFIX + name
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"public synthetic original\x00\xff\n")
+                with self.subTest(relative=relative), \
+                        mock.patch.object(seal, "listed_files", return_value=[relative]), \
+                        mock.patch.object(seal, "selected_lockfile_path", return_value=lockfile), \
+                        mock.patch.object(seal, "lockfile_identity", return_value=("0" * 64,)):
+                    original = seal.fingerprint(root, [relative], lockfile)
+                    path.write_bytes(path.read_bytes() + b"changed")
+                    self.assertNotEqual(seal.fingerprint(root, [relative], lockfile), original)
+                    actual = path.with_name(path.name + ".txt")
+                    path.rename(actual)
+                    path.symlink_to(actual)
+                    with self.assertRaisesRegex(RuntimeError, "symlinked"):
+                        seal.fingerprint(root, [relative], lockfile)
+
+    def test_ballot_names_do_not_exempt_material_or_operational_paths(self) -> None:
+        for name in self.INPUTS:
+            relative = self.PREFIX + name
+            for prohibited in ("secrets/" + relative, "vultr/" + relative,
+                               relative + ".pem", relative + ".key"):
+                with self.subTest(prohibited=prohibited):
+                    with self.assertRaisesRegex(RuntimeError, "prohibited material or operational"):
+                        seal._public_source_relative(prohibited)
+
+
+class NoritoBridgeAdditionalPublicClosureTests(NoritoBridgeBallotPublicFixtureTests):
+    PREFIX = ""
+    INPUTS = (
+        "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata.rs",
+        "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/tests.rs",
+        "crates/iroha_data_model_derive/tests/ui_fail/event_set_too_many.stderr",
+        "crates/iroha_plonk/src/pcs/ipa/parameters/pallas-k16.params",
+        "crates/iroha_plonk/src/pcs/ipa/parameters/vesta-k12.params",
+        "crates/iroha_plonk/src/pcs/ipa/parameters/vesta-k14.params",
+        "crates/iroha_plonk/src/pcs/ipa/parameters/vesta-k16.params",
+        "crates/soranet_pq/tests/fixtures/nistkat/ml-dsa-44.rsp",
+        "crates/soranet_pq/tests/fixtures/nistkat/ml-dsa-65.rsp",
+        "crates/soranet_pq/tests/fixtures/nistkat/ml-dsa-87.rsp",
+        "crates/soranet_pq/tests/fixtures/nistkat/ml-kem-512.rsp",
+        "crates/soranet_pq/tests/fixtures/nistkat/ml-kem-768.rsp",
+        "crates/soranet_pq/tests/fixtures/nistkat/ml-kem-1024.rsp",
+    )
+
+    def test_only_exact_reviewed_ballot_names_are_admitted(self) -> None:
+        for name in self.INPUTS:
+            self.assertEqual(seal._public_source_relative(name).as_posix(), name)
+            for changed in (name + ".bak", name.replace("crates/", "crates/unreviewed/", 1)):
+                with self.subTest(changed=changed):
+                    with self.assertRaisesRegex(RuntimeError, "not an admitted public filename|prohibited material or operational"):
+                        seal._public_source_relative(changed)
+        for suffix in (".params", ".rsp", ".stderr"):
+            self.assertNotIn(suffix, seal._PUBLIC_SOURCE_SUFFIXES)
+
+
 class NoritoBridgeSourceSealTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -167,6 +264,7 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
             "crates/iroha_data_model_derive/tests/ui_fail/event_set_identity_duplicate.stderr",
             "crates/iroha_data_model_derive/tests/ui_fail/event_set_identity_invalid.stderr",
             "crates/iroha_data_model_derive/tests/ui_fail/event_set_identity_missing.stderr",
+            "crates/iroha_data_model_derive/tests/ui_fail/event_set_too_many.stderr",
             "crates/iroha_data_model_derive/tests/ui_fail/has_origin_multiple_attributes.stderr",
             "crates/iroha_data_model_derive/tests/ui_fail/registrable_builder_identity_duplicate.stderr",
             "crates/iroha_data_model_derive/tests/ui_fail/registrable_builder_identity_invalid.stderr",
@@ -488,14 +586,14 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
                     self.assertTrue(self.public_role_original(source))
 
     def test_public_required_roles_are_exact_without_suffix_widening(self) -> None:
-        self.assertEqual(len(self.public_role_inputs()), 77)
-        self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 6)
-        self.assertEqual(len(seal._REVIEWED_PUBLIC_FIXTURE_INPUTS), 23)
+        self.assertEqual(len(self.public_role_inputs()), 100)
+        self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 8)
+        self.assertEqual(len(seal._REVIEWED_PUBLIC_FIXTURE_INPUTS), 44)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_NONOPERATIONAL_FIXTURE_PINS), 4)
         for relative in self.public_role_inputs():
             self.assertEqual(seal._public_source_relative(relative).as_posix(), relative)
         for suffix in (".to", ".env", ".digest", ".tape", ".metallib", ".lex", ".m",
-                       ".norito", ".message"):
+                       ".norito", ".message", ".proof", ".xz"):
             self.assertNotIn(suffix, seal._PUBLIC_SOURCE_SUFFIXES)
         for relative in (
             "crates/ivm/docs/examples/unowned.to",

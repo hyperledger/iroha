@@ -43,9 +43,11 @@ impl FieldElem {
         }
         FieldElem(limbs)
     }
-    /// Create a field element from a 64-bit value.
+    /// Create a field element from a 64-bit value without heap allocation.
     pub fn from_u64(v: u64) -> Self {
-        Self::from_fr(Fr::from(v))
+        // Every u64 is smaller than the BN254 modulus. These limbs hold the
+        // canonical integer, not the Montgomery representation used by `Fr`.
+        Self([v, 0, 0, 0])
     }
     /// Convert back to `Fr`.
     #[allow(clippy::wrong_self_convention)]
@@ -616,6 +618,23 @@ mod tests {
     use halo2curves::bn256::Fr;
     #[cfg(target_arch = "aarch64")]
     use rand_core::{RngCore, impls::fill_bytes_via_next};
+    #[test]
+    fn u64_constructor_preserves_every_canonical_integer_bit() {
+        let boundaries = [0, 1, u64::from(u32::MAX), 1_u64 << 32, u64::MAX];
+        for value in boundaries
+            .into_iter()
+            .chain((0..64).map(|bit| 1_u64 << bit))
+        {
+            let actual = FieldElem::from_u64(value);
+            assert!(actual.is_canonical());
+            assert_eq!(actual.0, [value, 0, 0, 0]);
+            assert_eq!(actual, FieldElem::from_fr(Fr::from(value)));
+            let mut expected = [0; 32];
+            expected[..8].copy_from_slice(&value.to_le_bytes());
+            assert_eq!(actual.to_fr().to_repr().as_ref(), expected);
+            assert_eq!(actual.to_u64(), value);
+        }
+    }
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn mul_sse2_matches_scalar() {

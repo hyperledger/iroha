@@ -1,0 +1,94 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "local_verification_failure_dispatches_nothing",
+  "category": "local_verification",
+  "rules": [
+    "local_verification_before_signing"
+  ],
+  "description": "The generated proof fails local verification. The call returns ProofInvalid at stage local_verify: the proof is discarded, nothing is built, signed or dispatched, and the operation returns to prepared. The next run proves and verifies again before anything is signed.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "invalid"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "ProofInvalid",
+          "stage": "local_verify",
+          "resumable": true
+        },
+        "effects": [
+          "prove:1",
+          "local_verify:1"
+        ],
+        "status": "in_progress",
+        "state": "prepared"
+      }
+    },
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "finality_proofs": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1",
+          "sign:1",
+          "dispatch:1",
+          "status:1",
+          "finality:1"
+        ],
+        "status": "completed",
+        "state": "finalized",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1,
+          "evidence": "applied"
+        }
+      }
+    }
+  ]
+}

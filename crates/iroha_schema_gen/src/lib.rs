@@ -51,6 +51,8 @@ macro_rules! schema_types {
             iroha_data_model::sumeragi_finality::SumeragiCommitCheckpointV1,
             iroha_data_model::sumeragi_finality::SumeragiFinalityBundle,
             iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
+            // Explicit genesis testing policy has an opaque custom-parameter payload.
+            iroha_data_model::governance::anonymous_ballot::ParliamentCandidateTestingPolicyV1,
             // Committed fraud admission custom parameter has an opaque payload.
             iroha_data_model::fraud::FraudAdmissionPolicyV1,
             // Account-signed AMX debit-approval reads use separate request and proof frames.
@@ -754,6 +756,46 @@ mod tests {
                 "bond_escrow_account",
                 "slash_receiver_account",
             ]
+        );
+    }
+
+    #[test]
+    fn parliament_candidate_testing_exports_policy_without_runtime_authority() {
+        use iroha_data_model::governance::anonymous_ballot::{
+            ParliamentCandidateTestingPolicyV1, ProofProfileIdV1,
+        };
+        let expected = ParliamentCandidateTestingPolicyV1::schema();
+        let schemas = super::build_schemas();
+        let exported: std::collections::BTreeMap<_, _> = schemas.iter().collect();
+        for (id, descriptor) in expected.iter() {
+            assert_eq!(
+                exported.get(id).copied(),
+                Some(descriptor),
+                "missing or substituted candidate policy descriptor: {}",
+                descriptor.type_name,
+            );
+        }
+        let Some(Metadata::Struct(policy)) = schemas.get::<ParliamentCandidateTestingPolicyV1>()
+        else {
+            panic!("candidate policy must retain its exact public struct schema");
+        };
+        assert_eq!(
+            policy
+                .declarations
+                .iter()
+                .map(|field| field.name.as_str())
+                .collect::<Vec<_>>(),
+            ["version", "profile"]
+        );
+        assert!(schemas.contains_key::<ProofProfileIdV1>());
+        assert!(find_missing_schema_references(&expected).is_empty());
+        assert!(
+            schemas.iter().all(|(_, descriptor)| {
+                !descriptor
+                    .type_name
+                    .contains("AuthenticatedParliamentCandidateTestingV1")
+            }),
+            "authenticated source selection is never a decodable wire authority"
         );
     }
 

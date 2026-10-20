@@ -1,0 +1,36 @@
+{
+  "schema": "parliament-log-retention-v1",
+  "reason": "The repository ignores new .log files; .log.txt copies retain identical bytes as ordinary source-control candidates. Original observation paths remain unchanged.",
+  "files": {
+    "model-initial.log": {
+      "retained_copy": "model-initial.log.txt",
+      "sha256": "99a564b08c7c3644fc786a8987e612b877663db78ecafc51486105d1a5fe2b20",
+      "bytes": 26190
+    },
+    "model-output-corrected.log": {
+      "retained_copy": "model-output-corrected.log.txt",
+      "sha256": "b99a76612e10f199143804e2b6937ac8f7740022fc9b1af969101abbb983da55",
+      "bytes": 18353
+    },
+    "node-check-initial.log": {
+      "retained_copy": "node-check-initial.log.txt",
+      "sha256": "180452b6a46529ad8d59ea0892600aa98abc2c99b36924efa2cd3b0407aeab5e",
+      "bytes": 25840
+    },
+    "output-controls-before-fix.log": {
+      "retained_copy": "output-controls-before-fix.log.txt",
+      "sha256": "11332a66c7eda87a8ec317d5a49a75b80206ca1859e41a537513f68997ad8030",
+      "bytes": 4090
+    },
+    "protocol-five.log": {
+      "retained_copy": "protocol-five.log.txt",
+      "sha256": "6027c5613311dfcf4fc6cadfc3bface70c3c3ad5d977685cdedfd524373ccba1",
+      "bytes": 587
+    },
+    "protocol-full.log": {
+      "retained_copy": "protocol-full.log.txt",
+      "sha256": "ea6b7c7e1486ae68671d6e00bbf906d782bdde0e24fdfbb2ccf5e6b148d8c555",
+      "bytes": 10844
+    }
+  }
+}

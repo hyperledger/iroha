@@ -1,4 +1,4 @@
-//! SIMD and scalar parity against the captured independent RP56 banks.
+//! SIMD and scalar parity against the independently selected parameter banks.
 #![cfg(feature = "ivm_zk_tests")]
 use halo2curves::{
     bn256::Fr,
@@ -8,8 +8,8 @@ use ivm::{poseidon2, poseidon2_simd, poseidon6, poseidon6_simd, simd_bits};
 #[path = "../../../fixtures/poseidon/reader.rs"]
 mod reference;
 
-fn captured<const W: usize>(text: &str) -> ([[Fr; W]; 64], [[Fr; W]; W]) {
-    let (rounds, mds) = reference::parameters::<W>(text);
+fn captured<const W: usize, const R: usize>(text: &str) -> ([[Fr; W]; R], [[Fr; W]; W]) {
+    let (rounds, mds) = reference::parameters::<W, R>(text);
     let field = |bytes: [u8; 32]| Fr::from_repr(bytes.into()).expect("canonical reference field");
     (
         rounds.map(|row| row.map(field)),
@@ -22,18 +22,18 @@ fn fr_to_u64(f: Fr) -> u64 {
     u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 const POSEIDON2_VECTORS: &[(u64, u64, u64)] = &[
-    (0, 0, 0x541b_c08e_21ea_84d9),
-    (1, 0, 0xf0e5_b216_08c2_4308),
-    (0, 1, 0x70c2_d9e7_d478_7f50),
-    (1, 1, 0x6ce7_51f5_2456_cdf3),
-    (u64::MAX, u64::MAX, 0x2a3b_041a_8625_f023),
+    (0, 0, 0x291e_f55c_ed50_4e95),
+    (1, 0, 0x7e84_e466_0f9c_8602),
+    (0, 1, 0xbe23_3ae4_87cc_493c),
+    (1, 1, 0xc129_be07_2c4b_4483),
+    (u64::MAX, u64::MAX, 0xc389_da81_dbdd_ae68),
 ];
 const POSEIDON6_VECTORS: &[([u64; 6], u64)] = &[
-    ([0, 0, 0, 0, 0, 0], 0x6300_6c10_f267_d188),
-    ([1, 2, 3, 4, 5, 6], 0xe56f_9ee6_b038_389a),
-    ([1, 0, 0, 0, 0, 0], 0xd8c9_b0fc_f749_9786),
-    ([0, 1, 0, 0, 0, 0], 0x819b_7cdd_1631_9d0f),
-    ([u64::MAX; 6], 0xe4f4_13ec_7ee9_62ad),
+    ([0, 0, 0, 0, 0, 0], 0xb528_4c49_a2aa_43dd),
+    ([1, 2, 3, 4, 5, 6], 0xea55_3770_3da8_51ec),
+    ([1, 0, 0, 0, 0, 0], 0x4412_6d18_7028_4f85),
+    ([0, 1, 0, 0, 0, 0], 0x741c_dca6_d198_88b3),
+    ([u64::MAX; 6], 0x732e_c89a_4e97_2a38),
 ];
 #[test]
 fn test_poseidon2_simd_matches_scalar() {
@@ -60,7 +60,7 @@ fn test_poseidon6_simd_matches_scalar() {
 fn test_poseidon6_first_round() {
     use ivm::bn254_vec::{self as field_vec, FieldElem};
     let inputs = [1u64, 2, 3, 4, 5, 6];
-    let (rc, mds) = captured::<6>(include_str!("../../../fixtures/poseidon/bn254-w6-rp56.hex"));
+    let (rc, mds) = captured::<6, 68>(include_str!("../../../fixtures/poseidon/bn254-w6-rp60.hex"));
     let mut st = [
         FieldElem::from_fr(Fr::from(1u64)),
         FieldElem::from_fr(Fr::from(2u64)),
@@ -106,10 +106,17 @@ fn test_poseidon6_first_round() {
 #[test]
 fn test_poseidon6_full_permutation() {
     let inputs = [1u64, 2, 3, 4, 5, 6];
-    let (rc, mds) = captured::<6>(include_str!("../../../fixtures/poseidon/bn254-w6-rp56.hex"));
-    let mut state = inputs.map(Fr::from);
+    let (rc, mds) = captured::<6, 68>(include_str!("../../../fixtures/poseidon/bn254-w6-rp60.hex"));
+    let mut state = [
+        Fr::from_u128(6_u128 << 64),
+        Fr::from(inputs[0]),
+        Fr::from(inputs[1]),
+        Fr::from(inputs[2]),
+        Fr::from(inputs[3]),
+        Fr::from(inputs[4]),
+    ];
     let rf_half = 8 / 2;
-    let rp = 56;
+    let rp = 60;
     let apply_mds = |s: &mut [Fr; 6]| {
         let mut out = [Fr::ZERO; 6];
         for i in 0..6 {
@@ -119,28 +126,33 @@ fn test_poseidon6_full_permutation() {
         }
         *s = out;
     };
-    for r in 0..rf_half {
-        for i in 0..6 {
-            state[i] = (state[i] + rc[r][i]).pow_vartime([5]);
+    for block in 0..2 {
+        if block == 1 {
+            state[1] += Fr::from(inputs[5]);
         }
-        apply_mds(&mut state);
-    }
-    for r in 0..rp {
-        let idx = rf_half + r;
-        for i in 0..6 {
-            state[i] += rc[idx][i];
+        for round_constants in rc.iter().take(rf_half) {
+            for i in 0..6 {
+                state[i] = (state[i] + round_constants[i]).pow_vartime([5]);
+            }
+            apply_mds(&mut state);
         }
-        state[0] = (state[0]).pow_vartime([5]);
-        apply_mds(&mut state);
-    }
-    for r in 0..rf_half {
-        let idx = rf_half + rp + r;
-        for i in 0..6 {
-            state[i] = (state[i] + rc[idx][i]).pow_vartime([5]);
+        for r in 0..rp {
+            let idx = rf_half + r;
+            for i in 0..6 {
+                state[i] += rc[idx][i];
+            }
+            state[0] = (state[0]).pow_vartime([5]);
+            apply_mds(&mut state);
         }
-        apply_mds(&mut state);
+        for r in 0..rf_half {
+            let idx = rf_half + rp + r;
+            for i in 0..6 {
+                state[i] = (state[i] + rc[idx][i]).pow_vartime([5]);
+            }
+            apply_mds(&mut state);
+        }
     }
-    let expected = fr_to_u64(state[0]);
+    let expected = fr_to_u64(state[1]);
     assert_eq!(poseidon6(inputs), expected);
 }
 #[test]
@@ -198,7 +210,7 @@ fn test_poseidon2_first_round() {
     use ivm::bn254_vec::{self as field_vec, FieldElem};
     let a = 1u64;
     let b = 2u64;
-    let (rc, mds) = captured::<3>(include_str!("../../../fixtures/poseidon/bn254-w3-rp56.hex"));
+    let (rc, mds) = captured::<3, 65>(include_str!("../../../fixtures/poseidon/bn254-w3-rp57.hex"));
     let mut st = [
         FieldElem::from_fr(Fr::from(a)),
         FieldElem::from_fr(Fr::from(b)),

@@ -46,6 +46,105 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Former public/provider owners only; native Core evidence verification is retained.
+RETIRED_TIMED_OVN_BALLOT_ROUTES = (
+    "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
+    "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
+    "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
+    "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
+)
+
+
+RETIRED_TIMED_OVN_TORII_IDENTIFIERS = (
+    "parliament_tle_release",
+    "parliament_tle_release_coordinator",
+    "with_parliament_tle_release_coordinator",
+    "handler_gov_parliament_timed_ovn_casting_context_read",
+    "handler_gov_parliament_timed_ovn_casting_proof",
+    "handler_gov_parliament_tle_release_context_read",
+    "handler_gov_parliament_tle_partial_release",
+    "TleReleaseCoordinatorV1",
+)
+
+
+RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS = (
+    "GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ",
+    "GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF",
+    "GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ",
+    "GOV_PARLIAMENT_TLE_PARTIAL_RELEASE",
+)
+
+
+RETIRED_TLE_DAEMON_IDENTIFIERS = (
+    "parliament_tle_partial_release_signer",
+    "with_parliament_tle_partial_release_signer",
+    "parliament_tle_release_coordinator",
+    "with_parliament_tle_release_coordinator",
+    "parliament_tle_release_tests",
+    "TlePartialReleaseSignerV1",
+    "TleReleaseCoordinatorV1",
+    "CapabilityProbeSigner",
+    "threshold_signer_startup_readiness_never_consults_parliament_tle_custody",
+)
+
+
+RETIRED_TLE_BROKER_SURFACES = (
+    ("crates/irohad/src/runtime_provider_broker/protocol_primitives.rs", (
+        "OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "ParliamentTleCapabilityAttestRequestWireV1",
+        "ParliamentTleCapabilityAttestResultWireV1",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/protocol_operation_validation.rs", (
+        "OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "decode_parliament_tle_capability_attest_request",
+        "verify_parliament_tle_capability_attest_result",
+        "verify_parliament_tle_partial_release_result",
+        "ParliamentTlePartialReleaseSigner",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/validate_operation_payload.rs", (
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "parliament_tle_partial_release_signer_slot",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/platform_operation_dispatch.rs", (
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "parliament_tle_partial_release_signer_slot",
+        "parliament_tle_capability_attest",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/protocol/platform/operation_dispatch/consensus.rs", (
+        "parliament_tle_capability_attest",
+        "attest_partial_release_capability",
+        "parliament_tle_partial_release_signer",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/api.rs", (
+        "ParliamentTlePartialReleaseSignerBrokerBackendV1",
+        "ParliamentTlePartialReleaseSignerBrokerBackendErrorV1",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/platform_provider_clients_03.rs", (
+        "attest_partial_release_capability",
+        "sign_projected_partial_release",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+        "ParliamentTleCapabilityAttestResultWireV1",
+    )),
+    ("crates/irohad/src/external_software_signer/consensus_threshold.rs", (
+        "attest_partial_release_capability",
+        "TlePartialReleaseCapabilityErrorV1",
+        "ParliamentTlePartialReleaseSignerBrokerBackendErrorV1",
+    )),
+    ("crates/irohad/src/runtime_provider_broker/server_tests_04.rs", (
+        "parliament_tle_capability_attestation_round_trips_over_authenticated_broker",
+        "parliament_tle_capability_typed_proxy_requalifies_before_and_after_lookup",
+        "parliament_tle_partial_release_round_trips_over_authenticated_broker",
+        "ParliamentTleCapabilityResultFault",
+        "OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1",
+    )),
+    ("crates/irohad/src/main.rs", (
+        "parliament_tle_release_coordinator",
+        "with_parliament_tle_release_coordinator",
+    )),
+)
+
 
 def read(relative: str) -> str:
     path = ROOT / relative
@@ -630,6 +729,8 @@ def require_retired_parliament_broker_exposure() -> None:
             "ValidatedTleReleaseProjectionV1", "TleReleaseCoordinatorV1",
             "TlePartialReleaseShareV1",
         ))
+    for path, identifiers in RETIRED_TLE_BROKER_SURFACES:
+        require_identifiers_absent(path, mask_rust(sources.get(path) or read(path)), identifiers)
     primitives_path, validation_path, _, dispatch_path = RETIRED_PARLIAMENT_BROKER_PATHS[:4]
     primitives = sources[primitives_path]
     code = mask_rust(primitives)
@@ -1557,6 +1658,8 @@ def require_retired_parliament_release_exposure() -> None:
             raise RuntimeError(f"{path}: retired public Parliament ballot route returned")
     torii_path, gov_path, catalog_path, daemon_path, _ = PARLIAMENT_EXPOSURE_PATHS
     torii, gov, catalog, daemon = (sources[p] for p in PARLIAMENT_EXPOSURE_PATHS[:4])
+    require_identifiers_absent(torii_path, mask_rust(torii), RETIRED_TIMED_OVN_TORII_IDENTIFIERS)
+    require_identifiers_absent(catalog_path, mask_rust(catalog), RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS)
     located_torii = torii_without_reviewed_lint_attributes(torii)
     lint = "#![allow(unexpected_cfgs)]"
     if gov.count(lint) != 1:
@@ -1693,7 +1796,10 @@ def require_block_start_phase_call_order(state: str) -> None:
         "ifletSome(Err(error))=&sb.fastpq_source_quota{"
         "returnErr(StateBlockStartError::Policy(error.clone()));}"
     )
-    if compact.count(intrinsic_rejection) != 1:
+    if (compact.count(intrinsic_rejection) != 1
+            or not 0 <= compact.find("sb.freeze_axt_block_start();")
+            < compact.find(intrinsic_rejection)
+            < compact.find("letcontinuation=before_start(&mutsb)")):
         raise RuntimeError(f"{state_path}: start phases lost the original intrinsic source refusal")
     ordered = (
         "letacquired=self.acquire_canonical_runtime_block(false)?;",
@@ -2414,6 +2520,7 @@ def require_parliament_commit_publication(state: str) -> None:
         "pub(super)fncommit_inner(mutself)->Result<(),TransactionsBlockError>{self.try_publish_inner().into_result()}",
         "letmutoriginal=self.publication.take().unwrap_or_else(||StatePublication::new(self.state_ref,self.pipeline.state_capture));",
         "iforiginal.published{self.publication=Some(original);returnStatePublicationOutcome::Published;}",
+        "iforiginal.poisoned{self.publication=Some(original);returnStatePublicationOutcome::RecoveryRequired(TransactionsBlockError::PublicationRecoveryRequired,);}",
         "letresult=self.attempt_original_publication(&mutoriginal);",
         "iforiginal.fields_frozen&&!original.irreversible{self.recover_original_publication_fields();self.retire_original_publication_notices();}",
         "self.publication=Some(original);ifterminal{mv::BlockRetirement::release_writers(self);}"
@@ -4379,7 +4486,8 @@ def require_signed_deferred_authority_and_native_fees(
     transfer = rust_item(asset, "impl PreparedNumericTransferPlan {", asset_path)
     prepare = item(transfer, "fn prepare(", asset_path)
     require(asset_path, prepare, (
-        "retail_payment: source_policy == NumericAssetTransferSourcePolicy::User",
+        "retail_payment: matches!(source_policy, NumericAssetTransferSourcePolicy::User"
+        " | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_))",
     ))
     for declaration in ("fn apply(", "fn apply_after_batch_preflight("):
         apply = item(transfer, declaration, asset_path)
@@ -4663,6 +4771,7 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
             "consensus start"
         )
 
+    require_identifiers_absent(runtime_deps_path, live_file, RETIRED_TLE_DAEMON_IDENTIFIERS)
     # Parliament TLE provider injection was removed from the daemon. The native
     # beacon field/setter and its independent custody checks remain required.
     dependencies, _ = live_rust_item(runtime_deps, "pub struct IrohaRuntimeDeps {", runtime_deps_path)

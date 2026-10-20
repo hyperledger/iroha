@@ -50,20 +50,25 @@ its implementation boundaries; none changes the qualification or activation gate
 
 | Component | Required implementation boundary |
 | --- | --- |
-| Canonical input/result representation | Implemented; model/output tests and an initial six-package all-target check pass after disk recovery. Focused Core/Torii/consumer validation remains in progress. `TransactionEntrypoint::AnonymousBallot` carries the exact canonical envelope at tag 4; rejection tag 5 carries either ballot reason. Output shape requires empty success or a ballot rejection and no triggers, completions, receipts, fees or emissions. Arbitrary inputs expose optional authority. Canonical block construction and genuine candidate-proof roundtrips cover identical inputs with distinct result positions. Node admission remains locally unavailable until authoritative context and State execution exist. |
+| Canonical input/result representation | Implemented; model/output tests and an initial six-package all-target check pass after disk recovery. Focused Torii transport/outcome validation passes 16 tests; Core and consumer validation remains in progress. `TransactionEntrypoint::AnonymousBallot` carries the exact canonical envelope at tag 4; rejection tag 5 carries either ballot reason. Output shape requires empty success or a ballot rejection and no triggers, completions, receipts, fees or emissions. Arbitrary inputs expose optional authority. Canonical block construction and genuine candidate-proof roundtrips cover identical inputs with distinct result positions. Node admission remains locally unavailable until authoritative context and State execution exist. |
 | Canonical model and seal identities | Replace the existing 32-byte roster-root preimage with the specified 64-byte anonymous-ballot roster root, and migrate body-identity derivation, certificates, restore checks and authenticated seal-publication outputs together. No truncated root, compatibility form or old-root seal may stand in for this binding. |
 | Registration publication and compact State | Proposed ownership: retain the complete proof in its original signed acceptance input and authenticated finalized block history; retain compact assignment-to-credential records with the exact source binding in State. Require a private direct-signed-input origin; an execution authority alone does not prove the registration was published in that input. Bind compact locators to finalized canonical history and test retrieval after restart and DA sidecarring; unavailable retained bytes remain unavailable. Do not duplicate every 160,148-byte proof into the 16 MiB attempt snapshot or replace proof verification with a digest. |
 | Core acceptance, sealing and restore | Derive body context and assignment from authoritative State and transaction authority; require real registration verification for binding acceptance; reject duplicate commitments across accepted primaries and alternates and failed registrations atomically. Acceptance and sealing are one functional slice: the read-only due planner must predict the same credential-aware transition that signed execution applies. Seal exactly the ranked seated credentials, publish the complete canonical list, and validate restored mappings, roots and source bindings. Preserve public-body acceptance and decline semantics. |
 | Authenticated seal publication | Proposed ownership: add bounded typed publication artifacts to the existing `BlockResult` sealing path through `StateBlock::seal_execution_outputs`. Reserve capacity before mutation and bind the exact artifact bytes to canonical wire, finality and replay. Preserve Network/Pipeline/Time call ownership; a seal artifact is not an invented invocation. Reconcile the anonymous output module's proposed fourth phase with this actual owner before implementing the coordinated slice. |
+| Development authorization and production effects | Signed-source selection is implemented in `anonymous_ballot::candidate_testing`, pending compiled validation: an explicit bounded candidate/profile policy is read from `AuthenticatedSignedGenesisV1` or authenticated and extracted from the same immutable native genesis source. Both routes check the independently selected `NetworkId` and retain the exact input hash and direct instruction position. Absence returns no selection. Codec/extraction and native-source tests are authored, including altered authorization with identical intent/header hashes, nested-policy exclusion, foreign networks and original decoder refusals. Core installation is implemented, pending compiled validation: the reserved identity rejects every later installation/update, including when absent at genesis; a one-use native marker binds the exact original direct instruction, authority, network and input. Final genesis output must reproduce the original optional parameter. Selection is stored once on the captured source and attached only to its exact input. Eleven new Core controls cover installation/replay, malformed and duplicate policies, source substitution, local refusals, preseeded state, executor boundaries, compact rows and input attachment. Runtime ballot use remains open. The schema export registers the policy value without making authenticated selection a decodable authority. Carry candidate purpose through attempts and certificates so test results cannot reach production certification or proposal effects; the SCCP availability seam alone does not gate generic Parliament enactment. |
 | API and client migration | Update the explicit proof-carrying acceptance model, instruction registry, Torii/OpenAPI, CLI, canonical Kotlin, Swift, JavaScript and Python consumers, plus shared schema fixtures and roundtrip tests. Do not introduce compatibility shims or a new Java duplicate. |
 | Signerless execution and network testing | Connect canonical ballot inputs/results, isolated bounded admission and verified gossip, rollback-safe State execution, corpus/closure publication and authenticated replay. Then exercise ordinary four-validator API submission, finality, restart and rollback for E3. |
 
-TODO: define and implement a genesis-bound candidate activation policy for
-ordinary development-network tests. The current checkout has no such policy.
-It must be immutable, bound to the network identity and consistent across
-validators; a node-local flag or chain-name convention cannot decide execution.
-Candidate testing must retain the real proof rules and must not assert
-qualification or enable production SCCP/enactment.
+TODO: complete immutable installation and runtime consumption of the development
+selection above with the coordinated State adapter. `NetworkId` is derived from the
+genesis header hash: bind the capability to the authenticated source rather than
+embedding the resulting hash in its own genesis policy. `GenesisExecutionScope`
+also permits nested effects, so it alone cannot authenticate a direct policy
+installation. The generic `execute_due_parliament_certificate_v1` path does not
+consult the anonymous-ballot qualification record; keep candidate provenance out
+of production certification and enactment in the same integration slice.
+Candidate testing must retain the real proof rules. A node-local flag, chain-name
+convention or serialized snapshot field cannot grant this authority.
 
 The representation reserves explicit entrypoint tag `4`; retired Time tag `3`
 stays rejected. Ballot-only reasons are refused for ordinary and internal
@@ -266,8 +271,8 @@ preparation/purification resources, complete family/experiment bounds and the
 primitive-entry assessment. Physical verifier
 and independent qualification requirements remain separate; production stays gated.
 
-The current integration source contract is reconciled with the captured
-changes. Scoped queue/Kura checks now bind signed gas, complete pre-quote
+The earlier integration source-contract records cover their captured
+changes. Scoped queue/Kura checks bind signed gas, complete pre-quote
 structure, unconditional owners and original deferred release custody. The
 initial queue guard's 36 controls were insufficient; its counterexample and
 replacement regressions are retained. The [current phase guard](../docs/validation/parliament_ballot_current_candidate/source-guard-controls/README.md)
@@ -287,7 +292,10 @@ passes 204 and binds complete original assertion owners. The captured source
 check and all 1,755 matching Python regressions passed. Two observed Rust files
 then changed in a constructor migration; the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md)
 passes on those inputs, while the full regression result retains its original
-source scope. The shared qualification dispatch repair separately passes both
+source scope. Reconciliation against the current checkout is in progress,
+including source guards for the retired public TLE service and broker operations;
+the historical counts do not validate the changed checker or current source.
+The shared qualification dispatch repair separately passes both
 host feature modes' strict lint and 17 shared/bridge tests. No runtime or
 physical-device qualification follows from these checks. Earlier source-check failures
 and the combined run's 92 start-order failures retain their historical scope.

@@ -57,12 +57,21 @@ fn request(
     text_bytes: usize,
 ) -> Result<NativePaymentRequest> {
     let mut metadata = Metadata::default();
-    // The unchanged native intent schema admits this reconciliation field. Every byte
-    // is signed, contributes to intent_hash, and must return in the verified receipt.
-    metadata.insert(
-        "reconciliation_text".parse()?,
-        Json::new("r".repeat(text_bytes)),
-    );
+    // Each JSON value retains its existing 1 MiB bound. These ordered entries are
+    // all signed settlement terms, contribute to intent_hash, and return in the
+    // verified receipt; their aggregate exercises the complete transaction limit.
+    let chunk_capacity = iroha_primitives::json::MAX_JSON_BYTES - 2; // JSON string quotes.
+    let mut remaining = text_bytes;
+    let mut index = 0;
+    while remaining != 0 {
+        let length = remaining.min(chunk_capacity);
+        metadata.insert(
+            format!("reconciliation_text_{index:02}").parse()?,
+            Json::try_new("r".repeat(length))?,
+        );
+        remaining -= length;
+        index += 1;
+    }
     NativePaymentRequest::new(
         SettleAtomic::new(
             network,
@@ -205,6 +214,14 @@ fn native_payment_exact_fixed_frame_and_first_excess_byte_use_real_signed_terms(
             ));
         }
         ensure!(request.intent().movements.as_slice().len() == 1);
+        ensure!(request.intent().metadata.iter().count() > 1);
+        ensure!(
+            request
+                .intent()
+                .metadata
+                .iter()
+                .all(|(_, value)| { value.get().len() <= iroha_primitives::json::MAX_JSON_BYTES })
+        );
     }
     Ok(())
 }
@@ -315,10 +332,9 @@ fn exact_payment(
         .ok_or_else(|| eyre!("authenticated payment execution lacks actual fee receipt"))?;
     fee.validate_for_network_input(input, verified.height())
         .map_err(|error| eyre!(error))?;
-    // Independent fixture expectation: one base unit plus zero byte/instruction/gas
-    // rates. Validate the original signed source and actual output; never infer a fee
-    // from a balance delta. TODO: Global fee authority still needs F.4 migration to
-    // committed policy; these current local fixture rates do not close that gap.
+    // The original signed genesis commits root_fees_v1 with one base unit and zero
+    // byte/instruction/gas rates. Independently check that schedule against the
+    // original signed source and authenticated output; never infer it from balances.
     ensure!(
         fee.fee_amount == Quantity::one()
             && fee.fee_asset_id == fee_asset()
@@ -565,11 +581,13 @@ fn fixed_maximum_payment_and_rejection_survive_http_rs16_kura_and_receipt_recove
         bounded(&rt, deadline, network.start_all())??;
         bounded(&rt, deadline, network.ensure_blocks(3))??;
         bounded(&rt, deadline, wait_for_applied_height(&network, 3))??;
-        let every_process_replaced = transport::processes(&network, &rt, deadline)?
-            .iter()
-            .zip(original_pids)
-            .all(|(now, old)| *now != old);
-        ensure!(every_process_replaced);
+        let restarted_pids = transport::processes(&network, &rt, deadline)?;
+        ensure!(
+            restarted_pids
+                .iter()
+                .zip(&original_pids)
+                .all(|(now, old)| now != old)
+        );
         for peer in network.validators() {
             let resumed = peer
                 .client_for(&payer, key(0x76).private_key().clone())
@@ -605,11 +623,11 @@ fn fixed_maximum_payment_and_rejection_survive_http_rs16_kura_and_receipt_recove
             )?;
             let recovery = bounded(&rt, deadline, failure.recover(&options))??;
             ensure!(recovery.receipt.is_none());
-            let recovered_identity = rejected_payment::rejected_identity(
-                &recovery
-                    .carrier
-                    .ok_or_else(|| eyre!("rejected carrier missing"))?,
-            )?;
+            let recovered_carrier = recovery
+                .carrier
+                .as_ref()
+                .ok_or_else(|| eyre!("rejected carrier missing"))?;
+            let recovered_identity = rejected_payment::rejected_identity(recovered_carrier)?;
             ensure!(recovered_identity == identity);
             ensure!(bounded(&rt, deadline, resumed.client().status().get())??.blocks == 3);
         }

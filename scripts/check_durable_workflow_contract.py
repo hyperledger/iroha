@@ -26,7 +26,9 @@ from a set that is consistent by itself:
   requested in every transaction and round state;
 * the byte vectors: each record digest is the Iroha hash of the record domain
   followed by the record bytes, and each progress report uses known states;
-* the specification names every state, status, error code and limit.
+* the stage vocabulary is the one shared with the one-call operation contract
+  (`specs/zk_operation_contract.md`), in its fixed order;
+* the specification names every state, status, error code, stage and limit.
 
 Exit status 0 when the set is consistent, 1 otherwise.
 """
@@ -76,6 +78,21 @@ SHARED_CODES = (
     "FinalityPending",
     "Rejected",
     "CancelledBeforeSubmission",
+)
+# The stage vocabulary shared with the one-call operation contract, in pipeline order.
+STAGES = (
+    "plan",
+    "load",
+    "store",
+    "prove",
+    "local_verify",
+    "build",
+    "sign",
+    "submit",
+    "reconcile",
+    "finality",
+    "round",
+    "cancel",
 )
 OPS = ("run", "recover", "cancel", "progress", "corrupt")
 OPTIONS = (
@@ -217,6 +234,8 @@ class Checker:
         ]
         if tuple(shared) != SHARED_CODES:
             self.problem(where, "the shared operation error codes differ from the contract")
+        if tuple(vocabulary["stages"]) != STAGES:
+            self.problem(where, "the stages differ from the vocabulary shared with the operation contract")
         for name, value in machine.get("limits", {}).items():
             if not isinstance(value, int) or value <= 0:
                 self.problem(where, f"limit `{name}` must be a positive integer")
@@ -680,6 +699,7 @@ class Checker:
             "workflow_statuses": "workflow status",
             "error_codes": "error code",
             "workflow_kinds": "workflow kind",
+            "stages": "stage",
         }
         for key, what in named.items():
             for value in vocabulary[key]:

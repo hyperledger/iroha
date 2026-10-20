@@ -1,7 +1,7 @@
 //! The Pow5 permutation chip: native parity with
 //! `iroha_pasta::poseidon::permute` on both fields, the per-cell tamper suite
 //! (including every `m8_custom_gate_checks` Poseidon case), the inventory
-//! (37 rows and 148 cells per permutation, degree 6), lane sharing and
+//! (37 rows and 148 cells per permutation, arithmetic degree 6), lane sharing and
 //! misuse rejections.
 
 mod common;
@@ -182,9 +182,18 @@ fn inventory_37_rows_and_148_cells_per_permutation() {
     // Aux: 28 pair S-boxes per block, 2 absorbed words in blocks 0 and 2,
     // and the squeezed output.
     assert_eq!(count(&flags[aux]), 3 * 28 + 2 * 2 + 1);
-    // The constraint system: degree 6, five blinding rows.
+    // The shared fixture also configures an ordinary running-sum lookup:
+    // input degree two and table degree one require norm degree eight, even
+    // when this program assigns only Pow5 rows. The Pow5 gates stay degree six.
     let (cs, _) = configure(&circuit).expect("configure");
-    assert_eq!(cs.degree(), 6);
+    assert_eq!(cs.lookups().len(), 1);
+    let lookup = &cs.lookups()[0];
+    assert_eq!(lookup.name(), "running-sum limb");
+    assert_eq!(lookup.width(), 1);
+    assert_eq!(lookup.input_expressions()[0].degree(), 2);
+    assert_eq!(lookup.table_expressions()[0].degree(), 1);
+    assert_eq!(lookup.required_degree(), 8);
+    assert_eq!(cs.degree(), 8);
     assert_eq!(cs.blinding_factors(), 5);
     let lane_gates = cs
         .gates()

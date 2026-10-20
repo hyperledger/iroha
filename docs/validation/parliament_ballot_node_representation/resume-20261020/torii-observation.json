@@ -1,0 +1,72 @@
+{
+  "scope": "Torii component tests only, concurrent checkout; no node ballot State execution, finality or production qualification.",
+  "qualification_established": false,
+  "full_compiler_input_integrity_established": false,
+  "passed": 16,
+  "failed": 0,
+  "run": {
+    "name": "torii",
+    "argv": [
+      "scripts/cargo_fast.sh",
+      "--target-slot",
+      "parliament-development",
+      "--jobs",
+      "4",
+      "--stable-local-metadata",
+      "--",
+      "test",
+      "--profile",
+      "local-release",
+      "-p",
+      "iroha_torii",
+      "--features",
+      "connect",
+      "--lib",
+      "anonymous",
+      "--",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "started_at": "2026-10-20T09:47:03.629342+00:00",
+    "selected_sources_before": {
+      "crates/iroha_data_model/src/block/execution_output.rs": "968eaeba1397f0da9a81cbe887090c802b1970139f6ea7b698c91dd6bb8bc968",
+      "crates/iroha_data_model/src/block/execution_output_ballot_tests.rs": "8a6c0fcb94c0e30a00d961f27d9d60904bb361d3fd72ca3c3e2a62df88e96152",
+      "crates/iroha_data_model/src/block/execution_output_tests.rs": "1c30e22b323441ce3d98c0079287399ea7912354171004ca616557d6768c4ea1",
+      "crates/iroha_parliament_ballot/src/entrypoint_tests.rs": "f63f1f7f3c45749c4cffc8763984a5e19d007df5b20d05c9b9c0beb8fabb4120",
+      "crates/norito/src/core.rs": "4d647f091e1393005b2a0e3550034e52c4aaa158de65a6ce6029b05acdda3943",
+      "crates/norito/src/lib.rs": "329bcf33e9371a35217d17236ef28bd6550fb5042a56f47cb76ebc85672b0c3b",
+      "crates/iroha_core/src/tx.rs": "a89290ae0d56a760488f8256905e281434c669f5f3366a9959d583380c69bbe7",
+      "crates/iroha_core/src/queue.rs": "9c3c0598e41e558ee67956a7092644ccdb4948620249ee9a811c3190ae900734",
+      "crates/iroha_torii/src/lib.rs": "07e3367fedcdb895e6b954f3fba3657f67ed957f64c98eb3750a3cb470b629ce",
+      "crates/iroha_torii/src/routing.rs": "6979a62fa81965b613bee85207a4bc58fd5198358ca362f0e4364aae4ddfc7cf",
+      "crates/iroha/src/client/explorer_transaction_proof_tests.rs": "05bdf70e9e2054468c3cd16c75435b81431e18ca049af6a0912bd40258f60e65",
+      "python/iroha_python/iroha_python_rs/src/lib.rs": "76b3b760ddb015262ff897fe0b27b7bc75addce49d47556e1ddf61c87d3bab79",
+      "mochi/mochi-core/src/torii/tests_part1.rs": "a650ef5a2b4a50f8d79baaa0094f019fe3b0912b66e271923d41c4bc26ed7931"
+    },
+    "head_before": "8392a32aab26df9e29a9023bb077afd9d23eb432",
+    "status": "complete",
+    "exit_code": 0,
+    "finished_at": "2026-10-20T10:34:07.221798+00:00",
+    "selected_sources_after": {
+      "crates/iroha_data_model/src/block/execution_output.rs": "968eaeba1397f0da9a81cbe887090c802b1970139f6ea7b698c91dd6bb8bc968",
+      "crates/iroha_data_model/src/block/execution_output_ballot_tests.rs": "8a6c0fcb94c0e30a00d961f27d9d60904bb361d3fd72ca3c3e2a62df88e96152",
+      "crates/iroha_data_model/src/block/execution_output_tests.rs": "1c30e22b323441ce3d98c0079287399ea7912354171004ca616557d6768c4ea1",
+      "crates/iroha_parliament_ballot/src/entrypoint_tests.rs": "f63f1f7f3c45749c4cffc8763984a5e19d007df5b20d05c9b9c0beb8fabb4120",
+      "crates/norito/src/core.rs": "f1c09413f1996cf366b94526312f51023a0ea0cc53871d25815c1e22cc8f2b98",
+      "crates/norito/src/lib.rs": "329bcf33e9371a35217d17236ef28bd6550fb5042a56f47cb76ebc85672b0c3b",
+      "crates/iroha_core/src/tx.rs": "a89290ae0d56a760488f8256905e281434c669f5f3366a9959d583380c69bbe7",
+      "crates/iroha_core/src/queue.rs": "9c3c0598e41e558ee67956a7092644ccdb4948620249ee9a811c3190ae900734",
+      "crates/iroha_torii/src/lib.rs": "07e3367fedcdb895e6b954f3fba3657f67ed957f64c98eb3750a3cb470b629ce",
+      "crates/iroha_torii/src/routing.rs": "6979a62fa81965b613bee85207a4bc58fd5198358ca362f0e4364aae4ddfc7cf",
+      "crates/iroha/src/client/explorer_transaction_proof_tests.rs": "05bdf70e9e2054468c3cd16c75435b81431e18ca049af6a0912bd40258f60e65",
+      "python/iroha_python/iroha_python_rs/src/lib.rs": "76b3b760ddb015262ff897fe0b27b7bc75addce49d47556e1ddf61c87d3bab79",
+      "mochi/mochi-core/src/torii/tests_part1.rs": "a650ef5a2b4a50f8d79baaa0094f019fe3b0912b66e271923d41c4bc26ed7931"
+    }
+  },
+  "retained_log": {
+    "path": "torii.log.txt",
+    "source": ".codex/parliament-e2-focused-resume-20261020/torii.log",
+    "sha256": "596aa4c61c62ff0e32d4d0e26b0f56b61899b3fb68ab6a565355420e93a3b0ab",
+    "bytes": 12245
+  }
+}

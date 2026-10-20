@@ -472,11 +472,15 @@ sequence. A late active decoder cannot borrow predecessor coverage. Persistent s
 wins an ordinary phase error; a sibling changed and restored wholly between observations may
 be unobserved. The live origin, authorization checks, term selection and effects retain their
 original positions. This structural reduction does not establish the unchanged latency gates.
-An inactive, exact snapshot-owned local history census borrows its original root reader and
-tree from one canonical root entry/exit boundary, with one operation reader across the forward
-and reverse checks. Every inventory, Original hash, metadata read and decoder remains in its
-original order. The operation reader closes before the common root/tree exit and before any
-wallet callback or write. Explicit generic tree reads of the anchor still perform independent
+An inactive, exact snapshot-owned local history census uses one closed operation reader for
+its entry and exit checks. Parser-local reads borrow the original root reader and tree from
+one canonical root boundary; each full-graph direction borrows its caller's existing tree and
+root reader without changing graph order or the enclosing source checks. Every inventory,
+Original hash and metadata read remains in order. Exact fresh metadata bytes may reuse decoded
+immutable terminal fields; mutable heads and active decode budgets still decode. Handle-only
+retained censuses likewise bracket each original operation once while visiting every descendant
+owner. Each operation reader closes before the common root/tree exit and before any wallet
+callback or write. Explicit generic tree reads of the anchor still perform independent
 full custody checks; only the owning root boundary lends its original reader. A persistent
 operation custody failure can supersede an ordinary inner error; a change restored entirely
 inside a scope may be unobserved. Active or newly inherited decode budgets, unmatched owners and

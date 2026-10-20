@@ -91,7 +91,7 @@ impl VerifiedUnsignedClosure {
         self.history.require_current_with_pass(pass)?;
         self.require_receipt()
     }
-    pub(super) fn shared_history(&self) -> &std::rc::Rc<History> {
+    pub(in crate::managed) fn shared_history(&self) -> &std::rc::Rc<History> {
         &self.history
     }
     pub(in crate::managed) fn retained_history(&self) -> &History {

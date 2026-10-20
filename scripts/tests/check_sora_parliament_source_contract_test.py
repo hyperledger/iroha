@@ -214,7 +214,13 @@ def test_queue_signed_proposal_gas_baseline_and_entrypoint() -> None:
     (1, GAS_ENTRYPOINT, "gas::meter_sealed_transaction_commitment(tx.encoded_len())", "0"),
     (1, GAS_ADMISSION, "Self::compute_proposal_gas_cost(checked.as_accepted(), &zk_gas)", "Ok(0)"),
     (1, GAS_ADMISSION, "return Err(Self::refused(Error::Deferred(original), checked));", "0"),
+    (1, GAS_ADMISSION,
+     "                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) => {\n"
+     "                    return Err(Self::refused(Error::Deferred(original), checked));\n"
+     "                }",
+     "                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_original)) => 0,"),
     (1, GAS_ADMISSION, "Self::refused(Error::Deferred(original), checked)", "Self::refused(Error::Full, checked)"),
+    (1, GAS_REFUSED, "tx: Box::new(checked.into_accepted()),", "tx: Box::new(other.into_accepted()),"),
     (1, GAS_ADMISSION, "code: FeeRejectionCode::InvalidGasLimit", "code: FeeRejectionCode::Other"),
     (1, GAS_ADMISSION, "            proposal_gas_cost,\n            enqueued_at_ms,", "            proposal_gas_cost: 0,\n            enqueued_at_ms,"),
     (1, GAS_ADMISSION, "let pending_teu = proposal_gas_cost;", "let pending_teu = 0;"),
@@ -1402,8 +1408,12 @@ def test_signed_staking_fee_boundary_baseline() -> None:
         ),
         (
             "crates/iroha_core/src/smartcontracts/isi/asset.rs",
-            "retail_payment: source_policy == NumericAssetTransferSourcePolicy::User",
-            "retail_payment: false",
+            "retail_payment: matches!(\n"
+            "                    source_policy,\n"
+            "                    NumericAssetTransferSourcePolicy::User\n"
+            "                        | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_)\n"
+            "                ),",
+            "retail_payment: false,",
         ),
         (
             "crates/iroha_core/src/retail_fee.rs",
@@ -2212,6 +2222,10 @@ def test_block_start_phase_bodies_reject_changed_height_or_rollback(
      "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb).unwrap();"),
     ("\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n        let result = after_start(&mut sb, continuation).unwrap()"),
     ("StateBlockStartError::Policy(error.clone())", "StateBlockStartError::Policy(foreign_error)"),
+    ("return Err(StateBlockStartError::Policy(error.clone()));",
+     "return Err(StateBlockStartError::Policy(String::new()));"),
+    ("if let Some(Err(error)) = &sb.fastpq_source_quota {",
+     "if let Some(Err(error)) = &sb.fastpq_source_quota && false {"),
 ))
 def test_block_start_admission_and_stage_refusals_remain_typed(
     original: str, replacement: str,
@@ -2604,6 +2618,10 @@ def test_retained_world_validation_accepts_layout_and_comment_changes(
     (None, "            musubi_live_validated,\n            musubi_validated,",
      "            musubi_live_validated: musubi_validated,\n"
      "            musubi_validated: musubi_live_validated,", WORLD_VALIDATION_SUCCESS),
+    (None, "        .advance_for_publication()?;", "        .advance_for_publication().ok();",
+     WORLD_VALIDATION_REFUSAL),
+    (None, "        if musubi_group_read.as_ref().is_none_or(|plan| !plan.retired) {",
+     "        if false {", WORLD_VALIDATION_REFUSAL),
 ))
 @pytest.mark.parametrize("decoy", ("", "/* {original} */"))
 def test_retained_world_validation_keeps_each_original_stage_and_success_owner(
@@ -2629,8 +2647,11 @@ def test_retained_world_validation_keeps_each_original_stage_and_success_owner(
 @pytest.mark.parametrize("original,replacement", (
     ("        self.try_publish_inner()\n    }", "        self.try_publish_inner().discard()\n    }"),
     ("self.try_publish_inner().into_result()", "Ok(())"),
-    (".unwrap_or_else(|| StatePublication::new(self.state_ref))",
-     ".unwrap_or_else(|| StatePublication::new(other_state))"),
+    (".unwrap_or_else(|| StatePublication::new(self.state_ref, self.pipeline.state_capture))",
+     ".unwrap_or_else(|| StatePublication::new(other_state, self.pipeline.state_capture))"),
+    ("            self.publication = Some(original);\n"
+     "            return StatePublicationOutcome::RecoveryRequired(",
+     "            return StatePublicationOutcome::RecoveryRequired("),
     ("if original.published {", "if false {"),
     ("self.attempt_original_publication(&mut original)",
      "self.attempt_original_publication(&mut replacement)"),
@@ -2810,8 +2831,8 @@ def test_replay_dispatch_preserves_typed_admission_and_channel_refusal(
     ("StatePublication::new(self.state_ref, self.pipeline.state_capture)",
      "StatePublication::new(self.state_ref, Default::default())"),
     ("Self {\n            capture_policy,", "Self {\n            capture_policy: Default::default(),"),
-    ("capture_policy: iroha_config::parameters::actual::StateCapture",
-     "capture_policy: ForeignPolicy"),
+    ("\n        capture_policy: iroha_config::parameters::actual::StateCapture,",
+     "\n        capture_policy: ForeignPolicy,"),
     (".unwrap_or_else(|| StatePublication::new(self.state_ref, self.pipeline.state_capture))",
      ".map(|_| StatePublication::new(self.state_ref, self.pipeline.state_capture))"
      ".unwrap_or_else(|| StatePublication::new(self.state_ref, self.pipeline.state_capture))"),
@@ -3934,7 +3955,11 @@ def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
      "    assert_eq!(slot_index(&chain), index);\n\n",
      "    assert_no_pulse(&chain);\n    assert_eq!(slot_index(&chain), index);\n\n"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
-     "    invalid(\n        &mut executor_in(&custody.chain, ConsensusMode::Permissioned),\n"
+     "    invalid(\n        &mut executor_in(\n"
+     "            &custody.chain,\n"
+     "            ConsensusMode::Permissioned,\n"
+     "            ninth.block().header().creation_time(),\n"
+     "        ),\n"
      "        &custody.chain,\n        &unrequested,\n    );\n", "    let _ = &unrequested;\n"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
      "control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref())",
@@ -4008,8 +4033,8 @@ def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
     (guard.BEACON_EXECUTION_TESTS_PATH, "fn invalid(",
      "executor.execute(candidate, &hash, false)", "executor.execute(candidate, &hash, true)"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
-     "                &requested_nothing,\n                &hash,\n                false",
-     "                &requested_nothing,\n                &hash,\n                true"),
+     ".execute(&requested_nothing, &hash, false)",
+     ".execute(&requested_nothing, &hash, true)"),
     # The native obligation with or without a pending slot.
     (guard.BEACON_EXECUTION_TESTS_PATH, NPOS_TEST,
      'assert!(refusal.contains("Invalid"), "{refusal}");',
@@ -5381,3 +5406,127 @@ def test_execution_result_guard_rejects_original_if_false_counterexample() -> No
     sources[path] = sources[path].replace(assertion, "if false {\n" + assertion + "\n}", 1)
     with pytest.raises(RuntimeError, match="Result-aware assertion owner changed its complete body"):
         _check_evidence(sources)
+
+
+BEACON_FIELD = """    sumeragi_global_beacon_partial_signer:
+        Option<Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>>,
+"""
+
+
+BEACON_SETTER = """        with_sumeragi_global_beacon_partial_signer(
+            signer: Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,
+        ) => sumeragi_global_beacon_partial_signer;
+"""
+
+
+TLE_FIELD = """    parliament_tle_partial_release_signer:
+        Option<Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>>,
+"""
+
+
+TLE_SETTER = """        with_parliament_tle_partial_release_signer(
+            signer: Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>,
+        ) => parliament_tle_partial_release_signer;
+"""
+
+
+@pytest.mark.parametrize("declaration,anchor,insertion", (
+    ("pub struct IrohaRuntimeDeps {", BEACON_FIELD, TLE_FIELD),
+    ("define_runtime_dep_setters_v1! {", BEACON_SETTER, TLE_SETTER),
+))
+def test_threshold_signer_readiness_rejects_the_retired_tle_field_and_setter(
+    declaration: str, anchor: str, insertion: str,
+) -> None:
+    """The retired Parliament TLE signer dependency cannot return beside the beacon signer."""
+    runtime_deps, daemon = _readiness_sources()
+    body = guard.rust_item(runtime_deps, declaration, RUNTIME_DEPS_PATH)
+    assert body.count(anchor) == 1
+    changed = runtime_deps.replace(body, body.replace(anchor, anchor + insertion, 1), 1)
+    with pytest.raises(RuntimeError, match="retired public Parliament identifier"):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+@pytest.mark.parametrize("identifier", guard.RETIRED_TLE_DAEMON_IDENTIFIERS)
+def test_threshold_signer_readiness_rejects_each_retired_tle_daemon_item(identifier: str) -> None:
+    """Every retired daemon TLE item, under any live owner, fails; prose does not."""
+    runtime_deps, daemon = _readiness_sources()
+    guard.require_threshold_signer_startup_readiness(
+        runtime_deps + f"\n// {identifier} was retired with the TLE signer.\n", daemon)
+    with pytest.raises(RuntimeError, match="retired public Parliament identifier"):
+        guard.require_threshold_signer_startup_readiness(
+            runtime_deps + f"\nfn {identifier}() {{}}\n", daemon)
+
+
+@pytest.mark.parametrize("path,identifier", (
+    *(("crates/iroha_torii/src/lib.rs", identifier)
+      for identifier in guard.RETIRED_TIMED_OVN_TORII_IDENTIFIERS),
+    *(("crates/iroha_torii_shared/src/route_catalog.rs", identifier)
+      for identifier in guard.RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS),
+))
+def test_retired_named_public_items_stay_absent(
+    path: str, identifier: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retired public items remain absent alongside the current route owner checks."""
+    original_read = guard.read
+    changed = original_read(path) + f"\nfn {identifier}() {{}}\n"
+    monkeypatch.setattr(guard, "read", lambda p: changed if p == path else original_read(p))
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_retired_parliament_release_exposure()
+
+
+@pytest.mark.parametrize("declaration,field", (
+    ("pub struct IrohaRuntimeDeps {", BEACON_FIELD),
+    ("define_runtime_dep_setters_v1! {", BEACON_SETTER),
+))
+def test_threshold_signer_readiness_keeps_the_native_beacon_field_and_setter(
+    declaration: str, field: str,
+) -> None:
+    """Retiring Parliament custody preserves the independent native beacon dependency."""
+    runtime_deps, daemon = _readiness_sources()
+    changed = _mutate_item(runtime_deps, RUNTIME_DEPS_PATH, declaration, field, "")
+    with pytest.raises(RuntimeError, match=re.escape(RUNTIME_DEPS_PATH)):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+@pytest.mark.parametrize("route", guard.RETIRED_TIMED_OVN_BALLOT_ROUTES)
+@pytest.mark.parametrize("target", (
+    "crates/iroha_torii/src/lib.rs", "crates/iroha_torii_shared/src/route_catalog.rs",
+))
+def test_reintroduced_release_route_path_is_rejected(
+    route: str, target: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No retired ballot route path may be served or catalogued again."""
+    original_read = guard.read
+    changed = original_read(target) + f'\nconst RETIRED_ROUTE: &str = "{route}";\n'
+    monkeypatch.setattr(guard, "read", lambda path: changed if path == target else original_read(path))
+    with pytest.raises(RuntimeError, match=re.escape(target)):
+        guard.require_retired_parliament_release_exposure()
+
+
+def test_retired_release_names_in_comments_are_not_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prose naming a retired handler or descriptor is not a live item."""
+    original_read = guard.read
+    sources = {
+        "crates/iroha_torii/src/lib.rs": original_read("crates/iroha_torii/src/lib.rs")
+        + "\n// handler_gov_parliament_tle_partial_release was retired.\n",
+        "crates/iroha_torii_shared/src/route_catalog.rs": original_read("crates/iroha_torii_shared/src/route_catalog.rs")
+        + "\n/* GOV_PARLIAMENT_TLE_PARTIAL_RELEASE was retired. */\n",
+    }
+    monkeypatch.setattr(guard, "read", lambda path: sources[path] if path in sources else original_read(path))
+    guard.require_retired_parliament_release_exposure()
+
+
+@pytest.mark.parametrize("relative,identifier", [
+    (relative, identifier)
+    for relative, identifiers in guard.RETIRED_TLE_BROKER_SURFACES
+    for identifier in identifiers
+])
+def test_reintroduced_daemon_tle_signer_item_fails_the_full_checker(
+    relative: str, identifier: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The retired broker, signer and wiring items stay absent through main()."""
+    original_read = guard.read
+    changed = original_read(relative) + f"\nfn {identifier}() {{}}\n"
+    monkeypatch.setattr(guard, "read", lambda path: changed if path == relative else original_read(path))
+    with pytest.raises(RuntimeError, match=re.escape(relative)):
+        guard.main()

@@ -31,7 +31,7 @@ their component ownership.
 
 | ID | Owner / existing goals | Completion result |
 | --- | --- | --- |
-| KR0 — Coherent candidate | Release/native/SDK, G7 | Capture the frozen source and actual compiler dependency closure; regenerate and strictly admit both complete source profiles and registry DATA; rebuild CLI, Core, Core-ZK, Android, Apple and host native consumers; rerun host JNI and the complete host journey. Run the M3 `prepare` → `run` → `summarize` protocol with three fresh-process blocks, process CPU for one worker, observed elapsed time for four and kernel RSS. Record actual current route/program counts rather than copying an older catalog. |
+| KR0 — Coherent candidate | Release/native/SDK, G7 | Capture the frozen source and actual compiler dependency closure; regenerate and strictly admit the complete source profile for each selected engineering and production installation, with matching registry DATA; rebuild CLI, Core, Core-ZK, Android, Apple and host native consumers; rerun host JNI and the complete host journey. Run the M3 `prepare` → `run` → `summarize` protocol with three fresh-process blocks, process CPU for one worker, observed elapsed time for four and kernel RSS. Record actual current route/program counts rather than copying an older catalog. |
 | KR1 — iOS release and restore | Native/Swift, G2 | Trace Selected, journal, signature, anchor and exposed Payment through interrupted/ambiguous writes, concurrency, restart and replay. Exercise supported stock-device backup/restore and migration schedules. A released Payment must exclude an old head under the same usable key through a nonrollback authority, or make that key unusable. Retain the existing double-anchor-loss counterexample until an actual platform guarantee excludes it; Keychain readback and additional writes alone do not close it. |
 | KR2 — Complete monetary lifecycle | Wallet/Core/SDK, G4/G5, NF1–NF6 | Execute enrollment → activation → funded Load → offline A→B→C → Unload → once-only ledger payout. Include receiver restart with a fresh-ID duplicate Receive, reverse-direction payments, Receive folding, ArchiveReceive, ArchiveStatus, fees, quota/lease controls, local blacklists and charge continuations. At every durable boundary cover crashes, lost acknowledgements, exact retries, duplicate credits, conflicting inputs, invalid proofs and stale state; preserve conservation and every committed payment. Run host, four local validators and live Taira separately. |
 | KR3 — Physical phones | Android/Swift/carriers, G2/G4/G7 | On the specified Pixel 6 / Android 17 and iPhone 16 Pro Max, retain actual key attestation/App Attest, activation, funded Load, bidirectional offline payments over each supported NFC/QR/Nearby carrier, restart/interruption and Unload. Record actual model/OS/build/carrier; a different phone or a simulator does not close this goal. Request concrete unlock, biometric and tap actions when the device harness is ready. |
@@ -56,9 +56,10 @@ The supplied older capture is not the current catalog or size authority:
 - Current `SigmaRelation` supports **four Send masks (0–3)** and **one Receive
   selector (0)**. Blacklists are local policy, not an additional proof selector.
   Ordinary and renewed Receive are distinct recursive variants and both require
-  qualification. The current complete-batch test expects **22 routes / 16
-  programs**; verify these against the newly admitted catalog rather than the
-  historical 52-route / 32-program capture.
+  qualification. The compiled route domain has **22 routes**; the checked-in
+  registry contains **18 Q-program indices** as DATA. Derive actual admitted route
+  and program counts for each selected installation rather than copying registry
+  data or the historical 52-route / 32-program capture.
 - The [native exchange procedure](../crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/tests/native_exchange.md)
   and its `controls`, `fee`, `online_charge`, `send_recovery` and
   `message_census` modules provide artifact-dependent host entry points.

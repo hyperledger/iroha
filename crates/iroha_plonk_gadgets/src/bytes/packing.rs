@@ -474,8 +474,8 @@ pub fn length_prefix(len: usize) -> Result<[u8; LENGTH_PREFIX_BYTES], Error> {
 /// pieces.
 ///
 /// With `origin = 0` the pieces are the chunks of the step-proof digest
-/// string (`kgwstep1`): [`super::SIGMA_EXPORT_CHUNKS`] = 107 for the sigma of
-/// 3,296 bytes, the first holding the length prefix and 27 proof bytes. A
+/// string (`kgwstep1`), with count [`super::length_prefixed_chunks`]: 109 for
+/// 3,360 bytes, the first holding the length prefix and 27 proof bytes. A
 /// circuit that appends them to a string at another offset splits each piece
 /// once ([`PBytes::push_bounded_split`]); exporting at the consumer's origin
 /// instead (`(4 + |Omega|) mod 31` for `LE32 len(Omega) || Omega || LE32

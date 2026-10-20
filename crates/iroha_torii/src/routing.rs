@@ -49935,7 +49935,7 @@ pub fn prepared_submit_outcome(
     let entrypoint_hash =
         iroha_core::tx::external_entrypoint_hash_from_signed_hash(transaction_hash.clone());
     if app.state.has_committed_entrypoint(entrypoint_hash) {
-        let status = crate::pipeline_status_from_state(&app.state, &transaction_hash)?
+        let status = crate::pipeline_status_from_request(app, &transaction_hash)?
             .ok_or(Error::AppServiceUnavailable {
                 code: "prepared_transaction_status_unavailable",
                 message: "the exact prepared transaction is committed but its canonical outcome is unavailable"
@@ -49957,6 +49957,9 @@ pub fn prepared_submit_outcome(
     }
     Ok(None)
 }
+#[cfg(all(test, feature = "app_api"))]
+#[path = "routing/prepared_submit_history_tests.rs"]
+mod prepared_submit_history_tests;
 #[cfg(any(feature = "app_api", all(test, feature = "connect")))]
 /// Admit an exact single-route prepared transaction through ordinary durable ingress.
 /// Accepted means pending local custody; only authenticated execution proves application.

@@ -845,9 +845,30 @@ Root {
             stake_escrow_account_id: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
             slash_sink_account_id: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
         },
-        fees: NexusFees {
-            fee_asset_id: "6TEAJqbb8oEPmLncoNiMRbLEK6tw",
-            fee_sink_account_id: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+        fees: RootFeePolicy {
+            fee_asset_id: AssetDefinitionId {
+                aid_bytes: [
+                    135,
+                    90,
+                    13,
+                    251,
+                    89,
+                    152,
+                    65,
+                    103,
+                    146,
+                    177,
+                    110,
+                    48,
+                    130,
+                    149,
+                    55,
+                    45,
+                ],
+            },
+            fee_sink_account_id: sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV,
+            sponsor_vault_custody_account_id: sorauﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT,
+            successful_claim_fee_exempt_authorities: {},
             base_fee: Quantity(
                 Numeric {
                     mantissa: 0,
@@ -872,16 +893,6 @@ Root {
                     scale: 5,
                 },
             ),
-            sponsor_vault_custody_account_id: sorauﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT,
-            settlement_mode: Direct,
-            successful_claim_fee_exempt_authorities: {},
-        },
-        relay_worker: NexusRelayWorker {
-            enabled: false,
-            authority_account_id: None,
-            max_pending_relays: 1024,
-            retry_backoff: 5s,
-            max_retry_attempts: 10,
         },
         hf_shared_leases: NexusHfSharedLeases {
             drain_grace: 5s,
@@ -1557,6 +1568,13 @@ Root {
             max_proof_bytes: 196608,
         },
         fastpq: Fastpq {
+            producer: FastpqProducer {
+                poll_interval: 1s,
+                step_timeout: 30s,
+                max_native_steps: 16,
+                max_source_entries: 65536,
+                max_source_statements: 16384,
+            },
             execution_mode: Cpu,
             poseidon_mode: Cpu,
             proof_sidecar_queue_cap: 1024,

@@ -648,7 +648,7 @@ fn physical_pairing_refusal_is_moved_once_without_allocating_or_publishing() {
     assert!(block.world.sccp_forgery_offences.is_empty());
     assert!(matches!(
         block.commit(),
-        Err(crate::state::TransactionsBlockError::ExecutionOutputCapacity)
+        Err(crate::state::storage_transactions::TransactionsBlockError::ExecutionOutputCapacity)
     ));
     let mut retry_block = chain.state().block(header);
     let mut retry = retry_block.transaction_for_callback_testing();

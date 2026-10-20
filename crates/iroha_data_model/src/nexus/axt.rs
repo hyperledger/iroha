@@ -386,7 +386,7 @@ impl TouchManifest {
 /// Compute the canonical descriptor binding used by asset handles and manifests.
 ///
 /// The descriptor's bare Norito payload is prefixed with a domain separator and
-/// hashed using Poseidon2 (rate 2, capacity 1) to produce a 32-byte digest. Byte
+/// hashed using original BN254 Poseidon (rate 2, capacity 1) to produce a 32-byte digest. Byte
 /// packing appends `0x01` and zero-pads to an eight-byte boundary before the
 /// sponge's field-level +1 padding. The header-framed encoding is intentionally
 /// excluded so the binding stays stable across feature-sensitive schema hashes.

@@ -847,3 +847,210 @@ pub(super) fn snapshot_work<T>(read: impl FnOnce() -> T) -> (T, (usize, usize)) 
     let (result, counts) = counted(read);
     (result, (counts.records, counts.snapshots))
 }
+
+fn handle_native_work<T>(read: impl FnOnce() -> T) -> (T, iroha_fs::CustodyWorkV1) {
+    let before = iroha_fs::CustodyWorkV1::current_thread();
+    let result = read();
+    (
+        result,
+        iroha_fs::CustodyWorkV1::current_thread().since(before),
+    )
+}
+
+#[test]
+fn genuine_operation_handle_scope_reduces_actual_native_work_without_skipping_owners() {
+    let _resources = crate::managed::native_test_guard();
+    let (_fixture, history) = history();
+    let native = history.current_history().unwrap();
+    let run = |original| {
+        History::test_operation_handle_recipe(original, || {
+            handle_native_work(|| native.test_retained_handle_census())
+        })
+    };
+    let ((old, old_census), old_work) = run(true);
+    let ((new, new_census), new_work) = run(false);
+    old.unwrap();
+    new.unwrap();
+    assert_eq!(old_census, new_census);
+    assert_eq!(new_census.history_order.len(), 2);
+    assert_eq!(new_census.descendant_order.len(), 2);
+    assert_eq!(new_census.operation_exits, 2);
+    // Measure the removed empty bracket using the exact History operation owners and
+    // their actual native common-prefix admission, not pathname or body-owner equivalence.
+    let oldest = native.test_oldest_retained_history();
+    let removed = native
+        .test_native_read_tree(|tree| {
+            let tree = tree.expect("genuine inactive native tree");
+            let (result, work) = handle_native_work(|| {
+                native.test_empty_operation_bracket(tree)?;
+                oldest.test_empty_operation_bracket(tree)?;
+                Ok::<_, crate::managed::Error>(())
+            });
+            result?;
+            Ok(work)
+        })
+        .unwrap();
+    assert_eq!(removed.ancestry_walks, 4);
+    assert!(removed.ancestry_opens > 0);
+    assert_eq!(
+        old_work.ancestry_walks,
+        new_work.ancestry_walks + removed.ancestry_walks
+    );
+    assert_eq!(
+        old_work.ancestry_opens,
+        new_work.ancestry_opens + removed.ancestry_opens
+    );
+    // The no-predecessor recipe and subsequent canonical source validation are independent.
+    let single = |original| {
+        History::test_operation_handle_recipe(original, || {
+            handle_native_work(|| {
+                let (result, census) = oldest.test_retained_handle_census();
+                (result.map_err(|error| error.to_string()), census)
+            })
+        })
+    };
+    assert_eq!(single(true), single(false));
+    native.test_require_current(4).0.unwrap();
+}
+
+#[test]
+fn genuine_operation_handle_scope_keeps_inherited_and_late_decoder_recipes() {
+    let _resources = crate::managed::native_test_guard();
+    let (_fixture, history) = history();
+    let native = history.current_history().unwrap();
+    for allocation in [0, 1, usize::MAX] {
+        let limits = norito::DecodeLimits::new(
+            MAX_BODY_BYTES,
+            MAX_ALL_BODY_BYTES,
+            MAX_ALL_BODY_BYTES,
+            allocation,
+            64,
+        );
+        let inherited = |original| {
+            History::test_operation_handle_recipe(original, || {
+                norito::core::with_decode_limits_measured(limits, || {
+                    handle_native_work(|| {
+                        let (result, census) = native.test_retained_handle_census();
+                        (result.map_err(|error| error.to_string()), census)
+                    })
+                })
+            })
+        };
+        let old = inherited(true);
+        assert_eq!(old, inherited(false));
+        assert!(old.0.0.0.is_ok());
+        assert_eq!(old.1.total_allocated_bytes(), 0);
+        assert_eq!(old.0.0.1.full_operations, 2);
+        assert_eq!(old.0.0.1.tree_operations, 0);
+        let late = |original| {
+            History::test_operation_handle_recipe(original, || {
+                native
+                    .test_native_read_tree(|tree| {
+                        let tree = tree.expect("genuine inactive tree entry");
+                        // Install a real decoder owner after tree admission. Each operation must
+                        // still choose its original active-owner recipe without shared closure.
+                        Ok(norito::core::with_decode_limits_measured(limits, || {
+                            handle_native_work(|| {
+                                History::test_handle_work(|| {
+                                    native
+                                        .revalidate_retained_handles_in_tree(Some(tree))
+                                        .map_err(|error| error.to_string())
+                                })
+                            })
+                        }))
+                    })
+                    .unwrap()
+            })
+        };
+        let old_late = late(true);
+        assert_eq!(old_late, late(false));
+        assert!(old_late.0.0.0.is_ok());
+        assert_eq!(old_late.1.total_allocated_bytes(), 0);
+        assert_eq!(old_late.0.0.1.history_order.len(), 2);
+        assert_eq!(old_late.0.0.1.descendant_order.len(), 2);
+        assert_eq!(old_late.0.0.1.tree_operations, 2);
+        assert_eq!(old_late.0.0.1.operation_exits, 0);
+        if allocation <= 1 {
+            assert!(
+                norito::core::with_decode_limits_scope(limits, || {
+                    native.test_require_current(4).0
+                })
+                .is_err()
+            );
+        }
+    }
+    native.test_retained_handle_census().0.unwrap();
+    native.test_require_current(4).0.unwrap();
+}
+
+#[test]
+fn genuine_operation_handle_scope_closes_native_and_inner_errors_then_retries_original_owner() {
+    let _resources = crate::managed::native_test_guard();
+    let (_fixture, history) = history();
+    let native = history.current_history().unwrap();
+    let mut reference = None;
+    for original in [true, false] {
+        let mut outcomes = Vec::new();
+        History::test_operation_handle_recipe(original, || {
+            let (result, census) = native.test_retained_handles_after_descendants(|| {
+                Err(invalid("operation handle inner refusal"))
+            });
+            assert!(
+                matches!(&result, Err(crate::managed::Error::Invalid(message))
+                if message == "operation handle inner refusal")
+            );
+            assert_eq!(census.history_order.len(), 1);
+            assert_eq!(census.operation_exits, 1);
+            outcomes.push((result.map_err(|error| error.to_string()), census));
+            native.test_retained_handle_census().0.unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                for target in [
+                    Arc::clone(&history.bodies[1].directory),
+                    Arc::clone(&history.root),
+                ] {
+                    for refuse_inner in [false, true] {
+                        let changed = Arc::clone(&target);
+                        let permissions = std::fs::metadata(target.path()).unwrap().permissions();
+                        let (result, census) =
+                            native.test_retained_handles_after_descendants(move || {
+                                std::fs::set_permissions(
+                                    changed.path(),
+                                    std::fs::Permissions::from_mode(0o755),
+                                )?;
+                                if refuse_inner {
+                                    Err(invalid("operation handle inner refusal"))
+                                } else {
+                                    Ok(())
+                                }
+                            });
+                        std::fs::set_permissions(target.path(), permissions).unwrap();
+                        assert!(matches!(&result, Err(crate::managed::Error::Io(error))
+                            if error.kind() == std::io::ErrorKind::PermissionDenied));
+                        // Strict suffix checks share the original outer root until its
+                        // independent exit. A successful inner hook therefore visits both
+                        // histories before that root refuses; an inner error stops at one.
+                        let visits = if Arc::ptr_eq(&target, &history.root) && !refuse_inner {
+                            2
+                        } else {
+                            1
+                        };
+                        assert_eq!(census.history_order.len(), visits);
+                        assert_eq!(census.operation_exits, visits);
+                        outcomes.push((result.map_err(|error| error.to_string()), census));
+                        // Retry the same retained graph; reopening cannot discharge the
+                        // original File/Arc custody or hide a stale validation result.
+                        native.test_retained_handle_census().0.unwrap();
+                    }
+                }
+            }
+            native.test_require_current(4).0.unwrap();
+        });
+        if let Some(reference) = &reference {
+            assert_eq!(reference, &outcomes);
+        } else {
+            reference = Some(outcomes);
+        }
+    }
+}

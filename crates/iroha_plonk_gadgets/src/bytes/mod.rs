@@ -50,8 +50,8 @@
 //! and the aggregator (over `Fp`) appends them to its own `P_bytes` strings,
 //! the sigma-only `proof_digest` (aligned, no rows) or `LE32 len(Omega) ||
 //! Omega || LE32 len(sigma) || sigma` (realigned with one split per piece).
-//! For the measured sigma of 3,296 bytes the export has
-//! [`SIGMA_EXPORT_CHUNKS`] = 107 pieces.
+//! At origin zero, the count follows the authenticated proof length through
+//! [`length_prefixed_chunks`]: 109 pieces for 3,360 bytes and 114 for 3,520.
 //!
 //! # Messages ([`element`])
 //!
@@ -131,15 +131,6 @@ pub const BYTE_TABLE_ROWS: usize = 256;
 pub const LENGTH_PREFIX_BYTES: usize = 4;
 /// Bytes of one PIPA-v1 proof message (a scalar or a compressed point).
 pub const MESSAGE_BYTES: usize = 32;
-/// Bytes of the sigma step proof measured at k12 with one Poseidon lane
-/// (M12fix).
-pub const SIGMA_PROOF_BYTES: usize = 3_296;
-/// Chunks of `LE32 len(sigma) || sigma` for [`SIGMA_PROOF_BYTES`]:
-/// `ceil(3,300 / 31) = 107`.
-pub const SIGMA_EXPORT_CHUNKS: usize = length_prefixed_chunks(SIGMA_PROOF_BYTES);
-
-const _: () = assert!(SIGMA_EXPORT_CHUNKS == 107);
-
 /// Chunks of the length-prefixed string `LE32 len || bytes` of `len` bytes,
 /// starting at a chunk boundary.
 #[must_use]

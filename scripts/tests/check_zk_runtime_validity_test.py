@@ -937,25 +937,37 @@ def test_native_owner_reconciliation_preserves_unfinished_relations() -> None:
     registration = entry(CENSUS, "sccp.qualification")
     assert registration["status"] == "out_of_plan"
     assert registration["symbol"] == "fn register_route("
-    assert "unconditionally refuses missing launch/reconciliation and forgery authority" in registration["note"]
-    assert "Native EVM creation-code/deployer authority is still unavailable" in registration["note"]
-    # Available native checks do not authorize the remaining launch relations.
-    assert registration["sites"] == []
+    assert "It still refuses missing Parliament and reconciliation launch authority" in registration["note"]
+    assert "a valid pin or deployment shape is not permission to register" in registration["note"]
+    assert ("parliament_binding_ballot_available and sccp_reconciliation_available remain false; "
+            "no launch qualification is claimed") in registration["note"]
+    # Available native checks do not authorize the remaining launch relations: the
+    # entry holds only readiness and qualification projections, never a register path.
+    assert registration["sites"]
+    assert all(site[1] == "qualification" and site[2] in ("readiness", "qualification")
+               for site in registration["sites"])
+    assert all(site[0] != registration["path"] for site in registration["sites"])
     governance = (ROOT / registration["path"]).read_text(encoding="utf-8")
     assert "registration::validate_available(state_transaction, register)?;" in governance
-    assert 'Err(refuse(\n        "RegisterRoute launch/reconciliation and forgery authority are unavailable",' in governance
+    assert ("super::parliament_iface::parliament_binding_ballot_available(),\n"
+            "        sccp_reconciliation_available(),") in governance
+    assert "gates.0 && gates.1" in governance
+    assert 'Err(refuse(\n            "RegisterRoute launch/reconciliation authority is unavailable",' in governance
+    assert "pub const fn sccp_reconciliation_available() -> bool {\n    false\n}" in governance
     registration_source = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration.rs").read_text(encoding="utf-8")
-    assert "native EVM creation-code/deployer authority is unavailable" in registration_source
+    assert '"EVM address differs from the exact locked CREATE2 deployment"' in registration_source
     assert "stx.block_unix_timestamp_ms(),\n        params.committee_heartbeat_ms," in registration_source
-    assert "pin.until_ms != pinned.deadline_ms" in registration_source
+    assert "pin.until_ms != pinned_deadline_ms" in registration_source
     parliament = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs").read_text(encoding="utf-8")
     assert "pub const fn parliament_binding_ballot_available() -> bool {\n    false\n}" in parliament
     unavailable = entry(CENSUS, "sccp.unavailable")
     assert unavailable["status"] == "out_of_plan"
     assert "Missing or inconsistent original source/rotation custody remains unavailable, not authenticated absence" in unavailable["note"]
-    assert "block hook still omits generation/anchor retirement" in unavailable["note"]
+    assert ("The block hook now calls generation/anchor pruning, which preserves pending forgery "
+            "penalties and retained generation boundaries") in unavailable["note"]
+    assert "This inventory does not qualify complete SCCP delivery" in unavailable["note"]
     hook = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs").read_text(encoding="utf-8")
-    assert "generation/anchor-root retirement requires the real Pending SCCP forgery" in hook
+    assert "super::pruning::prune(&mut stx)" in hook
     torii = (ROOT / unavailable["path"]).read_text(encoding="utf-8")
     assert "HistoryProducerOwner::from_admission(&admission)?" in torii
     assert "read::with_state_view(&state, control," in torii
@@ -1010,6 +1022,51 @@ def test_source_lookup_and_phone_key_checks_have_distinct_authorities() -> None:
                                      "unavailable", "unsupported", 3]]
     assert ["crates/iroha_crypto/src/ram_lfe/phone_control.rs",
             "unavailable", "local_resource", 2] in entry(CENSUS, "ram_lfe.local_resource")["sites"]
+
+
+def test_compiled_source_profiles_are_a_kagemusha_only_digest_gate() -> None:
+    """A compiled built-in profile is a binary-digest admission, never a strict lookup hint.
+
+    It is recorded out of plan only while KAGEMUSHA is its sole production caller; a caller
+    of the delivery plan makes it open F.4 work, so this test fails until the census is
+    read again.
+    """
+    builtin = entry(CENSUS, "plonk.builtin_source_profile")
+    assert builtin["kind"] == "digest" and builtin["status"] == "out_of_plan"
+    assert "becomes open F.4 work" in builtin["note"]
+    rows = {(site[0], site[1], site[2]) for site in builtin["sites"]}
+    assert rows == {
+        ("crates/iroha_plonk/src/keys/keygen/builtin.rs", "digest_identity", "source"),
+        ("crates/iroha_plonk/src/keys/keygen/builtin.rs", "unavailable", "unsupported"),
+        ("crates/iroha_plonk/src/keys/keygen/builtin/generated.rs", "digest_identity", "source"),
+    }
+    lookup = {site[0] for site in entry(CENSUS, "plonk.source_lookup")["sites"]}
+    assert not {row[0] for row in rows} & lookup
+    api = ("BuiltinSourceProfileV1", "BuiltinSourceMemberV1", "builtin_source_identity_v1")
+    callers = set()
+    for path in sorted((ROOT / "crates").glob("*/src/**/*.rs")):
+        relative = path.relative_to(ROOT).as_posix()
+        if relative.startswith("crates/iroha_plonk/") or CHECKER["TEST_PATH"].search(
+            relative.split("/src/", 1)[1]
+        ):
+            continue
+        if any(name in path.read_text(encoding="utf-8", errors="replace") for name in api):
+            callers.add(relative)
+    assert callers, "the compiled profile API has no caller; reread the entry"
+    assert all("kagemusha" in caller for caller in callers), sorted(callers)
+
+
+def test_slash_reads_of_the_node_local_staking_projection_stay_open() -> None:
+    """The slash path compares node-local staking fields: an open F.4 dependence."""
+    nexus = entry(CENSUS, "cfg.nexus.policy")
+    assert nexus["status"] == "open" and nexus["owner"] == "F.4"
+    staking = "crates/iroha_core/src/smartcontracts/isi/staking.rs"
+    rows = {site[2] for site in nexus["sites"] if site[0] == staking and site[1] == "node_policy_read"}
+    assert {"staking.max_slash_bps", "staking.max_stake_shares_per_validator",
+            "staking.slash_sink_account_id"} <= rows
+    source = (ROOT / staking).read_text(encoding="utf-8")
+    assert "let max_slash_bps = state_transaction.nexus.staking.max_slash_bps;" in source
+    assert "slash_within_limit(amount, &slashable_exposure, max_slash_bps)?" in source
 
 
 def test_refresh_rewrites_counts_only(tmp_path: Path) -> None:

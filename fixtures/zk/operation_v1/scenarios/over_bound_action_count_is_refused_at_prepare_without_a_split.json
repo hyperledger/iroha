@@ -1,0 +1,183 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "over_bound_action_count_is_refused_at_prepare_without_a_split",
+  "category": "batch_bounds",
+  "rules": [
+    "prepare_refuses_over_bound_batches"
+  ],
+  "description": "A batch of seventeen actions exceeds the sixteen-action bound of one transaction. prepare refuses it before any proof, journal or effect exists, naming the bound, the seventeenth action, the actual count and the maximum. The one-call refuses it the same way: nothing is split into several transactions.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 1024
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "prepare",
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "plan",
+          "action_index": 16,
+          "bound": "attachment.max_actions",
+          "actual": 17,
+          "maximum": 16
+        },
+        "effects": [],
+        "journal": "absent"
+      }
+    },
+    {
+      "op": "execute",
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "plan",
+          "action_index": 16,
+          "bound": "attachment.max_actions",
+          "actual": 17,
+          "maximum": 16
+        },
+        "effects": [],
+        "journal": "absent"
+      }
+    }
+  ]
+}

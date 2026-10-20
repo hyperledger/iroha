@@ -383,6 +383,9 @@ fn original_private_home_requires_canonical_single_root_geometry() {
 
 #[test]
 fn original_private_home_root_decode_refusal_remains_local_and_global_policy_stays_refused() {
+    // Keep retired genesis generations in this whole-State baseline;
+    // reclamation must not masquerade as an overlay refund.
+    let _retirement_pin = crossbeam_epoch::pin();
     let chain = original_private_chain();
     let budget = chain.state().ivm_execution_budget();
     let original_charge = budget.reserved_bytes();

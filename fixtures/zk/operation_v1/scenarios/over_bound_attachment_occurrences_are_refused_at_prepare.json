@@ -1,0 +1,136 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "over_bound_attachment_occurrences_are_refused_at_prepare",
+  "category": "batch_bounds",
+  "rules": [
+    "prepare_refuses_over_bound_batches"
+  ],
+  "description": "Nine actions declare seventeen attachment occurrences. The action count is within its bound and the occurrence count is not: the refusal names the action that declares the seventeenth occurrence, before anything is proved.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          },
+          {
+            "kind": "key_material",
+            "length": 512
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 2048
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "plan",
+          "action_index": 8,
+          "bound": "attachment.max_occurrences",
+          "actual": 17,
+          "maximum": 16
+        },
+        "effects": [],
+        "journal": "absent"
+      }
+    }
+  ]
+}

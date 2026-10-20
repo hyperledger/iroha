@@ -488,13 +488,13 @@ where
     assert_eq!(known.tables.selectors(), unknown.tables.selectors());
     let cells = assigned_advice_cells(&circuit, 16, &instances).unwrap();
     let rows = cells.iter().map(|(_, row)| row + 1).max().unwrap();
-    // TODO: retain this exact old-layout oracle until coordinated source01b
-    // synthesis records reviewed replacements for both curves. These numbers
-    // are deliberately not guessed or replaced with weaker capacity bounds.
+    // Exact assigned-advice inventory of this k3+k16 fixture, including output
+    // forwarding. Layout changes require fresh synthesis for both curves;
+    // these counts are regression pins, not performance or catalog qualification.
     let inventory = if C::CURVE_ID == "pallas" {
-        (6246, 90_270)
+        (7_851, 109_238)
     } else {
-        (7386, 90_235)
+        (8_081, 105_855)
     };
     assert_eq!(
         (rows, cells.len()),

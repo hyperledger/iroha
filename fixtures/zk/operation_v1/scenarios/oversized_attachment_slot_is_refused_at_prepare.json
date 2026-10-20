@@ -1,0 +1,48 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "oversized_attachment_slot_is_refused_at_prepare",
+  "category": "batch_bounds",
+  "rules": [
+    "prepare_refuses_over_bound_batches"
+  ],
+  "description": "One declared proof is one byte longer than the largest attachment occurrence. prepare refuses the batch with the occurrence bound, the action that declares the slot, its expected length and the maximum.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      },
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 9437185
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "prepare",
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "plan",
+          "action_index": 1,
+          "bound": "attachment.occurrence_max_bytes",
+          "actual": 9437185,
+          "maximum": 9437184
+        },
+        "effects": [],
+        "journal": "absent"
+      }
+    }
+  ]
+}

@@ -89,3 +89,5 @@ fn canonical_history_http_status_distinguishes_unavailable_from_corrupt() {
         StatusCode::INTERNAL_SERVER_ERROR
     );
 }
+
+include!("pipeline_status_bounded_outcome.rs");

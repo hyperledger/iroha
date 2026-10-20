@@ -1,8 +1,8 @@
 //! The one native wallet implementation (design §3.1, §3.2 and §6, integration decision 8).
 //!
-//! Intended for direct Rust SDK and CLI use and for Kotlin and Swift through their native
-//! bridges; those integrations are pending. It never transmits a secret and never proves
-//! remotely.
+//! Nothing calls it yet: no crate depends on `iroha_parliament_ballot`, and its use by the
+//! Rust SDK, the CLI and the Kotlin and Swift native bridges is P.8 work still to come. It
+//! never transmits a secret and never proves remotely.
 //!
 //! - [`CredentialHandleV1`] owns one credential secret (48 bytes, erased on drop) bound to one
 //!   binding body. A fresh secret is drawn from the operating system for every body; an

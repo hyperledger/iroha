@@ -518,7 +518,10 @@ def test_ram_lfe_budgets_are_derived_and_open_ones_carry_no_number() -> None:
 
 
 def test_open_items_are_reconciled_when_their_task_is_implemented() -> None:
+    # X.2 stays open until its four-validator agreement run passes on a same-source daemon;
+    # the native maximum proof is X.4's open item and the carrier source is F.4's.
     assert_fails(CONTRACT, "task X.2 is recorded implemented", {**TASKS, "X.2": "implemented"})
+    assert_fails(CONTRACT, "task X.4 is recorded implemented", {**TASKS, "X.4": "implemented"})
     assert_fails(CONTRACT, "task F.4 is recorded implemented", {**TASKS, "F.4": "implemented"})
     # I.1 implemented its declared design: nothing of it is open any more.
     assert problems(CONTRACT, {**TASKS, "I.1": "implemented"}) == []
@@ -533,9 +536,24 @@ def test_declared_items_are_not_yet_implemented_and_state_their_requirements() -
         "transaction.structured_size_refusal": "S.1",
         "vm_handles.invocation_scoped_attachment_handles": "I.2",
         "work_budget.unified_deterministic_charge": "I.4",
-        "block.maximum_proof_transport_profile": "X.2",
         "proof.product_proof_ceilings": "V.3",
+        "proof.anonymous_ballot_verifier_budget": "P.8",
     }
+    # The canonical carrier exists, but the node cannot execute the ballot's verifier
+    # budget without its authenticated State/context adapter and typed protocol owner.
+    ballot = next(item for item in CONTRACT["declared"] if item["id"] == "proof.anonymous_ballot_verifier_budget")
+    assert "no node executes its verifier budget" in ballot["today"]
+    entrypoints = (ROOT / "crates/iroha_data_model/src/transaction/signed.rs").read_text(encoding="utf-8")
+    entrypoint_variants = entrypoints.split("pub enum TransactionEntrypoint {", 1)[1].split("\n    }", 1)[0]
+    assert "AnonymousBallot(CanonicalAnonymousBallotEnvelopeV1)" in entrypoint_variants
+    core_manifest = (ROOT / "crates/iroha_core/Cargo.toml").read_text(encoding="utf-8")
+    assert "iroha_parliament_ballot" not in core_manifest
+    core_transactions = (ROOT / "crates/iroha_core/src/tx.rs").read_text(encoding="utf-8")
+    assert re.search(
+        r"fn anonymous_ballot_unavailable\(\) -> ExecutionDeferred \{\s*"
+        r"ivm::error::ExecutionDeferral::VerifierInitializationUnavailable\.into\(\)\s*}",
+        core_transactions,
+    )
     relation_ids = {item["id"] for item in CONTRACT["relations"]}
     for item in CONTRACT["declared"]:
         assert item["status"] == "not_implemented"
@@ -1986,7 +2004,7 @@ def test_node_local_validity_limits_are_checked_against_the_typed_catalogs() -> 
     # The default carrier fits; authoritative committed-policy enforcement still has an owner.
     includable = relation(CONTRACT, "private_settlement_carrier_within_includable_transaction")
     assert includable["expect"] == {"today": "holds", "x2_target": "holds"}
-    assert includable["open"]["owner"] == "X.2"
+    assert includable["open"]["owner"] == "F.4"
 
     def unlisted(contract: dict) -> None:
         del contract["catalogs"][0]["fields"]["pipeline.ivm_max_decoded_bytes"]
@@ -4183,7 +4201,19 @@ def test_every_compared_limit_and_literal_of_the_path_crates_is_classified() -> 
         for site in item.get("enforcement", []):
             owned.setdefault(site["path"], []).append(CHECKER["normalize"](site["contains"]))
     paths = CHECKER["literal_scopes"](scopes)
-    assert len(paths) > 1500 and all(any(path.startswith(crate + "/") for crate in PATH_CRATES) for path in paths)
+    # One explicit file scope outside the four crates compares as well: the native payment
+    # session of the Rust SDK, whose decision-retention floor is a recorded literal.
+    extra = {
+        scope["path"]
+        for scope in section["scopes"]
+        if scope.get("comparisons")
+        and "path" in scope
+        and not any(scope["path"].startswith(crate + "/") for crate in PATH_CRATES)
+    }
+    assert extra == {"crates/iroha/src/client/native_payment/session.rs"}
+    assert len(paths) > 1500 and all(
+        any(path.startswith(crate + "/") for crate in PATH_CRATES) or path in extra for path in paths
+    )
     seen = 0
     for path in paths:
         source = CHECKER["_read"](ROOT, path, "test")
@@ -4573,10 +4603,11 @@ def test_every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of()
             "PRIVACY_RELEASE_CASE_COUNT_V1",
         ),
         (
-            "crates/iroha_core_zk/src/confidential_v2.rs",
-            "CONFIDENTIAL_TREE_DEPTH_V2: usize = 16;",
-            "CONFIDENTIAL_TREE_DEPTH_V2: usize = 1;",
-            "CONFIDENTIAL_TREE_DEPTH_V2",
+            # A term of a limit function of another crate (Torii's `cfg_max_scan_millis`).
+            "crates/iroha_config/src/parameters/defaults.rs",
+            "ZK_PROVER_MAX_SCAN_MILLIS: u64 = 2_000;",
+            "ZK_PROVER_MAX_SCAN_MILLIS: u64 = 1;",
+            "ZK_PROVER_MAX_SCAN_MILLIS",
         ),
     ):
         source = CHECKER["_read"](ROOT, path, "test")
@@ -4937,9 +4968,9 @@ def test_changing_a_part_literal_in_memory_fails_the_checker() -> None:
         ),
         (
             "crates/iroha_core/src/smartcontracts/ivm/host.rs",
-            "instructions.len() / 2 >= MAX_NFTS_PER_CALL",
-            "instructions.len() / 2 >= MAX_NFTS_PER_CALL",
-            "instructions.len() / 3 >= MAX_NFTS_PER_CALL",
+            "instructions.len() / 2 >= CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS",
+            "instructions.len() / 2 >= CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS",
+            "instructions.len() / 3 >= CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS",
         ),
         (
             "crates/iroha_core/src/smartcontracts/isi/nft_market.rs",
@@ -5702,13 +5733,10 @@ _RECEIVER_CONSTANTS = (
     ("crates/iroha_torii/src/da/ingest.rs", "BYTES_PER_GIB"),
     ("crates/iroha_torii/src/da/ingest.rs", "SECS_PER_MONTH"),
 )
+# A literal above the last element of a receiver chain broken across lines is recorded from
+# the head of the chain: the staging case below (`self .rows ... .max(1)`) is that form, now
+# that `delta_bps` of the compute parameters computes its complete u128 quotient uncapped.
 _RECEIVER_LITERALS = (
-    (
-        "crates/iroha_data_model/src/compute/mod.rs",
-        "delta .saturating_mul(10_000) .saturating_div(current) .min(u64::from(u16::MAX))",
-        ".saturating_mul(10_000)\n        .saturating_div(current)",
-        ".saturating_mul(10_001)\n        .saturating_div(current)",
-    ),
     (
         "crates/iroha_torii/src/sorafs/api.rs",
         "u64::try_from(retry_after.as_millis().saturating_add(999) / 1_000) .unwrap_or(u64::MAX) .max(1)",

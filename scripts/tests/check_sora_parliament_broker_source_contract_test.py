@@ -189,3 +189,18 @@ def test_retirement_checks_ignore_comment_only_old_names(monkeypatch: pytest.Mon
     source = guard.read(PRIMITIVES)
     _replace_source(PRIMITIVES, source + "\n// OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1 was removed.\n", monkeypatch)
     guard.require_retired_parliament_broker_exposure()
+
+
+@pytest.mark.parametrize("path,identifier", [
+    (path, identifier)
+    for path, identifiers in guard.RETIRED_TLE_BROKER_SURFACES
+    for identifier in identifiers
+])
+def test_retired_generic_provider_methods_stay_absent(
+    path: str, identifier: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retain the incoming provider checks even for methods without TLE in their name."""
+    guard.require_retired_parliament_broker_exposure()
+    _replace_source(path, guard.read(path) + f"\nfn {identifier}() {{}}\n", monkeypatch)
+    with pytest.raises(RuntimeError, match=re.escape(path)):
+        guard.require_retired_parliament_broker_exposure()

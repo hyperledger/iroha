@@ -36,7 +36,7 @@
 //!
 //! | constraint | degree |
 //! | --- | --- |
-//! | primary byte lookup (input degree 2) | 5 |
+//! | primary byte norm lookup (input degree 2, table degree 1) | 8 |
 //! | secondary link gate | 3 |
 //!
 //! `z` is queried at rotations `0, 1` and `w` at `-1, 0, 1`, inside the

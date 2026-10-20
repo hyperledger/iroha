@@ -47,7 +47,7 @@ fn build_context() -> MetalResult<Context> {
         quarantine: Mutex::new(None),
     })
 }
-pub(crate) fn hash(jobs: &[Job<'_>], output: &mut [[u8; 32]]) -> MetalResult<()> {
+pub fn hash(jobs: &[Job<'_>], output: &mut [[u8; 32]]) -> MetalResult<()> {
     let _drain = DrainScope::enter(METAL_COMMAND_TIMEOUT);
     ensure_backend_available()?;
     let bytes = keccak_batch::validate(jobs, output.len())
@@ -188,7 +188,7 @@ fn collect(buffer: &PooledBuffer, output: &mut [[u8; 32]]) -> MetalResult<()> {
         let mut words = Zeroizing::new([0; 4]);
         buffer.copy_range_to_slice(index * 4, &mut words[..]);
         for byte in 0..32 {
-            out[byte] = (words[byte / 8] >> ((byte % 8) * 8)) as u8;
+            out[byte] = words[byte / 8].to_le_bytes()[byte % 8];
         }
     }
     Ok(())

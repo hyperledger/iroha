@@ -183,13 +183,14 @@ _REVIEWED_PUBLIC_ANDROID_RESOURCE_INPUTS = frozenset({
     "kotlin/core-jvm/src/main/resources/META-INF/proguard/consumer-proguard-rules.pro",
 })
 # Exact public trybuild diagnostics in the maintained package closures.
-# These are 68 expected originals plus three tracked event-set diagnostic copies
+# These are 69 expected originals plus three tracked event-set diagnostic copies
 # retained under iroha_data_model_derive/wip; their full bytes remain sealed.
 # This admits no other .stderr name or material/provider/path/custody exception.
 _REVIEWED_PUBLIC_RUST_DIAGNOSTIC_INPUTS = frozenset({
     "crates/iroha_data_model_derive/tests/ui_fail/event_set_identity_duplicate.stderr",
     "crates/iroha_data_model_derive/tests/ui_fail/event_set_identity_invalid.stderr",
     "crates/iroha_data_model_derive/tests/ui_fail/event_set_identity_missing.stderr",
+    "crates/iroha_data_model_derive/tests/ui_fail/event_set_too_many.stderr",
     "crates/iroha_data_model_derive/tests/ui_fail/has_origin_multiple_attributes.stderr",
     "crates/iroha_data_model_derive/tests/ui_fail/registrable_builder_identity_duplicate.stderr",
     "crates/iroha_data_model_derive/tests/ui_fail/registrable_builder_identity_invalid.stderr",
@@ -315,6 +316,8 @@ _REVIEWED_PUBLIC_IVM_ARTIFACT_INPUTS = frozenset({
 # in directories named artifacts/run. Only those two directory words are
 # excepted for these exact files; every other operational/material gate remains.
 _REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS = frozenset({
+    "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata.rs",
+    "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/tests.rs",
     "crates/iroha_core/src/sumeragi/certified_chain/artifacts/tests.rs",
     "crates/iroha_p2p/src/peer/run/admission_class_tests.rs",
     "crates/iroha_p2p/src/peer/run/granted.rs",
@@ -328,6 +331,25 @@ _REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS = frozenset({
 _REVIEWED_PUBLIC_FIXTURE_INPUTS = frozenset({
     "crates/iroha_core/tests/fixtures/repo_lifecycle_proof.digest",
     "crates/iroha_core_privacy/src/privacy_engines/fcmp_plus_plus/test_vectors/SHA256SUMS",
+    # Public deterministic ballot test vectors and retained parser corpus; owners
+    # and reproduction are documented in this crate's tests/{fixtures,reference}
+    # and fuzz READMEs. Admit these exact names, never arbitrary proof/archive files.
+    "crates/iroha_parliament_ballot_proof/fuzz/evidence/corpus.tar.xz",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/SHA256SUMS",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/reg_comparator.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/reg_fast.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/vote_S1000_i500_comparator.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/vote_S1000_i500_fast.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/vote_S3_i1_comparator.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/vote_S3_i1_fast.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/vote_S500_i250_comparator.proof",
+    "crates/iroha_parliament_ballot_proof/tests/fixtures/vote_S500_i250_fast.proof",
+    "crates/iroha_parliament_ballot_proof/tests/reference/SHA256SUMS",
+    # Public bundled generator parameters, included by pcs/ipa/bundled.rs.
+    "crates/iroha_plonk/src/pcs/ipa/parameters/pallas-k16.params",
+    "crates/iroha_plonk/src/pcs/ipa/parameters/vesta-k12.params",
+    "crates/iroha_plonk/src/pcs/ipa/parameters/vesta-k14.params",
+    "crates/iroha_plonk/src/pcs/ipa/parameters/vesta-k16.params",
     "crates/ivm/fuzz/corpus/artifact_admission_v1/canonical_seed",
     "crates/ivm/fuzz/corpus/artifact_admission_v1/raw_malformed_seed",
     "crates/ivm/fuzz/corpus/numeric_v1/arithmetic_full_width_seed",
@@ -349,6 +371,14 @@ _REVIEWED_PUBLIC_FIXTURE_INPUTS = frozenset({
     "crates/norito/tests/data/two_backslashes.tape",
     "crates/norito/tests/fixtures/sample_payload_frame.norito",
     "crates/sorafs_manifest/src/signer/final_promotion/tests/statement_fixture.message",
+    # Public PQClean count=0 known-answer responses; the owning fips20{3,4}
+    # tests independently pin the published digests. No arbitrary .rsp role.
+    "crates/soranet_pq/tests/fixtures/nistkat/ml-dsa-44.rsp",
+    "crates/soranet_pq/tests/fixtures/nistkat/ml-dsa-65.rsp",
+    "crates/soranet_pq/tests/fixtures/nistkat/ml-dsa-87.rsp",
+    "crates/soranet_pq/tests/fixtures/nistkat/ml-kem-512.rsp",
+    "crates/soranet_pq/tests/fixtures/nistkat/ml-kem-768.rsp",
+    "crates/soranet_pq/tests/fixtures/nistkat/ml-kem-1024.rsp",
 })
 # Two exact MockEnv inputs and two static compiler/contract assets have names
 # caught by the material rule. Their public, non-operational roles are bound to
@@ -363,7 +393,7 @@ _REVIEWED_PUBLIC_MOCK_ENV_INPUTS = frozenset({
     "crates/iroha_config/tests/fixtures/minimal_file_and_env.env",
 })
 _REVIEWED_PUBLIC_NONOPERATIONAL_FIXTURE_PINS = {
-    "crates/iroha_config/tests/fixtures/full.env": ("3f0cd58caab9edb0f4f3c02c9788962854d996d6de949af36508cce01b9a24dd", 2249),
+    "crates/iroha_config/tests/fixtures/full.env": ("159bdddf2c286caf700320df07b79edbf0a78a8385c7bef6d8a5b0db7d4e0c31", 2089),
     "crates/iroha_config/tests/fixtures/minimal_file_and_env.env": ("196c68787e11f84107aaa983a5cb02a97b5d2ef6f860269c85920a1baf5817f5", 26),
     "crates/iroha_zkp_halo2/src/generalized_bulletproof_secret_cleanup_contracts_v1.txt": ("06f3e6f960e02cb8a452e85d634d6b5b7518ac511d9ab98c69d2ba3e42d8eb4f", 53080),
     "crates/kotodama_lang/src/assets/diagnostics_v1/secret_reject_cases_v1.tsv": ("cbb124b4bda971357c61de40bf82566436efecf593e4bb5f9df8e4ac77b678db", 3525),

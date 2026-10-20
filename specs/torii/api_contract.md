@@ -221,6 +221,22 @@ containing no tokens reports `503 api_token_unavailable`. Every canonical
 finite `429` or `503` response includes both `Retry-After` and a matching typed
 retry hint.
 
+A committed-history read is refused permanently when the read itself needs more
+of a finite resource than the request's own budget holds: one window or
+allocation larger than its whole pool, or a decoder limit (one field, sequence
+or archive, or the read's cumulative decoded bytes, elements or nesting) that
+this deterministic read exceeds. Like the other too-large committed-history
+responses (`block_proof_capacity_exceeded`, `executed_block_wire_too_large`), it
+answers `413` with code `history_read_exceeds_request_budget`; `details.field`
+names the resource (`bytes` for a window or allocation), `details.actual` the
+quantity at which the deterministic read is refused (one item's exact size, or
+the cumulative amount it reached) and `details.expected` the request's limit
+(`at most N <resource>`). The same
+request can never succeed, so the response carries neither `Retry-After` nor
+`retry_after_seconds`. Transient capacity (parallel-query slots, a pool that
+other owners occupy, allocator pressure, a busy State publication) remains a
+retryable `429`.
+
 Connection-level pre-authentication capacity and rate gates run before
 credential validation.
 
@@ -410,6 +426,19 @@ optional block height, requested scope, and resolution source. It never returns
 rejection reasons or diagnostics, trigger completions, batch-transfer receipts,
 account identities, amounts, or instruction payloads, and the handler does not
 perform a second Kura lookup to hydrate those details.
+
+A committed outcome is authenticated for the exact transaction only, from
+bounded windows of its carrier frame under the request's own query budget: the
+Iroha header against the State hash journal, the transaction's index against
+the header's Network-input Merkle root (through the block's execution-context
+hashes), and its output against the certified output commitment of the block's
+result `R`, reached by the same descending walk from the native tip or a
+verified checkpoint. No transaction body is read except a sealed reveal, which is
+hashed once in bounded windows, both against its committed input hash and for the
+signed alias of its inner payload. The
+status of a committed transaction is therefore readable whatever the size of its
+block or of the transaction itself. A genesis outcome still requires its actual
+height-two successor and reads the complete genesis carrier.
 
 Pipeline absence is scoped and typed. HTTP `404` is pending only when the
 `ErrorEnvelope` has code `pipeline_transaction_status_not_found` and

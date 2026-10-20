@@ -58,6 +58,12 @@ pub struct AuthenticatedGenesis {
 }
 
 impl AuthenticatedGenesis {
+    /// Exact genesis-header network identity authenticated from the original signed source.
+    #[must_use]
+    pub const fn network_id(&self) -> NetworkId {
+        self.epoch.network_id
+    }
+
     /// Copy the exact metadata produced by this original canonical authentication.
     /// This performs no decoding and grants no execution-result or mutable-state authority.
     #[must_use]

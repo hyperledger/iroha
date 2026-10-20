@@ -40,7 +40,10 @@ fn checked_layout(job_count: usize, payload_bytes: usize) -> MetalResult<BatchLa
     let jobs = u32::try_from(job_count)
         .map_err(|_| GpuError::InvalidInput("Digest384 Metal job count exceeds u32"))?;
     let threads = jobs
-        .checked_mul(GOLDILOCKS_DIGEST384_LANES_V1 as u32)
+        .checked_mul(
+            u32::try_from(GOLDILOCKS_DIGEST384_LANES_V1)
+                .map_err(|_| GpuError::InvalidInput("Digest384 Metal lane width exceeds u32"))?,
+        )
         .ok_or(GpuError::InvalidInput(
             "Digest384 Metal lane count exceeds u32",
         ))?;
@@ -102,7 +105,7 @@ fn build_context() -> MetalResult<Digest384Context> {
 }
 
 /// Resume every canonical job on Metal and return only completed digest words.
-pub(crate) fn hash_last_fields(
+pub fn hash_last_fields(
     jobs: &[Digest384LastFieldJob<'_>],
 ) -> MetalResult<Vec<GoldilocksDigest384V1>> {
     let _drain_scope = DrainScope::enter(METAL_COMMAND_TIMEOUT);
@@ -309,7 +312,7 @@ fn collect_completed_output(
         let mut words = [0_u64; GOLDILOCKS_DIGEST384_LANES_V1];
         output.copy_range_to_slice(index * GOLDILOCKS_DIGEST384_LANES_V1, &mut words);
         digests.push(
-            GoldilocksDigest384V1::new(words).ok_or(GpuError::Execution {
+            GoldilocksDigest384V1::new(words).ok_or_else(|| GpuError::Execution {
                 backend: GpuBackend::Metal,
                 message: "Digest384 Metal returned a noncanonical field element".into(),
             })?,

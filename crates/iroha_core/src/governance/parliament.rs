@@ -57,12 +57,14 @@ use super::{
     timed_ovn::TimedOvnParliamentReducerBindingV1,
 };
 
-/// Proposal-wide ceiling for adversarially selectable fresh randomness.
-///
-/// V1 deliberately reuses the outer governance retry ceiling instead of
-/// exposing an independently tunable consensus parameter.
-pub(crate) const MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1: u32 =
-    MAX_PARLIAMENT_GOVERNANCE_ATTEMPT_RETRIES_V1;
+/// Proposal-wide ceiling for adversarially selectable fresh randomness, defined once by
+/// the data model.
+pub(crate) use iroha_data_model::parameter::parliament_lifecycle::MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1;
+
+// V1 deliberately keeps the redraw ceiling equal to the outer governance retry ceiling
+// instead of exposing an independently tunable consensus bound.
+const _: () =
+    assert!(MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1 == MAX_PARLIAMENT_GOVERNANCE_ATTEMPT_RETRIES_V1);
 
 pub(crate) fn hidden_ballot_population_meets_anonymity_floor_v1(count: usize) -> bool {
     u32::try_from(count).is_ok_and(|count| count >= MIN_PARLIAMENT_HIDDEN_BALLOT_ANONYMITY_V1)

@@ -1631,7 +1631,25 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let extra = extra(&keys);
+        let fee_asset =
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
+        // Ordinary fixture work pays the committed fee policy. Establish its funds
+        // in the original signed genesis so replay reconstructs the same supply.
         let mut builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
+            .append_instruction(Register::asset_definition(AssetDefinition::numeric(
+                fee_asset.clone(),
+                "node fixture fee",
+                iroha_data_model::asset::AssetBalancePolicy::Global,
+                Some(iroha_genesis::GENESIS_DOMAIN_ID.clone()),
+            )))
+            .append_instruction(Mint::asset_quantity(
+                1_000_000_u32,
+                AssetId::new(fee_asset.clone(), ALICE_ID.clone()),
+            ))
+            .append_instruction(Mint::asset_quantity(
+                1_000_000_u32,
+                AssetId::new(fee_asset, second_shard_account()),
+            ))
             .append_parameter(Parameter::Sumeragi(
                 SumeragiParameter::PayloadRetryIntervalMs(
                     NonZeroU64::new(payload_retry_interval_ms).expect("non-zero"),
@@ -1639,22 +1657,6 @@ mod tests {
             ));
         for parameter in extra {
             builder = builder.append_parameter(parameter);
-        }
-        // Ordinary node traffic pays the fee policy encoded by GenesisBuilder. Fund both
-        // workload signers through the same signed genesis, including the elastic shard.
-        let fee_asset =
-            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
-        builder = builder.append_instruction(Register::asset_definition(AssetDefinition::numeric(
-            fee_asset.clone(),
-            "Node fixture XOR",
-            iroha_data_model::asset::AssetBalancePolicy::Global,
-            None,
-        )));
-        for payer in [ALICE_ID.clone(), second_shard_account()] {
-            builder = builder.append_instruction(Mint::asset_quantity(
-                1_000_000_u32,
-                AssetId::of(fee_asset.clone(), payer),
-            ));
         }
         let manifest = builder
             .with_block_cadence_ms(NonZeroU64::new(100).expect("non-zero"))
@@ -2030,41 +2032,50 @@ mod tests {
         message: &str,
     ) -> HashOf<TransactionEntrypoint> {
         let network_id = NetworkId::from_genesis_hash(chain.genesis.hash());
-        let instruction = InstructionBox::from(Log::new(Level::INFO, message.to_owned()));
-        let fees = validators[0]
-            .state
-            .view()
-            .world()
-            .parameters()
-            .root_fees()
-            .expect("original signed node fee policy")
-            .clone();
-        assert!(
-            fees.per_byte_fee.is_zero(),
-            "fixed node fixture has no byte fee"
-        );
-        let gas = crate::gas::meter_instruction(&instruction, &crate::gas::DEFAULT_ZK_GAS)
-            .expect("complete Log gas quote");
-        let fee = crate::executor::compute_nexus_fee_amount(&fees, 0, 1, gas)
-            .expect("exact signed Log charge");
-        assert!(
-            !fee.is_zero(),
-            "ordinary node progress pays its committed fee"
-        );
-        let signed = TransactionBuilder::new(
+        let builder = TransactionBuilder::new(
             network_id,
             AccountId::new(key.public_key().clone()),
-            FeePaymentIntent::authority(
-                vec![FeeChargeLimit::new(
-                    FeeChargeKind::Nexus,
-                    fees.fee_asset_id,
-                    fee,
-                )],
-                None,
-            ),
+            FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions([instruction])
-        .sign(key.private_key());
+        .with_instructions([Log::new(Level::INFO, message.to_owned())]);
+        // Quote the original payload against the actual committed parent, then put
+        // its exact native bounds into the payload before the submitted signature.
+        let draft = builder.clone().sign(key.private_key());
+        let view = validators
+            .first()
+            .expect("a running validator")
+            .state
+            .view();
+        let horizon = draft.creation_time().saturating_add(
+            draft
+                .time_to_live()
+                .expect("fixture input has a bounded lifetime"),
+        );
+        let quote = crate::executor::quote_nexus_fee_admission_draft(
+            view.world(),
+            view.nexus(),
+            view.pipeline(),
+            &view.zk().gas,
+            draft.payload(),
+            u64::try_from(horizon.as_millis()).expect("fixture fee horizon fits"),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
+            view.height() as u64 + 1,
+            Some(iroha_model_base::topology::DataSpaceId::UNIVERSAL),
+        )
+        .expect("original genesis funds the ordinary native fee quote");
+        assert!(
+            quote
+                .quote
+                .charges
+                .iter()
+                .any(|charge| !charge.max_bound.is_zero()),
+            "ordinary fixture input must pay its positive committed fee"
+        );
+        drop(view);
+        let signed = builder
+            .with_fee_payment_intent(quote.recommended_intent)
+            .sign(key.private_key());
         let accepted = AcceptedTransaction::accept(
             signed,
             &network_id,
@@ -2493,9 +2504,35 @@ mod tests {
 
     #[test]
     fn idle_chain_never_advances_and_real_work_survives_restart() {
+        use mv::storage::StorageReadOnly as _;
+
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
+        let fee_asset =
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
+        let fee_balances = |validators: &[Validator]| {
+            validators
+                .iter()
+                .map(|validator| {
+                    let view = validator.state.view();
+                    [ALICE_ID.clone(), second_shard_account()].map(|payer| {
+                        view.world()
+                            .assets()
+                            .get(&AssetId::new(fee_asset.clone(), payer))
+                            .expect("signer funded by the original genesis")
+                            .as_ref()
+                            .clone()
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let initial_balance = iroha_primitives::numeric::Quantity::from(1_000_000_u32);
+        assert_eq!(
+            fee_balances(&validators),
+            vec![[initial_balance.clone(), initial_balance.clone()]; 4],
+            "genesis funds each workload signer exactly once"
+        );
         assert_eq!(committed_heights(&validators), vec![GENESIS_HEIGHT; 4]);
         assert_idle_height_unchanged(&validators, Duration::from_millis(750));
         let hash = submit(&chain, &validators, "after idle");
@@ -2509,6 +2546,10 @@ mod tests {
         // Every validator holds the same complete World.
         let roots = world_state_roots(&validators);
         assert!(roots[0].is_ok() && roots.iter().all(|root| *root == roots[0]));
+        let balances = fee_balances(&validators);
+        assert!(balances.iter().all(|balance| {
+            balance == &balances[0] && balance[0] < initial_balance && balance[1] == initial_balance
+        }));
         shutdown(validators);
         let committed = disks
             .iter()
@@ -2522,6 +2563,7 @@ mod tests {
         // the one before shutdown.
         let validators = start_all(&chain, &disks, false);
         assert_eq!(world_state_roots(&validators), roots);
+        assert_eq!(fee_balances(&validators), balances);
         assert_idle_height_unchanged(&validators, Duration::from_millis(750));
         let hash = submit(&chain, &validators, "after idle restart");
         wait_until(
@@ -2531,6 +2573,11 @@ mod tests {
             || committed_everywhere(&validators, hash),
         );
         assert_eq!(committed_heights(&validators), vec![3; 4]);
+        assert!(
+            fee_balances(&validators)
+                .iter()
+                .all(|balance| { balance[0] < balances[0][0] && balance[1] == initial_balance })
+        );
         shutdown(validators);
         assert_same_certified_blocks(&disks, 3);
     }

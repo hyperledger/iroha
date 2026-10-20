@@ -13,6 +13,7 @@ thread_local! {
     static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
     static REFUSAL_ACTIVE: Cell<bool> = const { Cell::new(false) };
     static REFUSE_LAYOUT: Cell<Option<Layout>> = const { Cell::new(None) };
+    static MATCHES_TO_SKIP: Cell<usize> = const { Cell::new(0) };
     static REFUSAL_OBSERVED: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -33,6 +34,16 @@ fn refuse_allocation(layout: Layout) -> bool {
     REFUSE_LAYOUT
         .try_with(|expected| {
             if expected.get() == Some(layout) {
+                if MATCHES_TO_SKIP.with(|skip| {
+                    if skip.get() == 0 {
+                        false
+                    } else {
+                        skip.set(skip.get() - 1);
+                        true
+                    }
+                }) {
+                    return false;
+                }
                 expected.set(None);
                 let _ = REFUSAL_OBSERVED.try_with(|observed| observed.set(true));
                 true
@@ -115,11 +126,25 @@ pub(crate) fn allocations_during(f: impl FnOnce()) -> usize {
 /// # Panics
 /// Rejects nested refusal before changing the outer observation.
 pub(crate) fn refuse_one_layout_during<T>(layout: Layout, f: impl FnOnce() -> T) -> (T, bool) {
+    refuse_layout_occurrence_during(layout, 0, f)
+}
+
+/// Refuse the zero-based selected occurrence of one exact physical layout.
+/// Earlier matching allocations succeed; all later allocations remain untouched.
+///
+/// # Panics
+/// Rejects nested refusal before changing the existing observation.
+pub(crate) fn refuse_layout_occurrence_during<T>(
+    layout: Layout,
+    occurrence: usize,
+    f: impl FnOnce() -> T,
+) -> (T, bool) {
     struct RestoreAllocator;
     impl Drop for RestoreAllocator {
         fn drop(&mut self) {
             REFUSE_LAYOUT.with(|expected| expected.set(None));
             REFUSAL_ACTIVE.with(|active| active.set(false));
+            MATCHES_TO_SKIP.with(|skip| skip.set(0));
         }
     }
 
@@ -129,6 +154,7 @@ pub(crate) fn refuse_one_layout_during<T>(layout: Layout, f: impl FnOnce() -> T)
     );
     REFUSAL_ACTIVE.with(|active| active.set(true));
     REFUSE_LAYOUT.with(|expected| expected.set(Some(layout)));
+    MATCHES_TO_SKIP.with(|skip| skip.set(occurrence));
     REFUSAL_OBSERVED.with(|observed| observed.set(false));
     let guard = RestoreAllocator;
     let result = f();
@@ -327,4 +353,25 @@ mod tests {
             assert_eq!(allocations, 0);
         });
     }
+}
+
+#[test]
+fn physical_refusal_selects_the_second_equal_layout_and_restores_after_unwind() {
+    let layout = Layout::array::<u8>(37).unwrap();
+    let (result, observed) = refuse_layout_occurrence_during(layout, 1, || {
+        let mut first = Vec::<u8>::new();
+        first.try_reserve_exact(37).unwrap();
+        let mut second = Vec::<u8>::new();
+        let error = second.try_reserve_exact(37);
+        second.try_reserve_exact(37).unwrap();
+        error
+    });
+    assert!(observed && result.is_err());
+    let panic = std::panic::catch_unwind(|| {
+        refuse_layout_occurrence_during(layout, 1, || panic!("unwind selected occurrence"))
+    });
+    assert!(panic.is_err());
+    let (result, observed) =
+        refuse_one_layout_during(layout, || Vec::<u8>::new().try_reserve_exact(37));
+    assert!(observed && result.is_err());
 }

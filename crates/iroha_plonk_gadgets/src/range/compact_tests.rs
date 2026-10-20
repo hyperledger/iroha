@@ -95,8 +95,29 @@ fn run<F: PastaField>() {
         known.tables.advice_assigned(),
         unknown.tables.advice_assigned()
     );
+    // The quadratic fixed pattern makes the lookup input cubic. The raw
+    // shifted-top gate stays degree four; the norm argument needs degree ten.
+    let gate_degree = known
+        .cs
+        .gates()
+        .iter()
+        .flat_map(|gate| {
+            gate.polynomials()
+                .iter()
+                .map(iroha_plonk::Expression::degree)
+        })
+        .max()
+        .expect("compact shifted-top gate");
+    assert_eq!(gate_degree, 4);
+    assert!(gate_degree <= crate::MAX_GATE_DEGREE);
     assert_eq!(known.cs.lookups().len(), 1);
-    assert_eq!(known.cs.degree(), 6);
+    let lookup = &known.cs.lookups()[0];
+    assert_eq!(lookup.name(), "compact running-sum limb");
+    assert_eq!(lookup.width(), 1);
+    assert_eq!(lookup.input_expressions()[0].degree(), 3);
+    assert_eq!(lookup.table_expressions()[0].degree(), 1);
+    assert_eq!(lookup.required_degree(), 10);
+    assert_eq!(known.cs.degree(), 10);
     assert!(
         crate::tamper::undetected_tampers(&circuit, 9, &public)
             .unwrap()

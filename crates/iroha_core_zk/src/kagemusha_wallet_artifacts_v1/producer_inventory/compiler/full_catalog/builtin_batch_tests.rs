@@ -57,7 +57,9 @@ fn builtin_complete_batch_reuse_preserves_every_role_and_original() {
     let (distinct, memo_off) =
         descriptor_memo_controls(&qualified, &installed, &mut originals, config, profile);
     println!(
-        "BUILTIN_BATCH_ACCEPTED routes=22 programs=16 signature_controls={signature_controls} receive_controls={receive_controls} sigma_rebuilds={sigma_rebuilds} route_descriptor_decodes={distinct} memo_off_descriptor_decodes={memo_off} every_role_revalidated=true monetary_custody=false"
+        "BUILTIN_BATCH_ACCEPTED routes={} programs={} signature_controls={signature_controls} receive_controls={receive_controls} sigma_rebuilds={sigma_rebuilds} route_descriptor_decodes={distinct} memo_off_descriptor_decodes={memo_off} every_role_revalidated=true monetary_custody=false",
+        qualified.inventory().routes.len(),
+        qualified.inventory().operations.len(),
     );
 }
 

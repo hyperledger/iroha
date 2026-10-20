@@ -12,7 +12,7 @@ What it does
   Security 2021, eprint 2019/458) and its `generate_parameters_grain.sage`
   script. The implementation here shares no code with the Rust owner or with the
   `poseidon-primitives` test oracle.
-* Compares the result with the 621 fixed field elements in
+* Compares the result with the 648 fixed field elements in
   crates/iroha_zkp_poseidon/src/poseidon/bn254_v1.rs.
 * Compares the same generator, run with the published round numbers, with pinned
   values of the published BN254 width-three instantiation
@@ -54,15 +54,15 @@ FIELD_BITS = 254
 ALPHA = 5
 SECURITY_BITS = 128
 FULL_ROUNDS = 8
-REPOSITORY_PARTIAL_ROUNDS = 56
+PARTIAL_ROUNDS_BY_WIDTH = {3: 57, 6: 60}
 WIDTHS = (3, 6)
 
 # Published BN254 x^5 width-three instantiation: hadeshash
 # `code/poseidonperm_x5_254_3.sage` (R_F = 8, R_P = 57). The first six round
 # constants and the full MDS matrix are pinned here so the generator is checked
-# against published values without any download. The same values ship in the
-# `poseidon-primitives` 0.2.0 crate (`src/poseidon/primitives/bn256/fp.rs`) that
-# the Rust owner uses as a test oracle.
+# against published values without any download. All selected constants and matrices were also compared with circomlibjs
+# v0.1.7 commit 4f094c5be05c1f0210924a3ab204d8fd8da69f49; source custody
+# and exact table pins are recorded in fixtures/poseidon/bn254-provenance.json.
 PUBLISHED_WIDTH3_PARTIAL_ROUNDS = 57
 PUBLISHED_WIDTH3_FIRST_ROUND_CONSTANTS = (
     6745197990210204598374042828761989596302876299545964402857411729872131034734,
@@ -94,8 +94,8 @@ PUBLISHED_WIDTH3_MDS = (
 # row-major MDS matrix, every element as 32 canonical little-endian bytes. The
 # Rust test `bn254_parameter_exports_match_captured_bytes` pins the same values.
 REPOSITORY_TABLE_SHA256 = {
-    3: "20a6364b21446c75eafb313c00cda37f1e772a3e76f158d6938b40fd52988709",
-    6: "443ee9a4a9e5f8425720a184e8ef3fbe1897c9fcae80e4c1827cf0a246889bda",
+    3: "e4b7f120fccdc21a73dd32fb210837a733555cb831173a0210d606f1a7705975",
+    6: "51ccbda8c3a46b0b214c9ad507fb0f5028340eb8efbf9b64aa772dbc862d7cdd",
 }
 
 # The seed of the pseudo-random vector states. Fixed, so vectors are stable.
@@ -196,7 +196,7 @@ def parse_repository_table(root: Path = ROOT) -> dict[int, tuple[list[list[int]]
     tables: dict[int, tuple[list[list[int]], list[list[int]]]] = {}
     for width in WIDTHS:
         match = re.search(
-            rf"const WIDTH{width}: Bn254PoseidonParams<{width}> = Bn254PoseidonParams \{{(.*?)\n\}};",
+            rf"const WIDTH{width}: Bn254PoseidonParams<{width}, {8 + PARTIAL_ROUNDS_BY_WIDTH[width]}> = Bn254PoseidonParams \{{(.*?)\n\}};",
             text,
             re.S,
         )
@@ -211,7 +211,7 @@ def parse_repository_table(root: Path = ROOT) -> dict[int, tuple[list[list[int]]
                 raise ValueError(f"WIDTH{width} table is not a whole number of field elements")
             parts.append([int.from_bytes(raw[i : i + 32], "little") for i in range(0, len(raw), 32)])
         flat_constants, flat_mds = parts
-        rounds = FULL_ROUNDS + REPOSITORY_PARTIAL_ROUNDS
+        rounds = FULL_ROUNDS + PARTIAL_ROUNDS_BY_WIDTH[width]
         if len(flat_constants) != rounds * width or len(flat_mds) != width * width:
             raise ValueError(
                 f"WIDTH{width} table has {len(flat_constants)} constants and {len(flat_mds)} "
@@ -463,13 +463,17 @@ def permute(
 
 
 def hash2(a: int, b: int, table3) -> int:
-    """`hash2_bytes`: state `[a, b, 0]`, one permutation, coordinate 0."""
-    return permute([a, b, 0], *table3)[0]
+    """Iroha H.2 fixed arity two: capacity tag, one rate-two block, output one."""
+    return permute([2 << 64, a, b], *table3)[1]
 
 
 def hash6(inputs: Sequence[int], table6) -> int:
-    """`hash6_bytes`: all six state coordinates are inputs, one permutation, coordinate 0."""
-    return permute(list(inputs), *table6)[0]
+    """Iroha H.2 fixed arity six: two additive rate-five blocks, output one."""
+    if len(inputs) != 6:
+        raise ValueError("hash6 requires exactly six inputs")
+    state = permute([6 << 64, *inputs[:5]], *table6)
+    state[1] = (state[1] + inputs[5]) % BN254_FR
+    return permute(state, *table6)[1]
 
 
 def hash_bytes(data: bytes, table3) -> int:
@@ -560,7 +564,7 @@ def reference_vectors(tables) -> dict[str, object]:
             "ff" * 32,
         ],
         # First round constant of the published width-three instantiation
-        # (R_P = 57). The repository table (R_P = 56) must not contain it.
+        # (R_P = 57). The selected width-three table must begin with it.
         "published_width3_first_round_constant": _hex(PUBLISHED_WIDTH3_FIRST_ROUND_CONSTANTS[0]),
     }
 
@@ -572,7 +576,7 @@ def _hex_wide(value: int) -> str:
 def render_vector_fixture(vectors: dict[str, object]) -> str:
     """Render the vectors as the line-oriented fixture the Rust test reads."""
     lines = [
-        "# BN254 Poseidon reference vectors (repository parameters: x^5, R_F = 8, R_P = 56).",
+        "# BN254 Poseidon reference vectors (selected parameters: x^5, R_F = 8, width3 R_P = 57, width6 R_P = 60).",
         "# Generated by `python3 scripts/zk_bn254_poseidon_reference.py --write-vectors`.",
         "# Field elements are 32-byte canonical little-endian hex. Do not edit by hand.",
     ]
@@ -600,7 +604,7 @@ def build_report(root: Path = ROOT) -> dict[str, object]:
     tables = parse_repository_table(root)
     widths: dict[str, object] = {}
     for width in WIDTHS:
-        generated = generate_parameters(width, FULL_ROUNDS, REPOSITORY_PARTIAL_ROUNDS)
+        generated = generate_parameters(width, FULL_ROUNDS, PARTIAL_ROUNDS_BY_WIDTH[width])
         if generated != tables[width]:
             raise ValueError(
                 f"width {width}: the repository table differs from the Grain/Cauchy regeneration"
@@ -618,20 +622,20 @@ def build_report(root: Path = ROOT) -> dict[str, object]:
         minimum = minimum_partial_rounds(width, FULL_ROUNDS)
         widths[str(width)] = {
             "rate": width - 1,
-            "field_elements": (FULL_ROUNDS + REPOSITORY_PARTIAL_ROUNDS) * width + width * width,
+            "field_elements": (FULL_ROUNDS + PARTIAL_ROUNDS_BY_WIDTH[width]) * width + width * width,
             "table_sha256": digest,
             **minors,
             **screens,
             "repository_full_rounds": FULL_ROUNDS,
-            "repository_partial_rounds": REPOSITORY_PARTIAL_ROUNDS,
+            "repository_partial_rounds": PARTIAL_ROUNDS_BY_WIDTH[width],
             "margin_rule_full_rounds": recommended["full_rounds"],
             "margin_rule_partial_rounds": recommended["partial_rounds"],
             "minimum_partial_rounds_without_margin": minimum["without_margin"],
             "minimum_partial_rounds_with_margin": minimum["with_margin"],
-            "repository_meets_margin_rule": REPOSITORY_PARTIAL_ROUNDS >= minimum["with_margin"],
-            "repository_meets_unmargined_bound": REPOSITORY_PARTIAL_ROUNDS
+            "repository_meets_margin_rule": PARTIAL_ROUNDS_BY_WIDTH[width] >= minimum["with_margin"],
+            "repository_meets_unmargined_bound": PARTIAL_ROUNDS_BY_WIDTH[width]
             >= minimum["without_margin"] and round_number_bounds(
-                width, FULL_ROUNDS - 2, REPOSITORY_PARTIAL_ROUNDS
+                width, FULL_ROUNDS - 2, PARTIAL_ROUNDS_BY_WIDTH[width]
             )["satisfied"],
         }
     published = generate_parameters(3, FULL_ROUNDS, PUBLISHED_WIDTH3_PARTIAL_ROUNDS)

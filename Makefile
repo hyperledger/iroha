@@ -189,6 +189,7 @@ guards:
 	@python3 scripts/check_zk_runtime_validity.py
 	@python3 scripts/check_zk_operation_inventory.py
 	@python3 scripts/check_durable_workflow_contract.py
+	@python3 scripts/check_operation_contract.py
 	@python3 scripts/check_zk_economic_invariants.py
 	@python3 scripts/check_zk_primitive_workloads.py
 	@python3 scripts/check_state_commitment_candidates.py

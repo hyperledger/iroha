@@ -82,6 +82,7 @@ Mochi.app/Contents/Info.plist
 Mochi.app/Contents/MacOS/mochi
 Mochi.app/Contents/MacOS/kagami
 Mochi.app/Contents/MacOS/iroha3d
+Mochi.app/Contents/Resources/Mochi.icns # Finder icon named by Info.plist
 Mochi.app/Contents/Resources/network-profiles.nrt # required release-owned Taira preset
 docs/README.md
 LICENSE
@@ -93,6 +94,11 @@ installed smoke and latency controllers. Linux/Windows use `bin` for programs
 and profiles, with `.exe` on Windows. macOS ships no outer copies or launcher
 scripts. The generated plist uses `org.hyperledger.iroha.mochi`, executable
 `mochi`, and the explicit numeric version from the **mochi-ui package manifest**.
+Its `CFBundleIconFile` names `Mochi.icns`, an exact copy of the committed
+`mochi/assets/mochi-icon.icns` (rendered from `mochi-icon.svg`; see
+`mochi/assets/README.md`). The bundler retains that source and the copied icon
+under the same custody as the plist, so packaging needs no image tools.
+Linux/Windows packages carry no application metadata or icon.
 Assembly is not code signing or notarization; those remain separate release
 qualification work.
 
@@ -109,8 +115,8 @@ relocation does not silently rebind them. Direct loose developer executables
 (e.g. `target/debug`) are also supported explicitly and keep profiles beside
 their programs. This development mode is not an alternate macOS package layout.
 
-The manifest inventories all packaged files except itself, including the plist
-and installed profiles. Inventory and staging propagate traversal failures and
+The manifest inventories all packaged files except itself, including the plist,
+icon and installed profiles. Inventory and staging propagate traversal failures and
 reject symlinks or other nonregular entries instead of silently omitting them.
 The inventory is sorted by relative path; its hashes need authenticated release
 provenance before they establish download trust.

@@ -1,0 +1,374 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --profile local-release -p iroha_core --features iroha-core-tests --lib -- anonymous signerless unavailable_admission sealed_entrypoints --nocapture --test-threads=1
+   Compiling zeroize v1.8.2
+   Compiling rand v0.8.7
+   Compiling memchr v2.8.0
+   Compiling bitvec v1.0.1
+   Compiling generic-array v0.14.7
+   Compiling arrayvec v0.7.6
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling memuse v0.2.2
+   Compiling digest v0.10.7
+   Compiling tinystr v0.8.3
+   Compiling hmac v0.12.1
+   Compiling icu_locale_core v2.2.0
+   Compiling sha2 v0.10.9
+   Compiling zerotrie v0.2.4
+   Compiling icu_collections v2.2.0
+   Compiling keccak v0.1.6
+   Compiling icu_provider v2.2.0
+   Compiling ff v0.13.1
+   Compiling group v0.13.0
+   Compiling num-bigint v0.4.6 (/Users/mtakemiya/dev/iroha/vendor/num-bigint-0.4.6)
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling blake3 v1.8.5
+   Compiling idna_adapter v1.2.2
+   Compiling sha3 v0.10.9
+   Compiling chacha20 v0.10.2
+   Compiling idna v1.1.0
+   Compiling hkdf v0.12.4
+   Compiling chacha20poly1305 v0.11.0-rc.3
+   Compiling url v2.5.8
+   Compiling simdutf8 v0.1.5
+   Compiling gimli v0.32.3
+   Compiling norito v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito)
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling object v0.37.3
+   Compiling inout v0.1.4
+   Compiling rustc-demangle v0.1.27
+   Compiling addr2line v0.25.1
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling cipher v0.4.4
+   Compiling indexmap v2.14.0
+   Compiling der v0.7.10
+   Compiling fixedbitset v0.4.2
+   Compiling petgraph v0.6.5
+   Compiling backtrace v0.3.76
+   Compiling spki v0.7.3
+   Compiling errno v0.3.14
+   Compiling time v0.3.47
+   Compiling parking_lot_core v0.9.12
+   Compiling pkcs8 v0.10.2
+   Compiling ark-std v0.4.0
+   Compiling universal-hash v0.5.1
+   Compiling sec1 v0.7.3
+   Compiling ark-serialize v0.4.2
+   Compiling blake2 v0.10.6
+   Compiling signature v2.2.0
+   Compiling crypto-bigint v0.5.5
+   Compiling ark-ff v0.4.2
+   Compiling parking_lot v0.12.5
+   Compiling elliptic-curve v0.13.8
+   Compiling rfc6979 v0.4.0
+   Compiling rustix v1.1.4
+   Compiling pairing v0.23.0
+   Compiling iroha_primitives v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_primitives)
+   Compiling curve25519-dalek v4.1.3
+   Compiling ecdsa v0.16.9
+   Compiling primeorder v0.13.6
+   Compiling polyval v0.6.2
+   Compiling aho-corasick v1.1.4
+   Compiling ark-poly v0.4.2
+   Compiling ark-ec v0.4.2
+   Compiling regex-automata v0.4.14
+   Compiling ark-bls12-381 v0.4.0
+   Compiling ark-bls12-377 v0.4.0
+   Compiling ghash v0.5.1
+   Compiling blst v0.3.16
+   Compiling ed25519 v2.2.3
+   Compiling sm4 v0.5.1
+   Compiling merlin v3.0.0
+   Compiling sm3 v0.4.2
+   Compiling tempfile v3.27.0
+   Compiling blstrs v0.7.1
+   Compiling sm2 v0.13.3
+   Compiling ed25519-dalek v2.2.0
+   Compiling argon2 v0.5.3
+   Compiling sm4-gcm v0.1.2
+   Compiling iroha_plonk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk)
+   Compiling soranet_pq v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/soranet_pq)
+   Compiling w3f-bls v0.1.9
+   Compiling k256 v0.13.4
+   Compiling x25519-dalek v2.0.1
+   Compiling iroha_pasta v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_pasta)
+   Compiling iroha_fhe v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_fhe)
+   Compiling crypto-bigint v0.6.1
+   Compiling fastpq_isi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/fastpq_isi)
+   Compiling iroha_crypto v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_crypto)
+   Compiling libm v0.2.16
+   Compiling pin-project-lite v0.2.17
+   Compiling halo2curves v0.9.0
+   Compiling sorafs_chunker v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_chunker)
+   Compiling iroha_zkp_poseidon v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_poseidon)
+warning: iroha_plonk@2.0.0-rc.2.0: closed source registry disabled: source changed during identity computation
+   Compiling regex v1.12.3
+   Compiling iroha_model_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_model_base)
+   Compiling sorafs_manifest v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_manifest)
+   Compiling iroha_sumeragi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sumeragi)
+   Compiling p256 v0.13.2
+   Compiling iroha_version v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_version)
+   Compiling tracing-core v0.1.36
+   Compiling iroha_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_data_model)
+   Compiling tracing v0.1.44
+   Compiling serde_json v1.0.150
+   Compiling tracing-serde v0.2.0
+   Compiling matchers v0.2.0
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.9
+   Compiling nu-ansi-term v0.50.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling strum v0.28.0
+   Compiling error-stack v0.8.0
+   Compiling crunchy v0.2.4
+   Compiling blake2b_simd v1.0.4
+   Compiling ring v0.17.14
+   Compiling log v0.4.30
+   Compiling drop_bomb v0.1.5
+   Compiling indenter v0.3.4
+   Compiling eyre v0.6.12
+   Compiling iroha_config_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config_base)
+   Compiling iroha_accel v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_accel)
+   Compiling iroha_service_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_service_model)
+   Compiling bytes v1.11.1 (/Users/mtakemiya/dev/iroha/vendor/bytes)
+   Compiling objc2-encode v4.1.0
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling objc2 v0.6.4
+   Compiling pasta_curves v0.5.2
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.0
+   Compiling socket2 v0.6.3
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling untrusted v0.9.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstream v1.0.0
+   Compiling tokio v1.52.3
+   Compiling tiny-keccak v2.0.2
+   Compiling futures-core v0.3.32
+   Compiling minimal-lexical v0.2.1
+   Compiling futures-sink v0.3.32
+   Compiling strsim v0.11.1
+   Compiling clap_builder v4.6.0
+   Compiling nom v7.1.3
+   Compiling owo-colors v4.3.0
+   Compiling block2 v0.6.2
+   Compiling tracing-error v0.2.1
+   Compiling iroha_fs v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_fs)
+   Compiling rustls-pki-types v1.14.1
+   Compiling fnv v1.0.7
+   Compiling hashbrown v0.12.3
+   Compiling indexmap v1.9.3
+   Compiling prometheus v0.14.0
+   Compiling pin-project v1.1.13
+   Compiling clap v4.6.1
+   Compiling color-spantrace v0.3.0
+   Compiling rusticata-macros v4.1.0
+   Compiling iroha_zkp_halo2 v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_halo2)
+   Compiling objc2-core-foundation v0.3.2
+   Compiling poly1305 v0.8.0
+   Compiling chacha20 v0.9.1
+   Compiling bls12_381 v0.8.0
+   Compiling maybe-rayon v0.1.1
+   Compiling iroha_telemetry_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_telemetry_derive)
+   Compiling aead v0.5.2
+   Compiling rustls v0.23.45
+   Compiling halo2_legacy_pdqsort v0.1.0
+   Compiling halo2_proofs v0.3.4
+   Compiling asn1-rs v0.7.2
+   Compiling chacha20poly1305 v0.10.1
+   Compiling jubjub v0.10.0
+   Compiling objc2-foundation v0.3.2
+   Compiling color-eyre v0.6.5
+   Compiling tracing-futures v0.2.5
+   Compiling rustls-webpki v0.103.15
+   Compiling dispatch2 v0.3.1
+   Compiling futures-channel v0.3.32
+   Compiling sinsemilla v0.1.0
+   Compiling halo2_poseidon v0.1.0
+   Compiling zcash_spec v0.2.1
+   Compiling uint v0.9.5
+   Compiling iroha_plonk_gadgets v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk_gadgets)
+   Compiling iroha_i18n v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_i18n)
+   Compiling cbc v0.1.2
+   Compiling slab v0.4.12
+   Compiling futures-io v0.3.32
+   Compiling futures-task v0.3.32
+   Compiling futures-util v0.3.32
+   Compiling iroha_plonk_recursion v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk_recursion)
+   Compiling fpe v0.6.1
+   Compiling halo2_gadgets v0.5.0
+   Compiling zip32 v0.2.1
+   Compiling objc2-metal v0.3.2
+   Compiling reddsa v0.5.2
+   Compiling likely_stable v0.1.3
+   Compiling zcash_note_encryption v0.4.2
+   Compiling tokio-util v0.7.18
+   Compiling pem v3.0.6
+   Compiling yasna v0.5.2
+   Compiling aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+   Compiling incrementalmerkletree v0.8.2
+   Compiling corez v0.1.1
+   Compiling nonempty v0.11.0
+   Compiling orchard v0.15.4 (https://github.com/zcash/orchard.git?rev=9d07047d32c4787e1b7964b4cf4fa0286c93824c#9d07047d)
+   Compiling mv v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/mv)
+   Compiling rcgen v0.14.5
+   Compiling tokio-rustls v0.26.4
+   Compiling iroha_kagemusha_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_kagemusha_proof)
+   Compiling futures v0.3.32
+   Compiling oid-registry v0.8.1
+   Compiling der-parser v10.0.0
+   Compiling tinytemplate v1.2.1
+   Compiling kaigi_zk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kaigi_zk)
+   Compiling memmap2 v0.9.11
+   Compiling data-encoding v2.11.0
+   Compiling dissimilar v1.0.11
+   Compiling iroha_core v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core)
+   Compiling hashbrown v0.14.5
+   Compiling dashmap v6.2.1
+   Compiling expect-test v1.5.1
+   Compiling x509-parser v0.18.1
+   Compiling criterion v0.8.2
+   Compiling iroha_file_mmap v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_file_mmap)
+   Compiling iroha_panic_hook v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_panic_hook)
+   Compiling http v1.4.0
+   Compiling settlement_router v0.1.0 (/Users/mtakemiya/dev/iroha/crates/settlement_router)
+   Compiling crossbeam-queue v0.3.12
+   Compiling iroha_executor_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_executor_data_model)
+   Compiling ivm_abi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm_abi)
+   Compiling iroha_torii_shared v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_torii_shared)
+   Compiling kotodama_surface v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_surface)
+   Compiling ivm_artifact_admission v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm_artifact_admission)
+   Compiling iroha_config v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config)
+   Compiling iroha_telemetry v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_telemetry)
+   Compiling iroha_logger v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_logger)
+   Compiling fastpq_prover v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/fastpq_prover)
+   Compiling iroha_futures v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_futures)
+   Compiling ivm v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm)
+   Compiling iroha_p2p v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_p2p)
+   Compiling iroha_core_privacy v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_privacy)
+   Compiling iroha_core_zk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_zk)
+warning: method `local_blacklist` is never used
+   --> crates/iroha_core_zk/src/kagemusha_wallet_state_v1/manifest/blacklists.rs:167:49
+    |
+ 93 | impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    | ----------------------------------------------------------------------- method in this implementation
+...
+167 |     pub(in crate::kagemusha_wallet_state_v1) fn local_blacklist(
+    |                                                 ^^^^^^^^^^^^^^^
+    |
+    = note: `-W dead-code` implied by `-W unused`
+    = help: to override `-W unused` add `#[allow(dead_code)]`
+
+   Compiling iroha_genesis v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_genesis)
+   Compiling kotodama_lang v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_lang)
+warning: `iroha_core_zk` (lib) generated 1 warning
+   Compiling iroha_core_timed_ovn v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_timed_ovn)
+   Compiling iroha_sccp v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sccp)
+   Compiling iroha_test_samples v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_test_samples)
+error[E0432]: unresolved imports `iroha_data_model::parameter::system::resource_coherence::MAX_TRANSACTION_SIGNER_BYTES`, `iroha_data_model::parameter::system::resource_coherence::MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES`, `iroha_data_model::parameter::system::resource_coherence::maximal_action_transaction_bytes`
+  --> crates/iroha_core/src/resource_coherence/tests.rs:14:17
+   |
+14 |                 MAX_TRANSACTION_SIGNER_BYTES, MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES` in `parameter::system::resource_coherence`
+   |                 |
+   |                 no `MAX_TRANSACTION_SIGNER_BYTES` in `parameter::system::resource_coherence`
+15 |                 ResourceCoherenceError, maximal_action_transaction_bytes,
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `maximal_action_transaction_bytes` in `parameter::system::resource_coherence`
+
+error[E0432]: unresolved import `iroha_data_model::parameter::system::resource_coherence::maximal_action_transaction_bytes`
+  --> crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs:24:13
+   |
+24 |             resource_coherence::maximal_action_transaction_bytes,
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `maximal_action_transaction_bytes` in `parameter::system::resource_coherence`
+
+error[E0425]: cannot find function `maximal_action_transaction_bytes` in module `iroha_data_model::parameter::system::resource_coherence`
+    --> crates/iroha_core/src/sumeragi/executor_publication_tests.rs:4110:78
+     |
+4110 |                     iroha_data_model::parameter::system::resource_coherence::maximal_action_transaction_bytes(
+     |                                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in `iroha_data_model::parameter::system::resource_coherence`
+
+error[E0603]: enum import `TransactionsBlockError` is private
+    --> crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/tests.rs:651:27
+     |
+ 651 |         Err(crate::state::TransactionsBlockError::ExecutionOutputCapacity)
+     |                           ^^^^^^^^^^^^^^^^^^^^^^  ----------------------- unit variant `ExecutionOutputCapacity` is not publicly re-exported
+     |                           |
+     |                           private enum import
+     |
+note: the enum import `TransactionsBlockError` is defined here...
+    --> crates/iroha_core/src/state.rs:519:28
+     |
+ 519 |         TransactionsBlock, TransactionsBlockError, TransactionsStorage, TransactionsView,
+     |                            ^^^^^^^^^^^^^^^^^^^^^^
+note: ...and refers to the enum import `TransactionsBlockError` which is defined here...
+    --> crates/iroha_core/src/state/storage_transactions.rs:1500:36
+     |
+1500 | pub use block::{TransactionsBlock, TransactionsBlockError, TransactionsBlockField};
+     |                                    ^^^^^^^^^^^^^^^^^^^^^^ you could import this re-export
+note: ...and refers to the enum `TransactionsBlockError` which is defined here
+    --> crates/iroha_core/src/state/storage_transactions.rs:760:5
+     |
+ 760 |     pub enum TransactionsBlockError {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ you could import this directly
+
+error[E0061]: this function takes 5 arguments but 6 arguments were supplied
+  --> crates/iroha_core/src/resource_coherence.rs:78:5
+   |
+78 |     validate_successor_resource_limits(
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+81 |         parameters.transaction().max_signatures(),
+   |         ----------------------------------------- unexpected argument #3 of type `std::num::NonZero<u64>`
+   |
+note: function defined here
+  --> /Users/mtakemiya/dev/iroha/crates/iroha_data_model/src/parameter/system/resource_coherence.rs:122:8
+help: remove the extra argument
+   |
+80 -         parameters.transaction().max_tx_bytes(),
+81 -         parameters.transaction().max_signatures(),
+80 +         parameters.transaction().max_tx_bytes(),
+   |
+
+error[E0599]: no variant named `PrivacyActionContextExceedsTransaction` found for enum `ResourceCoherenceError`
+   --> crates/iroha_core/src/resource_coherence/tests.rs:462:40
+    |
+462 |         error: ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: there is a variant with a similar name
+    |
+462 -         error: ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+462 +         error: ResourceCoherenceError::PrivacyActionExceedsTransaction {
+    |
+
+error[E0061]: this function takes 5 arguments but 6 arguments were supplied
+   --> crates/iroha_core/src/resource_coherence.rs:120:5
+    |
+120 |     validate_successor_resource_limits(
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+123 |         parameters.transaction().max_signatures(),
+    |         ----------------------------------------- unexpected argument #3 of type `std::num::NonZero<u64>`
+    |
+note: function defined here
+   --> /Users/mtakemiya/dev/iroha/crates/iroha_data_model/src/parameter/system/resource_coherence.rs:122:8
+help: remove the extra argument
+    |
+122 -         parameters.transaction().max_tx_bytes(),
+123 -         parameters.transaction().max_signatures(),
+122 +         parameters.transaction().max_tx_bytes(),
+    |
+
+Some errors have detailed explanations: E0061, E0425, E0432, E0599, E0603.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `iroha_core` (lib test) due to 7 previous errors

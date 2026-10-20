@@ -430,7 +430,23 @@ async fn signed_reserve_http_source_quota_refusal_does_not_become_absence_or_poi
     assert_failure_is_not_absence(unsigned, StatusCode::UNAUTHORIZED).await;
     let refused = narrow.oneshot(f.manager_request(2)).await.unwrap();
     assert_private(&refused);
-    assert_failure_is_not_absence(refused, StatusCode::TOO_MANY_REQUESTS).await;
+    // A fixed source allowance cannot admit this original frame even after all
+    // occupants leave. It is a terminal policy refusal, not a transient pool wait.
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(refused.into_body(), MAX_RESERVE_POLICY_PROOF_BYTES_V1)
+        .await
+        .unwrap();
+    assert!(ReservePolicyProofV1::decode_frame(&bytes).is_err());
+    let error = norito::decode_canonical_with_limits::<crate::ErrorEnvelope>(
+        &bytes,
+        norito::canonical_decode_limits(bytes.len()),
+    )
+    .unwrap();
+    assert_eq!(error.code(), "query_validation_failed");
+    assert_eq!(
+        error.message(),
+        "native current cut exceeds its finite source policy"
+    );
     let proof = success_proof(
         router(f.app(WORKING_BYTES))
             .oneshot(f.manager_request(2))

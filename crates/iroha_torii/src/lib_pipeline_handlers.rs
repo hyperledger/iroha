@@ -901,38 +901,50 @@ fn trigger_completion_query_response(
     let mut remaining_work = routing::app_query_limits().max_fetch_size;
     let mut remaining_bytes =
         iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(remaining_work);
-    for height in (from_height..=requested_to).rev() {
-        scanned_blocks = scanned_blocks.saturating_add(1);
-        let height_usize = usize::try_from(height)
-            .ok()
-            .and_then(NonZeroUsize::new)
-            .ok_or_else(|| {
-                pipeline_status_projection_error("completion height exceeds host index")
-            })?;
-        let carrier = app
-            .state
-            .read_finalized_execution_carrier(height_usize, remaining_work, remaining_bytes)
-            .map_err(crate::canonical_history::query_attempt_error)?;
-        remaining_work -= carrier.work_items();
-        remaining_bytes -= carrier.wire_bytes();
-        let mut reached_limit = false;
-        visit_trigger_completion_records_for_block(carrier.block(), height, |record| {
-            if !trigger_completion_record_matches(
-                &record,
-                query.id.as_deref(),
-                query.entrypoint_hash.as_deref(),
-                outcome,
-            ) {
-                return true;
+    // HTTP observation: one request owner authenticates every carrier through State/checkpoint
+    // ancestry. Each read stays inside the unchanged remaining cumulative work and bytes.
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
+    owner.scope(|| {
+        for height in (from_height..=requested_to).rev() {
+            scanned_blocks = scanned_blocks.saturating_add(1);
+            let height_usize = usize::try_from(height)
+                .ok()
+                .and_then(NonZeroUsize::new)
+                .ok_or_else(|| {
+                    pipeline_status_projection_error("completion height exceeds host index")
+                })?;
+            let original = read_pipeline_execution_carrier_within(
+                app,
+                height_usize,
+                remaining_work,
+                remaining_bytes,
+            )?;
+            remaining_work -= original.carrier.work_items();
+            remaining_bytes -= original.carrier.wire_bytes();
+            let mut reached_limit = false;
+            visit_trigger_completion_records_for_block(
+                original.carrier.block(),
+                height,
+                |record| {
+                    if !trigger_completion_record_matches(
+                        &record,
+                        query.id.as_deref(),
+                        query.entrypoint_hash.as_deref(),
+                        outcome,
+                    ) {
+                        return true;
+                    }
+                    completions.push(record);
+                    reached_limit = u64::try_from(completions.len()).unwrap_or(u64::MAX) >= limit;
+                    !reached_limit
+                },
+            )?;
+            if reached_limit {
+                break;
             }
-            completions.push(record);
-            reached_limit = u64::try_from(completions.len()).unwrap_or(u64::MAX) >= limit;
-            !reached_limit
-        })?;
-        if reached_limit {
-            break;
         }
-    }
+        Ok::<(), Error>(())
+    })?;
     if app.state.view().block_hashes().get(anchor_index).copied() != Some(anchor) {
         return Err(pipeline_status_projection_error(
             "completion history changed during authentication",
@@ -1141,11 +1153,21 @@ fn read_pipeline_execution_carrier(
     app: &SharedAppState,
     height: NonZeroUsize,
 ) -> Result<AuthenticatedPipelineCarrier, Error> {
-    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
     let work = routing::app_query_limits().max_fetch_size;
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+    read_pipeline_execution_carrier_within(app, height, work, bytes)
+}
+// A multi-carrier scan passes its remaining cumulative work and bytes, so each read is
+// refused inside that bound instead of being charged after a wider read.
+fn read_pipeline_execution_carrier_within(
+    app: &SharedAppState,
+    height: NonZeroUsize,
+    work: u64,
+    bytes: u64,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
     let carrier = owner.scope(|| {
         let budget = owner.canonical_history_budget();
-        let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
         // G1 still requires its actual certified H2. Only successors use the original
         // State/checkpoint ancestry. Refusal never selects another reader or pool.
         if height == NonZeroUsize::MIN {
@@ -1193,6 +1215,34 @@ fn canonical_transaction_outcome_from_reader(
             duplicate |= result.replace(outcome).is_some();
         }
     })?;
+    canonical_transaction_outcome_from_matches(hash, &header, result, duplicate)
+}
+// The exact transaction's committed outcome from bounded windows of its carrier. Core matches
+// the same indexed identity (entrypoint hash or sealed-reveal signed alias) as the carrier
+// kernel above; this keeps its exact binding, duplicate, absence and timestamp checks.
+fn canonical_transaction_outcome_from_committed(
+    hash: &HashOf<SignedTransaction>,
+    anchor: CanonicalTransactionAnchor,
+    committed: &iroha_core::smartcontracts::isi::tx::CommittedNetworkOutcome,
+) -> Result<CanonicalTransactionOutcome, Error> {
+    if committed.header().hash() != anchor.block_hash {
+        return Err(pipeline_status_projection_error(format!(
+            "transaction {hash} outcome carrier differs from its exact committed binding"
+        )));
+    }
+    let (result, duplicate) = match committed.matched_results() {
+        [] => (None, false),
+        [result] => (Some(result.clone()), false),
+        [result, ..] => (Some(result.clone()), true),
+    };
+    canonical_transaction_outcome_from_matches(hash, committed.header(), result, duplicate)
+}
+fn canonical_transaction_outcome_from_matches(
+    hash: &HashOf<SignedTransaction>,
+    header: &BlockHeader,
+    result: Option<Result<(), TransactionRejectionReason>>,
+    duplicate: bool,
+) -> Result<CanonicalTransactionOutcome, Error> {
     if duplicate {
         return Err(pipeline_status_projection_error(format!(
             "transaction {hash} occurs more than once in its finalized carrier"
@@ -1218,49 +1268,213 @@ fn canonical_transaction_outcome_from_reader(
     })
 }
 
-fn pipeline_status_from_state(
-    state: &CoreState,
+// Prepared-submit replay is an HTTP observation like status and details: authenticate the
+// exact carrier through State/checkpoint ancestry under the request owner, and retain that
+// carrier and owner through the membership recheck. It records no pipeline cache entry.
+fn pipeline_status_from_request(
+    app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
 ) -> Result<Option<PipelineStatusEntry>, Error> {
-    canonical_transaction_outcome(state, hash)
-        .map(|outcome| outcome.map(CanonicalTransactionOutcome::into_pipeline_status_entry))
+    canonical_transaction_read_with_authenticator(&app.state, hash, |anchor| {
+        let original = read_pipeline_transaction_carrier(app, anchor)?;
+        let outcome = original.owner.scope(|| {
+            canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
+                original
+                    .carrier
+                    .visit_network_transactions(anchor.block_hash, visitor)
+                    .map_err(|error| crate::canonical_history::query_attempt_error(error.into()))
+            })
+        })?;
+        Ok((outcome.into_pipeline_status_entry(), original))
+    })
+    .map(|read| read.map(|(entry, _original)| entry))
 }
 fn pipeline_status_terminal_or_state_entry(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
 ) -> Result<Option<(PipelineStatusEntry, &'static str)>, Error> {
-    pipeline_status_terminal_or_state_entry_with_carrier_reader(app, hash, |anchor| {
-        read_pipeline_transaction_carrier(app, anchor)
-    })
+    let outcome = reconcile_pending_pipeline_transaction(app, hash)?;
+    pipeline_status_terminal_or_state_entry_from_outcome(app, hash, outcome)
 }
+// The complete-carrier status kernel with a caller-supplied carrier reader, for its controls.
+#[cfg(test)]
 fn pipeline_status_terminal_or_state_entry_with_carrier_reader(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
     read: impl FnOnce(CanonicalTransactionAnchor) -> Result<AuthenticatedPipelineCarrier, Error>,
 ) -> Result<Option<(PipelineStatusEntry, &'static str)>, Error> {
     let outcome = reconcile_pending_pipeline_transaction_with_carrier_reader(app, hash, read)?;
+    pipeline_status_terminal_or_state_entry_from_outcome(app, hash, outcome)
+}
+fn pipeline_status_terminal_or_state_entry_from_outcome(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+    outcome: Option<CanonicalTransactionOutcome>,
+) -> Result<Option<(PipelineStatusEntry, &'static str)>, Error> {
     if let Some(entry) = outcome.map(CanonicalTransactionOutcome::into_pipeline_status_entry) {
-        app.pipeline_status_cache
-            .record_entry(hash.clone(), entry.clone());
+        app.pipeline_status_cache.record_entry(*hash, entry.clone());
         return Ok(Some((entry, "state")));
     }
-    if let Some(entry) = pipeline_status_cached_entry_without_canonical(app, hash)? {
-        if entry.kind.is_terminal() {
-            return Ok(Some((entry, "cache")));
-        }
+    if let Some(entry) = pipeline_status_cached_entry_without_canonical(app, hash)?
+        && entry.kind.is_terminal()
+    {
+        return Ok(Some((entry, "cache")));
     }
     Ok(None)
 }
-// HTTP consumers authenticate the exact carrier with request-owned capacity and use the
+// HTTP consumers authenticate the exact transaction with request-owned capacity and use the
 // canonical outcome kernel. A cached status or membership alone cannot authorize settlement.
+// Successors read only bounded windows of their carrier, so a committed outcome is readable
+// whatever the size of its block or of the transaction itself; G1 still requires its actual
+// certified H2 and keeps the complete-carrier reader.
 fn reconcile_pending_pipeline_transaction(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
 ) -> Result<Option<CanonicalTransactionOutcome>, Error> {
-    reconcile_pending_pipeline_transaction_with_carrier_reader(app, hash, |anchor| {
-        read_pipeline_transaction_carrier(app, anchor)
+    // This deliberate mutant restores only the old pre-admission side effect. The ordinary
+    // path neither reads unrelated pending carriers nor borrows State execution capacity.
+    #[cfg(all(test, sumeragi_torii_mutation = "TOR2"))]
+    app.pipeline_status_cache.refresh_pending_blocks(&app.state);
+    let authenticated =
+        canonical_transaction_read_with_authenticator(&app.state, hash, |anchor| {
+            if anchor.height == NonZeroUsize::MIN {
+                let original = read_pipeline_transaction_carrier(app, anchor)?;
+                let outcome = pipeline_carrier_outcome(hash, anchor, &original)?;
+                return Ok((outcome, anchor, PipelineOutcomeEvidence::Carrier(original)));
+            }
+            let (outcome, owner) = read_pipeline_transaction_outcome(app, hash, anchor)?;
+            Ok((outcome, anchor, PipelineOutcomeEvidence::Exact(owner)))
+        })?;
+    let Some((outcome, anchor, evidence)) = authenticated else {
+        return Ok(None);
+    };
+    match evidence {
+        // Only this exact pending block can complete, using the already authenticated
+        // immutable join. No second I/O/decode, State budget, or bulk pending drain occurs.
+        PipelineOutcomeEvidence::Carrier(original) => original.owner.scope(|| {
+            app.pipeline_status_cache
+                .complete_pending_from_carrier(&original.carrier, anchor.block_hash)
+        })?,
+        // Only this exact pending block completes, after the canonical recheck, for its exact
+        // authenticated transaction, without another read or a bulk pending drain; each of its
+        // other transactions is authenticated by its own exact read when it is asked for.
+        PipelineOutcomeEvidence::Exact(owner) => {
+            if let Some(height) = u64::try_from(anchor.height.get())
+                .ok()
+                .and_then(NonZeroU64::new)
+            {
+                owner.scope(|| {
+                    app.pipeline_status_cache
+                        .complete_pending_from_exact_outcome(
+                            height,
+                            anchor.block_hash,
+                            hash,
+                            &outcome,
+                        );
+                });
+            }
+        }
+    }
+    Ok(Some(outcome))
+}
+// What authenticated one exact outcome; each form retains its original query owner.
+enum PipelineOutcomeEvidence {
+    // G1 requires its actual certified H2, so it keeps the complete H1/H2 carrier.
+    Carrier(AuthenticatedPipelineCarrier),
+    // Every successor: the exact transaction, read from bounded windows of its carrier.
+    Exact(crate::history_producer::HistoryProducerOwner),
+}
+// The complete-carrier outcome kernel, projected under the carrier's original query owner.
+fn pipeline_carrier_outcome(
+    hash: &HashOf<SignedTransaction>,
+    anchor: CanonicalTransactionAnchor,
+    original: &AuthenticatedPipelineCarrier,
+) -> Result<CanonicalTransactionOutcome, Error> {
+    original.owner.scope(|| {
+        canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
+            original
+                .carrier
+                .visit_network_transactions(anchor.block_hash, visitor)
+                .map_err(|error| crate::canonical_history::query_attempt_error(error.into()))
+        })
     })
 }
+// HTTP status authenticates only the exact transaction: bounded windows of its carrier under the
+// request's admitted query owner, never the State execution pool or a whole decoded block.
+fn read_pipeline_transaction_outcome(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+    anchor: CanonicalTransactionAnchor,
+) -> Result<
+    (
+        CanonicalTransactionOutcome,
+        crate::history_producer::HistoryProducerOwner,
+    ),
+    Error,
+> {
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
+    let work = routing::app_query_limits().max_fetch_size;
+    let outcome = owner.scope(|| {
+        let budget = owner.canonical_history_budget();
+        let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+        let committed = app
+            .state
+            .read_committed_network_outcome(
+                anchor.height,
+                &anchor.entrypoint_hash,
+                work,
+                bytes,
+                &budget,
+            )
+            .map_err(crate::canonical_history::query_attempt_error)?;
+        canonical_transaction_outcome_from_committed(hash, anchor, &committed)
+    })?;
+    Ok((outcome, owner))
+}
+impl PipelineStatusCache {
+    // An exact authenticated transaction completes only its own matching pending block: it
+    // records that transaction's result as the event projection would (the pending kind for an
+    // applied result, a rejection summary otherwise) and retires the block. Keep the occupied
+    // entry locked: a replacement at the same height is never completed by this outcome.
+    fn complete_pending_from_exact_outcome(
+        &self,
+        height: NonZeroU64,
+        expected_hash: HashOf<BlockHeader>,
+        transaction: &HashOf<SignedTransaction>,
+        outcome: &CanonicalTransactionOutcome,
+    ) {
+        if !self.event_hints_trustworthy.load(AtomicOrdering::Acquire) {
+            return;
+        }
+        let DashEntry::Occupied(pending) = self.pending_blocks.entry(height) else {
+            return;
+        };
+        if pending.get().block_hash != expected_hash {
+            return;
+        }
+        if let Some(reason) = &pending.get().deferred {
+            iroha_logger::trace!(height = height.get(), %reason, "completing original deferred pipeline history observation");
+        }
+        let (kind, rejection) = match outcome {
+            CanonicalTransactionOutcome::Applied { .. } => (pending.get().kind, None),
+            CanonicalTransactionOutcome::Rejected { reason, .. } => (
+                PipelineStatusKind::Rejected,
+                Some(pipeline_rejection_summary(reason)),
+            ),
+        };
+        let observed_at = pending.get().observed_at;
+        self.record_entry_inner(
+            *transaction,
+            PipelineStatusEntry::at_time(kind, Some(height), rejection, observed_at),
+        );
+        pending.remove();
+        Self::decrement_live_count(&self.pending_count);
+        // Do not prune while holding the pending-map entry: pruning acquires that same map.
+    }
+}
+// The complete-carrier reconciliation with a caller-supplied carrier reader, for the
+// existing carrier, pending-completion and binding controls.
+#[cfg(test)]
 fn reconcile_pending_pipeline_transaction_with_carrier_reader(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
@@ -1273,16 +1487,7 @@ fn reconcile_pending_pipeline_transaction_with_carrier_reader(
     let authenticated =
         canonical_transaction_read_with_authenticator(&app.state, hash, |anchor| {
             let original = read(anchor)?;
-            let outcome = original.owner.scope(|| {
-                canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
-                    original
-                        .carrier
-                        .visit_network_transactions(anchor.block_hash, visitor)
-                        .map_err(|error| {
-                            crate::canonical_history::query_attempt_error(error.into())
-                        })
-                })
-            })?;
+            let outcome = pipeline_carrier_outcome(hash, anchor, &original)?;
             Ok((outcome, anchor, original))
         })?;
     if let Some((outcome, anchor, original)) = authenticated {

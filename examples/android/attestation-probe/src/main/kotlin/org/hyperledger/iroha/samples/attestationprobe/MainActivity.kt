@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.text.InputType
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -18,7 +19,6 @@ import java.lang.ref.WeakReference
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Security
-import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
@@ -35,9 +35,23 @@ class MainActivity : Activity() {
     private lateinit var challengeInput: EditText
     private var latestZip: File? = null
     private var pendingExport: File? = null
+    private var launchHandled = false
+    private var automaticChallenge: ByteArray? = null
+    private var appUpdateTime: Long = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appUpdateTime = packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+        automaticChallenge = try {
+            assets.open("public-challenge.hex").bufferedReader().use {
+                ProbeEncoding.challenge(it.readText().trim())
+            }
+        } catch (error: Exception) {
+            Log.e(ProbeLogExport.TAG, ProbeLogExport.error("read_public_challenge", error))
+            null
+        }
+        launchHandled = savedInstanceState?.getBoolean("launchHandled") == true &&
+            automaticCapture()?.isFile == true
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 48, 32, 32)
@@ -45,12 +59,11 @@ class MainActivity : Activity() {
         content.addView(TextView(this).apply {
             text = "Diagnostic capture; no enrollment decision\n\nGenerates a fresh P-256 key in each available " +
                 "AndroidKeyStore / HwKeyStore provider. Exports public certificates and a challenge signature, " +
-                "then deletes the diagnostic keys. Certificates require independent verification.\n\n32-byte challenge (hex):"
+                "then deletes the diagnostic keys. First launch captures the bundled public challenge automatically " +
+                "and exports public evidence to Logcat. Certificates require independent verification.\n\n32-byte challenge (hex):"
         })
         challengeInput = EditText(this).apply {
-            setText(savedInstanceState?.getString("challengeHex") ?: ProbeEncoding.hex(
-                ByteArray(32).apply { SecureRandom().nextBytes(this) },
-            ))
+            setText(savedInstanceState?.getString("challengeHex") ?: automaticChallenge?.let(ProbeEncoding::hex).orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setSingleLine(false)
         }
@@ -92,6 +105,15 @@ class MainActivity : Activity() {
         capture.isEnabled = !captureRunning.get()
         export.isEnabled = !captureRunning.get() && latestZip != null
         if (captureRunning.get()) status.text = "Capturing public evidence…"
+        if (!launchHandled) {
+            launchHandled = true
+            val previous = automaticCapture()
+            when {
+                previous?.isFile == true -> Thread { emitPublicZip(previous) }.start()
+                automaticChallenge != null -> captureEvidence(automaticChallenge!!.copyOf(), automatic = true)
+                else -> status.text = "Automatic capture unavailable: bundled public challenge is invalid."
+            }
+        }
     }
 
     override fun onPause() {
@@ -101,6 +123,7 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("challengeHex", challengeInput.text.toString())
+        outState.putBoolean("launchHandled", launchHandled)
         pendingExport?.let { outState.putString("pendingExport", it.absolutePath) }
         super.onSaveInstanceState(outState)
     }
@@ -120,6 +143,38 @@ class MainActivity : Activity() {
             status.text = error.message
             return
         }
+        captureEvidence(challenge, automatic = false)
+    }
+
+    private fun automaticCapture(): File? {
+        val challenge = automaticChallenge ?: return null
+        val preferences = getPreferences(MODE_PRIVATE)
+        val name = ProbeCaptureState.reusableZipName(
+            preferences.getString("automaticCapture", null),
+            preferences.getString("automaticChallengeHex", null),
+            ProbeEncoding.hex(challenge),
+            preferences.getLong("automaticAppUpdateTime", -1),
+            appUpdateTime,
+        ) ?: return null
+        val external = getExternalFilesDir(null) ?: return null
+        return File(File(external, "attestation-probe"), name)
+    }
+
+    private fun emitPublicZip(zip: File) {
+        try {
+            require(zip.length() in 1..ProbeLogExport.MAX_ZIP_BYTES.toLong()) { "Public ZIP exceeds export bounds" }
+            // Serialize batches so activity recreation cannot interleave re-emitted captures.
+            synchronized(logExportLock) {
+                ProbeLogExport.lines(zip.nameWithoutExtension, zip.readBytes()).forEach {
+                    Log.i(ProbeLogExport.TAG, it)
+                }
+            }
+        } catch (error: Exception) {
+            Log.e(ProbeLogExport.TAG, ProbeLogExport.error("emit_public_zip", error))
+        }
+    }
+
+    private fun captureEvidence(challenge: ByteArray, automatic: Boolean) {
         if (!captureRunning.compareAndSet(false, true)) {
             status.text = "A diagnostic capture is already running."
             return
@@ -127,6 +182,7 @@ class MainActivity : Activity() {
         capture.isEnabled = false
         export.isEnabled = false
         status.text = "Capturing public evidence…"
+        Log.i(ProbeLogExport.TAG, "IROHA_ATTESTATION STATUS capture_started automatic=$automatic")
         Thread {
             try {
                 val external = requireNotNull(getExternalFilesDir(null)) { "App-specific export storage unavailable" }
@@ -141,8 +197,12 @@ class MainActivity : Activity() {
                     appendLine("model=${Build.MODEL}")
                     appendLine("api=${Build.VERSION.SDK_INT}")
                     appendLine("security_patch=${Build.VERSION.SECURITY_PATCH}")
+                    appendLine("google_play_services_installed=${packagePresence("com.google.android.gms")}")
+                    appendLine("google_play_store_installed=${packagePresence("com.android.vending")}")
                     appendLine("challenge_hex=${ProbeEncoding.hex(challenge)}")
+                    appendLine("capture_trigger=${if (automatic) "automatic" else "manual"}")
                     appendLine("key_algorithm=EC_secp256r1")
+                    appendLine("key_purposes=SIGN")
                     appendLine("user_authentication_required=false")
                     appendLine("verification=not_performed_capture_only")
                     appendLine("enrollment_decision=none_diagnostic_capture")
@@ -172,13 +232,24 @@ class MainActivity : Activity() {
                     }
                 }
                 check(partialZip.renameTo(zip)) { "Cannot finish ZIP export" }
+                if (automatic) {
+                    check(getPreferences(MODE_PRIVATE).edit()
+                        .putString("automaticCapture", zip.name)
+                        .putString("automaticChallengeHex", ProbeEncoding.hex(challenge))
+                        .putLong("automaticAppUpdateTime", appUpdateTime)
+                        .commit()) {
+                        "Cannot record completed automatic capture"
+                    }
+                }
+                emitPublicZip(zip)
                 runOnUiThread {
                     foregroundActivity.get()?.showCapture(zip)
                 }
             } catch (error: Exception) {
+                Log.e(ProbeLogExport.TAG, ProbeLogExport.error("capture", error))
                 runOnUiThread {
                     foregroundActivity.get()?.apply {
-                        status.text = "Capture failed: ${error.javaClass.simpleName}: ${error.message}"
+                        status.text = "Capture failed: ${error.javaClass.simpleName}"
                         capture.isEnabled = true
                     }
                 }
@@ -200,7 +271,7 @@ class MainActivity : Activity() {
             KeyStore.getInstance(storeType).apply { load(null) }
         } catch (error: Exception) {
             report.appendLine("status=unavailable")
-            report.appendLine("reason=${error.javaClass.simpleName}: ${error.message}")
+            report.appendLine("reason=${error.javaClass.simpleName}")
             return
         }
         report.appendLine("keystore_provider=${keyStore.provider.name}")
@@ -213,11 +284,10 @@ class MainActivity : Activity() {
             val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, keyStore.provider)
             report.appendLine("generator_provider=${generator.provider.name}")
             generator.initialize(
-                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
                     .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setAttestationChallenge(challenge.copyOf())
-                    .setUserAuthenticationRequired(false)
                     .build(),
             )
             val keyPair = generator.generateKeyPair()
@@ -254,21 +324,31 @@ class MainActivity : Activity() {
                 report.appendLine("challenge_signature_locally_verified=$signatureValid")
             } catch (error: Exception) {
                 report.appendLine("challenge_signature_locally_verified=false")
-                report.appendLine("signature_error=${error.javaClass.simpleName}: ${error.message}")
+                report.appendLine("signature_error=${error.javaClass.simpleName}")
             }
             report.appendLine("status=captured_unverified")
         } catch (error: Exception) {
             report.appendLine("status=failed")
-            report.appendLine("reason=${error.javaClass.simpleName}: ${error.message}")
+            report.appendLine("reason=${error.javaClass.simpleName}")
         } finally {
             try {
                 keyStore.deleteEntry(alias)
                 report.appendLine("diagnostic_alias_deleted=${!keyStore.containsAlias(alias)}")
             } catch (error: Exception) {
                 report.appendLine("diagnostic_alias_deleted=false")
-                report.appendLine("cleanup_error=${error.javaClass.simpleName}: ${error.message}")
+                report.appendLine("cleanup_error=${error.javaClass.simpleName}")
             }
         }
+    }
+
+    private fun packagePresence(name: String): String = try {
+        packageManager.getApplicationInfo(name, 0)
+        "true"
+    } catch (_: PackageManager.NameNotFoundException) {
+        "false"
+    } catch (_: Exception) {
+        // Explicit package visibility is declared; other platform failures are not absence.
+        "unknown"
     }
 
     @Deprecated("Platform callback retained for this dependency-free diagnostic activity")
@@ -285,7 +365,7 @@ class MainActivity : Activity() {
             }
             status.append("\nZIP exported.")
         } catch (error: Exception) {
-            status.append("\nExport failed: ${error.javaClass.simpleName}: ${error.message}")
+            status.append("\nExport failed: ${error.javaClass.simpleName}")
         }
     }
 
@@ -293,6 +373,7 @@ class MainActivity : Activity() {
         const val EXPORT_REQUEST = 1
         const val HUAWEI_KEYSTORE_PERMISSION = "com.huawei.permission.ACCESS_HW_KEYSTORE"
         val captureRunning = AtomicBoolean(false)
+        val logExportLock = Any()
         var foregroundActivity = WeakReference<MainActivity>(null)
     }
 }

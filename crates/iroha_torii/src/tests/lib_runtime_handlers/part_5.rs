@@ -3196,6 +3196,7 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
 }
 
 include!("part_5_transaction_details_checkpoint.rs");
+include!("part_5_full_prefix_http_observations.rs");
 
 #[tokio::test]
 async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other_accounts() {

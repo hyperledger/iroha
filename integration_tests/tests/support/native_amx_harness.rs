@@ -45,7 +45,7 @@ pub(crate) mod fees;
 pub(crate) mod fixture;
 #[path = "../native_amx_network/proofs.rs"]
 pub(crate) mod proofs;
-#[path = "../native_amx_network/status_poll.rs"]
+#[path = "status_poll.rs"]
 pub(crate) mod status_poll;
 pub(crate) use fixture::*;
 pub(crate) use proofs::Observer;

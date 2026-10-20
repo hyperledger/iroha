@@ -127,6 +127,15 @@ impl History {
     ) -> Result<()> {
         self.require_current_local(Some(snapshot))
     }
+    // Exercise graph-local admission after the actual caller has acquired its native tree.
+    // Optional/foreign snapshots remain negative inputs; none manufactures a valid owner.
+    pub(in crate::managed) fn test_graph_local_census_in_tree(
+        &self,
+        snapshot: Option<&SnapshotReadPass<'_>>,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+    ) -> Result<()> {
+        self.require_current_local_in_tree(snapshot, tree, None, None)
+    }
     pub(in crate::managed) fn test_local_census_after_admission<T>(
         &self,
         snapshot: &SnapshotReadPass<'_>,

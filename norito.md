@@ -536,6 +536,17 @@ payload against the original frame through the existing streaming canonical
 writer. It preserves original codec/resource causes separately from local
 prepared-destination failures; neither is retried through an owning decoder.
 
+`decode_canonical_value_into` uses that same canonical-field entry for the
+actual enum or validated-record value produced by `DecodeValueFields`. The
+unchanged generated traversal owns discriminants, fields and consuming hooks;
+complete consumption and streaming comparison precede return. A failed final
+check restores the exact materialized value through its original destination,
+then clears validity while retaining admitted backing. This does not fund a graph
+or recover a value consumed by a failing validation hook. Prepared producers must
+audit each field and hook. Opted-in positional records may skip cache fields:
+skipped members have no wire callback or bytes, retain the ordinary `Default`
+reconstruction, and do not renumber the declared coordinates of other callbacks.
+
 The prepared entry preserves the caller's original owning boundary. The canonical
 field entry keeps its whole-payload field-length check and record depth before the
 first child. `decode_canonical_archive_into`, used by the prepared SignedBlock

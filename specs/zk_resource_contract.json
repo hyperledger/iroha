@@ -470,8 +470,7 @@
         {
           "stage": "queue",
           "path": "crates/iroha_core/src/gossiper.rs",
-          "contains": "(params.sumeragi().max_clock_drift(), params.transaction())",
-          "count": 2
+          "contains": "(params.sumeragi().max_clock_drift(), params.transaction())"
         },
         {
           "stage": "follower",
@@ -934,6 +933,78 @@
         "SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1": "transaction.signed_frame_padding_bytes",
         "SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1": "transaction.signed_wire_prefix_bytes"
       }
+    },
+    {
+      "id": "transaction.max_signer_bytes",
+      "group": "transaction",
+      "what": "Canonical bytes one more signer adds to a signed transaction: its multisig member key and signature entry with their framing and length-prefix growth, for the largest supported signature algorithm (ML-DSA). The per-signer term of a maximal privacy action's required context.",
+      "unit": "bytes",
+      "value": 14470,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+        "symbol": "MAX_TRANSACTION_SIGNER_BYTES",
+        "kind": "const",
+        "expr": "14_470"
+      },
+      "inclusive": true,
+      "fixed": true,
+      "framing": "The largest step between consecutive signer counts measured over every supported algorithm, at the four-byte outer length prefixes of a transaction within the protocol transport limit; it includes the three-byte prefix growth the steady ML-DSA step (14,467) can add.",
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": ".checked_mul(MAX_TRANSACTION_SIGNER_BYTES)?"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximal_action_context_constants_are_the_measured_worst_case",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "privacy_action_context_exact_and_one_over_transaction_cap_and_signatures"
+        }
+      ]
+    },
+    {
+      "id": "transaction.maximal_action_framing_bytes",
+      "group": "transaction",
+      "what": "Canonical bytes of a signed transaction carrying one privacy action beyond the action envelope and the per-signer bytes: the Submit and executable framing, security domain, creation time, lifetime and nonce, the authority fee intent with its Nexus and PipelineGas charge limits at their largest amounts and a gas bound, the tx_sequence and expires_at_height metadata that the governed require_sequence and require_height_ttl flags make mandatory (both at u64::MAX, so the bound holds whatever the flags say), no attachments, and the signature and authority framing.",
+      "unit": "bytes",
+      "value": 7193,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+        "symbol": "MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES",
+        "kind": "const",
+        "expr": "7_193"
+      },
+      "inclusive": true,
+      "fixed": true,
+      "framing": "The largest one-signer remainder beyond the envelope (21,663 bytes, ML-DSA, with both flag-required metadata entries) less the per-signer bytes, at the four-byte outer length prefixes of a transaction within the protocol transport limit.",
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": ".checked_add(MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES)?"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximal_action_context_constants_are_the_measured_worst_case",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        }
+      ]
     },
     {
       "id": "block.max_block_bytes",
@@ -1749,7 +1820,12 @@
         {
           "stage": "proposer",
           "path": "crates/iroha_core/src/sumeragi/evidence.rs",
-          "contains": "if selected.len() == MAX_EVIDENCE_ADMISSIONS_PER_BLOCK {"
+          "contains": "let count = frames .as_slice() .len() .min(MAX_EVIDENCE_ADMISSIONS_PER_BLOCK);"
+        },
+        {
+          "stage": "proposer",
+          "path": "crates/iroha_core/src/sumeragi/evidence.rs",
+          "contains": "if selected.as_slice().len() == count {"
         }
       ],
       "test_gap": {
@@ -3765,6 +3841,42 @@
       "note": "The list is no longer a signed-transaction field. Torii reads it in its non-consensus prover API and SDK builders stage proof attachments in it; a transaction carries each staged attachment as one signed attachment occurrence. Exceeding the bound refuses one local scan or one staging call and is never a verdict on a transaction."
     },
     {
+      "id": "attachment.kagemusha_wallet_payer_companion_max_bytes",
+      "group": "attachment",
+      "what": "Largest canonical KAGEMUSHA offline Payment payer-companion frame. This product wire cap covers the payer credential, its exact issuer certificate and framing; it supplies no monetary authority and does not replace the credential, proof or transaction limits.",
+      "unit": "bytes",
+      "value": 2048,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs",
+        "symbol": "KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1",
+        "kind": "const",
+        "expr": "2_048"
+      },
+      "inclusive": true,
+      "framing": "Counts the complete canonical companion frame carried beside an offline Payment; the credential inside retains its own standalone byte cap.",
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs",
+          "contains": "encode_frame_v1(self, KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1)"
+        },
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs",
+          "contains": "decode_frame_v1(bytes, KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages_tests.rs",
+          "name": "kagemusha_wallet_v1_payer_companion_binds_the_payment"
+        }
+      ],
+      "test_note": "The test pins the 2,048-byte cap, roundtrips a valid companion, enforces the nested credential cap and rejects a 2,049-byte frame before decoding. It does not construct a valid companion of exactly 2,048 bytes; canonical size follows from the credential and its one issuer certificate."
+    },
+    {
       "id": "x509.max_proof_bytes",
       "group": "x509",
       "what": "zk-X509 proof ceiling: the largest canonical X5S1 proof.",
@@ -4787,15 +4899,19 @@
         },
         {
           "stage": "transport",
-          "path": "crates/iroha_p2p/src/peer.rs",
-          "contains": "if size > self.max_frame_bytes.min(crate::MAX_ENCRYPTED_FRAME_BYTES) {",
-          "count": 2
+          "path": "crates/iroha_p2p/src/lib.rs",
+          "contains": ".min(MAX_ENCRYPTED_FRAME_BYTES)"
+        },
+        {
+          "stage": "transport",
+          "path": "crates/iroha_p2p/src/peer/receive_credit/negotiation.rs",
+          "contains": "|| maximum > crate::MAX_ENCRYPTED_FRAME_BYTES"
         }
       ],
       "validity": false,
       "on_exhaustion": "local_refusal",
       "guarded_by": "configured_frame_within_p2p_runtime_ceiling",
-      "note": "The network refuses to start with a larger configured cap and drops a larger frame: local refusals, never a verdict on what the frame carried.",
+      "note": "The network refuses to start with a larger configured cap. Every plaintext frame maximum is derived through frame_plaintext_cap_for, which caps the configured value at this ceiling: the per-topic receive maxima a connection grants credit for and the send-side frame check. A peer whose receive-credit offer names a larger per-class maximum is refused at negotiation, and a credit request above the granted maximum is refused. All are local refusals, never a verdict on what the frame carried.",
       "tests": [
         {
           "path": "crates/iroha_p2p/src/network.rs",
@@ -6920,7 +7036,7 @@
       "tests": [
         {
           "path": "crates/iroha_core/src/smartcontracts/code.rs",
-          "name": "register_code_rejects_cycle_ceiling_above_node_policy"
+          "name": "register_code_rejects_cycle_ceiling_above_committed_policy"
         },
         {
           "path": "crates/iroha_core/src/smartcontracts/isi/triggers/mod.rs",
@@ -8992,7 +9108,7 @@
         {
           "stage": "torii",
           "path": "crates/iroha_config/src/parameters/user.rs",
-          "contains": "std::num::NonZeroU32::new(self.app_api_max_fetch_size).unwrap_or(nonzero!(1_u32));"
+          "contains": "let max_fetch_size = std::num::NonZeroU32::new(self.app_api_max_fetch_size)"
         }
       ]
     },
@@ -10896,7 +11012,7 @@
           "stage": "follower",
           "path": "crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs",
           "contains": "|| offered.len() > iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES",
-          "count": 2
+          "count": 3
         }
       ],
       "tests": [
@@ -11374,14 +11490,10 @@
     {
       "id": "transaction_cap_fits_block_payload",
       "expr": "transaction.max_tx_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes",
-      "why": "A transaction admitted under the committed cap must fit the effective block payload after its non-transaction reserve. Pure policy checks and complete-invocation/genesis/restore hooks validate the next and following effective heights; full Core runtime qualification remains open.",
+      "why": "A transaction admitted under the committed cap must fit the effective block payload after its non-transaction reserve. Pure policy checks and the complete-invocation, executed-genesis, governance and restore hooks validate the next and following effective heights; a rejected candidate rolls back without changing any parameter.",
       "expect": {
         "today": "holds",
         "x2_target": "holds"
-      },
-      "open": {
-        "owner": "X.2",
-        "summary": "Selected defaults satisfy the relation. Complete authoritative committed-policy validation at transaction, future schedule, executed genesis and restore boundaries is being implemented and independently verified."
       },
       "tests": [
         {
@@ -11411,6 +11523,22 @@
         {
           "path": "crates/iroha_core/src/resource_coherence/tests.rs",
           "name": "internal_pipeline_candidate_rolls_back_incoherent_policy_before_publication"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "executed_genesis_rejects_final_incoherence_and_an_uncovered_intervening_height"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "invalid_final_governance_transaction_rolls_back_without_poisoning_block"
+        },
+        {
+          "path": "crates/iroha_core/src/state/deserialize_core.rs",
+          "name": "resource_restore_validates_complete_current_and_predecessor_versions"
+        },
+        {
+          "path": "crates/iroha_core/src/state/deserialize_core.rs",
+          "name": "resource_restore_rejects_incoherent_original_undo_before_rollback"
         }
       ],
       "enforcement": [
@@ -11432,17 +11560,17 @@
         {
           "stage": "follower",
           "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
-          "contains": "validate_privacy_chain_limits(max_transaction_bytes, cap, limits).map_err(|error| {"
+          "contains": "validate_privacy_chain_limits(max_transaction_bytes, cap, limits) .and_then(|()| {"
         },
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/resource_coherence.rs",
-          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), next_cap, after_next_cap, world.privacy_consensus_policy(), )?;"
+          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), parameters.transaction().max_signatures(), next_cap, after_next_cap, world.privacy_consensus_policy(), )?;"
         },
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/resource_coherence.rs",
-          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), next, after_next, world.privacy_consensus_policy(), )?;"
+          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), parameters.transaction().max_signatures(), next, after_next, world.privacy_consensus_policy(), )?;"
         },
         {
           "stage": "follower",
@@ -11474,20 +11602,117 @@
           "path": "crates/iroha_core/src/state/deserialize_core.rs",
           "contains": "crate::resource_coherence::validate_restored_policy(&previous_world, previous_height)"
         }
-      ]
+      ],
+      "open": {
+        "owner": "X.2",
+        "summary": "Run the four-validator agreement test (integration_tests/tests/resource_policy_network.rs, ignored) on a same-source daemon: every validator rejects incoherent MaxTxBytes/MaxBlockBytes/privacy proposals with the same result and unchanged parameters, applies the exact coherent tightening in either order, commits the exact 10,485,760-byte transaction, refuses the first excess byte, and restarts onto the same policy."
+      }
     },
     {
       "id": "proof_ceiling_leaves_one_mib_of_context",
       "expr": "transaction.max_tx_bytes - x509.max_proof_bytes == 1048576",
-      "why": "The transaction cap exceeds the proof ceiling by exactly 1 MiB, which must hold the signatures, the statement, the action envelope and all Norito framing.",
+      "why": "The transaction cap exceeds the proof ceiling by exactly 1 MiB, which holds the required context of a ceiling-proof transaction: up to the committed max_signatures signers of any supported algorithm with their authority, the whole statement with its encrypted outputs (at most 262,144 bytes), the 512-byte envelope allowance, the authority fee intent with its Nexus and PipelineGas charge limits, the lifetime and nonce, the tx_sequence and expires_at_height metadata the governed require_sequence and require_height_ttl flags make mandatory, and the Submit and transaction framing. The largest measured case, the full statement with sixteen ML-DSA signers, the largest admissible fee intent and both flag-required metadata entries, is 9,938,306 bytes, 547,454 below the cap; privacy_action_context_fits_transaction keeps this true for committed parameters. Larger multisig member sets and other metadata share the cap with no promise that a ceiling proof fits. These are transport sizes, not native proof catalog widths.",
       "expect": {
         "today": "holds",
         "x2_target": "holds"
       },
-      "open": {
-        "owner": "X.2",
-        "summary": "The complete signed maximum envelope is not measured; X.2 measures it with the supported signatures and redesigns the envelope or documents a parameter change if 1 MiB is not enough."
-      }
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "ceiling_proof_complete_envelopes_fit_the_fixed_transaction_cap",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "zk_ams_action_variants_have_the_same_proof_frame_size",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximal_action_context_constants_are_the_measured_worst_case",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "privacy_action_context_fits_transaction",
+      "expr": "proof.privacy_max_action_bytes + transaction.maximal_action_framing_bytes + transaction.max_signatures * transaction.max_signer_bytes <= transaction.max_tx_bytes",
+      "why": "One maximal privacy action and its required context fit the transaction cap: the action envelope (at most max_action_bytes, which holds the proof, the whole statement and the envelope allowance), the measured transaction framing with the admissible authority fee intent, lifetime and nonce and the tx_sequence and expires_at_height metadata the governed require_sequence and require_height_ttl flags make mandatory (measured at u64::MAX, so the relation holds whatever the flags say), and the measured worst bytes of each permitted signer. Admitted signing algorithms are node-local, so the per-signer term is the largest algorithm's. Pure policy checks and the executed-genesis, governance and restore hooks check every successor height's privacy profile against the committed transaction and signature caps, with exact and one-over tests at each; a rejected candidate changes no parameter. At the defaults it needs 9,938,553 of the 10,485,760 bytes, and the largest signature cap the default transaction cap admits is 53.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      },
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "privacy_action_context_exact_and_one_over_transaction_cap_and_signatures"
+        },
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "successor_heights_check_the_action_context_of_their_own_privacy_profile"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "executed_genesis_checks_the_action_context_at_exact_and_one_over_signature_caps"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "governance_checks_the_action_context_at_exact_and_one_over_signature_caps"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "restore_checks_the_action_context_at_exact_and_one_over_signature_caps"
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximal_action_context_constants_are_the_measured_worst_case",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        },
+        {
+          "path": "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "name": "maximum_statement_and_proof_fit_with_sixteen_mldsa_signatures",
+          "features": [
+            "privacy-exact12-conformance"
+          ]
+        }
+      ],
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": "validate_privacy_action_context(max_transaction_bytes, max_signatures, limits)"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": "if required_transaction_bytes > max_transaction_bytes.get() { return Err( ResourceCoherenceError::PrivacyActionContextExceedsTransaction {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/resource_coherence.rs",
+          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), parameters.transaction().max_signatures(), next_cap, after_next_cap, world.privacy_consensus_policy(), )?;"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/resource_coherence.rs",
+          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), parameters.transaction().max_signatures(), next, after_next, world.privacy_consensus_policy(), )?;"
+        }
+      ]
     },
     {
       "id": "x509_ceiling_is_the_privacy_action_proof_ceiling",
@@ -11550,10 +11775,16 @@
         "today": "holds",
         "x2_target": "holds"
       },
-      "open": {
-        "owner": "X.2",
-        "summary": "Defaults fit with the reserve. Authoritative future-height privacy and chain policy coherence checks are still undergoing integration and verification."
-      }
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "privacy_block_exact_and_one_above_payload_budget"
+        },
+        {
+          "path": "crates/iroha_core/src/privacy.rs",
+          "name": "privacy_block_counts_and_actual_aggregate_bytes_are_independent"
+        }
+      ]
     },
     {
       "id": "privacy_action_bytes_fit_the_independent_block_aggregate",
@@ -11633,15 +11864,24 @@
     {
       "id": "availability_frame_within_frame_overhead",
       "expr": "rs16.max_availability_frame_bytes <= transport.frame_overhead_bytes",
-      "why": "A proposal frame carries the payload and the availability table; the table must fit the overhead. This is necessary, not sufficient: the certificate and header allowance share the same overhead.",
+      "why": "The largest signed availability table fits the overhead, as do the certificate and header parts at the generic core bounds. Proposals, manifests and sync entries carry signed metadata and the table, never the payload, so a complete proposal, manifest or one-entry sync response at the generic core bounds fits twice the overhead, below the transport limit of every admissible chain, and at the admitted bounds (at most 31 validators with 48-byte BLS-normal keys) fits the overhead itself. A sync response with more entries is bounded by the requested sync_max_bytes. Payload rows travel separately within 256 KiB.",
       "expect": {
         "today": "holds"
       },
-      "open": {
-        "owner": "X.2",
-        "summary": "The complete maximum proposal and sync frames are not measured against FRAME_OVERHEAD; X.2 measures them (the P2P frame sizing still cites a retired certified-body response)."
-      },
-      "expect_note": "holds today; open because it is only a necessary condition"
+      "tests": [
+        {
+          "path": "crates/iroha_sumeragi/src/message.rs",
+          "name": "source_complete_maximum_certificate_and_header_fit_declared_frame_allowance"
+        },
+        {
+          "path": "crates/iroha_sumeragi/src/message.rs",
+          "name": "generic_maximum_frames_fit_every_admissible_transport"
+        },
+        {
+          "path": "crates/iroha_core/src/sumeragi/driver/serve_tests.rs",
+          "name": "admitted_maximum_frames_fit_frame_overhead_and_the_block_sync_frame"
+        }
+      ]
     },
     {
       "id": "chain_frame_limit_is_rs16_payload_plus_overhead",
@@ -11750,8 +11990,8 @@
         "x2_target": "holds"
       },
       "open": {
-        "owner": "X.2",
-        "summary": "Execute the complete maximum-admitted signed transaction frame regression after Core compiles, then qualify native maximum-proof propagation/commit/restart on four validators."
+        "owner": "X.4",
+        "summary": "Propagate, commit and restart a native maximum zk-X509 proof on four validators (P.19 owns the PQ-MASP maximum). The complete signed direct and broadcast frames of the 10,485,760-byte maximum transaction are measured within the shipped cap."
       },
       "tests": [
         {
@@ -12109,7 +12349,7 @@
         "x2_target": "holds"
       },
       "open": {
-        "owner": "X.2",
+        "owner": "F.4",
         "summary": "Defaults satisfy the numeric relation. F.4 still must move the carrier limit into authoritative committed State and reject incoherent governed policies."
       }
     },
@@ -12391,30 +12631,6 @@
       }
     },
     {
-      "id": "block.maximum_proof_transport_profile",
-      "group": "block",
-      "status": "not_implemented",
-      "what": "The selected 16 MiB block payload default with committed genesis parameters, RS16 geometry, frame, sync, storage and proposer bounds that carry a maximum-proof transaction (the X.2 change).",
-      "today": "The selected default payload is16MiB; the10MiB signed-transaction cap plus65,536-byte reserve fits. Canonical privacy envelope, actual aggregate, h+1/h+2 policy and B+2H frame checks are implemented. Final Core/native-proof/network qualification and full proposal/sync frame measurements remain open; gossip defaults/profile shaping are being reconciled.",
-      "requires": [
-        "Every relation of this contract holds under the committed defaults, and parameter validation rejects committed parameters that break one.",
-        "The complete signed maximum envelope is measured with the supported signatures and all framing; the 1 MiB over the proof ceiling holds all required context.",
-        "x509.max_proof_bytes and transaction.max_tx_bytes are unchanged."
-      ],
-      "relations": [
-        "transaction_cap_fits_block_payload",
-        "sync_response_serves_committed_payload",
-        "committed_payload_has_a_feasible_sync_setting",
-        "privacy_block_bytes_within_block_payload",
-        "privacy_action_bytes_fit_the_independent_block_aggregate",
-        "gossip_frame_carries_max_transaction"
-      ],
-      "open": {
-        "owner": "X.2",
-        "summary": "Complete full-candidate Core compilation and policy/restore execution, actual maximum native-proof four-peer commit/restart/replay, and maximal proposal/sync frame measurements; reconcile all shipped gossip profile and shaping limits."
-      }
-    },
-    {
       "id": "proof.product_proof_ceilings",
       "group": "proof",
       "status": "not_implemented",
@@ -12429,6 +12645,23 @@
       "open": {
         "owner": "V.3",
         "summary": "Proof and relation evidence of the products (V.3) lists these ceilings with their sites and boundary tests; P.9 owns the confidential-asset proof and C.3 to C.9 the FHE envelopes."
+      }
+    },
+    {
+      "id": "proof.anonymous_ballot_verifier_budget",
+      "group": "proof",
+      "status": "not_implemented",
+      "what": "The wire, verifier-work and output bounds of the Parliament anonymous ballot on the node path: the envelope (262,144 bytes) and entrypoint wire (263,168 bytes) of one anonymous input; the verifier input of one verification call (425,984 bytes); the committed per-block ballot verification reservations and verifier-input bytes of parliament_ballot_v1 (default 2 and 851,968, at most 8 and 3,407,872); the registration-proof reservations and verifier-input bytes per block (1 and 425,984); and the governance block-start output partition (1 MiB and 256 rows per block, rows of at most 256 KiB, 1 KiB and 16 KiB).",
+      "today": "The data model defines and validates these values; TransactionEntrypoint now carries the bounded canonical anonymous-ballot envelope, and execution output validation recognizes its permitted outcomes. The standalone iroha_parliament_ballot crate implements candidate protocol checks, but no node executes its verifier budget: Core and Torii defer anonymous-ballot admission and execution because the authenticated State/context adapter is unavailable, and no node crate depends on the typed ballot crate. Core does not yet enforce the committed parliament_ballot_v1 and parliament_lifecycle_v1 parameters or carry governance block-start rows in ExecutionOutputV1. The compared schema constants remain excluded with pinned values (completeness.excluded, the anonymous-ballot record); full node verifier and output-partition enforcement remains open.",
+      "requires": [
+        "Each value is a listed bound with the node site where admission, block validation or the governance block-start pass compares it, and a test at the bound and one over.",
+        "The committed per-block budgets are validated when genesis or SetParameter installs parliament_ballot_v1 and are related to block.max_transactions and to the block wire and execution-output bounds they reserve from.",
+        "The per-call verifier input is defined once."
+      ],
+      "relations": [],
+      "open": {
+        "owner": "P.8",
+        "summary": "The canonical transaction carrier and permitted output shapes are represented. P.8 still owns authenticated Core ballot admission and execution, committed parameter validation, per-block verifier budgets and the governance block-start output partition; specs/parliament_ballot_implementation_goals.md tracks the remaining integration."
       }
     }
   ],
@@ -14625,15 +14858,29 @@
       },
       {
         "path": "crates/iroha_core/src/smartcontracts/ivm/host.rs",
-        "reason": "Shape bound of one host syscall family (NFT enumeration, spend frames) inside the guest memory and gas budgets listed above; M.1 inventories each syscall's semantics.",
+        "reason": "Shape bound of one host syscall family (NFT enumeration, spend frames) inside the guest memory and gas budgets listed above. The NFT recipient ceiling, a fixed protocol constant, also sizes the account-identifier prefix the host copies at setup for that syscall, so host setup does not grow with the World; M.1 inventories each syscall's semantics.",
         "symbols": [
-          "MAX_NFTS_PER_CALL",
+          "CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS",
           "MAX_SPEND_FRAME_BYTES_V1"
         ],
         "exprs": {
-          "MAX_NFTS_PER_CALL": "256",
+          "CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS": "256",
           "MAX_SPEND_FRAME_BYTES_V1": "4 * 1024 * 1024"
         }
+      },
+      {
+        "reason": "Capacity of the process-local memo of verifying-key registry entries that passed the complete production validation during IVM host hydration (the lowest registry ids are evicted first). A hit requires the same registry id and a record equal in every field, key bytes included, and returns what the pure validation would prepare; the memo never holds a rejected or deferred entry. A miss or an eviction only runs the same validation again: it changes the cost of hydration, never a verdict, the hydrated index, gas or a result.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/smartcontracts/ivm/host/prepared_verifying_key_memo.rs",
+            "symbols": [
+              "CAPACITY"
+            ],
+            "exprs": {
+              "CAPACITY": "128"
+            }
+          }
+        ]
       },
       {
         "path": "crates/iroha_core/src/state.rs",
@@ -14900,15 +15147,11 @@
       },
       {
         "path": "crates/iroha_core/src/gossiper.rs",
-        "reason": "Sizes of the gossiper's decode and known-hash caches: local caches. A full cache evicts; it never refuses a transaction.",
+        "reason": "Size of the gossiper's known-hash cache: a local cache. A full cache evicts; it never refuses a transaction.",
         "symbols": [
-          "GOSSIP_TX_DECODE_CACHE_LIMIT",
-          "GOSSIP_TX_DECODE_CACHE_BYTE_LIMIT",
           "GOSSIP_KNOWN_ENTRYPOINT_HASH_CACHE_LIMIT"
         ],
         "exprs": {
-          "GOSSIP_TX_DECODE_CACHE_LIMIT": "2048",
-          "GOSSIP_TX_DECODE_CACHE_BYTE_LIMIT": "8 * 1024 * 1024",
           "GOSSIP_KNOWN_ENTRYPOINT_HASH_CACHE_LIMIT": "8192"
         }
       },
@@ -14972,7 +15215,7 @@
         ]
       },
       {
-        "reason": "Local schedule and bookkeeping of the node driver: rejections kept while the executor is busy, the longest idle wait, effects released per poll and heights whose timings are retained. None decides validity.",
+        "reason": "Local schedule and bookkeeping of the node driver: rejections kept while the executor is busy, the longest idle wait, effects released per poll and heights whose timings are retained, and the number of its worker roles (Persist, Exec, Serve, Loop), which sizes the join of its own threads. None decides validity.",
         "files": [
           {
             "path": "crates/iroha_core/src/sumeragi/driver/exec.rs",
@@ -14987,11 +15230,13 @@
             "path": "crates/iroha_core/src/sumeragi/driver/mod.rs",
             "symbols": [
               "MAX_IDLE_WAIT_MS",
-              "MAX_OPS_PER_POLL"
+              "MAX_OPS_PER_POLL",
+              "COUNT"
             ],
             "exprs": {
               "MAX_IDLE_WAIT_MS": "1_000",
-              "MAX_OPS_PER_POLL": "64"
+              "MAX_OPS_PER_POLL": "64",
+              "COUNT": "Self::Loop.index() + 1"
             }
           },
           {
@@ -15222,7 +15467,7 @@
         }
       },
       {
-        "reason": "Local scheduling of one P2P connection and of the network actor: burst sizes per traffic class, drain budgets, batch sizes, buffer and pool capacities, channel capacities, backoff and the trait flag HAS_INBOUND_DECODE_LIMITS. They order and pace delivery. The frame a peer may send is bounded by the transport.* frame bounds; none of these drops a frame the frame bounds admit.",
+        "reason": "Local scheduling of one P2P connection and of the network actor: burst sizes per traffic class, drain budgets, buffer and pool capacities, credit-offer and record-header ceilings of the receive-credit protocol, channel capacities, backoff and the trait flag HAS_INBOUND_DECODE_LIMITS. They order and pace delivery. The frame a peer may send is bounded by the transport.* frame bounds; none of these drops a frame the frame bounds admit.",
         "files": [
           {
             "path": "crates/iroha_p2p/src/network.rs",
@@ -15256,65 +15501,15 @@
           {
             "path": "crates/iroha_p2p/src/peer.rs",
             "symbols": [
-              "DEFAULT_BUFFER_CAPACITY",
               "SOURCE_RETENTION_MAX_LEASES",
               "DEFAULT_MESSAGE_PREALLOC_CAP",
               "MAX_RETAINED_MESSAGE_BUFFER_CAP",
-              "HI_BUDGET_RESET",
-              "HI_BUDGET_FALLBACK",
-              "HI_SAFETY_BURST_MAX",
-              "HI_CONTROL_BURST_MAX",
-              "HI_CONSENSUS_BURST_MAX",
-              "HI_PAYLOAD_BURST_MAX",
-              "HI_AVAILABILITY_BURST_MAX",
-              "OUTBOUND_DRAIN_HI_MAX",
-              "DIRECT_POST_BURST_MAX",
-              "MAX_INNER_MESSAGES_PER_ENCRYPTED_FRAME",
-              "FRAME_POOL_MAX",
-              "MAX_BATCH_FRAMES",
-              "MAX_BATCH_BYTES",
-              "MAX_BATCH_HI_BURST",
-              "MAX_BATCH_NON_OTHER_BURST",
-              "MAX_BATCH_SAFETY_BURST",
-              "MAX_BATCH_CONTROL_BURST",
-              "MAX_BATCH_CONSENSUS_BURST",
-              "MAX_BATCH_PAYLOAD_BURST",
-              "MAX_BATCH_AVAILABILITY_BURST",
-              "MAX_PLAINTEXT_MSGS_HI",
-              "MAX_PLAINTEXT_MSGS_LO",
-              "MAX_PLAINTEXT_BYTES_HI",
-              "MAX_PLAINTEXT_BYTES_LO",
               "HAS_INBOUND_DECODE_LIMITS"
             ],
             "exprs": {
-              "DEFAULT_BUFFER_CAPACITY": "1024",
               "SOURCE_RETENTION_MAX_LEASES": "2",
               "DEFAULT_MESSAGE_PREALLOC_CAP": "512 * 1024",
               "MAX_RETAINED_MESSAGE_BUFFER_CAP": "DEFAULT_MESSAGE_PREALLOC_CAP",
-              "HI_BUDGET_RESET": "32",
-              "HI_BUDGET_FALLBACK": "1",
-              "HI_SAFETY_BURST_MAX": "8",
-              "HI_CONTROL_BURST_MAX": "4",
-              "HI_CONSENSUS_BURST_MAX": "4",
-              "HI_PAYLOAD_BURST_MAX": "1",
-              "HI_AVAILABILITY_BURST_MAX": "2",
-              "OUTBOUND_DRAIN_HI_MAX": "8",
-              "DIRECT_POST_BURST_MAX": "8",
-              "MAX_INNER_MESSAGES_PER_ENCRYPTED_FRAME": "32",
-              "FRAME_POOL_MAX": "32",
-              "MAX_BATCH_FRAMES": "16",
-              "MAX_BATCH_BYTES": "64 * 1024",
-              "MAX_BATCH_HI_BURST": "4",
-              "MAX_BATCH_NON_OTHER_BURST": "8",
-              "MAX_BATCH_SAFETY_BURST": "8",
-              "MAX_BATCH_CONTROL_BURST": "4",
-              "MAX_BATCH_CONSENSUS_BURST": "4",
-              "MAX_BATCH_PAYLOAD_BURST": "1",
-              "MAX_BATCH_AVAILABILITY_BURST": "2",
-              "MAX_PLAINTEXT_MSGS_HI": "16",
-              "MAX_PLAINTEXT_MSGS_LO": "MAX_INNER_MESSAGES_PER_ENCRYPTED_FRAME",
-              "MAX_PLAINTEXT_BYTES_HI": "64 * 1024",
-              "MAX_PLAINTEXT_BYTES_LO": "256 * 1024",
               "HAS_INBOUND_DECODE_LIMITS": "T::HAS_INBOUND_DECODE_LIMITS"
             }
           },
@@ -15958,7 +16153,7 @@
         ]
       },
       {
-        "reason": "Statement-shape and proof-size bounds of the confidential-asset product: the leaf capacity of its commitment tree and its encoded proof size. The proof travels in a transaction bounded by transaction.max_tx_bytes; P.9 owns the product. Its proof ceiling is named in the declared item proof.product_proof_ceilings.",
+        "reason": "Statement-shape and proof-size bounds of the confidential-asset product: the depth and leaf capacity of its commitment tree and its encoded proof size. The depth also bounds the level walks that build a tree and a witness path (it is the fixed height of the tree, not an amount a transaction chooses). The proof travels in a transaction bounded by transaction.max_tx_bytes; P.9 owns the product. Its proof ceiling is named in the declared item proof.product_proof_ceilings.",
         "files": [
           {
             "path": "crates/iroha_core_zk/src/confidential.rs",
@@ -15973,11 +16168,13 @@
             "path": "crates/iroha_core_zk/src/confidential_v2.rs",
             "symbols": [
               "CONFIDENTIAL_TREE_CAPACITY_V2",
-              "CONFIDENTIAL_V2_MAX_PROOF_BYTES"
+              "CONFIDENTIAL_V2_MAX_PROOF_BYTES",
+              "CONFIDENTIAL_TREE_DEPTH_V2"
             ],
             "exprs": {
               "CONFIDENTIAL_TREE_CAPACITY_V2": "1 << CONFIDENTIAL_TREE_DEPTH_V2",
-              "CONFIDENTIAL_V2_MAX_PROOF_BYTES": "192 * 1024"
+              "CONFIDENTIAL_V2_MAX_PROOF_BYTES": "192 * 1024",
+              "CONFIDENTIAL_TREE_DEPTH_V2": "16"
             }
           }
         ]
@@ -16348,7 +16545,7 @@
               "KAGEMUSHA_WALLET_VERIFYING_KEY_ALLOWLIST_MAX_BYTES_V1"
             ],
             "exprs": {
-              "KAGEMUSHA_WALLET_VERIFYING_KEY_ENTRIES_MAX_V1": "8 + 7 + 1",
+              "KAGEMUSHA_WALLET_VERIFYING_KEY_ENTRIES_MAX_V1": "8 + 3",
               "KAGEMUSHA_WALLET_VERIFYING_KEY_ALLOWLIST_MAX_BYTES_V1": "2_048"
             }
           },
@@ -16381,7 +16578,9 @@
               "KAGEMUSHA_WALLET_COMPLETION_RECORD_MAX_BYTES_V1",
               "KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1",
               "KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1",
-              "KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1"
+              "KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1",
+              "KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1",
+              "KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1"
             ],
             "exprs": {
               "KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1": "2_048",
@@ -16410,7 +16609,9 @@
               "KAGEMUSHA_WALLET_COMPLETION_RECORD_MAX_BYTES_V1": "65_536",
               "KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1": "KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 + 262_144",
               "KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1": "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1",
-              "KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1": "65_536 * 34 + 512"
+              "KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1": "65_536 * 34 + 512",
+              "KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1": "3_520",
+              "KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1": "KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1 - KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1"
             }
           },
           {
@@ -18211,7 +18412,7 @@
         ]
       },
       {
-        "reason": "Governance and Parliament: selector, seat, retry, ballot-corpus, chunk, citizen, candidate-snapshot and attempt-state bounds, the concurrent casting contexts and the randomness redraw ceiling. They bound the governance product's own instructions and committed State. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached.",
+        "reason": "Governance and Parliament: selector, seat, retry, ballot-corpus, chunk, citizen, candidate-snapshot and attempt-state bounds, the concurrent casting contexts and the randomness redraw ceiling (the ceiling of the committed lifecycle parameter, which Core uses); the sealed seats of a binding ballot, the concurrent nonterminal binding attempts, the cross-body assignment cap, the alternates of a body draw and their default, and the encoded size of the committed lifecycle parameter. They bound the governance product's own instructions and committed State. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/governance/mod.rs",
@@ -18259,12 +18460,93 @@
             }
           },
           {
-            "path": "crates/iroha_core/src/governance/parliament.rs",
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot.rs",
             "symbols": [
-              "MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1"
+              "MAX_SEALED_SEATS_V1"
             ],
             "exprs": {
-              "MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1": "MAX_PARLIAMENT_GOVERNANCE_ATTEMPT_RETRIES_V1"
+              "MAX_SEALED_SEATS_V1": "1_000"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_ballot.rs",
+            "symbols": [
+              "MAX_NONTERMINAL_ATTEMPTS"
+            ],
+            "exprs": {
+              "MAX_NONTERMINAL_ATTEMPTS": "16"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_lifecycle.rs",
+            "symbols": [
+              "MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1",
+              "MAX_PARLIAMENT_CROSS_BODY_ASSIGNMENT_CAP_V1",
+              "MAX_PARLIAMENT_BODY_ALTERNATES_V1",
+              "DEFAULT_ALTERNATE_CAP_V1",
+              "MAX_PAYLOAD_BYTES"
+            ],
+            "exprs": {
+              "MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1": "16",
+              "MAX_PARLIAMENT_CROSS_BODY_ASSIGNMENT_CAP_V1": "10",
+              "MAX_PARLIAMENT_BODY_ALTERNATES_V1": "1_000",
+              "DEFAULT_ALTERNATE_CAP_V1": "21",
+              "MAX_PAYLOAD_BYTES": "4_096"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Parliament anonymous-ballot wire-schema caps and the still-unavailable node verifier budget: the canonical envelope of one anonymous input (E_max, 262,144 bytes) and its complete entrypoint wire reservation (E_wire, 263,168 bytes), the authenticated ballot context and published sealed list (C_max, 163,840 bytes), the verifier input charged to one verification (E_max + C_max = 425,984 bytes), the structural ceilings of the committed per-block ballot verification budgets (8 reservations, 3,407,872 verifier-input bytes) and governance block-start row caps (256 KiB, 1 KiB and 16 KiB). These are fixed product schema bounds, not local scheduling allowances. TransactionEntrypoint now carries the canonical anonymous input, whose data-model codec enforces its structure and byte cap. Governance block-start row types exist separately but are not yet variants of ExecutionOutputV1. Core and Torii recognize these carriers but defer anonymous-ballot admission and execution because the authenticated State/context adapter is unavailable; no node depends on the standalone iroha_parliament_ballot crate or executes its verifier budget. The declared item proof.anonymous_ballot_verifier_budget owns full node integration and classification of each verifier and output budget with its enforcement sites and boundary tests.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot.rs",
+            "symbols": [
+              "ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1",
+              "ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1",
+              "BALLOT_CONTEXT_MAX_BYTES_V1",
+              "BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1"
+            ],
+            "exprs": {
+              "ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1": "262_144",
+              "ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1": "263_168",
+              "BALLOT_CONTEXT_MAX_BYTES_V1": "163_840",
+              "BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1": "425_984"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/context.rs",
+            "symbols": [
+              "MAX_BYTES"
+            ],
+            "exprs": {
+              "MAX_BYTES": "BALLOT_CONTEXT_MAX_BYTES_V1"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_ballot.rs",
+            "symbols": [
+              "ENTRYPOINT_WIRE_BYTES",
+              "MAX_VERIFICATION_RESERVATIONS",
+              "MAX_VERIFIER_INPUT_BYTES"
+            ],
+            "exprs": {
+              "ENTRYPOINT_WIRE_BYTES": "ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1 as u64",
+              "MAX_VERIFICATION_RESERVATIONS": "8",
+              "MAX_VERIFIER_INPUT_BYTES": "8 * BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/output.rs",
+            "symbols": [
+              "GOVERNANCE_START_ROW_MAX_BYTES_V1",
+              "CASTING_CLOCK_ROW_MAX_BYTES_V1",
+              "LIFECYCLE_RECEIPT_ROW_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "GOVERNANCE_START_ROW_MAX_BYTES_V1": "262_144",
+              "CASTING_CLOCK_ROW_MAX_BYTES_V1": "1_024",
+              "LIFECYCLE_RECEIPT_ROW_MAX_BYTES_V1": "16_384"
             }
           }
         ]
@@ -19628,7 +19910,7 @@
         ]
       },
       {
-        "reason": "Local work bounds and channels of the node: the SNS rekey-lineage and auto-renew sweep bounds per block, the telemetry channel, the expiry replay events per prune, the table materializers of a State capture, the alias text of a grouped ownership row, and the fee-key and row-byte limits of the World-state snapshot of authority originals. They bound local scheduling, capture or one read.",
+        "reason": "Local work bounds and channels of the node: the SNS rekey-lineage and auto-renew sweep bounds per block, the telemetry channel and the domains one telemetry status sync exports with a per-domain accounts gauge (later domains are not exported; telemetry is no input of execution), the expiry replay events per prune, the table materializers of a State capture, the alias text of a grouped ownership row, and the fee-key and row-byte limits of the World-state snapshot of authority originals. They bound local scheduling, capture or one read.",
         "files": [
           {
             "path": "crates/iroha_core/src/sns.rs",
@@ -19673,10 +19955,12 @@
           {
             "path": "crates/iroha_core/src/telemetry.rs",
             "symbols": [
-              "CHANNEL_CAPACITY"
+              "CHANNEL_CAPACITY",
+              "ACCOUNTS_GAUGE_MAX_DOMAINS"
             ],
             "exprs": {
-              "CHANNEL_CAPACITY": "1024"
+              "CHANNEL_CAPACITY": "1024",
+              "ACCOUNTS_GAUGE_MAX_DOMAINS": "256"
             }
           },
           {
@@ -19912,7 +20196,7 @@
         ]
       },
       {
-        "reason": "Torii's HTTP, app, operator and MCP services other than transaction submission: request, query-string, header, body and response ceilings of single routes, pagination limits, scan and cache budgets, rate-limiter and pre-authentication tables, webhook, push, ISO 20022 bridge, VPN, Soracloud, explorer, telemetry, private-settlement control and contract-source endpoints, and benchmark profiles. They are local serving limits below the listed request-body ceiling transport.torii_max_content_len: a refused request can be sent again or to another node, and none decides the validity of a transaction or block. The app API's transaction payload field is the listed transaction.torii_app_api_payload_max_bytes. Three values are found by use and are no ceilings: the buckets per shard from which the rate limiter derives its shard count, and two defaults a request may omit, the block depth a trigger-completion listing scans (under its named ceiling) and the candle width of the trader read API (at least one minute).",
+        "reason": "Torii's HTTP, app, operator and MCP services other than transaction submission: request, query-string, header, body and response ceilings of single routes, pagination limits, scan and cache budgets, rate-limiter and pre-authentication tables, webhook, push, ISO 20022 bridge, VPN, Soracloud, explorer, native account-literal inspection, account-history multisig evidence (the ceiling of one stored original it reads), telemetry, private-settlement control and contract-source endpoints, and benchmark profiles. They are local serving limits below the listed request-body ceiling transport.torii_max_content_len: a refused request can be sent again or to another node, and none decides the validity of a transaction or block. The app API's transaction payload field is the listed transaction.torii_app_api_payload_max_bytes. Three values are found by use and are no ceilings: the buckets per shard from which the rate limiter derives its shard count, and two defaults a request may omit, the block depth a trigger-completion listing scans (under its named ceiling) and the candle width of the trader read API (at least one minute).",
         "files": [
           {
             "path": "crates/iroha_torii/src/app_api.rs",
@@ -20347,7 +20631,8 @@
               "EXPLORER_HISTORY_MAX_INSPECTED_ENTRYPOINTS_V1",
               "EXPLORER_SNAPSHOT_MAX_EXAMINED_HOLDERS_V1",
               "EXPLORER_ECONOMETRICS_MAX_RETAINED_PARTICIPANTS_V1",
-              "DEFAULT_TRADER_CANDLE_BUCKET_MS"
+              "DEFAULT_TRADER_CANDLE_BUCKET_MS",
+              "CAPACITY"
             ],
             "exprs": {
               "SORANET_PRIVACY_LABEL_MAX_BYTES": "128",
@@ -20385,7 +20670,8 @@
               "EXPLORER_HISTORY_MAX_INSPECTED_ENTRYPOINTS_V1": "crate::explorer::EXPLORER_CURSOR_MAX_SCAN",
               "EXPLORER_SNAPSHOT_MAX_EXAMINED_HOLDERS_V1": "65_536",
               "EXPLORER_ECONOMETRICS_MAX_RETAINED_PARTICIPANTS_V1": "65_536",
-              "DEFAULT_TRADER_CANDLE_BUCKET_MS": "900_000"
+              "DEFAULT_TRADER_CANDLE_BUCKET_MS": "900_000",
+              "CAPACITY": "64"
             }
           },
           {
@@ -20611,11 +20897,33 @@
               "WEBHOOK_DELIVERY_MAX_BASE64_BYTES": "WEBHOOK_DELIVERY_MAX_BYTES.div_ceil(3) * 4",
               "WEBHOOK_QUEUE_FILE_MAX_BYTES": "2 * 1024 * 1024"
             }
+          },
+          {
+            "path": "crates/iroha_torii/src/account_inspection.rs",
+            "symbols": [
+              "MAX_REQUEST_BYTES",
+              "MAX_ACCOUNT_BYTES",
+              "MAX_RESPONSE_BYTES"
+            ],
+            "exprs": {
+              "MAX_REQUEST_BYTES": "4096",
+              "MAX_ACCOUNT_BYTES": "2048",
+              "MAX_RESPONSE_BYTES": "8192"
+            }
+          },
+          {
+            "path": "crates/iroha_torii/src/routing/account_history_multisig.rs",
+            "symbols": [
+              "MAX_ORIGINAL_BYTES"
+            ],
+            "exprs": {
+              "MAX_ORIGINAL_BYTES": "64 * 1024"
+            }
           }
         ]
       },
       {
-        "reason": "Minimums the code compares by name (found by use; the name has no limit word). Least counts: participants, legs, movements, options, hops, replicas, roster members, a certificate chain, reproducible builds, qualification handoffs, credits and fuzz cases, an anonymity set, nonzero key coefficients and a bond snapshot. Least sizes: memory, CPU share, open files, storage alignment, a page, a chunk, a bloom filter, a response, a marker, and inbox and outbox reservations. Least times: a TTL, a stall, a lease and a poll interval. The least values two SCCP parameters may take, the worker floors of the ZK lane and of the pipeline, the least validators of one height, and the soundness floors of a STARK/FRI verifying key (domain exponent, blow-up exponent and query count). A minimum refuses too little. It is no byte, count or work ceiling of the path, but it changes what is accepted, so each is pinned and a changed floor is reviewed.",
+        "reason": "Minimums the code compares by name (found by use; the name has no limit word). Least counts: participants, legs, movements, options, hops, replicas, roster members, a certificate chain, reproducible builds, qualification handoffs, credits and fuzz cases, an anonymity set, the sealed seats and the turnout floor of a binding Parliament ballot, nonzero key coefficients and a bond snapshot. Least sizes: memory, CPU share, open files, storage alignment, a page, a chunk, a bloom filter, a response, a marker, and inbox and outbox reservations. Least times: a TTL, a stall, a lease, a poll interval, a Parliament lifecycle window (1 ms) and a sortition pulse delay (1 block). The least values two SCCP parameters may take, the worker floors of the ZK lane and of the pipeline, the least validators of one height, and the soundness floors of a STARK/FRI verifying key (domain exponent, blow-up exponent and query count). A minimum refuses too little. It is no byte, count or work ceiling of the path, but it changes what is accepted, so each is pinned and a changed floor is reviewed.",
         "files": [
           {
             "path": "crates/iroha_core/src/pipeline/zk_lane.rs",
@@ -20853,11 +21161,40 @@
             "exprs": {
               "PIPELINE_AUTO_WORKER_MIN": "2"
             }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot.rs",
+            "symbols": [
+              "MIN_SEALED_SEATS_V1",
+              "MIN_TURNOUT_V1"
+            ],
+            "exprs": {
+              "MIN_SEALED_SEATS_V1": "3",
+              "MIN_TURNOUT_V1": "3"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs",
+            "symbols": [
+              "MIN_WINDOW_MS"
+            ],
+            "exprs": {
+              "MIN_WINDOW_MS": "1"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_lifecycle.rs",
+            "symbols": [
+              "MIN_PULSE_DELAY_BLOCKS"
+            ],
+            "exprs": {
+              "MIN_PULSE_DELAY_BLOCKS": "1"
+            }
           }
         ]
       },
       {
-        "reason": "Fixed widths of an encoding, compared by name: header, prefix, frame, packet, record, tag, checksum, digest, accumulator and hash-block sizes, the length prefix of a vector, the payload room of a fixed-size VPN cell and the exact request sizes of the KAGEMUSHA signing tools. A decoder refuses a buffer shorter than the width or a record that is not exactly its frame. The width is the layout of one record; it bounds no variable amount. The ZK-ACE byte packing takes at most its limb width (7 bytes) for each field limb. The record width of Kura's block-hash file (one hash) and the width of one processed Pasta scalar in the key-size prediction of the KAGEMUSHA artifact preflight are of this kind: each multiplies a count into a size, and the scalar width is also one of three candidate payload sizes of a column of which the prediction takes the least.",
+        "reason": "Fixed widths of an encoding, compared by name: header, prefix, frame, packet, record, tag, checksum, digest, accumulator and hash-block sizes, the length prefix of a vector, the payload room of a fixed-size VPN cell, the exact request sizes of the KAGEMUSHA signing tools and the exact raw lengths of the fixed values and proofs of the Parliament anonymous ballot (32 to 233,012 bytes). A decoder refuses a buffer shorter than the width or a record that is not exactly its frame. The width is the layout of one record; it bounds no variable amount. The ZK-ACE byte packing takes at most its limb width (7 bytes) for each field limb. The record width of Kura's block-hash file (one hash) and the width of one processed Pasta scalar in the key-size prediction of the KAGEMUSHA artifact preflight are of this kind: each multiplies a count into a size, and the scalar width is also one of three candidate payload sizes of a column of which the prediction takes the least.",
         "files": [
           {
             "path": "crates/iroha_core/src/kura.rs",
@@ -20997,11 +21334,20 @@
             "exprs": {
               "ZK_ACE_PACKED_LIMB_BYTES": "7"
             }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/bytes.rs",
+            "symbols": [
+              "LENGTH"
+            ],
+            "exprs": {
+              "LENGTH": "$len | $len"
+            }
           }
         ]
       },
       {
-        "reason": "Shape ceilings compared by name, each of one record or response: the blacklist-tree depth and leaf count and the sparse-tree depth of the KAGEMUSHA wallet policy; the normal revision count of stream-token custody (data model and node); the address slot count of a VPN session; the encoded size of the lane-state commitment in a native-lane finality target (512 bytes, also its decode limit and stack buffer); the retained bytes of a contract-state response and of a retryable proxy response and the status-filter count in Torii; the partial-signature slots of the beacon (the threshold-BLS committee size); and the decode depth of Kura's recovery-control record. None is a transaction, block, frame or proof byte ceiling of the generic path; those are listed bounds.",
+        "reason": "Shape ceilings compared by name, each of one record or response: the blacklist-tree depth and the sparse-tree depth of the KAGEMUSHA wallet policy; the normal revision count of stream-token custody (data model and node); the address slot count of a VPN session; the encoded size of the lane-state commitment in a native-lane finality target (512 bytes, also its decode limit and stack buffer); the retained bytes of a contract-state response and of a retryable proxy response and the status-filter count in Torii; the partial-signature slots of the beacon (the threshold-BLS committee size); and the decode depth of Kura's recovery-control record. None is a transaction, block, frame or proof byte ceiling of the generic path; those are listed bounds.",
         "files": [
           {
             "path": "crates/iroha_core/src/beacon.rs",
@@ -21042,12 +21388,10 @@
           {
             "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/policy.rs",
             "symbols": [
-              "KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1",
-              "KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1"
+              "KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1"
             ],
             "exprs": {
-              "KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1": "16",
-              "KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1": "1 << KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1"
+              "KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1": "16"
             }
           },
           {
@@ -21100,7 +21444,7 @@
         ]
       },
       {
-        "reason": "Protocol codes, heights and windows compared by name that are neither sizes nor amounts of work: two lifecycle codes of a private settlement, the genesis height, the beacon pulse round, a dependency kind of Kaigi, the tip bit of a stream-token lineage target, and the deduplication window of a lane chain, counted in lane blocks (specs/sumeragi_lanes.md).",
+        "reason": "Protocol codes, heights and windows compared by name that are neither sizes nor amounts of work: two lifecycle codes of a private settlement, the genesis height, the beacon pulse round, a dependency kind of Kaigi, the tip bit of a stream-token lineage target, and the deduplication window of a lane chain, counted in lane blocks (specs/sumeragi_lanes.md), and the longest native pulse cadence and sortition pulse delay of a Parliament attempt (65,536 blocks).",
         "files": [
           {
             "path": "crates/iroha_core/src/beacon.rs",
@@ -21157,11 +21501,29 @@
               "PRIVATE_SETTLEMENT_LIFECYCLE_AUDITED_V1": "1",
               "PRIVATE_SETTLEMENT_LIFECYCLE_EXPIRED_V1": "6"
             }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs",
+            "symbols": [
+              "MAX_PULSE_CADENCE_BLOCKS"
+            ],
+            "exprs": {
+              "MAX_PULSE_CADENCE_BLOCKS": "65_536"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_lifecycle.rs",
+            "symbols": [
+              "MAX_PULSE_DELAY_BLOCKS"
+            ],
+            "exprs": {
+              "MAX_PULSE_DELAY_BLOCKS": "65_536"
+            }
           }
         ]
       },
       {
-        "reason": "Durations compared by name: lifetimes, TTLs, grace periods and a cache-prune interval, in milliseconds or seconds. A time window is not a byte, count or work bound.",
+        "reason": "Durations compared by name: lifetimes, TTLs, grace periods and a cache-prune interval, in milliseconds or seconds, and the longest Parliament lifecycle window, enactment delay, ballot notice and casting window (seven days). A time window is not a byte, count or work bound.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/sorafs/moderation_ledger.rs",
@@ -21207,11 +21569,31 @@
             "exprs": {
               "POSITIVE_CACHE_TTL_SECS": "300"
             }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs",
+            "symbols": [
+              "MAX_DURATION_MS"
+            ],
+            "exprs": {
+              "MAX_DURATION_MS": "604_800_000"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_ballot.rs",
+            "symbols": [
+              "MAX_VOTE_NOTICE_MS",
+              "MAX_CASTING_WINDOW_MS"
+            ],
+            "exprs": {
+              "MAX_VOTE_NOTICE_MS": "604_800_000",
+              "MAX_CASTING_WINDOW_MS": "604_800_000"
+            }
           }
         ]
       },
       {
-        "reason": "Decimal scales, a basis-point denominator and a warning percentage that a numeric field is compared with. They bound the value of one number, not a size.",
+        "reason": "Decimal scales, a basis-point denominator and a warning percentage that a numeric field is compared with, and the largest admission-stamp difficulty of an anonymous ballot (32 leading zero bits). They bound the value of one number, not a size.",
         "files": [
           {
             "path": "crates/iroha_core/src/telemetry.rs",
@@ -21247,6 +21629,15 @@
             ],
             "exprs": {
               "XOR_QUANTITY_SCALE": "9"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/parameter/parliament_ballot.rs",
+            "symbols": [
+              "MAX_STAMP_DIFFICULTY_BITS"
+            ],
+            "exprs": {
+              "MAX_STAMP_DIFFICULTY_BITS": "32"
             }
           }
         ]
@@ -21361,7 +21752,7 @@
             ],
             "exprs": {
               "MOD_P": "(1u128 << 64) - (1u128 << 32) + 1",
-              "MOD_P_U64": "MOD_P as u64"
+              "MOD_P_U64": "0xffff_ffff_0000_0001"
             }
           }
         ]
@@ -21553,7 +21944,7 @@
         ]
       },
       {
-        "reason": "Terms of excluded limits: integer constants found only because the defining expression of a scanned limit names them. No name of theirs marks a limit, and the comparison scan finds none of them in a relational comparison, a capping call (its receiver included) or a tested range. Each is one addend, factor, divisor, shift, struct field or alias of the limits that `term_of` lists for it: a header, envelope, wrapper, signature, nonce, key, ciphertext, digest or address width; a fixed body, request, entry, cell or payload size; a slot, stage, case, artifact, instance, prefix, value, row, subnet or batch count; an instance offset and a quotient ratio of a fixed circuit; a tree depth, a circuit size exponent and a bit width; a floor of a durable inbox or outbox; a gas factor per item; an epoch window; a structural or source byte allowance; a key-validation scratch size and an identity representation count of the query fanout. The limit a term is part of is excluded with the reason it is not a resource bound of the path, in another group or, when that limit is a term itself, in this one, and then the limit at the end of the chain decides; the term shares that reason. A term is pinned so that a changed term, which changes its limit while the text of the limit's expression stays the same, fails the checker until the exclusion of that limit is reviewed.",
+        "reason": "Terms of excluded limits: integer constants found only because the defining expression of a scanned limit names them. No name of theirs marks a limit, and the comparison scan finds none of them in a relational comparison, a capping call (its receiver included) or a tested range. Each is one addend, factor, divisor, shift, struct field or alias of the limits that `term_of` lists for it: a header, envelope, wrapper, signature, nonce, key, ciphertext, digest or address width; a fixed body, request, entry, cell or payload size; a slot, stage, case, artifact, instance, prefix, value, row, subnet or batch count; an instance offset and a quotient ratio of a fixed circuit; a tree depth, a circuit size exponent and a bit width; a floor of a durable inbox or outbox; a gas factor per item; an epoch window; a structural or source byte allowance; a key-validation scratch size, an identity representation count of the query fanout and a day length in milliseconds. The limit a term is part of is excluded with the reason it is not a resource bound of the path, in another group or, when that limit is a term itself, in this one, and then the limit at the end of the chain decides; the term shares that reason. A term is pinned so that a changed term, which changes its limit while the text of the limit's expression stays the same, fails the checker until the exclusion of that limit is reviewed.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/asset/id.rs",
@@ -21618,7 +22009,7 @@
               "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1"
             ],
             "exprs": {
-              "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1": "1_723"
+              "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1": "1_394"
             },
             "term_of": {
               "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1": [
@@ -21822,21 +22213,6 @@
             }
           },
           {
-            "path": "crates/iroha_core_zk/src/confidential_v2.rs",
-            "symbols": [
-              "CONFIDENTIAL_TREE_DEPTH_V2"
-            ],
-            "exprs": {
-              "CONFIDENTIAL_TREE_DEPTH_V2": "16"
-            },
-            "term_of": {
-              "CONFIDENTIAL_TREE_DEPTH_V2": [
-                "crates/iroha_core_zk/src/confidential.rs: CAPACITY",
-                "crates/iroha_core_zk/src/confidential_v2.rs: CONFIDENTIAL_TREE_CAPACITY_V2"
-              ]
-            }
-          },
-          {
             "path": "crates/iroha_torii/src/torii_fanout_decode_helpers.rs",
             "symbols": [
               "QUERY_FANOUT_PUBLIC_KEY_VALIDATION_SCRATCH_BYTES",
@@ -21852,6 +22228,20 @@
               ],
               "QUERY_FANOUT_CANDIDATE_IDENTITY_REPRESENTATIONS": [
                 "crates/iroha_torii/src/torii_fanout_decode_helpers.rs: query_fanout_candidate_snapshot_overhead_bytes"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/bond.rs",
+            "symbols": [
+              "MS_PER_DAY"
+            ],
+            "exprs": {
+              "MS_PER_DAY": "86_400_000"
+            },
+            "term_of": {
+              "MS_PER_DAY": [
+                "crates/iroha_data_model/src/bond.rs: BOND_MAX_PAYMENT_GRACE_MS"
               ]
             }
           }
@@ -22129,7 +22519,7 @@
         ]
       },
       {
-        "reason": "Torii's HTTP and app services other than transaction submission, defined in the shared API crate, the configuration defaults and the Kotodama linker and compared only in Torii: response and reader ceilings of the account-capability, faucet-policy, authority-original, resource-name, multisig-evidence, Parliament casting-proof and validation-fee proof routes; the request body of the data-availability queries; cursor, page, offset and query-pair limits; the backends one retention-status response summarizes; the configured list limits, page cost, replay-cache capacity, prover report and in-flight counts, native-issuance concurrency, TLS certificate-chain length and key-file size and drand endpoint count; and the source count and source bytes of one contract-source module graph. They are local serving limits like the ones Torii defines itself (excluded above): that route refuses or truncates a larger request or response, and no transaction, proof or block is judged by them.",
+        "reason": "Torii's HTTP and app services other than transaction submission, defined in the shared API crate, the configuration defaults and the Kotodama linker and compared only in Torii: response and reader ceilings of the account-capability, faucet-policy, authority-original, resource-name, multisig-evidence and validation-fee proof routes; the request body of the data-availability queries; cursor, page, offset and query-pair limits; the backends one retention-status response summarizes; the configured list limits, page cost, replay-cache capacity, prover report and in-flight counts, native-issuance concurrency, TLS certificate-chain length and key-file size and drand endpoint count; the MCP request and response envelope ceiling of torii.mcp (MAX_REQUEST_BYTES, reached because the account-inspection route of Torii compares its own constant of that name; it bounds MCP request bodies, tools/list pages and batch responses); and the source count and source bytes of one contract-source module graph. They are local serving limits like the ones Torii defines itself (excluded above): that route refuses or truncates a larger request or response, and no transaction, proof or block is judged by them.",
         "files": [
           {
             "path": "crates/iroha_torii_shared/src/account_capabilities.rs",
@@ -22204,17 +22594,6 @@
             }
           },
           {
-            "path": "crates/iroha_torii_shared/src/parliament_api.rs",
-            "symbols": [
-              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_FINALITY_CHAIN_BYTES_V1",
-              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1"
-            ],
-            "exprs": {
-              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_FINALITY_CHAIN_BYTES_V1": "3 * 1024 * 1024",
-              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1": "8 * 1024 * 1024"
-            }
-          },
-          {
             "path": "crates/iroha_torii_shared/src/resource_names_state.rs",
             "symbols": [
               "NATIVE_RESOURCE_NAMES_STATE_MAX_BYTES_V1"
@@ -22260,7 +22639,8 @@
               "ZK_PROVER_REPORTS_MAX_COUNT",
               "ZK_PROVER_MAX_INFLIGHT",
               "MAX_CERTIFICATES",
-              "MAX_DER_BYTES"
+              "MAX_DER_BYTES",
+              "MAX_REQUEST_BYTES"
             ],
             "exprs": {
               "DRAND_MAX_ENDPOINTS": "8",
@@ -22273,7 +22653,8 @@
               "ZK_PROVER_REPORTS_MAX_COUNT": "4_096",
               "ZK_PROVER_MAX_INFLIGHT": "2",
               "MAX_CERTIFICATES": "4",
-              "MAX_DER_BYTES": "16 * 1024"
+              "MAX_DER_BYTES": "16 * 1024",
+              "MAX_REQUEST_BYTES": "1_048_576"
             }
           },
           {
@@ -23000,7 +23381,7 @@
         ]
       },
       {
-        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
+        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds: among them the encoded transport of the artifact originals and the stored closure of one operation, the archived preparation plan, the staged preparation drafts of a wallet operation (at most two derivations of fixed geometry) and the durable archive-retirement journal cell. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/isi/kagemusha_wallet/load_finality.rs",
@@ -23059,18 +23440,11 @@
             "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs",
             "symbols": [
               "KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1",
-              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1",
               "KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
             ],
             "exprs": {
               "KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1": "ExecutionOutputPolicyV1::bootstrap().max_output_bytes as usize",
-              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": "16 * 1024",
               "KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1": "MAX_COMMIT_CERTIFICATE_BYTES_V1 + KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1 + KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1"
-            },
-            "term_of": {
-              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": [
-                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs: KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
-              ]
             }
           },
           {
@@ -23192,10 +23566,12 @@
           {
             "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
             "symbols": [
-              "KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1"
+              "KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1",
+              "RETIREMENT_MAX_BYTES"
             ],
             "exprs": {
-              "KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1": "4_096"
+              "KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1": "4_096",
+              "RETIREMENT_MAX_BYTES": "1024"
             }
           },
           {
@@ -23240,7 +23616,6 @@
             "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack/transport.rs",
             "symbols": [
               "TRANSPORT_MAX_BYTES",
-              "FINANCIAL_MAX_BYTES",
               "PACK_MAX_BYTES",
               "CATALOG_MAX_BYTES",
               "ORIGINAL_MAX_BYTES",
@@ -23248,7 +23623,6 @@
             ],
             "exprs": {
               "TRANSPORT_MAX_BYTES": "32 * 1024 * 1024",
-              "FINANCIAL_MAX_BYTES": "2048",
               "PACK_MAX_BYTES": "16 * 1024 * 1024 + 64 * 1024",
               "CATALOG_MAX_BYTES": "16 * 1024 * 1024",
               "ORIGINAL_MAX_BYTES": "1024 * 1024 * 1024",
@@ -23395,10 +23769,12 @@
           {
             "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs",
             "symbols": [
-              "FROZEN_BOUND"
+              "FROZEN_BOUND",
+              "PLAN_BOUND"
             ],
             "exprs": {
-              "FROZEN_BOUND": "KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1 + KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1 + 1024"
+              "FROZEN_BOUND": "KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1 + KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1 + 1024",
+              "PLAN_BOUND": "PREPARATION_MAX_BYTES + SOURCE_CUSTODY_MAX_BYTES + 1024"
             }
           },
           {
@@ -23427,7 +23803,7 @@
               "REQUEST_MAX_BYTES"
             ],
             "exprs": {
-              "REQUEST_MAX_BYTES": "{ let original = if KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 > KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1 { KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 } else { KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1 }; original + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1024 }"
+              "REQUEST_MAX_BYTES": "KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1024"
             }
           },
           {
@@ -23525,15 +23901,6 @@
             }
           },
           {
-            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/policy_custody.rs",
-            "symbols": [
-              "REFERENCE_MAX_BYTES"
-            ],
-            "exprs": {
-              "REFERENCE_MAX_BYTES": "512"
-            }
-          },
-          {
             "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/preparation_custody.rs",
             "symbols": [
               "SOURCE_CUSTODY_MAX_BYTES"
@@ -23549,6 +23916,97 @@
             ],
             "exprs": {
               "ANCHOR_CUSTODY_MAX_BYTES": "KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1 + 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/encoded.rs",
+            "symbols": [
+              "ENCODED_ORIGINAL_MAX_BYTES_V1",
+              "TRANSPORT_MAX_BYTES_V1",
+              "ROWS"
+            ],
+            "exprs": {
+              "ENCODED_ORIGINAL_MAX_BYTES_V1": "PROVING_KEY_MAX_BYTES_V1 + (4 << 20)",
+              "TRANSPORT_MAX_BYTES_V1": "32 << 20",
+              "ROWS": "ARTIFACT_MAX_COUNT_V1 * 3"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/encoded/snapshot.rs",
+            "symbols": [
+              "MAX_STORED_BYTES"
+            ],
+            "exprs": {
+              "MAX_STORED_BYTES": "16 << 20"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/dispatch/intake.rs",
+            "symbols": [
+              "DRAFT_OBJECTS",
+              "BATCH_BYTES"
+            ],
+            "exprs": {
+              "DRAFT_OBJECTS": "70_188",
+              "BATCH_BYTES": "DRAFT_BYTES + DRAFT_OBJECTS * 512 + REQUEST_MAX_BYTES + PLAN_BOUND + 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/expiry.rs",
+            "symbols": [
+              "EXPIRY_RECORD_MAX"
+            ],
+            "exprs": {
+              "EXPIRY_RECORD_MAX": "24 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Input and output bounds of the offline kagemusha_wallet_artifacts tool (a src/bin target of the proof crate): the canonical runtime and release documents it writes, the application-release document it reads and its detached signature envelope, and the candidate-original selection request of its reuse command. The tool refuses a larger document before parsing it; nothing it reads travels in a transaction or block, and a refusal grants or withholds no attestation, installation or monetary authority.",
+        "files": [
+          {
+            "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/application.rs",
+            "symbols": [
+              "RUNTIME_MAX",
+              "APP_MAX",
+              "ENVELOPE_MAX"
+            ],
+            "exprs": {
+              "RUNTIME_MAX": "128 << 10",
+              "APP_MAX": "8 << 20",
+              "ENVELOPE_MAX": "2048"
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/reuse.rs",
+            "symbols": [
+              "CANDIDATE_REQUEST_MAX"
+            ],
+            "exprs": {
+              "CANDIDATE_REQUEST_MAX": "4 << 20"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Capacities of the process-local optimizations of the KAGEMUSHA wallet archive: the exact-write memo forgets its oldest entries above its entry count, an open batch is published early when it reaches its record or byte capacity, and the authenticated phase-object cache skips an object above its object ceiling and evicts older objects above its byte budget. None is persisted or used as evidence; a miss reads the durable archive, whose original custody checks are unchanged, so no capacity changes what a wallet accepts or produces.",
+        "files": [
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_ARCHIVE_WRITES_MAX_V1",
+              "KAGEMUSHA_WALLET_ARCHIVE_BATCH_RECORDS_MAX_V1",
+              "KAGEMUSHA_WALLET_ARCHIVE_BATCH_BYTES_MAX_V1",
+              "KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_MAX_V1",
+              "KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_ARCHIVE_WRITES_MAX_V1": "8_192",
+              "KAGEMUSHA_WALLET_ARCHIVE_BATCH_RECORDS_MAX_V1": "512",
+              "KAGEMUSHA_WALLET_ARCHIVE_BATCH_BYTES_MAX_V1": "8 * 1024 * 1024",
+              "KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_MAX_V1": "64 * 1024",
+              "KAGEMUSHA_WALLET_ARCHIVE_PHASE_OBJECT_BYTES_V1": "4 * 1024 * 1024"
             }
           }
         ]
@@ -23876,7 +24334,7 @@
         ]
       },
       {
-        "reason": "Three blocks is the minimum native beacon/sortition epoch geometry; it is not a resource maximum.",
+        "reason": "Three blocks is the minimum native beacon/sortition epoch geometry (also the least pulse cadence a frozen Parliament sortition policy accepts); it is not a resource maximum.",
         "files": [
           {
             "path": "crates/iroha_core/src/governance/parliament.rs",
@@ -23885,6 +24343,15 @@
             ],
             "exprs": {
               "MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1": "3"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs",
+            "symbols": [
+              "MIN_PULSE_CADENCE_BLOCKS"
+            ],
+            "exprs": {
+              "MIN_PULSE_CADENCE_BLOCKS": "3"
             }
           }
         ]
@@ -24050,6 +24517,48 @@
                 "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/index.rs: NODE_LIMIT"
               ]
             }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/policy.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1": "1 << KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1"
+            },
+            "term_of": {
+              "KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1": [
+                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/policy.rs: KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/dispatch/intake.rs",
+            "symbols": [
+              "DRAFT_BYTES"
+            ],
+            "exprs": {
+              "DRAFT_BYTES": "112_289_312"
+            },
+            "term_of": {
+              "DRAFT_BYTES": [
+                "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/dispatch/intake.rs: BATCH_BYTES"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": "16 * 1024"
+            },
+            "term_of": {
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": [
+                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs: KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
+              ]
+            }
           }
         ]
       },
@@ -24176,12 +24685,14 @@
       },
       {
         "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/mask_boundary.rs",
-        "reason": "Private sparse-polynomial fixture work bound for the full-catalog mask identity tests. compiler.rs declares full_catalog only under cfg(test); its mask_boundary child is not part of a production node or verifier. The 100,000-term ceiling and tenfold multiplication precheck fail this engineering assertion rather than accepting partial algebra. They establish no runtime validity or recursive-security claim.",
+        "reason": "Capture limits of the complete-catalog mask collector of the full-catalog tests: compiler.rs declares full_catalog only under cfg(test), and its mask_boundary child is not part of a production node, wallet or verifier. The collector keeps at most this many scalar-cell bytes and rows (with the existing artifact count limit) and retains no proving key; reaching either fails the engineering assertion instead of keeping a partial capture. They establish no runtime validity or recursive-security claim.",
         "symbols": [
-          "MAX_TERMS"
+          "MAX_CAPTURE_BYTES",
+          "MAX_CAPTURE_ROWS"
         ],
         "exprs": {
-          "MAX_TERMS": "100_000"
+          "MAX_CAPTURE_BYTES": "64 << 20",
+          "MAX_CAPTURE_ROWS": "1 << 18"
         }
       },
       {
@@ -24196,12 +24707,14 @@
       },
       {
         "path": "crates/iroha_data_model/src/parameter/governance_clock.rs",
-        "reason": "Committed governance liveness minimum: six cost-one SCCP conclusions and one cost-four enactment must fit the shared block-start pass. This is a consensus policy floor, not a local resource ceiling; malformed or smaller committed values are rejected.",
+        "reason": "Committed range of the shared governance block-start work budget (governance_clock_v1.governance_block_start_work_units, 43 to 4,096 units of the fixed Parliament/SCCP cost table, default 64), checked when genesis or a SetParameter installs the parameter; malformed or out-of-range committed values are rejected. The floor funds one recurring height-progress ticket (1), the largest Parliament item, a complete generation draw (32), six cost-one SCCP conclusions and one cost-four enactment: 1 + 32 + 6 + 4 = 43; it is a liveness floor, not a local resource ceiling. The ceiling bounds the deterministic G1-G3 governance work one block may be configured to do; it is no transaction, VM, proof or block byte limit, and no Core pass charges the budget yet (the positioned-pass prefixes of the SCCP Parliament interface fail closed).",
         "symbols": [
-          "MIN_BLOCK_START_WORK_UNITS"
+          "MIN_BLOCK_START_WORK_UNITS",
+          "MAX_BLOCK_START_WORK_UNITS"
         ],
         "exprs": {
-          "MIN_BLOCK_START_WORK_UNITS": "10"
+          "MIN_BLOCK_START_WORK_UNITS": "43",
+          "MAX_BLOCK_START_WORK_UNITS": "4_096"
         }
       },
       {
@@ -24382,7 +24895,7 @@
         }
       },
       {
-        "reason": "Field ceilings of registered bond terms, checked by `BondTerms::validate` when `RegisterBond` is admitted (specs/finance/bond_ops.md, section 1): the number of scheduled cash flows of one bond, the ISO 6166 ISIN, ISO 10962 CFI and ISO 17442 LEI identifier lengths, the BDT version label length, and the longest payment grace period (366 days, with its day length as a term). They bound one record of the bond product, which travels in one instruction bounded by transaction.max_tx_bytes and transaction.max_instructions; recording is paged by the separately named page size, so none of them sizes a quantity on the path.",
+        "reason": "Field ceilings of registered bond terms, checked by `BondTerms::validate` when `RegisterBond` is admitted (specs/finance/bond_ops.md, section 1): the number of scheduled cash flows of one bond, the ISO 6166 ISIN, ISO 10962 CFI and ISO 17442 LEI identifier lengths, the BDT version label length, and the longest payment grace period (366 days; its day length is recorded with the terms of excluded limits). They bound one record of the bond product, which travels in one instruction bounded by transaction.max_tx_bytes and transaction.max_instructions; recording is paged by the separately named page size, so none of them sizes a quantity on the path.",
         "path": "crates/iroha_data_model/src/bond.rs",
         "symbols": [
           "BOND_MAX_CASHFLOWS",
@@ -24390,8 +24903,7 @@
           "BOND_ISIN_MAX_LEN",
           "BOND_CFI_MAX_LEN",
           "BOND_LEI_MAX_LEN",
-          "BOND_BDT_VERSION_MAX_LEN",
-          "MS_PER_DAY"
+          "BOND_BDT_VERSION_MAX_LEN"
         ],
         "exprs": {
           "BOND_MAX_CASHFLOWS": "400",
@@ -24399,13 +24911,7 @@
           "BOND_ISIN_MAX_LEN": "12",
           "BOND_CFI_MAX_LEN": "6",
           "BOND_LEI_MAX_LEN": "20",
-          "BOND_BDT_VERSION_MAX_LEN": "32",
-          "MS_PER_DAY": "86_400_000"
-        },
-        "term_of": {
-          "MS_PER_DAY": [
-            "crates/iroha_data_model/src/bond.rs: BOND_MAX_PAYMENT_GRACE_MS"
-          ]
+          "BOND_BDT_VERSION_MAX_LEN": "32"
         }
       },
       {
@@ -24417,6 +24923,29 @@
         "exprs": {
           "MAX_CHECKPOINTS": "256"
         }
+      },
+      {
+        "reason": "Schema-derived Norito decode guards for the fixed Parliament anonymous-ballot codecs. The envelope has no sequences and owns only its one exact fixed-length proof copy; the context has at most 1,000 commitments and ten required-body records, and the source proves that sequence bookkeeping, element payloads, vectors and numeric backing fit twice the context byte cap. These guards reject malformed schema shapes before allocation and do not introduce a second protocol cap for structurally valid inputs. Their nominal allocation charge is not a physical memory guarantee. A stricter enclosing budget or allocator failure remains DecodeUnavailable rather than a committed ballot rejection.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/ballot.rs",
+            "symbols": [
+              "DECODE_LIMITS"
+            ],
+            "exprs": {
+              "DECODE_LIMITS": "norito::DecodeLimits::new( 0, ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, 0, BallotProofBytesV1::LENGTH, norito::core::MAX_VALUE_NESTING_DEPTH, )"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/governance/anonymous_ballot/context.rs",
+            "symbols": [
+              "DECODE_LIMITS"
+            ],
+            "exprs": {
+              "DECODE_LIMITS": "norito::DecodeLimits::new( MAX_SEALED_SEATS_V1 as usize, BALLOT_CONTEXT_MAX_BYTES_V1, MAX_SEALED_SEATS_V1 as usize + crate::governance::types::PARLIAMENT_BODIES_V1.len(), 2 * BALLOT_CONTEXT_MAX_BYTES_V1, norito::core::MAX_VALUE_NESTING_DEPTH, )"
+            }
+          }
+        ]
       }
     ],
     "literals": {
@@ -24535,7 +25064,7 @@
             {
               "path": "crates/iroha_core/src/state/world_state_snapshot.rs",
               "sites": {
-                "tip.height() < 2": 1
+                "tip.height() < 2": 2
               }
             },
             {
@@ -25111,12 +25640,6 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
-              "sites": {
-                "bytes.len() < 32": 1
-              }
-            },
-            {
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol.rs",
               "sites": {
                 "frame.len() < 4": 1
@@ -25133,11 +25656,23 @@
               "sites": {
                 "self.inventory.proof_count < 2": 1
               }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
+              "sites": {
+                "bytes.len() >= 32": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/builtin.rs",
+              "sites": {
+                "original.proving_key.len() < 108": 1
+              }
             }
           ]
         },
         {
-          "reason": "Value ranges of one numeric field: basis points (10,000), percent (100), per mille (1,000), parts per million (1,000,000) and decimal scales (18). A fraud score in basis points is compared with its denominator and with the first band threshold (1,000). They bound the value of a number, not a size. A ratio is also compared by cross-multiplication: a governance margin below five percent of the decisive ballots, and an oracle error share above its configured basis points. The relative change of a compute price parameter (cycles or egress per unit) is scaled to basis points and capped at the largest 16-bit value; the 10,000 of that scaling is recorded with the cap.",
+          "reason": "Value ranges of one numeric field: basis points (10,000), percent (100), per mille (1,000), parts per million (1,000,000) and decimal scales (18). A fraud score in basis points is compared with its denominator and with the first band threshold (1,000). They bound the value of a number, not a size. A ratio is also compared by cross-multiplication: a governance margin below five percent of the decisive ballots, and an oracle error share above its configured basis points.",
           "files": [
             {
               "path": "crates/iroha_core/src/smartcontracts/isi/defi.rs",
@@ -25275,15 +25810,15 @@
               }
             },
             {
-              "path": "crates/iroha_data_model/src/compute/mod.rs",
-              "sites": {
-                "delta .saturating_mul(10_000) .saturating_div(current) .min(u64::from(u16::MAX))": 1
-              }
-            },
-            {
               "path": "crates/iroha_core/src/validation_fee_rewards/pending.rs",
               "sites": {
                 "minor_units(&balance, 9)? < state.reserved_xor": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/penalties/funded_actions.rs",
+              "sites": {
+                "max_bps.min(10_000)": 1
               }
             }
           ]
@@ -25425,11 +25960,17 @@
               "sites": {
                 "expires - payload.executed_at_ms > 120_000": 1
               }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/session.rs",
+              "sites": {
+                "(1..=3600).contains(&request.token_lifetime_seconds)": 1
+              }
             }
           ]
         },
         {
-          "reason": "Arithmetic of an encoding, a field or a fixed table. Bit accumulators of base-32, base-58 and base-64 codecs; ASCII, UTF-8 and UTF-16 code-unit ranges; DER length forms and object-identifier arcs; CBOR and tag ranges; IPv4 and IPv6 prefix lengths and reserved address blocks; HTTP status classes; calendar arithmetic; decimal digit counts; stage, phase, operation and state codes; and indexes into fixed-width tables and bitmaps. Each parses, builds or indexes one value and bounds no amount. Also the 3-to-4 expansion of base64 text, the four bytes a UTF-8 character takes at most, the width of a fixed header, word or length field added to an offset before it is compared with a length, and an index written inside a comparison (`fields[7].len() > MAX`, `times[3] - times[0] > skew`): there the limit that is compared has its own entry and the literal only selects the element. An index inside a clamped ratio (`top_sums[2]`) only selects the element as well.",
+          "reason": "Arithmetic of an encoding, a field or a fixed table. Bit accumulators of base-32, base-58 and base-64 codecs; ASCII, UTF-8 and UTF-16 code-unit ranges; DER length forms and object-identifier arcs; CBOR and tag ranges; IPv4 and IPv6 prefix lengths and reserved address blocks; HTTP status classes; calendar arithmetic; decimal digit counts; stage, phase, operation and state codes; and indexes into fixed-width tables and bitmaps. Each parses, builds or indexes one value and bounds no amount. Also the largest exactly representable JSON integer less one token lifetime that a session timestamp may take, the six low permission bits of a private directory (no group or other access), the 3-to-4 expansion of base64 text, the four bytes a UTF-8 character takes at most, the width of a fixed header, word or length field added to an offset before it is compared with a length, and an index written inside a comparison (`fields[7].len() > MAX`, `times[3] - times[0] > skew`): there the limit that is compared has its own entry and the literal only selects the element. An index inside a clamped ratio (`top_sums[2]`) only selects the element as well.",
           "files": [
             {
               "path": "crates/iroha_core/src/beacon/dkg_local_seat.rs",
@@ -25517,7 +26058,8 @@
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/store.rs",
               "sites": {
                 "bits <= 0x7fff_ffff": 1,
-                "index < 64": 1
+                "index < 64": 1,
+                "mode.trailing_zeros() >= 6": 1
               }
             },
             {
@@ -25821,6 +26363,19 @@
               "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
               "sites": {
                 "2 * i + 1 < count": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/session.rs",
+              "sites": {
+                "encoded.len() > max.div_ceil(3) * 4": 1,
+                "now > 9_007_199_254_737_391": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/musubi/current_providers.rs",
+              "sites": {
+                "self.phase <= 6": 1
               }
             }
           ]
@@ -26226,6 +26781,12 @@
               "sites": {
                 "proof.committee.len() > 31": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/event_graph.rs",
+              "sites": {
+                "record.offenders.len() > 31": 1
+              }
             }
           ]
         },
@@ -26446,7 +27007,7 @@
           ]
         },
         {
-          "reason": "Field ceilings and exact ranges of the KAGEMUSHA offline-cash product (data model and proof crate): the length of one original document, certificate, attestation, signature, token, account, package or identifier; the count of one list; a journal sequence, a history size and a tree depth. Each is checked where that record is decoded or admitted. They are shape limits of one product's own records, like its named constants excluded above. None is a transaction, block, frame or generic proof ceiling. Some are written as a named ceiling of the product with a fixed allowance: 1,024 bytes above a possession record for its archive, 64 KiB kept free below a Node Mint submission, 87 bytes added to a proof input before it is compared with the proof ceiling, a quarter of a frame for one of four clock originals, and 65,536-byte chunks of a journal. The named ceiling is excluded above; the allowance is pinned here.",
+          "reason": "Field ceilings and exact ranges of the KAGEMUSHA offline-cash product (data model and proof crate): the length of one original document, certificate, attestation, signature, token, account, package or identifier; the count of one list; a journal sequence, a history size and a tree depth; the fields of the documents the offline artifact tool reads and writes (host-name and label lengths, role, certificate, root and session counts, chain and output names, compact session tokens and proofs); and the compiled selector table of the wallet proofs (monetary source slots two to six, the two-bit Send control word). Each is checked where that record is decoded or admitted. They are shape limits of one product's own records, like its named constants excluded above. None is a transaction, block, frame or generic proof ceiling. Some are written as a named ceiling of the product with a fixed allowance: 1,024 bytes above a possession record for its archive, 64 KiB kept free below a Node Mint submission, 87 bytes added to a proof input before it is compared with the proof ceiling, a quarter of a frame for one of four clock originals, and 65,536-byte chunks of a journal. The named ceiling is excluded above; the allowance is pinned here.",
           "files": [
             {
               "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/keys.rs",
@@ -26457,7 +27018,8 @@
             {
               "path": "crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs",
               "sites": {
-                "original.len() > 16_384": 1
+                "original.len() > 16_384": 1,
+                "bytes.len() > 4096": 1
               }
             },
             {
@@ -26557,16 +27119,8 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/sigma.rs",
-              "sites": {
-                "(2..=11).contains(&selector)": 1
-              }
-            },
-            {
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs",
               "sites": {
-                "values.len() > 16": 1,
-                "*i >= 16": 1,
                 "self.terminals.len() > 32": 1,
                 "operation.context.len() > 4_096": 1
               }
@@ -26629,22 +27183,57 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/inputs.rs",
-              "sites": {
-                "2 + if controls <= 7": 1,
-                "controls <= 7": 1
-              }
-            },
-            {
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs",
               "sites": {
                 "chain.len() > 1024": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/application.rs",
+              "sites": {
+                "host.len() > 253": 1,
+                "label.len() > 63": 1,
+                "name.len() > 128": 1,
+                "(1..=16).contains(&roles.len())": 1,
+                "r.len() <= 128": 1,
+                "(1..=4).contains(&request.android.signing_certificates_der.len())": 1,
+                "(1..=8).contains(&request.android.roots.len())": 1,
+                "(1..=64).contains(&request.sessions.len())": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/builtin.rs",
+              "sites": {
+                "request.chain_id.len() > 256": 1,
+                "name.len() > 128": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/bin/kagemusha_wallet_artifacts/session.rs",
+              "sites": {
+                "(1..=64).contains(&rows.len())": 1,
+                "(1..=16).contains(&role_values.len())": 1,
+                "role.len() > 128": 1,
+                "token.len() > 16_384": 1,
+                "proof.len() > 4096": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/sigma.rs",
+              "sites": {
+                "(2..=6).contains(&selector)": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/inputs.rs",
+              "sites": {
+                "*value <= 3": 1
               }
             }
           ]
         },
         {
-          "reason": "Shape ceilings in the node, each of one record, file or loop: nesting depths (the private-instruction review, a recovery record, the fee-reward head tree); search and index ceilings in Kura's own files; ceilings on the configuration, paths and output of the read-only evidence reader and of the fee-reward evidence tool; snapshot field sizes; manifest and outcome shapes of a game session; request shapes of the retail-fee service; a ticket, a signer and a chain identifier; the execution results and outputs a driver retains; and the rejection-tail and self-claim instruction counts. Each is compared where it is written. None is a transaction, block, frame or generic proof byte ceiling.",
+          "reason": "Shape ceilings in the node, each of one record, file or loop: nesting depths (the private-instruction review, a recovery record, the fee-reward head tree); search and index ceilings in Kura's own files; ceilings on the configuration, paths and output of the read-only evidence reader and of the fee-reward evidence tool, and the child directory name of the KAGEMUSHA issuer-journal initialization tool; snapshot field sizes; manifest and outcome shapes of a game session; request shapes of the retail-fee service; a ticket, a signer and a chain identifier; the execution results and outputs a driver retains; and the rejection-tail and self-claim instruction counts. Each is compared where it is written. None is a transaction, block, frame or generic proof byte ceiling.",
           "files": [
             {
               "path": "crates/iroha_core/src/bin/validation_fee_rewards_evidence_verify.rs",
@@ -26736,7 +27325,8 @@
               "path": "crates/iroha_core/src/state/world_state_snapshot.rs",
               "sites": {
                 "first.len() > 64 * 1024": 1,
-                "second.len() > 64 * 1024": 1
+                "second.len() > 64 * 1024": 1,
+                "bytes.len() > 64 * 1024": 1
               }
             },
             {
@@ -26796,6 +27386,12 @@
                 "checkpoint.credited.bit_len() > 192": 1,
                 "checkpoint.paid.bit_len() > 192": 1,
                 "allocations.len() > 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/bin/kagemusha_enrollment_journal_init.rs",
+              "sites": {
+                "name.len() > 64": 1
               }
             }
           ]
@@ -27029,7 +27625,7 @@
           ]
         },
         {
-          "reason": "Test support that a non-test build compiles only with a test feature of its crate (`iroha-core-tests`, `test-fixtures`, `test-utils`, `kagemusha-real-proof-harness`) or as a fixture tool in src/bin: fixture builders, the certified test chain and a qualification harness. Nothing a node receives is compared with them. The ADDR-2 compliance-vector generator of the data model is compiled into the library for the example binary and the CLI; it shortens an encoding by four bytes to build a negative vector.",
+          "reason": "Test support that a non-test build compiles only with a test feature of its crate (`iroha-core-tests`, `test-fixtures`, `test-utils`, `kagemusha-real-proof-harness`) or as a fixture tool in src/bin: fixture builders, the certified test chain and a qualification harness. Also a test helper of a production file that only `#[cfg(test)]` compiles: the fee-snapshot helper of the World-state snapshot bounds the payout frame it builds at 4,096 bytes. Nothing a node receives is compared with them. The ADDR-2 compliance-vector generator of the data model is compiled into the library for the example binary and the CLI; it shortens an encoding by four bytes to build a negative vector. The component block executor selects the existing native parent service certificate only after the first successor of genesis; this history-shape check bounds no received data or work.",
           "files": [
             {
               "path": "crates/iroha_core/src/beacon/fixtures.rs",
@@ -27090,18 +27686,24 @@
                 "request.chain_id.len() > 256": 1,
                 "request.output_name.len() > 128": 1
               }
+            },
+            {
+              "path": "crates/iroha_core/src/state/world_state_snapshot.rs",
+              "sites": {
+                "expected.len() > 4096": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/block.rs",
+              "sites": {
+                "block.header().height().get() > 2": 1
+              }
             }
           ]
         },
         {
           "reason": "A fixed factor written beside a named limit, where the amount compared is a multiple of what the limit counts: the hex text of a byte string is twice its bytes (the autoscale committee and a MUSUBI account identifier); an operation history advances by two revisions for each admitted operation, so its revision ceiling is twice the operation ceiling (SoraFS topology, final promotion and stream-token authority); a lane-geometry transition lists at most two operations for each binding; the effective World authority catalog is a baseline plus runtime additions, each within the catalog ceiling; the NFT preview of the IVM host queues two instructions for each NFT; and the journal share of a native-finality response budget is two of its eight units, clamped to the named journal ceiling. Each named limit is a shape limit of its own record and is excluded above. The factor is pinned here because changing it moves the ceiling while the constant stays the same.",
           "files": [
-            {
-              "path": "crates/iroha_core/src/smartcontracts/ivm/host.rs",
-              "sites": {
-                "instructions.len() / 2 >= MAX_NFTS_PER_CALL": 1
-              }
-            },
             {
               "path": "crates/iroha_core/src/state.rs",
               "sites": {
@@ -27185,6 +27787,12 @@
               "path": "crates/iroha_torii/src/routing.rs",
               "sites": {
                 "suffix.len() > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES * 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/ivm/host.rs",
+              "sites": {
+                "instructions.len() / 2 >= CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS": 1
               }
             }
           ]
@@ -27292,7 +27900,7 @@
           ]
         },
         {
-          "reason": "Fractions and multiples of an amount one node computed or was configured with: a drand quorum must be more than half of the configured endpoints; half of the open-file budget, a quarter of the dispatch slots and half of a scan's time budget are set aside; an expiry index is compacted at twice its capacity; a scan budget is eight times the page limit, under its named ceiling; a decode allowance is at most half of the fanout's; half of the history-checkpoint slots, up to a named capacity, are recent ones; a name suggestion tolerates an edit distance of a quarter of the name, at least 2; and a query scans the assets directly when its selection covers an eighth of them. Each splits or scales a local amount that is bounded where it is configured or computed and decides no validity: none is a transaction, block, frame or proof ceiling. Likewise the age budget of the queue-pressure heuristic is three block times and a resolver bloom filter takes 16 bits for each expected item, each clamped between two named values, and a staging buffer of the authority registry doubles its capacity up to its maximum. The signed-query decode phase reserves at least two bytes so the retained request and one local clone each receive a nonzero half; this is local working-set geometry, not a protocol validity limit.",
+          "reason": "Fractions and multiples of an amount one node computed or was configured with: a drand quorum must be more than half of the configured endpoints; half of the open-file budget, a quarter of the dispatch slots and half of a scan's time budget are set aside; an expiry index is compacted at twice its capacity, and the write memo and the phase-object cache of a KAGEMUSHA wallet archive compact their key queues at twice their entry count (with 64 keys of slack for the cache); a scan budget is eight times the page limit, under its named ceiling; a decode allowance is at most half of the fanout's; half of the history-checkpoint slots, up to a named capacity, are recent ones; a name suggestion tolerates an edit distance of a quarter of the name, at least 2; and a query scans the assets directly when its selection covers an eighth of them. Each splits or scales a local amount that is bounded where it is configured or computed and decides no validity: none is a transaction, block, frame or proof ceiling. An in-place heap sort of a buffer the node built (the retained semantic leaves of the authority registry, the directory tokens of a MUSUBI revision check) finds the children of a node only below half the heap length. Likewise the age budget of the queue-pressure heuristic is three block times and a resolver bloom filter takes 16 bits for each expected item, each clamped between two named values, and a staging buffer of the authority registry doubles its capacity up to its maximum. The signed-query decode phase reserves at least two bytes so the retained request and one local clone each receive a nonzero half; this is local working-set geometry, not a protocol validity limit.",
           "files": [
             {
               "path": "crates/iroha_torii/src/collections/engine.rs",
@@ -27388,6 +27996,19 @@
                 ".min(u32::MAX as usize) .min(usize::try_from(limits.max_streamed_value_bytes / 2).unwrap_or(usize::MAX))": 1,
                 "root < end / 2": 1
               }
+            },
+            {
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs",
+              "sites": {
+                "self.order.len() > 2 * KAGEMUSHA_WALLET_ARCHIVE_WRITES_MAX_V1": 1,
+                "self.order.len() > 2 * self.objects.len() + 64": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/state/deserialize_world_musubi_revisions.rs",
+              "sites": {
+                "root >= self.sort_end / 2": 1
+              }
             }
           ]
         },
@@ -27426,12 +28047,18 @@
           ]
         },
         {
-          "reason": "Fixed governance parameter decoding shape: the two-field committed clock record rejects JSON above 256 bytes before decoding. This product format check does not replace generic transaction admission and is not a node-local toggle.",
+          "reason": "Fixed governance parameter decoding shapes: the two-field committed clock record rejects JSON above 256 bytes and the six-field committed Parliament ballot parameter record (parliament_ballot_v1) rejects JSON above 512 bytes before decoding. These product format checks do not replace generic transaction admission and are not node-local toggles.",
           "files": [
             {
               "path": "crates/iroha_data_model/src/parameter/governance_clock.rs",
               "sites": {
                 "parameter.payload().get().len() > 256": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/parameter/parliament_ballot.rs",
+              "sites": {
+                "payload.get().len() > 512": 1
               }
             }
           ]
@@ -27597,6 +28224,17 @@
               "path": "crates/iroha_core/src/sumeragi/node/replay.rs",
               "sites": {
                 "maximum_steps > 64": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Compile-time proof that all structurally valid anonymous-ballot contexts fit their schema-derived nominal Norito allocation charge: the bounded commitment and required-body sequences plus at most 512 native numeric bytes fit twice the canonical context byte cap. This assertion checks the allocation geometry for supported targets; it admits or rejects no input and is not a physical workspace limit.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/governance/anonymous_ballot/context.rs",
+              "sites": {
+                "commitments + bodies + 512 <= 2 * BALLOT_CONTEXT_MAX_BYTES_V1": 1
               }
             }
           ]

@@ -344,6 +344,7 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+pub(crate) mod parliament_candidate_testing;
 mod privacy_transaction_intent;
 mod sccp_forgery_entrypoint;
 pub(crate) mod sccp_pause_entrypoint;
@@ -1426,6 +1427,8 @@ macro_rules! with_world_overlay_fields {
             global_beacon_latest_pulse,
             global_beacon_pulses,
             global_beacon_pulse_slots,
+            merge_hint_roots,
+            merge_global_state_root,
             sccp_parameters,
             sccp_reset_nonce,
             sccp_committee_generations,
@@ -4389,6 +4392,11 @@ pub struct WorldData {
     /// Inverted index from ZK1 TLV tag to proof ids (sorted, unique) for efficient queries.
     #[norito(skip)]
     pub(crate) proofs_by_tag: Storage<([u8; 4], iroha_data_model::proof::ProofId), ()>,
+    /// Retained canonical merge-hint values; their field identity and values are ledger data.
+    /// Preserve current and predecessor cuts even without an active metadata writer.
+    pub(crate) merge_hint_roots: Cell<Vec<Hash>>,
+    /// Retained canonical reduced merge-root value; not the World state root.
+    pub(crate) merge_global_state_root: Cell<Option<Hash>>,
     /// Persisted consensus evidence records keyed by deterministic digest.
     pub(crate) consensus_evidence: Storage<Hash, RetainedEvidenceRecord>,
     /// Registry of contract manifests by exact dataspace artifact identity (on-chain).
@@ -5786,6 +5794,10 @@ pub struct WorldBlockFields<'world> {
     /// Derived unique pulse id keyed by the authoritative logical-beacon height slot.
     #[norito(skip)]
     pub(crate) global_beacon_pulse_slots: StorageField<'world, (BeaconSessionId, u64), [u8; 32]>,
+    /// Retained canonical merge-hint values visible in this block.
+    pub(crate) merge_hint_roots: CellField<'world, Vec<Hash>>,
+    /// Retained canonical reduced merge-root value visible in this block.
+    pub(crate) merge_global_state_root: CellField<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4); persisted by the SCCP snapshot envelope.
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     #[norito(skip)]
@@ -6294,6 +6306,8 @@ impl WorldBlock<'_> {
             musubi_resolver_index_revision,
             musubi_replication_shortfall_releases,
             soracloud_sequence_watermark,
+            merge_hint_roots,
+            merge_global_state_root,
             sumeragi_lanes,
             sumeragi_amx,
             sumeragi_amx_participant,
@@ -7489,6 +7503,10 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     pub(crate) global_beacon_pulse_slots:
         StorageTransaction<'block, (BeaconSessionId, u64), [u8; 32]>,
+    /// Retained canonical merge-hint values in this transaction scope.
+    pub(crate) merge_hint_roots: CellTransaction<'block, 'world, Vec<Hash>>,
+    /// Retained canonical reduced merge-root value in this transaction scope.
+    pub(crate) merge_global_state_root: CellTransaction<'block, 'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     pub(crate) sccp_parameters:
@@ -9332,6 +9350,10 @@ pub struct WorldView<'world> {
     pub(crate) proof_tags: StorageView<'world, iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from TLV tag to proof ids.
     pub(crate) proofs_by_tag: StorageView<'world, ([u8; 4], iroha_data_model::proof::ProofId), ()>,
+    /// Retained canonical merge-hint values.
+    pub(crate) merge_hint_roots: CellView<'world, Vec<Hash>>,
+    /// Retained canonical reduced merge-root value; not the World state root.
+    pub(crate) merge_global_state_root: CellView<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     pub(crate) sccp_parameters:
@@ -14222,6 +14244,9 @@ pub struct StateTransaction<'block, 'state> {
     pub(crate) current_network_entrypoint_hash: Option<HashOf<TransactionEntrypoint>>,
     /// Original authenticated genesis input authority; absent for ordinary and ad-hoc execution.
     pub(crate) genesis_execution_scope: Option<network_policy_routes::GenesisExecutionScope>,
+    /// One-use native instruction frame from the exact original candidate-testing selection.
+    direct_parliament_candidate_testing:
+        Option<parliament_candidate_testing::DirectCandidateTesting>,
     /// Canonical hash of the current signed transaction, when executing a transaction.
     pub current_tx_hash: Option<HashOf<SignedTransaction>>,
     /// One-shot binding to the exact standalone ballot in the signed payload.
@@ -20982,6 +21007,10 @@ macro_rules! world_ro_accessors {
             storage runtime_upgrades:
                 iroha_data_model::runtime::RuntimeUpgradeId =>
                 iroha_data_model::runtime::RuntimeUpgradeRecord;
+            /// Retained canonical merge-hint values.
+            cell_ref merge_hint_roots: Vec<Hash>;
+            /// Retained canonical reduced merge-root value; not the World state root.
+            cell_ref merge_global_state_root: Option<Hash>;
             /// Persisted consensus evidence log (read-only).
             storage consensus_evidence: Hash => RetainedEvidenceRecord;
             /// Proof verification records (read-only).
@@ -21530,6 +21559,16 @@ pub trait WorldReadOnly {
     world_ro_accessors!(soracloud, declaration);
     world_ro_accessors!(agreements_and_lanes, declaration);
     world_ro_accessors!(sorafs_and_privacy, declaration);
+    /// Load the exact governed reserve owner from this same retained world view.
+    /// Unrelated privacy records are not scanned.
+    ///
+    /// # Errors
+    /// Rejects malformed, mismatched, or multiply claimed exact reserve custody.
+    fn privacy_public_reserve_owner_v1(
+        &self,
+        id: &AssetId,
+    ) -> core::result::Result<Option<crate::privacy_state::PrivacyPublicReserveOwnerV1>, String>;
+
     /// Load one current authoritative Bootle/Lantern issuer policy by its
     /// exact typed issuer and policy identities.
     ///
@@ -22306,6 +22345,13 @@ macro_rules! impl_world_ro {
             world_ro_accessors!(soracloud, implementation);
             world_ro_accessors!(agreements_and_lanes, implementation);
             world_ro_accessors!(sorafs_and_privacy, implementation);
+            fn privacy_public_reserve_owner_v1(
+                &self,
+                id: &AssetId,
+            ) -> core::result::Result<Option<crate::privacy_state::PrivacyPublicReserveOwnerV1>, String> {
+                crate::privacy_state::privacy_public_reserve_owner_v1(&self.privacy_commitments, id)
+            }
+
             fn privacy_bootle_lantern_issuer_policy_v1(
                 &self,
                 issuer_id: iroha_data_model::privacy::PrivacyIssuerIdV1,
@@ -24847,6 +24893,8 @@ impl WorldTransaction<'_, '_> {
             consensus_evidence: _,
             external_event_sink: _,
             external_event_buf: _,
+            merge_hint_roots: _,
+            merge_global_state_root: _,
             sccp_parameters: _,
             sccp_reset_nonce: _,
             sccp_committee_generations: _,
@@ -24936,6 +24984,8 @@ impl WorldTransaction<'_, '_> {
         self.proof_tags.apply();
         self.proofs_by_tag.apply();
         self.consensus_evidence.apply();
+        self.merge_global_state_root.apply();
+        self.merge_hint_roots.apply();
         self.contract_manifests.apply();
         self.contract_code.apply();
         self.contract_code_uploads.apply();
@@ -36664,6 +36714,8 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         ValidationFeePolicyRegistryV1::parameter_id(),
         AccountAdmissionPolicy::parameter_id(),
         RootFeePolicy::parameter_id(),
+        iroha_data_model::governance::anonymous_ballot::ParliamentCandidateTestingPolicyV1::parameter_id()
+            .clone(),
         ReputationFinalizedArchiveRetentionRequestV1::parameter_id(),
     ];
     ids.extend(crate::pipeline_gas_policy::parameter_ids());
@@ -36738,6 +36790,7 @@ mod consensus_owned_parameter_tests {
             "ivm_gas_units_per_gas",
             "iroha:da_ingest_admission_policy_v1",
             "nexus_runtime_catalog_v1",
+            "parliament_candidate_testing_v1",
         ] {
             let id: CustomParameterId = name.parse().expect("parameter identifier");
             assert!(is_consensus_owned_custom_parameter(&id), "{name}");
@@ -38739,6 +38792,7 @@ impl<'state> StateBlock<'state> {
             tx_call_hash: None,
             current_network_entrypoint_hash: None,
             genesis_execution_scope: None,
+            direct_parliament_candidate_testing: None,
             current_tx_hash: None,
             governance_ballot_entrypoint_binding: None,
             kagemusha_load_entrypoint_binding: None,

@@ -25,7 +25,7 @@ struct ExactRootFftArgs {
 }
 
 /// The public exact-root facade validates canonicality and root order first.
-pub(crate) fn transform(
+pub fn transform(
     columns: &mut [Vec<u64>],
     log_size: u32,
     root: u64,
@@ -43,6 +43,8 @@ pub(crate) fn transform(
             "invalid bounded exact-root FFT shape",
         ));
     }
+    let column_count = u32::try_from(columns.len())
+        .map_err(|_| GpuError::InvalidInput("exact-root FFT column count exceeds u32"))?;
     let words = extent
         .checked_mul(columns.len())
         .ok_or(GpuError::InvalidInput(
@@ -68,7 +70,7 @@ pub(crate) fn transform(
             1
         },
         log_len: log_size,
-        column_count: columns.len() as u32,
+        column_count,
         stage: 0,
         padding: 0,
     };

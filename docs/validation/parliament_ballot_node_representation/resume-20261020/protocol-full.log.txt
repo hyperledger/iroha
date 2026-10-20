@@ -1,0 +1,159 @@
+Testing the real candidate proofs and protocol rules with an in-memory board.
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --profile local-release -p iroha_parliament_ballot --lib -- --nocapture --test-threads=1
+    Blocking waiting for file lock on artifact directory
+   Compiling zerocopy v0.8.48
+   Compiling num-traits v0.2.19
+   Compiling serde_core v1.0.228
+   Compiling either v1.16.0
+   Compiling itertools v0.10.5
+   Compiling crossbeam-epoch v0.9.20
+   Compiling num-integer v0.1.46
+   Compiling num-bigint v0.4.6 (/Users/mtakemiya/dev/iroha/vendor/num-bigint-0.4.6)
+   Compiling crossbeam-deque v0.8.6
+   Compiling rayon-core v1.13.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.7
+   Compiling group v0.13.0
+   Compiling ark-std v0.4.0
+   Compiling ark-serialize v0.4.2
+   Compiling ahash v0.8.12
+   Compiling ark-ff v0.4.2
+   Compiling hashbrown v0.13.2
+   Compiling elliptic-curve v0.13.8
+   Compiling norito v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito)
+   Compiling pairing v0.23.0
+   Compiling primeorder v0.13.6
+   Compiling ecdsa v0.16.9
+   Compiling rand_chacha v0.9.0
+   Compiling rand v0.9.4
+   Compiling ark-poly v0.4.2
+   Compiling soranet_pq v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/soranet_pq)
+   Compiling k256 v0.13.4
+   Compiling ark-ec v0.4.2
+   Compiling ark-bls12-381 v0.4.0
+   Compiling ark-bls12-377 v0.4.0
+   Compiling sm2 v0.13.3
+   Compiling w3f-bls v0.1.9
+   Compiling blstrs v0.7.1
+   Compiling iroha_primitives v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_primitives)
+   Compiling crypto-bigint v0.6.1
+   Compiling rayon v1.12.0
+   Compiling iroha_crypto v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_crypto)
+   Compiling iroha_plonk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk)
+   Compiling iroha_pasta v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_pasta)
+   Compiling halo2curves v0.9.0
+   Compiling sorafs_chunker v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_chunker)
+   Compiling iroha_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_data_model)
+   Compiling iroha_model_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_model_base)
+   Compiling iroha_sumeragi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sumeragi)
+   Compiling iroha_zkp_poseidon v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_poseidon)
+   Compiling sorafs_manifest v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_manifest)
+   Compiling iroha_version v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_version)
+   Compiling p256 v0.13.2
+   Compiling iroha_parliament_ballot v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot)
+    Finished `local-release` profile [optimized] target(s) in 27m 29s
+     Running unittests src/lib.rs (target/cargo-fast/parliament-development/local-release/deps/iroha_parliament_ballot-4c0e17c399a139d3)
+
+running 85 tests
+test ballot::admission::tests::a_locally_due_window_admits_and_others_do_not ... ok
+test ballot::admission::tests::a_state_answering_with_another_scope_is_a_local_failure ... ok
+test ballot::admission::tests::a_well_stamped_forged_proof_is_admitted_and_then_rejected_by_verification ... ok
+test ballot::admission::tests::an_honest_ballot_passes_every_check_and_then_verifies ... ok
+test ballot::admission::tests::caller_decode_shortage_is_unavailable_without_reserving_a_nullifier ... ok
+test ballot::admission::tests::every_tampered_field_fails_its_check ... ok
+test ballot::admission::tests::malformed_and_oversize_submissions_fail_first ... ok
+test ballot::admission::tests::rejections_have_stable_check_numbers_and_codes ... ok
+test ballot::admission::tests::the_earliest_failing_check_is_reported ... ok
+test ballot::block::tests::an_open_ballot_is_accepted_with_its_corpus_entry ... ok
+test ballot::block::tests::caller_decode_shortage_does_not_invalidate_a_ballot_or_mutate_state ... ok
+test ballot::block::tests::invalid_inputs_invalidate_the_block_even_when_late_or_duplicate ... ok
+test ballot::block::tests::the_first_ballot_in_canonical_order_wins_its_nullifier ... ok
+test ballot::block::tests::the_window_is_checked_before_duplicates ... ok
+test ballot::block::tests::validity_is_reported_without_a_window_or_duplicate_decision ... ok
+test ballot::tests::a_ballot_is_bound_to_its_network_scope_profile_list_and_policy ... ok
+test ballot::tests::an_honest_ballot_proof_verifies_and_binds_its_statement ... ok
+test ballot::tests::local_failures_are_not_rejections ... ok
+test ballot::tests::the_window_opens_at_the_opening_block_and_closes_half_open ... ok
+test context::tests::a_built_context_carries_the_recomputed_digests ... ok
+test context::tests::a_scoped_context_binds_the_recomputed_scope ... ok
+test context::tests::building_refuses_disagreeing_inputs ... ok
+test context::tests::checking_recomputes_every_derived_field ... ok
+test corpus::tests::an_append_that_fails_changes_nothing ... ok
+test corpus::tests::appends_reproduce_the_data_model_corpus_root ... ok
+test corpus::tests::closure_validation_recomputes_the_policy_hash ... ok
+test corpus::tests::inconsistent_anchors_and_foreign_corpora_are_refused ... ok
+test corpus::tests::the_closure_record_recomputes_the_outcome_and_validates ... ok
+test corpus::tests::the_corpus_holds_at_most_one_ballot_per_seat ... ok
+test entropy::tests::a_scripted_source_replays_and_then_fails ... ok
+test entropy::tests::the_os_source_fills_the_whole_buffer ... ok
+test entrypoint_tests::anonymous_block_decoding_preserves_enclosing_resource_refusal ... ok
+test entrypoint_tests::anonymous_block_refuses_ordinary_rejection_without_mutating_the_proposal ... ok
+test entrypoint_tests::genuine_ballot_entrypoint_roundtrips_proposal_and_each_permitted_output ... ok
+test entrypoint_tests::identical_genuine_ballots_keep_verified_duplicate_results_in_canonical_block ... ok
+test inputs::tests::fixed_values_convert_without_loss ... ok
+test inputs::tests::only_binding_juries_have_role_inputs ... ok
+test inputs::tests::opaque_inputs_are_the_pinned_frames_within_their_bounds ... ok
+test inputs::tests::the_p16_digests_are_the_proof_crate_frames ... ok
+test inputs::tests::the_profile_is_the_compiled_candidate_row ... ok
+test inputs::tests::the_registration_mapping_uses_the_proof_crate_list_digest ... ok
+test registration::tests::a_registration_is_bound_to_every_statement_input ... ok
+test registration::tests::an_honest_registration_verifies_through_the_typed_inputs ... ok
+test registration::tests::public_bodies_and_backend_failures_are_typed ... ok
+test replay::tests::a_ballot_of_an_unsupplied_scope_is_incomplete_and_a_supplied_one_is_verified ... ok
+test replay::tests::a_valid_seal_under_a_local_decode_shortage_is_unavailable ... ok
+test replay::tests::a_wrong_recorded_result_or_an_invalid_ballot_is_invalid_evidence ... ok
+test replay::tests::an_honest_interval_verifies_independently ... ok
+test replay::tests::an_interval_cut_short_at_the_end_is_incomplete ... ok
+test replay::tests::closure_record_mutations_are_invalid_evidence ... ok
+test replay::tests::counts_roots_and_result_roots_must_match_the_replay ... ok
+test replay::tests::invalid_seal_evidence_is_not_relabelled_as_local_unavailability ... ok
+test replay::tests::missing_and_out_of_interval_blocks_are_incomplete ... ok
+test replay::tests::reordered_blocks_items_and_anchor_times_are_invalid ... ok
+test stamp::tests::cancellation_stops_every_thread ... ok
+test stamp::tests::nonces_are_little_endian_offsets_that_wrap ... ok
+test stamp::tests::the_midstate_work_digest_is_the_data_model_digest ... ok
+test stamp::tests::the_parallel_search_finds_a_valid_nonce_and_counts_attempts ... ok
+test stamp::tests::the_sequential_search_is_deterministic_and_verifies_with_the_data_model ... ok
+test stamp::tests::the_wallet_start_nonce_comes_from_the_entropy_source ... ok
+test test_support::tests::print_fixture_stamp_payloads ... ignored, prints the fixture stamp payloads; run on demand
+test test_support::tests::regenerate_fixture_stamps ... ignored, mines 28-bit stamps; run with --release after changing a fixture input
+test test_support::tests::the_fixture_roster_and_ballots_are_distinct ... ok
+test test_support::tests::the_pinned_stamps_reach_the_frozen_difficulty ... ok
+test tests::the_compiled_row_is_the_v1_profile_and_the_gate_stays_closed ... ok
+test tests::the_proof_crate_is_built_without_the_comparator_row ... ok
+test wallet::credential::tests::a_fresh_credential_comes_from_the_random_source ... ok
+test wallet::credential::tests::export_and_import_round_trip_and_debug_hides_the_secret ... ok
+test wallet::credential::tests::locking_needs_the_right_body_acknowledgement_and_roster ... ok
+test wallet::credential::tests::the_choice_lock_is_fixed_persisted_and_restored ... ok
+test wallet::disclosure::tests::only_exactly_the_five_statements_acknowledge ... ok
+test wallet::disclosure::tests::the_disclosure_is_bound_to_the_ballot_and_states_the_roster_size ... ok
+test wallet::job::tests::a_ballot_preparation_job_publishes_the_prepared_envelope ... ok
+test wallet::job::tests::a_registration_job_can_be_cancelled_before_it_proves ... ok
+test wallet::job::tests::an_uncancelled_job_publishes_and_a_late_cancellation_is_too_late ... ok
+test wallet::job::tests::cancellation_after_completion_but_before_finish_still_discards ... ok
+test wallet::job::tests::cancellation_during_the_computation_discards_its_result ... ok
+test wallet::job::tests::failures_and_panics_are_reported_and_dropping_joins ... 
+thread 'test-job' (72382174) panicked at crates/iroha_parliament_ballot/src/wallet/job.rs:362:55:
+worker failure
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test wallet::prepare::tests::a_registration_is_proved_with_a_fresh_tape_and_verifies ... ok
+test wallet::prepare::tests::a_wallet_ballot_goes_through_admission_execution_corpus_and_closure ... ok
+test wallet::prepare::tests::an_exhausted_invocation_retries_the_same_statement_with_a_fresh_tape ... ok
+test wallet::prepare::tests::exhaustion_entropy_failure_and_cancellation_produce_no_ballot ... ok
+test wallet::prepare::tests::relaying_is_distinguishable_from_originating ... ok
+test wallet::prepare::tests::the_lock_must_be_persisted_and_the_acknowledgement_must_match ... ok
+test wallet::tests::stamp_cancellation_and_entropy_failures_keep_their_meaning ... ok
+
+test result: ok. 83 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 42.89s
+

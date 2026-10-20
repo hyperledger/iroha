@@ -1930,10 +1930,35 @@ fn taira_config_enables_untrusted_cid_hosting() {
         governance.get("bond_escrow_account"),
         "the parsed disabled VPN profile must use the Taira-prefixed governance identity"
     );
+    let genesis_path = config_path.with_file_name("genesis.template.json");
+    let genesis_raw =
+        fs::read_to_string(genesis_path).expect("Taira genesis template should exist");
+    let genesis: norito::json::Value =
+        norito::json::from_str(&genesis_raw).expect("Taira genesis template should be valid JSON");
+    let fee_policies: Vec<_> = genesis
+        .get("transactions")
+        .and_then(norito::json::Value::as_array)
+        .expect("Taira genesis transactions")
+        .iter()
+        .filter_map(|transaction| {
+            transaction
+                .get("parameters")?
+                .get("custom")?
+                .get(iroha_data_model::block::consensus::RootFeePolicy::PARAMETER_ID_STR)
+        })
+        .collect();
+    assert_eq!(fee_policies.len(), 1, "one explicit Taira root fee policy");
+    let fee_sink = fee_policies[0]
+        .get("payload")
+        .and_then(|payload| payload.get("fee_sink_account_id"))
+        .and_then(norito::json::Value::as_str)
+        .expect("committed Taira fee-sink identity");
     assert_eq!(
-        governance.get("sorafs_pin_fee_treasury_account"),
-        governance.get("bond_escrow_account"),
-        "the SoraFS pin-fee treasury retains the selected Taira custody identity"
+        governance
+            .get("sorafs_pin_fee_treasury_account")
+            .and_then(TomlValue::as_str),
+        Some(fee_sink),
+        "the SoraFS pin-fee treasury retains the signed-genesis fee-sink identity"
     );
     assert!(
         doc.get("nexus")

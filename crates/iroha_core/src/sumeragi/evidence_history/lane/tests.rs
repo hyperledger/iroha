@@ -1058,7 +1058,11 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     // A retryable local refusal of the only report ends selection without it. The
     // proposal is not aborted and the refused original reader is not discarded.
     let selected = evidence::pending_evidence_admissions(&state, carrier, generation)
-        .expect("HC914 retryable original-pool exhaustion must not abort the proposal");
+        .unwrap_or_else(|error| {
+            panic!(
+                "HC914 retryable original-pool exhaustion must not abort the proposal\n{error:?}"
+            )
+        });
     assert!(selected.as_slice().is_empty());
     drop(selected);
     let waiting = budget.reserved_bytes();

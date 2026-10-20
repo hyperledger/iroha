@@ -4,9 +4,9 @@
 //! byte-level construction in `specs/parliament_ballot_proof_profile.md` §6, and the
 //! production integration decisions of 2026-10-18 fix the envelope, the admission order,
 //! the corpus, the stamp, the encodings and the full-verification interface. This crate is
-//! the intended shared implementation for Core, Torii, the CLI, the Rust client and the
-//! native bridge; those consumers are not connected in this checkout. It sits between
-//! the wire types
+//! the one implementation of those rules. No crate depends on it yet: its integration into
+//! Core, Torii, the CLI, the Rust client and the native bridge is P.8 work still to come.
+//! It sits between the data-model wire types
 //! ([`iroha_data_model::governance::anonymous_ballot`]) and the state-free proof relations
 //! ([`iroha_parliament_ballot_proof`]):
 //!
@@ -26,10 +26,12 @@
 //! # Status
 //!
 //! **Nothing here is qualified.** The data-model launch gate
-//! [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] is `None`, so binding production use stays
-//! disabled. Core dispatch, state, queue and Torii integration remain to be implemented.
-//! This crate neither reads nor changes the gate: its real candidate proofs and protocol
-//! rules are available for engineering tests now. Run
+//! [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] is `None`. No Core path reads that gate or this
+//! crate. Core and Torii recognize the wire entrypoint but defer its admission and execution
+//! because the authenticated State/context adapter is unavailable. Registration, sealing,
+//! casting and closure integration remain P.8 work, so no node accepts a binding anonymous
+//! ballot. This crate neither reads nor changes the gate: its real candidate proofs and
+//! protocol rules are available for engineering tests now. Run
 //! `scripts/test_parliament_ballot_local.sh` for registration, wallet admission/execution,
 //! corpus closure and replay, or add `--full` for the complete crate suite. These tests use
 //! an in-memory board with fixture authority and anchors; they do not establish network
@@ -42,8 +44,8 @@
 //! scoped context checks that the compiled descriptor digest is
 //! [`ProofProfileIdV1::V1`]. This crate depends on the proof crate without its
 //! `diagnostics` feature, so the comparator row (integration decision 6: test and
-//! diagnostic support only) is not compiled into it, nor into the node, wallet and
-//! native-bridge builds that use it.
+//! diagnostic support only) is not compiled into it, nor into any build that depends on it
+//! (no node, wallet or native-bridge build does yet).
 //!
 //! # Determinism and secrets
 //!

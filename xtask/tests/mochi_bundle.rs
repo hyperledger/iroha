@@ -70,6 +70,49 @@ fn mochi_bundle_command_generates_manifest() {
             .any(|entry| entry["path"] == Value::String(daemon_name.clone())),
         "manifest should list {daemon_name}"
     );
+    #[cfg(target_os = "macos")]
+    {
+        let plist = bundle_root.join("Mochi.app/Contents/Info.plist");
+        let output = std::process::Command::new("/usr/bin/plutil")
+            .args(["-extract", "CFBundleIconFile", "raw", "-o", "-"])
+            .arg(&plist)
+            .output()
+            .expect("read the real application's icon metadata");
+        assert!(
+            output.status.success(),
+            "packaged Info.plist should name its icon: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).expect("UTF-8 icon filename"),
+            "Mochi.icns\n"
+        );
+        let icon_relative = "Mochi.app/Contents/Resources/Mochi.icns";
+        let packaged_icon = fs::read(bundle_root.join(icon_relative)).expect("packaged icon");
+        let source_icon = fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("workspace root")
+                .join("mochi/assets/mochi-icon.icns"),
+        )
+        .expect("source icon");
+        assert_eq!(
+            packaged_icon, source_icon,
+            "packaging must preserve the icon"
+        );
+        let icon_entry = files
+            .iter()
+            .find(|entry| entry["path"].as_str() == Some(icon_relative))
+            .expect("manifest should list the packaged icon");
+        assert_eq!(
+            icon_entry["size"].as_u64(),
+            Some(packaged_icon.len() as u64)
+        );
+        assert_eq!(
+            icon_entry["sha256"].as_str(),
+            Some(format!("{:x}", Sha256::digest(&packaged_icon)).as_str())
+        );
+    }
 }
 #[test]
 fn mochi_bundle_matrix_and_smoke() {

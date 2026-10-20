@@ -356,7 +356,7 @@ fn router(app: SharedAppState) -> Router {
     // no reserve or finality evidence and observes the same original fixture State.
     builder.route(
         &route_catalog::runtime_governance::NODE_CAPABILITIES,
-        catalog_get(crate::handler_node_capabilities).unauthenticated(),
+        catalog_get(crate::handler_node_capabilities),
     );
     let (router, manifest) = builder.finish().unwrap();
     router
@@ -527,7 +527,23 @@ async fn signed_reserve_account_http_source_refusal_preserves_the_same_native_re
         .oneshot(f.manager_request(3))
         .await
         .unwrap();
-    assert_failure_is_not_absence(refused, StatusCode::TOO_MANY_REQUESTS).await;
+    // A fixed source allowance cannot admit this original frame even after all
+    // occupants leave. It is a terminal policy refusal, not a transient pool wait.
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(refused.into_body(), MAX_RESERVE_ACCOUNT_PROOF_BYTES_V1)
+        .await
+        .unwrap();
+    assert!(ReserveAccountProofV1::decode_frame(&bytes).is_err());
+    let error = norito::decode_canonical_with_limits::<crate::ErrorEnvelope>(
+        &bytes,
+        norito::canonical_decode_limits(bytes.len()),
+    )
+    .unwrap();
+    assert_eq!(error.code(), "query_validation_failed");
+    assert_eq!(
+        error.message(),
+        "native current cut exceeds its finite source policy"
+    );
     let proof = success_proof(
         router(f.app(WORKING_BYTES))
             .oneshot(f.manager_request(3))
