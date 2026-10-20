@@ -2640,7 +2640,7 @@ fn validation_fee_plaintext_contracts_stay_retired_and_parliament_capabilities_a
         );
         assert_eq!(
             capabilities["standalone_zk_ballots_supported"]["const"].as_bool(),
-            Some(true)
+            Some(false)
         );
     }
 }

@@ -1,21 +1,25 @@
 //! Deterministic Poseidon helpers shared across IVM and host components.
 //!
-//! These functions mirror the internal helpers historically shipped in the
-//! `ivm` crate but live here so that other crates can depend on the canonical
-//! permutation without duplicating the arithmetic. The implementation sticks
-//! to the original BN254 Poseidon parameters used by the fastpq Halo2 gadgets.
-//! The `hash2_*` and `hash6_*` names denote input arity. Parameter width denotes
-//! permutation state width; the six-input helper is a fixed-width compression.
+//! The canonical owner uses the H.2-selected original Poseidon permutations:
+//! width three has 8 full/57 partial rounds; width six has 8 full/60 partial rounds.
+//! Complete parameters match circomlibjs v0.1.7. The fixed-arity sponge mode is
+//! Iroha-owned: capacity coordinate zero contains `arity * 2^64`, inputs are added
+//! to rate coordinates, and coordinate one is returned. Six inputs require two
+//! rate-five blocks. The separate variable-length byte/word sponge retains its
+//! delimiter, padding and coordinate convention with the selected width-three table.
+//! TODO(F.5): implement and qualify the actual BN254 constrained consumer;
+//! native helpers do not establish a constrained Halo2 relation. Low-64-bit
+//! opcode results are not commitments; commitment consumers use full field bytes.
 //!
 //! Parameter consumers select an explicit state width:
 //! ```
 //! use iroha_zkp_poseidon::poseidon::{
 //!     Bn254PoseidonParams, bn254_poseidon_params_width3, bn254_poseidon_params_width6,
 //! };
-//! let width3: Bn254PoseidonParams<3> = bn254_poseidon_params_width3();
-//! let width6: Bn254PoseidonParams<6> = bn254_poseidon_params_width6();
-//! assert_eq!(width3.round_constants.len(), 64);
-//! assert_eq!(width6.round_constants.len(), 64);
+//! let width3: Bn254PoseidonParams<3, 65> = bn254_poseidon_params_width3();
+//! let width6: Bn254PoseidonParams<6, 68> = bn254_poseidon_params_width6();
+//! assert_eq!(width3.round_constants.len(), 65);
+//! assert_eq!(width6.round_constants.len(), 68);
 //! ```
 //!
 //! Misnamed algorithm exports are removed in the first release:
@@ -44,14 +48,20 @@ mod bn254_v1_tests;
 use std::io::{self, Write};
 const FULL_ROUNDS: usize = 8;
 const FULL_ROUNDS_HALF: usize = FULL_ROUNDS / 2;
-const PARTIAL_ROUNDS: usize = 56;
-const ROUND_COUNT: usize = FULL_ROUNDS + PARTIAL_ROUNDS;
-type PoseidonConstants<const W: usize> = ([[Fr; W]; ROUND_COUNT], [[Fr; W]; W]);
+/// Partial rounds of the selected width-three permutation.
+pub const WIDTH3_PARTIAL_ROUNDS: usize = 57;
+/// Partial rounds of the selected width-six permutation.
+pub const WIDTH6_PARTIAL_ROUNDS: usize = 60;
+/// Total rounds of the selected width-three permutation.
+pub const WIDTH3_ROUNDS: usize = FULL_ROUNDS + WIDTH3_PARTIAL_ROUNDS;
+/// Total rounds of the selected width-six permutation.
+pub const WIDTH6_ROUNDS: usize = FULL_ROUNDS + WIDTH6_PARTIAL_ROUNDS;
+type PoseidonConstants<const W: usize, const R: usize> = ([[Fr; W]; R], [[Fr; W]; W]);
 /// Original BN254 Poseidon round constants and dense MDS, in canonical field bytes.
 #[derive(Debug, Clone)]
-pub struct Bn254PoseidonParams<const W: usize> {
+pub struct Bn254PoseidonParams<const W: usize, const R: usize> {
     /// Round constants for the width.
-    pub round_constants: [[[u8; 32]; W]; ROUND_COUNT],
+    pub round_constants: [[[u8; 32]; W]; R],
     /// MDS matrix entries for the width.
     pub mds: [[[u8; 32]; W]; W],
 }
@@ -90,10 +100,16 @@ fn partial_round3(state: &mut [Fr; 3], rc: &[Fr; 3], mds: &[[Fr; 3]; 3]) {
     state[0] = sbox(state[0]);
     apply_mds3(state, mds);
 }
+// Use the fixed four-limb constructor: generic integer conversion in the
+// selected field implementation collects its limbs into a temporary Vec.
+#[inline(always)]
+fn fr_from_u64(value: u64) -> Fr {
+    Fr::from_raw([value, 0, 0, 0])
+}
 #[inline(always)]
 fn fr_from_le_bytes(bytes: &[u8]) -> Fr {
     debug_assert!(bytes.len() >= 8);
-    Fr::from(u64::from_le_bytes([
+    fr_from_u64(u64::from_le_bytes([
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
     ]))
 }
@@ -184,7 +200,9 @@ fn decode_fixed_field(bytes: [u8; 32]) -> Fr {
     assert_eq!(field_to_bytes(field), bytes, "fixed V1 field round-trip");
     field
 }
-fn fixed_fields<const W: usize>(params: Bn254PoseidonParams<W>) -> PoseidonConstants<W> {
+fn fixed_fields<const W: usize, const R: usize>(
+    params: Bn254PoseidonParams<W, R>,
+) -> PoseidonConstants<W, R> {
     (
         params
             .round_constants
@@ -192,12 +210,12 @@ fn fixed_fields<const W: usize>(params: Bn254PoseidonParams<W>) -> PoseidonConst
         params.mds.map(|row| row.map(decode_fixed_field)),
     )
 }
-fn poseidon3_params() -> &'static PoseidonConstants<3> {
-    static CONSTS: OnceCell<PoseidonConstants<3>> = OnceCell::new();
+fn poseidon3_params() -> &'static PoseidonConstants<3, WIDTH3_ROUNDS> {
+    static CONSTS: OnceCell<PoseidonConstants<3, WIDTH3_ROUNDS>> = OnceCell::new();
     CONSTS.get_or_init(|| fixed_fields(bn254_v1::WIDTH3))
 }
-fn poseidon6_params() -> &'static PoseidonConstants<6> {
-    static CONSTS: OnceCell<PoseidonConstants<6>> = OnceCell::new();
+fn poseidon6_params() -> &'static PoseidonConstants<6, WIDTH6_ROUNDS> {
+    static CONSTS: OnceCell<PoseidonConstants<6, WIDTH6_ROUNDS>> = OnceCell::new();
     CONSTS.get_or_init(|| fixed_fields(bn254_v1::WIDTH6))
 }
 #[inline(always)]
@@ -206,7 +224,7 @@ fn poseidon3_permute(state: &mut [Fr; 3]) {
     for rc in &round_constants[..FULL_ROUNDS_HALF] {
         full_round3(state, rc, mds);
     }
-    let partial_end = FULL_ROUNDS_HALF + PARTIAL_ROUNDS;
+    let partial_end = FULL_ROUNDS_HALF + WIDTH3_PARTIAL_ROUNDS;
     for rc in &round_constants[FULL_ROUNDS_HALF..partial_end] {
         partial_round3(state, rc, mds);
     }
@@ -216,53 +234,59 @@ fn poseidon3_permute(state: &mut [Fr; 3]) {
 }
 #[inline(always)]
 fn hash2_field(a: u64, b: u64) -> Fr {
-    let mut state = [Fr::from(a), Fr::from(b), Fr::ZERO];
+    let mut state = [Fr::from_raw([0, 2, 0, 0]), fr_from_u64(a), fr_from_u64(b)];
     poseidon3_permute(&mut state);
-    state[0]
+    state[1]
 }
 #[inline(always)]
 fn hash6_field(inputs: [u64; 6]) -> Fr {
-    let (round_constants, mds) = poseidon6_params();
     let mut state = [
-        Fr::from(inputs[0]),
-        Fr::from(inputs[1]),
-        Fr::from(inputs[2]),
-        Fr::from(inputs[3]),
-        Fr::from(inputs[4]),
-        Fr::from(inputs[5]),
+        Fr::from_raw([0, 6, 0, 0]),
+        fr_from_u64(inputs[0]),
+        fr_from_u64(inputs[1]),
+        fr_from_u64(inputs[2]),
+        fr_from_u64(inputs[3]),
+        fr_from_u64(inputs[4]),
     ];
+    poseidon6_permute(&mut state);
+    state[1] += fr_from_u64(inputs[5]);
+    poseidon6_permute(&mut state);
+    state[1]
+}
+#[inline(always)]
+fn poseidon6_permute(state: &mut [Fr; 6]) {
+    let (round_constants, mds) = poseidon6_params();
     let rf_half = FULL_ROUNDS_HALF;
-    let rp = PARTIAL_ROUNDS;
+    let rp = WIDTH6_PARTIAL_ROUNDS;
     for rc in round_constants.iter().take(rf_half) {
         for (i, s) in state.iter_mut().enumerate() {
             *s = sbox(*s + rc[i]);
         }
-        apply_mds6(&mut state, mds);
+        apply_mds6(state, mds);
     }
     for rc in round_constants.iter().skip(rf_half).take(rp) {
         for (i, s) in state.iter_mut().enumerate() {
             *s += rc[i];
         }
         state[0] = sbox(state[0]);
-        apply_mds6(&mut state, mds);
+        apply_mds6(state, mds);
     }
     let tail_start = rf_half + rp;
     for rc in round_constants.iter().skip(tail_start).take(rf_half) {
         for (i, s) in state.iter_mut().enumerate() {
             *s = sbox(*s + rc[i]);
         }
-        apply_mds6(&mut state, mds);
+        apply_mds6(state, mds);
     }
-    state[0]
 }
 /// Export Poseidon parameters for width 3 as byte arrays.
 #[must_use]
-pub fn bn254_poseidon_params_width3() -> Bn254PoseidonParams<3> {
+pub fn bn254_poseidon_params_width3() -> Bn254PoseidonParams<3, 65> {
     bn254_v1::WIDTH3
 }
 /// Export Poseidon parameters for width 6 as byte arrays.
 #[must_use]
-pub fn bn254_poseidon_params_width6() -> Bn254PoseidonParams<6> {
+pub fn bn254_poseidon_params_width6() -> Bn254PoseidonParams<6, 68> {
     bn254_v1::WIDTH6
 }
 #[cfg(test)]
@@ -271,14 +295,14 @@ fn pack_bytes_to_fr_with_delimiter(bytes: &[u8]) -> Vec<Fr> {
     let mut words = chunks
         .by_ref()
         .map(|chunk| {
-            Fr::from(u64::from_le_bytes(
+            fr_from_u64(u64::from_le_bytes(
                 chunk.try_into().expect("eight-byte chunk"),
             ))
         })
         .collect::<Vec<_>>();
     let remainder = chunks.remainder();
     let delimiter_word = partial_u64_from_le_slice(remainder) | (1u64 << (remainder.len() * 8));
-    words.push(Fr::from(delimiter_word));
+    words.push(fr_from_u64(delimiter_word));
     words
 }
 fn hash_words_internal(words: &[Fr]) -> Fr {
@@ -303,14 +327,14 @@ fn hash_u64_words_internal(words: &[u64]) -> Fr {
     let mut state = [Fr::ZERO; 3];
     let mut pairs = words.chunks_exact(2);
     for pair in &mut pairs {
-        state[0] += Fr::from(pair[0]);
-        state[1] += Fr::from(pair[1]);
+        state[0] += fr_from_u64(pair[0]);
+        state[1] += fr_from_u64(pair[1]);
         poseidon3_permute(&mut state);
     }
     match pairs.remainder() {
         [] => state[0] += Fr::ONE,
         [word] => {
-            state[0] += Fr::from(*word);
+            state[0] += fr_from_u64(*word);
             state[1] += Fr::ONE;
         }
         _ => unreachable!("u64 pair chunks can leave at most one trailing word"),
@@ -365,7 +389,7 @@ impl PoseidonByteHasher {
     #[inline(always)]
     pub fn update_u64_le_word(&mut self, word: u64) {
         if self.pending_len == 0 {
-            self.absorb_word(Fr::from(word));
+            self.absorb_word(fr_from_u64(word));
         } else {
             self.update(&word.to_le_bytes());
         }
@@ -381,7 +405,7 @@ impl PoseidonByteHasher {
             self.pending_len += take;
             bytes = &bytes[take..];
             if self.pending_len == 8 {
-                self.absorb_word(Fr::from(u64::from_le_bytes(self.pending_bytes)));
+                self.absorb_word(fr_from_u64(u64::from_le_bytes(self.pending_bytes)));
                 self.pending_len = 0;
             }
         }
@@ -415,7 +439,7 @@ impl PoseidonByteHasher {
             partial_u64_from_le_bytes(&self.pending_bytes, self.pending_len)
                 | (1u64 << (self.pending_len * 8))
         };
-        self.absorb_word(Fr::from(delimiter_word));
+        self.absorb_word(fr_from_u64(delimiter_word));
         match self.rate_len {
             0 => self.state[0] += Fr::ONE,
             1 => self.state[1] += Fr::ONE,
@@ -473,7 +497,7 @@ pub fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
     };
     debug_assert!(bytes.len() < 8);
     let delimiter_word = partial_u64_from_le_slice(bytes) | (1u64 << (bytes.len() * 8));
-    state[rate_len] += Fr::from(delimiter_word);
+    state[rate_len] += fr_from_u64(delimiter_word);
     rate_len += 1;
     if rate_len == 2 {
         poseidon3_permute(&mut state);
@@ -521,6 +545,15 @@ pub fn hash6_u64(inputs: [u64; 6]) -> u64 {
 mod tests {
     use super::*;
     #[test]
+    fn fixed_integer_conversion_preserves_canonical_field_bytes() {
+        for value in [0, 1, u64::from(u32::MAX), 1_u64 << 32, u64::MAX] {
+            let mut expected = [0_u8; 32];
+            expected[..8].copy_from_slice(&value.to_le_bytes());
+            assert_eq!(field_to_bytes(fr_from_u64(value)), expected);
+        }
+    }
+
+    #[test]
     fn hash2_samples_are_consistent() {
         let cases = [
             (0u64, 0u64),
@@ -566,22 +599,22 @@ mod tests {
             (
                 b"",
                 [
-                    243, 205, 86, 36, 245, 81, 231, 108, 183, 109, 57, 130, 206, 249, 41, 36, 115,
-                    18, 192, 23, 20, 230, 172, 138, 197, 140, 22, 254, 129, 111, 173, 40,
+                    189, 50, 155, 15, 240, 132, 85, 95, 15, 147, 197, 62, 141, 122, 0, 203, 141,
+                    137, 137, 33, 79, 17, 44, 38, 229, 229, 39, 130, 187, 56, 235, 0,
                 ],
             ),
             (
                 b"poseidon",
                 [
-                    244, 151, 234, 73, 131, 173, 212, 69, 53, 172, 84, 37, 206, 174, 222, 161, 128,
-                    208, 66, 101, 230, 145, 137, 166, 7, 14, 229, 87, 175, 182, 122, 5,
+                    222, 164, 48, 30, 25, 145, 64, 14, 65, 94, 178, 105, 163, 229, 108, 109, 23,
+                    162, 172, 209, 184, 65, 138, 158, 172, 137, 230, 4, 161, 69, 56, 14,
                 ],
             ),
             (
                 b"\x00\x01\x02\x03\x04\x05\x06\x07\x08",
                 [
-                    218, 213, 40, 11, 90, 109, 25, 232, 109, 150, 205, 126, 114, 219, 117, 205, 93,
-                    5, 156, 147, 110, 175, 109, 166, 97, 220, 229, 188, 97, 76, 91, 15,
+                    138, 68, 119, 254, 6, 61, 239, 209, 224, 199, 164, 116, 226, 164, 56, 12, 27,
+                    146, 164, 170, 190, 224, 248, 117, 17, 40, 222, 187, 27, 237, 222, 45,
                 ],
             ),
         ];
@@ -663,7 +696,7 @@ mod tests {
     #[test]
     fn bn254_parameter_exports_match_captured_bytes() {
         use sha2::{Digest as _, Sha256};
-        fn digest<const W: usize>(params: Bn254PoseidonParams<W>) -> String {
+        fn digest<const W: usize, const R: usize>(params: Bn254PoseidonParams<W, R>) -> String {
             let mut hash = Sha256::new();
             for round in params.round_constants {
                 for word in round {
@@ -677,25 +710,25 @@ mod tests {
             }
             format!("{:x}", hash.finalize())
         }
-        // Independent pre-rename capture: axt_poseidon_constants.json, each width's
+        // Independently generated and compared with pinned circomlibjs v0.1.7: each width's
         // round-major constants followed by row-major MDS, canonical little-endian.
         assert_eq!(
             digest(bn254_poseidon_params_width3()),
-            "20a6364b21446c75eafb313c00cda37f1e772a3e76f158d6938b40fd52988709"
+            "e4b7f120fccdc21a73dd32fb210837a733555cb831173a0210d606f1a7705975"
         );
         assert_eq!(
             digest(bn254_poseidon_params_width6()),
-            "443ee9a4a9e5f8425720a184e8ef3fbe1897c9fcae80e4c1827cf0a246889bda"
+            "51ccbda8c3a46b0b214c9ad507fb0f5028340eb8efbf9b64aa772dbc862d7cdd"
         );
     }
     #[test]
     fn poseidon_params_exports_match_widths() {
         let params3 = bn254_poseidon_params_width3();
-        assert_eq!(params3.round_constants.len(), 64,);
+        assert_eq!(params3.round_constants.len(), 65,);
         assert_eq!(params3.mds.len(), 3);
         assert_eq!(params3.mds[0].len(), 3);
         let params6 = bn254_poseidon_params_width6();
-        assert_eq!(params6.round_constants.len(), 64,);
+        assert_eq!(params6.round_constants.len(), 68,);
         assert_eq!(params6.mds.len(), 6);
         assert_eq!(params6.mds[0].len(), 6);
     }

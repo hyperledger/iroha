@@ -3100,3 +3100,115 @@ fn checked_decode_peak_preserves_depth_and_the_original_nested_layer() {
     });
     assert_eq!(DECODE_NESTING_DEPTH.with(Cell::get), baseline);
 }
+
+#[test]
+fn raw_shape_inspection_preserves_prefix_kernel_without_using_or_replacing_active_limits() {
+    let count = 3_u64.to_le_bytes();
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let mut prefix = Vec::new();
+        write_len_to_vec_with_flags(&mut prefix, 3, flags);
+        let limits = DecodeLimits::new(0, 0, 0, 0, 0);
+        let (_, usage) = with_decode_limits_measured(limits, || {
+            assert_eq!(
+                inspect_raw_len_from_slice_with_flags(&prefix, flags).unwrap(),
+                (3, prefix.len())
+            );
+            assert_eq!(inspect_raw_seq_len_slice(&count).unwrap(), (3, 8));
+            // Existing scoped inspection still enforces the caller's original ceiling.
+            let _flags = DecodeFlagsGuard::enter(flags);
+            assert!(matches!(
+                inspect_len_from_slice(&prefix)
+                    .unwrap_err()
+                    .decode_resource_error(),
+                Some(DecodeResourceError::FieldLengthExceeded {
+                    length: 3,
+                    limit: 0
+                })
+            ));
+            assert!(matches!(
+                inspect_seq_len_slice(&count)
+                    .unwrap_err()
+                    .decode_resource_error(),
+                Some(DecodeResourceError::SequenceLengthExceeded {
+                    length: 3,
+                    limit: 0
+                })
+            ));
+        });
+        assert_eq!(usage.total_elements(), 0);
+        assert_eq!(usage.total_allocated_bytes(), 0);
+    }
+}
+
+#[test]
+fn raw_shape_inspection_matches_scoped_prefix_errors_and_never_accepts_a_nonminimal_prefix() {
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        for length in [0, 1, 127, 128, 16_384, u32::MAX as u64] {
+            let mut bytes = Vec::new();
+            write_len_to_vec_with_flags(&mut bytes, length, flags);
+            assert_eq!(
+                inspect_raw_len_from_slice_with_flags(&bytes, flags).unwrap(),
+                inspect_len_from_slice(&bytes).unwrap()
+            );
+            for end in 0..bytes.len() {
+                assert!(inspect_raw_len_from_slice_with_flags(&bytes[..end], flags).is_err());
+                assert!(inspect_len_from_slice(&bytes[..end]).is_err());
+            }
+        }
+    }
+    for bytes in [&[0x80, 0][..], &[0xff; 10][..], &[0x80; 10][..]] {
+        assert!(matches!(
+            inspect_raw_len_from_slice_with_flags(bytes, header_flags::COMPACT_LEN),
+            Err(Error::LengthMismatch)
+        ));
+    }
+    assert!(inspect_raw_len_from_slice_with_flags(&[0], 0xff).is_err());
+    for end in 0..8 {
+        assert!(matches!(
+            inspect_raw_seq_len_slice(&[0; 8][..end]),
+            Err(Error::LengthMismatch)
+        ));
+    }
+    for count in [0, 1, 127, 128, u32::MAX as u64] {
+        assert_eq!(
+            inspect_raw_seq_len_slice(&count.to_le_bytes()).unwrap(),
+            inspect_seq_len_slice(&count.to_le_bytes()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn raw_shape_inspection_does_not_preempt_canonical_root_refusal() {
+    let frame = crate::encode_canonical(&vec![1_u8, 2, 3]).unwrap();
+    let count = 3_u64.to_le_bytes();
+    let mut prefix = Vec::new();
+    write_len_to_vec_with_flags(&mut prefix, 3, default_encode_flags());
+    for limits in [
+        DecodeLimits::new(0, 0, 0, 0, 0),
+        DecodeLimits::new(0, usize::MAX, 0, 0, 0),
+        DecodeLimits::new(0, usize::MAX, usize::MAX, usize::MAX, 128),
+    ] {
+        let run = |inspect| {
+            with_decode_limits_scope(limits, || {
+                if inspect {
+                    inspect_raw_len_from_slice_with_flags(&prefix, default_encode_flags()).unwrap();
+                    inspect_raw_seq_len_slice(&count).unwrap();
+                }
+                crate::decode_canonical_for_admission::<Vec<u8>>(
+                    &frame,
+                    crate::canonical_decode_limits(frame.len()),
+                )
+                .unwrap_err()
+            })
+        };
+        let original = run(false);
+        let inspected = run(true);
+        assert_eq!(original.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        assert_eq!(inspected.kind(), original.kind());
+        assert_eq!(
+            inspected.error().decode_resource_error(),
+            original.error().decode_resource_error()
+        );
+    }
+}

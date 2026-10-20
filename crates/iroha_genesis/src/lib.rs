@@ -1388,7 +1388,10 @@ impl GenesisSourceTemplate {
 }
 
 impl RawGenesisTransaction {
-    /// Validate consensus-mode parameters.
+    /// Validate consensus-mode parameters using the manifest's declared account context.
+    ///
+    /// Custom policy payloads are decoded lazily. Their account literals belong to this
+    /// manifest even when its caller is authoring or inspecting a different network.
     ///
     /// # Errors
     ///
@@ -1396,6 +1399,9 @@ impl RawGenesisTransaction {
     /// epoch cannot contain the committed anchor and authenticated beacon pulse required before
     /// its boundary.
     pub fn validate_mode_specific_consensus_parameters(&self) -> Result<()> {
+        let _chain_discriminant = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+            self.chain_discriminant,
+        );
         let parameters = self.effective_parameters()?;
         let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(&parameters)?
             .ok_or_else(|| eyre!("genesis requires its explicit root_fees_v1 monetary policy"))?;
@@ -1613,8 +1619,9 @@ impl RawGenesisTransaction {
     /// Returns an error if the manifest contains more than one structured parameter block or any
     /// explicit [`SetParameter`] instruction. Parameters must be supplied only through the
     /// structured `parameters` block. The transaction ceiling and block reserve must fit
-    /// the block ceiling, and clock drift must fit its protocol bound. Executed genesis
-    /// validates the final authoritative privacy policy.
+    /// the block ceiling, the chain parameters must fit the protocol transport limit, and
+    /// clock drift must fit its protocol bound. Executed genesis validates the final
+    /// authoritative privacy policy.
     pub fn effective_parameters(&self) -> Result<Parameters> {
         self.validate_no_explicit_set_parameter_instructions()?;
         self.validate_structured_parameter_blocks()?;
@@ -1632,6 +1639,15 @@ impl RawGenesisTransaction {
             parameters.transaction().max_tx_bytes(),
             parameters.sumeragi().max_block_bytes(),
         )?;
+        // Executed genesis applies the same rule before installing its schedule; checking it
+        // here keeps an author from signing a genesis that every validator would reject.
+        iroha_data_model::sumeragi_finality::ChainParamsRecord::from_parameters(
+            parameters.sumeragi(),
+        )
+        .validate()
+        .map_err(|error| {
+            eyre!("genesis chain parameters do not fit the protocol transport limit: {error}")
+        })?;
         Ok(parameters)
     }
     /// Populate consensus metadata fields with defaults and a computed consensus fingerprint.
@@ -3373,6 +3389,33 @@ mod tests {
     }
 
     #[test]
+    fn effective_chain_parameters_fit_the_protocol_transport_limit() {
+        use iroha_data_model::parameter::system::SumeragiParameter;
+        use std::num::NonZeroU32;
+        // The 16 MiB payload is the largest that leaves both frame allowances within the
+        // chain transport limit; one more byte is refused before signing.
+        for (block_bytes, accepted) in [(16 * 1024 * 1024, true), (16 * 1024 * 1024 + 1, false)] {
+            let mut manifest =
+                GenesisBuilder::new_without_executor(ChainId::from("chain-transport-limit"), ".")
+                    .build_raw_for_test();
+            manifest.transactions[0]
+                .parameters
+                .get_or_insert_default()
+                .set_parameter(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+                    NonZeroU32::new(block_bytes).unwrap(),
+                )));
+            let result = manifest.effective_parameters();
+            assert_eq!(result.is_ok(), accepted, "max_block_bytes={block_bytes}");
+            if !accepted {
+                assert!(
+                    format!("{:?}", result.unwrap_err()).contains("MaxBlockBytesAboveTransport")
+                );
+                assert!(manifest.with_consensus_meta().is_err());
+            }
+        }
+    }
+
+    #[test]
     fn complete_parameter_instructions_retain_every_admission_and_execution_slot() {
         let expected = configured_execution_policy_for_test();
         let original_slots = expected.parameters().collect::<Vec<_>>();
@@ -3702,12 +3745,14 @@ mod tests {
         std::fs::write(&executor_path, dummy_bytecode).unwrap();
         let sumeragi_context =
             norito::json::to_json(&SumeragiGenesisContextParameters::recommended())?;
+        let parameters = norito::json::to_json(&parameters_with_root_fees_for_test())?;
         let genesis = format!(
-            r#"{{"chain":"00000000-0000-0000-0000-000000000000","chain_discriminant":{},"executor":"{}","consensus_mode":"Permissioned","wire_protocol_version":{},"sumeragi_context":{},"transactions":[{{}}]}}"#,
+            r#"{{"chain":"00000000-0000-0000-0000-000000000000","chain_discriminant":{},"executor":"{}","consensus_mode":"Permissioned","wire_protocol_version":{},"sumeragi_context":{},"transactions":[{{"parameters":{}}}]}}"#,
             iroha_data_model::account::address::chain_discriminant(),
             executor_path.file_name().unwrap().to_str().unwrap(),
             iroha_data_model::sumeragi::PROTOCOL_VERSION,
             sumeragi_context,
+            parameters,
         );
         let genesis_path = tmp_dir.path().join("genesis.json");
         std::fs::write(&genesis_path, genesis).unwrap();

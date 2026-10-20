@@ -1,0 +1,87 @@
+{
+  "fixture_purpose": "Genuine Huawei Mate 30 AndroidKeyStore capture exercising the existing Google RSA adapter; not a Huawei vendor-root qualification or live wallet enrollment.",
+  "source": {
+    "provider": "Huawei AppGallery Connect Cloud Testing",
+    "report_requires_sign_in": true,
+    "catalog_device": "Huawei Mate 30 OverSeas",
+    "execution_started_at_utc": "2026-10-20T09:15:03Z",
+    "execution_finished_at_utc": "2026-10-20T09:23:03Z",
+    "retrieved_on_utc": "2026-10-20",
+    "archive_local_mtime_utc": "2026-10-20T09:26:13.908872+00:00",
+    "archive_sha256": "05e43669afd9db61ab49a0e5707cbdb6ab99636ae68bb8ec6377d163ddf65531",
+    "archive_bytes": 1296328,
+    "official_service_url": "https://developer.huawei.com/consumer/en/agconnect/cloud-test/",
+    "authenticated_report_locator_sha256": "40d1bb8cadcfc58a6b897316372818f2f488aa3ff43811388e71a6cc468118a4",
+    "locator_storage": "Exact signed-in report/task/device locators are retained with the ignored capture evidence, outside this public fixture."
+  },
+  "capture": {
+    "id": "1792487796152-99ce55b3-952f-4a3f-810b-88b4d56b2b8e",
+    "trigger": "automatic",
+    "zip_sha256": "2caa77898c8c7bbd85b753b692476bcb5614ec177108b2e3a90e661cb3c1dbb6",
+    "zip_bytes": 9737,
+    "reported_manufacturer": "HUAWEI",
+    "reported_model": "TAS-L29",
+    "reported_api_level": 29,
+    "reported_google_play_services_installed": false,
+    "reported_google_play_store_installed": false,
+    "metadata_limit": "Model, service presence and capture time are probe/lab observations, not cryptographically attested claims. No raw Logcat, report archive, accounts, phone identifiers or private keys are included."
+  },
+  "independent_request": {
+    "created_at_utc": "2026-10-20T09:10:43.602242+00:00",
+    "request_sha256": "5c7306b16dde9d628cf168760efa34bd104b040286acc33d9fcdf9428572762f",
+    "apk_sha256": "208eeb2c99f363b5db88a4f4a860aade9360216d60a6045665b832148308f1f8",
+    "apk_bytes": 880214,
+    "package_name": "org.hyperledger.iroha.samples.attestationprobe",
+    "minimum_package_version": 1,
+    "signer_sha256": "eb2e20a4d49918e1dbd9b78b20b62a7442812cb9d2cd808ff3deff3fb7c35c27",
+    "challenge_hex": "0253567353484b29189d0a58c297ce35ecbecb956e1806b3cf4fdb9933923f83",
+    "wallet_e1_challenge": false
+  },
+  "chain_order": [
+    "certificate-0.der",
+    "certificate-1.der",
+    "certificate-2.der",
+    "certificate-3.der"
+  ],
+  "files": {
+    "certificate-0.der": {
+      "bytes": 628,
+      "sha256": "7d9f2514bfb263a1c44d53c4259633faaa2a7d84568dbd4195e3805b94951d1f",
+      "spki_sha256": "a9ce04d2917e1a6f49727bdb72e404d1d94f4c3837a6ef2b8334eeba0d95b3cd"
+    },
+    "certificate-1.der": {
+      "bytes": 552,
+      "sha256": "8612146c88da664905d9616b38a940498281532ffbe73ef2640021fb5db4053d",
+      "spki_sha256": "ff118081c413100bbf1edb0df18b2e124fc7fbb944a6abc42158902848290273"
+    },
+    "certificate-2.der": {
+      "bytes": 981,
+      "sha256": "31de976a3d4ba34625731e4cf878283b00cc5ebc4727b9a8bb7c02810fe1f909",
+      "spki_sha256": "fa2fefad8cf599a6e4d6f27448eff50ffbfc8d965378e09ae9a0e37923dd1330"
+    },
+    "certificate-3.der": {
+      "bytes": 1380,
+      "sha256": "c1984a3ef45c1e2a918551de10603c86f7051b2249c4891cae3230eabd0c97d5",
+      "spki_sha256": "feb2ea7551ee316ed4bb443c8293b884dbfdea40b603ee3e4f4a897e4580fbae"
+    },
+    "public-key.spki.der": {
+      "bytes": 91,
+      "sha256": "a9ce04d2917e1a6f49727bdb72e404d1d94f4c3837a6ef2b8334eeba0d95b3cd"
+    },
+    "challenge-signature.der": {
+      "bytes": 71,
+      "sha256": "2ae7f476a163007e90300cb5a7ec019c024ac20500c3e46b0801dc42d1e1df48"
+    },
+    "challenge.bin": {
+      "bytes": 32,
+      "sha256": "f775b699b4682e7c7363cf1d19a3c264a67a75d71406ed3924a37e20f5d41d52"
+    }
+  },
+  "root": {
+    "family": "google_rsa",
+    "spki_sha256": "feb2ea7551ee316ed4bb443c8293b884dbfdea40b603ee3e4f4a897e4580fbae",
+    "official_root_url": "https://android.googleapis.com/attestation/root",
+    "official_factory_validity_guidance_url": "https://developer.android.com/privacy-and-security/security-key-attestation#expired_factory_keys"
+  },
+  "boundary": "The full Android evidence verifier is exercised with the fixed diagnostic identity and controlled test revocation sources. This is not a signed wallet E1, production revocation verdict, persistent payment key or proof of hardware user confirmation; the diagnostic app deleted its generated key after capture."
+}

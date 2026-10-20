@@ -7,7 +7,8 @@
 use iroha_data_model::{
     AssetDefinitionId, NetworkId,
     account::AccountId,
-    asset::{AssetBalanceScope, AssetId},
+    asset::{AssetBalanceScope, AssetId, AssetValue},
+    prelude::Quantity,
     privacy::{
         ANONYMOUS_PGC_ANONYMITY_SET_SIZES_V1, BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1,
         BootleLanternIssuerPolicyV1, FCMP_MAX_INPUTS_V1, FCMP_MAX_OUTPUTS_V1,
@@ -5852,7 +5853,8 @@ impl PrivacyOrchardPoolStateV1 {
 /// Reject a restored world with dangling governed public-reserve dependencies.
 ///
 /// # Errors
-/// Rejects malformed custody or a missing reserve account or asset definition.
+/// Rejects malformed custody, missing public dependencies, or funded allowance
+/// exceeding the exact retained reserve balance. No amount is inferred or clamped.
 #[doc(hidden)]
 pub fn validate_privacy_public_reserve_dependencies_v1<
     AccountValue: mv::Value,
@@ -5861,6 +5863,7 @@ pub fn validate_privacy_public_reserve_dependencies_v1<
     commitments: &impl StorageReadOnly<PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1>,
     accounts: &impl StorageReadOnly<AccountId, AccountValue>,
     asset_definitions: &impl StorageReadOnly<AssetDefinitionId, AssetDefinitionValue>,
+    assets: &impl StorageReadOnly<AssetId, AssetValue>,
 ) -> Result<(), String> {
     for (asset_id, owner) in load_privacy_public_reserve_custody_v1(commitments)? {
         if accounts.get(asset_id.account()).is_none() {
@@ -5876,6 +5879,20 @@ pub fn validate_privacy_public_reserve_dependencies_v1<
                 owner.namespace(),
                 asset_id.definition()
             ));
+        }
+        let key = PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &asset_id)?;
+        let allowance = commitments
+            .get(&key)
+            .and_then(PrivacyStateItemRecordV1::public_reserve_funded_allowance)
+            .ok_or_else(|| "privacy public reserve has no funded allowance".to_owned())?;
+        let backed = match assets.get(&asset_id) {
+            Some(balance) => allowance <= balance.as_ref(),
+            None => allowance.is_zero(),
+        };
+        if !backed {
+            return Err(
+                "privacy public reserve funded allowance exceeds its exact balance".to_owned(),
+            );
         }
     }
     Ok(())
@@ -8612,12 +8629,15 @@ pub enum PrivacyStateItemRecordV1 {
         /// Canonical pool state reconstructed and rehashed on restore.
         state: PrivacyOrchardPoolStateV1,
     },
-    /// Immutable exact-asset custody claim installed with one governed pool bootstrap.
+    /// Exact-asset custody and funded public allowance installed with one governed pool bootstrap.
     PublicReserveCustody {
         /// Full canonical reserve balance ID; the digest key is lookup-only.
         reserve_asset_id: AssetId,
         /// Exact typed pool and bootstrap that may release this reserve.
         owner: PrivacyPublicReserveOwnerV1,
+        /// Verified public deposits minus verified public withdrawals. Ordinary credits and
+        /// hidden bootstrap commitments do not authorize any public withdrawal.
+        funded_allowance: Quantity,
     },
     /// Replay marker emitted by one directly verified Orchard action.
     OrchardVerifiedNullifier {
@@ -8948,6 +8968,9 @@ impl PrivacyStateItemRecordV1 {
     }
     /// Bind one full transparent reserve asset ID to an immutable governed pool.
     ///
+    /// The initial funded allowance is zero, regardless of the existing reserve balance
+    /// or hidden bootstrap commitments. Only a verified public deposit can increase it.
+    ///
     /// # Errors
     ///
     /// Rejects an invalid reserve custody owner.
@@ -8959,6 +8982,7 @@ impl PrivacyStateItemRecordV1 {
         Ok(Self::PublicReserveCustody {
             reserve_asset_id,
             owner,
+            funded_allowance: Quantity::zero(),
         })
     }
     /// Borrow the full reserve ID and typed owner from a custody record.
@@ -8970,7 +8994,18 @@ impl PrivacyStateItemRecordV1 {
             Self::PublicReserveCustody {
                 reserve_asset_id,
                 owner,
+                ..
             } => Some((reserve_asset_id, *owner)),
+            _ => None,
+        }
+    }
+    /// Borrow the committed funded allowance without reconstructing it from a balance.
+    #[must_use]
+    pub const fn public_reserve_funded_allowance(&self) -> Option<&Quantity> {
+        match self {
+            Self::PublicReserveCustody {
+                funded_allowance, ..
+            } => Some(funded_allowance),
             _ => None,
         }
     }
@@ -9423,10 +9458,9 @@ impl PrivacyStateItemRecordV1 {
                 *admitted_at_height,
             )
             .map(|_| ()),
-            Self::PublicReserveCustody {
-                reserve_asset_id,
-                owner,
-            } => Self::public_reserve_custody(reserve_asset_id.clone(), *owner).map(|_| ()),
+            // Quantity decoding already requires a canonical nonnegative value. Preserve
+            // the actual allowance; bootstrap identity validation must not reset it to zero.
+            Self::PublicReserveCustody { owner, .. } => owner.validate(),
             Self::ProofManagedPoolBootstrapCommitment {
                 bootstrap_digest,
                 position,
@@ -10362,6 +10396,10 @@ mod tests {
     }
     include!("privacy_state/test_fixtures.rs");
     include!("privacy_state/public_reserve_digest_tests.rs");
+    mod funded_allowance_tests {
+        use super::*;
+        include!("privacy_state/funded_allowance_tests.rs");
+    }
     #[test]
     fn orchard_bootstrap_is_canonical_authoritative_and_restart_safe() {
         let mut fixture = orchard_persisted_fixture();
@@ -10607,12 +10645,14 @@ mod tests {
             &fixture.commitments.view(),
             &accounts.view(),
             &asset_definitions.view(),
+            &Storage::<AssetId, AssetValue>::new().view(),
         )
         .expect("both exact public dependencies exist");
         let error = validate_privacy_public_reserve_dependencies_v1(
             &fixture.commitments.view(),
             &Storage::<AccountId, ()>::new().view(),
             &asset_definitions.view(),
+            &Storage::<AssetId, AssetValue>::new().view(),
         )
         .expect_err("missing reserve account must reject restored state");
         assert!(error.contains("references missing reserve account"));
@@ -10621,6 +10661,7 @@ mod tests {
             &fixture.commitments.view(),
             &accounts.view(),
             &Storage::<AssetDefinitionId, ()>::new().view(),
+            &Storage::<AssetId, AssetValue>::new().view(),
         )
         .expect_err("missing asset definition must reject restored state");
         assert!(error.contains("references missing asset definition"));

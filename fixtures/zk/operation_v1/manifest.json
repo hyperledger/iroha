@@ -1,0 +1,35 @@
+{
+  "schema": "iroha.zk_operation.fixtures.v1",
+  "contract": "specs/zk_operation_contract.md",
+  "contract_json": "contract.json",
+  "reducer": "../workflow_v1/state_machine.json",
+  "pending": [
+    {
+      "file": "vectors.json",
+      "owner": "S1-A2",
+      "reason": "The canonical Norito types of PreparedZkOperationV1 and BuiltZkOperationV1 belong to the transport-free operation core, which adds their byte vectors."
+    }
+  ],
+  "scenarios": [
+    "ambiguous_submit_is_recovered_read_only.json",
+    "authenticated_mode_never_closes_on_torii_reported_expiry.json",
+    "batch_at_both_count_bounds_is_one_transaction.json",
+    "build_failure_returns_the_operation_to_prepared.json",
+    "cancel_after_dispatch_stops_observation_only.json",
+    "cancel_before_dispatch_drops_the_signed_bytes.json",
+    "external_signature_mismatch_is_refused_before_persisting.json",
+    "finality_evidence_must_authenticate_the_exact_transaction.json",
+    "interrupt_before_submit_dispatches_the_persisted_bytes_once.json",
+    "interrupt_while_proving_proves_and_verifies_again.json",
+    "local_verification_failure_dispatches_nothing.json",
+    "non_admissions_keep_the_signed_identity_dispatchable.json",
+    "one_call_finalizes_on_authenticated_evidence.json",
+    "over_bound_action_count_is_refused_at_prepare_without_a_split.json",
+    "over_bound_attachment_occurrences_are_refused_at_prepare.json",
+    "oversized_attachment_slot_is_refused_at_prepare.json",
+    "private_material_upload_is_refused.json",
+    "process_dies_during_dispatch_then_only_authorized_identical_bytes_are_resent.json",
+    "torii_status_mode_is_explicit_and_trusts_the_queried_torii.json",
+    "validated_refusal_of_the_only_dispatch_closes_the_identity.json"
+  ]
+}

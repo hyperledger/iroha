@@ -35,7 +35,7 @@ pub(crate) const CUDA_SOURCES: [CudaSource; 10] = [
     },
     CudaSource {
         stem: "poseidon",
-        sha256: "4d849c3b067828039801f2a2d7e5158eb7fe2fc14bd6c1f5748c83daf9b6e788",
+        sha256: "b99103d848880b501639624409bcb33b60a6be4c8a86cc551dcccabde10c0da8",
     },
     CudaSource {
         stem: "sha256",

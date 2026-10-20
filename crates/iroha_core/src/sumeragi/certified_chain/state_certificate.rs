@@ -895,7 +895,7 @@ impl VerifiedParentService {
         &self,
         proposal: &SignedBlock,
     ) -> Result<(), ParentServiceError> {
-        if self.proposal != proposal.hash()
+        if self.proposal != parent_service_proposal_hash(proposal)?
             || self.height.checked_add(1) != Some(proposal.header().height().get())
         {
             return Err(ParentServiceError::Invalid(
@@ -943,6 +943,9 @@ fn parent_proof_decode_failure(error: norito::core::DecodeAttemptError) -> Paren
 fn parent_service_proposal_hash(
     proposal: &SignedBlock,
 ) -> Result<HashOf<IrohaHeader>, ParentServiceError> {
+    if cfg!(all(test, sumeragi_core_mutation = "HC487")) {
+        return Ok(proposal.hash());
+    }
     norito::core::classify_decode_attempt(|| proposal.canonical_resultless_header())
         .map(|header| header.hash())
         .map_err(parent_proof_decode_failure)
@@ -1171,7 +1174,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             proposal,
             current,
             prepared.signers.get(*view, proposal, parent, current, qc)?,
-        )))
+        )?))
     }
 }
 
@@ -1217,13 +1220,13 @@ fn verified_parent_service(
     proposal: &SignedBlock,
     current: &CommittedBlock,
     signers: RetainedSigners,
-) -> VerifiedParentService {
-    VerifiedParentService {
-        proposal: proposal.hash(),
+) -> Result<VerifiedParentService, ParentServiceError> {
+    Ok(VerifiedParentService {
+        proposal: parent_service_proposal_hash(proposal)?,
         height: current.height(),
         timestamp_ms: current.block_time_ms(),
         signers,
-    }
+    })
 }
 
 impl ParentServicePreparation {
@@ -1342,7 +1345,7 @@ impl ParentServicePreparation {
             proposal,
             current,
             self.signers.get(view, proposal, parent, current, qc)?,
-        )))
+        )?))
     }
 }
 

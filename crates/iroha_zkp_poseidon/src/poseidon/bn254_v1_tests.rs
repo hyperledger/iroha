@@ -1,14 +1,14 @@
-//! Fixed full-field V1 parameters against the independently captured and rederived original parameters.
+//! Fixed full-field V1 parameters against the independently captured and rederived selected parameters.
 
 use super::*;
 
 #[path = "../../../../fixtures/poseidon/reader.rs"]
 mod reference;
 
-fn compare<const W: usize>(fixed: Bn254PoseidonParams<W>, captured: &str) {
-    let (rounds, mds) = reference::parameters::<W>(captured);
-    assert_eq!(rounds.len(), ROUND_COUNT);
-    assert_eq!(fixed.round_constants.len(), ROUND_COUNT);
+fn compare<const W: usize, const R: usize>(fixed: Bn254PoseidonParams<W, R>, captured: &str) {
+    let (rounds, mds) = reference::parameters::<W, R>(captured);
+    assert_eq!(rounds.len(), R);
+    assert_eq!(fixed.round_constants.len(), R);
     for (actual, expected) in fixed
         .round_constants
         .iter()
@@ -24,17 +24,17 @@ fn compare<const W: usize>(fixed: Bn254PoseidonParams<W>, captured: &str) {
     }
 }
 #[test]
-fn all_621_fixed_fields_match_original_v1_grain_mds_and_strict_round_trips() {
+fn all_648_fixed_fields_match_selected_v1_grain_mds_and_strict_round_trips() {
     assert_eq!(FULL_ROUNDS, 8);
-    assert_eq!(PARTIAL_ROUNDS, 56);
-    assert_eq!(ROUND_COUNT, 64);
+    assert_eq!((WIDTH3_PARTIAL_ROUNDS, WIDTH6_PARTIAL_ROUNDS), (57, 60));
+    assert_eq!((WIDTH3_ROUNDS, WIDTH6_ROUNDS), (65, 68));
     compare(
         bn254_poseidon_params_width3(),
-        include_str!("../../../../fixtures/poseidon/bn254-w3-rp56.hex"),
+        include_str!("../../../../fixtures/poseidon/bn254-w3-rp57.hex"),
     );
     compare(
         bn254_poseidon_params_width6(),
-        include_str!("../../../../fixtures/poseidon/bn254-w6-rp56.hex"),
+        include_str!("../../../../fixtures/poseidon/bn254-w6-rp60.hex"),
     );
 }
 #[test]

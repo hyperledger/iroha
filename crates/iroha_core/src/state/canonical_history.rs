@@ -1,5 +1,6 @@
 //! Fallible, world-state-anchored access to canonical block history.
 
+mod committed_outcome;
 mod read_budget;
 pub use read_budget::CanonicalHistoryReadBudget;
 

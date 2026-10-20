@@ -70,6 +70,12 @@ impl CommittedRead {
                             CertificateReadError::Decode(error) => {
                                 BodyReadError::from_decode(error).into_attempt()
                             }
+                            CertificateReadError::Canonical(original) => {
+                                crate::execution_attempt::canonical_decode_attempt_error(
+                                    original,
+                                    |error| io::Error::new(io::ErrorKind::InvalidData, error),
+                                )
+                            }
                             error => io::Error::new(io::ErrorKind::InvalidData, error).into(),
                         });
                     }

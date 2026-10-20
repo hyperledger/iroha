@@ -1252,17 +1252,17 @@ pub mod isi {
     }
     const VOTING_BALLOT_CIRCUIT_ID: &str = crate::zk::GOVERNANCE_BALLOT_CIRCUIT_ID_V1;
     const VOTING_TALLY_CIRCUIT_ID: &str = crate::zk::GOVERNANCE_TALLY_CIRCUIT_ID_V1;
-    const STANDALONE_ZK_RELATION_UNQUALIFIED_V1: &str =
-        "standalone ZK ballot and tally relations are not qualified for production admission";
+    const STANDALONE_ZK_RELATION_UNSUPPORTED_V1: &str =
+        "standalone ZK ballots and tallies are unsupported: no ballot or tally relation exists";
     fn ensure_qualified_standalone_zk_relation_v1() -> Result<(), Error> {
-        // TODO: Replace this guard only after a reviewed ballot relation proves anonymous
-        // credential authorization, a confidential bond in frozen smallest asset units,
-        // immutable choice on conviction updates, and one sound, committee-free tally over the
-        // exact closed accepted corpus despite late dropouts and without secret reconstruction.
-        // The current commit/root ballot inputs and per-option tally inputs cannot establish
-        // those claims, even when a verifying key has the expected role.
+        // TODO: This unsupported-operation error stays until a reviewed standalone ballot and
+        // tally relation exists that proves anonymous credential authorization, a confidential
+        // bond in frozen smallest asset units, immutable choice on conviction updates, and one
+        // sound, committee-free tally over the exact closed accepted corpus despite late
+        // dropouts and without secret reconstruction. None exists: the commit/root ballot inputs
+        // and per-option tally inputs cannot establish those claims, even with role-valid keys.
         Err(InstructionExecutionError::InvariantViolation(
-            STANDALONE_ZK_RELATION_UNQUALIFIED_V1.into(),
+            STANDALONE_ZK_RELATION_UNSUPPORTED_V1.into(),
         )
         .into())
     }
@@ -18105,9 +18105,11 @@ pub mod isi {
         #[metrics(+"set_parameter")]
         fn execute(
             self,
-            _authority: &AccountId,
+            authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
+            state_transaction
+                .consume_parliament_candidate_testing_parameter(self.inner(), authority)?;
             super::parameter_validation::validate_ivm_heap_parameter(self.inner())?;
             state_transaction.validate_execution_output_parameter(self.inner())?;
             if let Parameter::Sumeragi(change) = self.inner() {
@@ -18213,7 +18215,7 @@ pub mod isi {
                 ) {
                     Ok(Some(operation)) => {
                         return state_transaction
-                            .apply_validator_committee_operation(_authority, operation)
+                            .apply_validator_committee_operation(authority, operation)
                             .map_err(|error| {
                                 committee_attempt_instruction_error(
                                     state_transaction,
@@ -26869,6 +26871,8 @@ AccountEvent::PermissionRemoved(change))
                 task::{Context, Waker},
             };
 
+            // Keep retired fixture versions from changing the whole-State census.
+            let _retirement_pin = crossbeam_epoch::pin();
             let (code, manifest) = contract_artifact_with_max_cycles(1000);
             let key = ContractArtifactId::new(DataSpaceId::UNIVERSAL, manifest.code_hash.unwrap());
             let mut world = World::default();
@@ -26911,14 +26915,28 @@ AccountEvent::PermissionRemoved(change))
             );
             assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
             drop(occupied);
+            assert_eq!(budget.reserved_bytes(), original);
+            assert!(
+                wait.as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending(),
+                "refund callbacks wait for the original World field writers"
+            );
+            drop(transaction);
+            assert!(
+                wait.as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending()
+            );
+            drop(block);
             assert!(
                 wait.as_mut()
                     .poll(&mut Context::from_waker(Waker::noop()))
                     .is_ready()
             );
-            assert_eq!(budget.reserved_bytes(), original);
-            drop(transaction);
-            let retry = block.transaction();
+            let mut retry_block = state.block(first_test_block_header());
+            let retry = retry_block.transaction();
+            let retry_baseline = budget.reserved_bytes();
             assert_eq!(
                 super::verify_registered_contract_artifact_for_manifest(
                     &retry.world,
@@ -26930,7 +26948,7 @@ AccountEvent::PermissionRemoved(change))
                 code
             );
             assert!(!retry.is_execution_deferred());
-            assert_eq!(budget.reserved_bytes(), original);
+            assert_eq!(budget.reserved_bytes(), retry_baseline);
         }
 
         fn contract_artifact_with_max_cycles(max_cycles: u64) -> (Vec<u8>, ContractManifest) {
@@ -28695,8 +28713,13 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .expect_err("a future role-valid key must still face the semantic guard");
             assert_contains!(
                 error.to_string(),
-                STANDALONE_ZK_RELATION_UNQUALIFIED_V1,
+                STANDALONE_ZK_RELATION_UNSUPPORTED_V1,
                 "unexpected standalone ZK admission result: {error}"
+            );
+            assert_contains!(
+                error.to_string(),
+                "unsupported: no ballot or tally relation exists",
+                "the refusal must name the missing relation: {error}"
             );
             assert_eq!(
                 norito::to_bytes(stx.world.elections.get(&election_id).unwrap())
@@ -33502,12 +33525,16 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let drift = current.max_clock_drift_ms();
             let cadence = current.block_cadence_ms.get();
             let minimum = 2 * drift + 4 * cadence;
+            let floor = GovernanceClockParametersV1::MIN_BLOCK_START_WORK_UNITS;
+            let ceiling = GovernanceClockParametersV1::MAX_BLOCK_START_WORK_UNITS;
             for (lag, units) in [
                 (minimum - 1, 64),
                 (minimum, 0),
+                (minimum, 4),
                 (minimum, 9),
-                (minimum, 42),
-                (minimum, 4_097),
+                (minimum, 10),
+                (minimum, floor - 1),
+                (minimum, ceiling + 1),
             ] {
                 let before = stx.world.parameters.get().clone();
                 let events = stx.world.internal_event_buf.len();
@@ -33517,9 +33544,9 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 assert_eq!(*stx.world.parameters.get(), before);
                 assert_eq!(stx.world.internal_event_buf.len(), events);
             }
-            SetParameter(governance_clock_test_parameter(minimum, 4_096))
+            SetParameter(governance_clock_test_parameter(minimum, ceiling))
                 .expect_execute(&ALICE_ID, &mut stx, "inclusive upper work bound");
-            SetParameter(governance_clock_test_parameter(minimum, 43))
+            SetParameter(governance_clock_test_parameter(minimum, floor))
                 .expect_execute(&ALICE_ID, &mut stx, "inclusive governance lag and work bounds");
             SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
                 .execute(&ALICE_ID, &mut stx)

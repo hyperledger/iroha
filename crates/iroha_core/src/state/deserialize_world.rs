@@ -8704,6 +8704,7 @@ fn decode_world_fields(
         &privacy_commitments.view(),
         &accounts.view(),
         &asset_definitions.view(),
+        &assets.view(),
     )
     .map_err(|message| json::Error::InvalidField {
         field: "world.privacy_state".to_owned(),

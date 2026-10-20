@@ -1,4 +1,4 @@
-"""Independent RP56 corpus acceptance and corruption controls."""
+"""Independent fixed-parameter corpus acceptance and corruption controls."""
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -19,13 +19,13 @@ class PoseidonReferenceTests(unittest.TestCase):
 
     def test_frozen_corpus_matches_every_derived_field_and_frame(self):
         REFERENCE.verify_directory(SCRIPT.parents[1] / "fixtures/poseidon")
-        self.assertEqual(len(self.expected["bn254-w3-rp56.hex"].splitlines()), 201)
-        self.assertEqual(len(self.expected["bn254-w6-rp56.hex"].splitlines()), 420)
+        self.assertEqual(len(self.expected["bn254-w3-rp57.hex"].splitlines()), 204)
+        self.assertEqual(len(self.expected["bn254-w6-rp60.hex"].splitlines()), 444)
         self.assertEqual(len(self.expected["pasta-fp-w3-rp56.hex"].splitlines()), 201)
         self.assertEqual(len(self.expected["kaigi-framed-rp56.hex"].splitlines()), 102)
 
     def test_field_changes_reordering_truncation_and_line_endings_are_rejected(self):
-        name = "bn254-w3-rp56.hex"
+        name = "bn254-w3-rp57.hex"
         original = self.expected[name]
         rows = original.splitlines(keepends=True)
         changed_byte = ("1" if original[0] == "0" else "0") + original[1:]

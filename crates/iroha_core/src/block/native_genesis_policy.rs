@@ -7,6 +7,8 @@ impl ValidBlock {
         if !block.header().is_genesis() {
             return Ok(());
         }
+        crate::state::parliament_candidate_testing::validate_genesis_output(block, state)
+            .map_err(Self::execution_context_error)?;
         let metadata =
             iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(block).map_err(
                 |error| match crate::execution_attempt::genesis_read_attempt_error(error, |error| {

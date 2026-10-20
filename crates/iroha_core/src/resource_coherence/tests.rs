@@ -8,7 +8,13 @@ use iroha_data_model::{
     isi::{InstructionBox, Log, SetParameter, privacy::SchedulePrivacyConsensusPolicyTighteningV1},
     parameter::{
         Parameter,
-        system::{SumeragiConsensusMode, SumeragiParameter, TransactionParameter},
+        system::{
+            SumeragiConsensusMode, SumeragiParameter, TransactionParameter,
+            resource_coherence::{
+                MAX_TRANSACTION_SIGNER_BYTES, MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES,
+                ResourceCoherenceError, maximal_action_transaction_bytes,
+            },
+        },
     },
     privacy::{
         PrivacyConsensusLimitsV1, PrivacyConsensusPolicyTighteningV1, PrivacyConsensusPolicyV1,
@@ -57,6 +63,35 @@ fn set_caps(world: &World, transaction: u64, block: u32) {
         )))
         .unwrap();
     parameters.commit();
+}
+
+fn set_signatures(world: &World, signatures: u64) {
+    let mut parameters = world.parameters.block();
+    parameters
+        .set_parameter(Parameter::Transaction(TransactionParameter::MaxSignatures(
+            NonZeroU64::new(signatures).unwrap(),
+        )))
+        .unwrap();
+    parameters.commit();
+}
+
+/// The largest privacy action whose required context at the default signature cap fits
+/// `transaction` bytes.
+fn exact_action(transaction: u32) -> u32 {
+    let context = maximal_action_transaction_bytes(
+        0,
+        iroha_data_model::parameter::Parameters::default()
+            .transaction()
+            .max_signatures(),
+    )
+    .unwrap();
+    transaction - u32::try_from(context).unwrap()
+}
+
+/// The largest signature cap whose maximal privacy action context fits `transaction` bytes.
+fn largest_signatures(transaction: u64, limits: &PrivacyConsensusLimitsV1) -> u64 {
+    (transaction - u64::from(limits.max_action_bytes) - MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES)
+        / MAX_TRANSACTION_SIGNER_BYTES
 }
 
 fn set_privacy(world: &World, policy: PrivacyConsensusPolicyV1) {
@@ -273,7 +308,12 @@ fn atomic_governance_transaction_checks_final_policy_in_either_instruction_order
                 NonZeroU64::new(u64::from(MIB)).unwrap(),
             )))
             .into(),
-            SchedulePrivacyConsensusPolicyTighteningV1::new(3, lower_limits(MIB, 2 * MIB)).into(),
+            // Exactly the largest action whose required context fits the 1 MiB cap.
+            SchedulePrivacyConsensusPolicyTighteningV1::new(
+                3,
+                lower_limits(exact_action(MIB), 2 * MIB),
+            )
+            .into(),
         ];
         if reverse {
             instructions.reverse();
@@ -395,6 +435,112 @@ fn internal_pipeline_candidate_rolls_back_incoherent_policy_before_publication()
             .max_tx_bytes()
             .get(),
         u64::from(3 * MIB)
+    );
+    validate_restored_policy(chain.state().view().world(), 2).unwrap();
+}
+
+#[test]
+fn restore_checks_the_action_context_at_exact_and_one_over_signature_caps() {
+    let world = scheduled_world([16 * MIB; 3]);
+    let limits = PrivacyConsensusLimitsV1::taira_default();
+    let transaction = u64::from(10 * MIB);
+    let largest = largest_signatures(transaction, &limits);
+    let required = |signatures: u64| {
+        maximal_action_transaction_bytes(
+            limits.max_action_bytes,
+            NonZeroU64::new(signatures).unwrap(),
+        )
+        .unwrap()
+    };
+    assert!(required(largest) <= transaction && required(largest + 1) > transaction);
+    set_signatures(&world, largest);
+    validate_restored_policy(&world.view(), 2).unwrap();
+    validate_final_policy(&world.view(), 2).unwrap();
+    set_signatures(&world, largest + 1);
+    let expected = PolicyCoherenceError::Effective(SuccessorResourceCoherenceError::AtHeight {
+        effective_height: 3,
+        error: ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+            max_action_bytes: limits.max_action_bytes,
+            max_signatures: largest + 1,
+            required_transaction_bytes: required(largest + 1),
+            max_transaction_bytes: transaction,
+        },
+    });
+    assert_eq!(validate_restored_policy(&world.view(), 2), Err(expected));
+    assert_eq!(validate_final_policy(&world.view(), 2), Err(expected));
+}
+
+#[test]
+fn executed_genesis_checks_the_action_context_at_exact_and_one_over_signature_caps() {
+    // Height two applies the genesis tightening: a 2 MiB action under the 3 MiB cap.
+    let largest = largest_signatures(u64::from(3 * MIB), &lower_limits(2 * MIB, 3 * MIB));
+    let config = |signatures: u64| {
+        let mut config = genesis_config(Some(2));
+        config.genesis_parameters.push(Parameter::Transaction(
+            TransactionParameter::MaxSignatures(NonZeroU64::new(signatures).unwrap()),
+        ));
+        config
+    };
+    let chain = CertifiedTestChain::start(config(largest)).expect("exact signature cap fits");
+    assert_eq!(
+        chain
+            .state()
+            .view()
+            .world()
+            .parameters()
+            .transaction()
+            .max_signatures()
+            .get(),
+        largest
+    );
+    let error = CertifiedTestChain::start(config(largest + 1))
+        .expect_err("one more signer than the cap carries is refused");
+    let diagnostic = format!("{error:?}");
+    assert!(
+        diagnostic.contains("incoherent resource policy at height 2")
+            && diagnostic.contains(&format!("with {} signers requires", largest + 1)),
+        "{diagnostic}"
+    );
+    assert_eq!(
+        error.state.view().height(),
+        0,
+        "rejected genesis publishes no state"
+    );
+}
+
+#[test]
+fn governance_checks_the_action_context_at_exact_and_one_over_signature_caps() {
+    let mut chain = CertifiedTestChain::start(genesis_config(Some(2))).unwrap();
+    let largest = largest_signatures(u64::from(3 * MIB), &lower_limits(2 * MIB, 3 * MIB));
+    let set = |signatures: u64| -> InstructionBox {
+        SetParameter::new(Parameter::Transaction(TransactionParameter::MaxSignatures(
+            NonZeroU64::new(signatures).unwrap(),
+        )))
+        .into()
+    };
+    let exact = chain.sign(&ALICE_KEYPAIR, [set(largest)], 1);
+    let over = chain.sign(&ALICE_KEYPAIR, [set(largest + 1)], 2);
+    assert_eq!(chain.commit(vec![exact, over]), vec![true, false]);
+    let signatures = || {
+        chain
+            .state()
+            .view()
+            .world()
+            .parameters()
+            .transaction()
+            .max_signatures()
+            .get()
+    };
+    assert_eq!(
+        signatures(),
+        largest,
+        "the refused proposal changes nothing"
+    );
+    let failure = format!("{:?}", chain.committed(2).block().output_error(1));
+    assert!(
+        failure.contains("incoherent final resource policy")
+            && failure.contains(&format!("with {} signers requires", largest + 1)),
+        "{failure}"
     );
     validate_restored_policy(chain.state().view().world(), 2).unwrap();
 }

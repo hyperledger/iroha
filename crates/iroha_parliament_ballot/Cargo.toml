@@ -12,10 +12,10 @@ workspace = true
 
 [dependencies]
 # Wire types, pinned `Enc`, the public digests and the closed launch gate.
-iroha_data_model = { workspace = true, features = ["application-model"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["application-model"] }
 # The registration and vote relations; this crate compiles only the candidate row.
 iroha_parliament_ballot_proof = { workspace = true }
-norito = { workspace = true, features = ["base-codec"] }
+norito = { workspace = true, default-features = false, features = ["base-codec"] }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
 # Operating-system entropy for credentials, proving tapes and stamp start nonces.

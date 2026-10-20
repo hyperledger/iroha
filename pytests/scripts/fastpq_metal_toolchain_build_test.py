@@ -68,8 +68,16 @@ if [ "$#" -eq 1 ] && [ "$1" = "-v" ]; then
     exit 0
 fi
 if [ "$#" -eq 1 ] && [ "$1" = "-help" ]; then
-    printf '%s\n' '-fno-fast-math'
+    printf '%s\n' '-ffast-math'
     exit 0
+fi
+if [ -n "${FASTPQ_TEST_REJECT_FLAG:-}" ]; then
+    printf "unknown argument: '-fno-fast-math'\n" >&2
+    exit 9
+fi
+if [ -n "${FASTPQ_TEST_UNUSED_FLAG:-}" ]; then
+    printf 'argument unused during compilation [-Werror,-Wunused-command-line-argument]\n' >&2
+    exit 9
 fi
 if [ -n "${FASTPQ_TEST_NO_TOOL_OUTPUT:-}" ]; then exit 0; fi
 output=
@@ -91,6 +99,10 @@ if [ "$#" -eq 1 ] && [ "$1" = "-v" ]; then
         printf 'linker probe failed\n' >&2
         exit 7
     fi
+    exit 0
+fi
+if [ "$#" -eq 1 ] && [ "$1" = "-help" ]; then
+    printf '%s\\n' 'public metallib help'
     exit 0
 fi
 if [ -n "${FASTPQ_TEST_NO_TOOL_OUTPUT:-}" ]; then exit 0; fi
@@ -166,15 +178,21 @@ def test_working_compiler_and_linker_do_not_trigger_download(
 
     assert completed.returncode == 0, completed.stderr
     assert not any(line.startswith("xcodebuild|") for line in log)
-    assert log.count("metal|-v") == 1
-    assert log.count("metallib|-v") == 1
+    assert log.count("metal|-v") == 3
+    assert log.count("metallib|-v") == 3
     record = json.loads((tmp_path / "out/candidate/generation.json").read_text())
     assert record["admission_authority"] is False
     assert record["signed_provenance"] is False
     assert record["hardware_qualification"] is False
     assert len(record["sources"]) == 8
     assert len(record["entry_points"]) == 16
-    assert len([line for line in log if line.startswith("metal|") and "|-c|" in line]) == 6
+    compiles = [line for line in log if line.startswith("metal|") and "|-c|" in line]
+    assert len(compiles) == 6
+    assert all("|-fno-fast-math|" in line for line in compiles)
+    assert all("|-Werror=unused-command-line-argument|" in line for line in compiles)
+    help_record = next(row for row in record["commands"] if row["arguments"][1:] == ["-help"])
+    assert "-fno-fast-math" not in help_record["stdout"]
+    assert "-ffast-math" in help_record["stdout"]
     assert "unqualified" in completed.stdout
     assert "sha256=" in completed.stdout
 
@@ -286,3 +304,75 @@ def test_explicit_skip_never_probes_or_downloads(
     assert log == []
     assert "explicit --skip" in completed.stdout
     assert not (tmp_path / "out/candidate").exists()
+
+
+@pytest.mark.parametrize("setting,diagnostic", [
+    ("FASTPQ_TEST_REJECT_FLAG", "unknown argument"),
+    ("FASTPQ_TEST_UNUSED_FLAG", "argument unused during compilation"),
+])
+def test_actual_compiler_flag_refusal_never_links_or_publishes(
+    producer: Path,
+    fake_toolchain: tuple[Path, Path, Path],
+    tmp_path: Path,
+    setting: str,
+    diagnostic: str,
+) -> None:
+    completed, log = _run_producer(
+        producer, fake_toolchain, tmp_path, initially_ready=True,
+        extra_env={setting: "1"},
+    )
+    assert completed.returncode == 1, completed.stderr
+    assert diagnostic in completed.stderr
+    compiles = [line for line in log if line.startswith("metal|") and "|-c|" in line]
+    assert len(compiles) == 1
+    assert "|-fno-fast-math|" in compiles[0]
+    assert "|-Werror=unused-command-line-argument|" in compiles[0]
+    assert not any(line.startswith("metallib|") and "|-o|" in line for line in log)
+    assert not (tmp_path / "out/candidate").exists()
+    assert len(list((tmp_path / "out").glob(".candidate.generation-*"))) == 1
+
+
+def test_multicall_linker_is_invoked_as_discovered_metallib(
+    producer: Path, fake_toolchain: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    fake_bin, _, _ = fake_toolchain
+    invocation = fake_bin / "metallib"
+    actual = fake_bin / "air-lld"
+    text = invocation.read_text()
+    text = text.replace("#!/bin/sh\n", """#!/bin/sh
+case "$0" in
+    */metallib) ;;
+    *) printf 'wrong public multicall linker mode\\n' >&2; exit 8 ;;
+esac
+""", 1)
+    invocation.rename(actual)
+    _write_executable(actual, text)
+    invocation.symlink_to(actual.name)
+    completed, log = _run_producer(producer, fake_toolchain, tmp_path, initially_ready=True)
+    assert completed.returncode == 0, completed.stderr
+    record = json.loads((tmp_path / "out/candidate/generation.json").read_text())
+    assert record["linker"]["path"] == str(invocation)
+    assert record["linker"]["resolved_path"] == str(actual)
+    assert log.count("metallib|-v") == 3
+    assert log.count("metallib|-help") == 3
+    links = [row for row in record["commands"] if row["arguments"][0] == str(invocation) and "-o" in row["arguments"]]
+    assert len(links) == 1 and links[0]["returncode"] == 0
+    assert record["admission_authority"] is record["hardware_qualification"] is False
+
+
+def test_zero_exit_linker_with_ignored_objects_never_publishes(
+    producer: Path, fake_toolchain: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    fake_bin, _, _ = fake_toolchain
+    invocation = fake_bin / "metallib"
+    text = invocation.read_text()
+    text += "printf 'air-lld: warning: ignoring file original.air, AIR version mismatch\\n' >&2\n"
+    _write_executable(invocation, text)
+    completed, log = _run_producer(producer, fake_toolchain, tmp_path, initially_ready=True)
+    assert completed.returncode == 1, completed.stderr
+    assert "linker warned or omitted input" in completed.stderr
+    assert "AIR version mismatch" in completed.stderr
+    assert len([line for line in log if line.startswith("metallib|") and "|-o|" in line]) == 1
+    assert not (tmp_path / "out/candidate").exists()
+    retained = list((tmp_path / "out").glob(".candidate.generation-*"))
+    assert len(retained) == 1 and (retained[0] / "fastpq.metallib").is_file()

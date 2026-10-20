@@ -1,0 +1,77 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "validated_refusal_of_the_only_dispatch_closes_the_identity",
+  "category": "dispatch_classification",
+  "rules": [
+    "dispatch_classified_by_closed_table",
+    "no_clock_closes_an_identity"
+  ],
+  "description": "A validated definite refusal of the only dispatch proves the transaction was not admitted. The identity is closed with admission_refused evidence and the operation fails; no status read is needed, and no replacement transaction or fresh nonce is created automatically.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "refused"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "submit",
+          "resumable": false,
+          "has_transaction_identity": true
+        },
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1",
+          "sign:1",
+          "dispatch:1"
+        ],
+        "status": "failed",
+        "state": "rejected",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 0,
+          "evidence": "admission_refused"
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "failed",
+        "state": "rejected"
+      }
+    }
+  ]
+}

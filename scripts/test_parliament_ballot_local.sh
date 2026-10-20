@@ -35,6 +35,7 @@ if [[ "${1:-}" != --full ]]; then
     wallet::prepare::tests::a_wallet_ballot_goes_through_admission_execution_corpus_and_closure
     replay::tests::an_honest_interval_verifies_independently
     entrypoint_tests::genuine_ballot_entrypoint_roundtrips_proposal_and_each_permitted_output
+    entrypoint_tests::identical_genuine_ballots_keep_verified_duplicate_results_in_canonical_block
     --exact
   )
 fi

@@ -2,7 +2,9 @@
 //!
 //! Run with `cargo run -p iroha_data_model --features dev-tools,test-fixtures --bin axt_fixtures`
 //! to refresh `tests/fixtures/*.json`. Use `--check` to verify the checked-in
-//! fixtures are up to date without rewriting them.
+//! fixtures are up to date without rewriting them. `--output-dir DIR` selects
+//! an explicit destination for the same three canonical files, including when
+//! the generating executable belongs to an immutable source snapshot.
 use hex::{decode, encode};
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
@@ -28,19 +30,65 @@ use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 use iroha_primitives::numeric::Quantity;
 use iroha_zkp_poseidon::poseidon::{bn254_poseidon_params_width3, bn254_poseidon_params_width6};
 use norito::{json, to_bytes};
-use std::{env, error::Error, fs, path::Path};
-const DESCRIPTOR_FIXTURE_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/axt_descriptor_multi_ds.json"
-);
-const ENVELOPE_FIXTURE_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/axt_envelope_multi_ds.json"
-);
-const POSEIDON_FIXTURE_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/axt_poseidon_constants.json"
-);
+use std::{
+    env,
+    error::Error,
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+};
+
+const FIXTURE_NAMES: [&str; 3] = [
+    "axt_descriptor_multi_ds.json",
+    "axt_envelope_multi_ds.json",
+    "axt_poseidon_constants.json",
+];
+const USAGE: &str = "Usage: axt_fixtures [--check] [--output-dir DIR]\nGenerate the same three canonical AXT fixtures; --check compares without writes.";
+
+#[derive(Debug, PartialEq, Eq)]
+struct Options {
+    output_dir: PathBuf,
+    check_only: bool,
+}
+fn parse_arguments(
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<Option<Options>, String> {
+    let mut arguments = arguments.into_iter().peekable();
+    let mut output_dir = None;
+    let mut check_only = false;
+    while let Some(argument) = arguments.next() {
+        if argument == "--help" {
+            if output_dir.is_some() || check_only || arguments.peek().is_some() {
+                return Err("--help must be used alone".to_owned());
+            }
+            return Ok(None);
+        }
+        if argument == "--check" {
+            if check_only {
+                return Err("duplicate --check".to_owned());
+            }
+            check_only = true;
+        } else if argument == "--output-dir" {
+            if output_dir.is_some() {
+                return Err("duplicate --output-dir".to_owned());
+            }
+            let value = arguments
+                .next()
+                .ok_or_else(|| "--output-dir requires DIR".to_owned())?;
+            if value.is_empty() || value.to_string_lossy().starts_with("--") {
+                return Err("--output-dir requires DIR".to_owned());
+            }
+            output_dir = Some(PathBuf::from(value));
+        } else {
+            return Err(format!("unknown argument: {}", argument.to_string_lossy()));
+        }
+    }
+    Ok(Some(Options {
+        output_dir: output_dir
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")),
+        check_only,
+    }))
+}
 fn fixture_issuer() -> KeyPair {
     KeyPair::from_seed(vec![0xA5; 32], Algorithm::Ed25519)
 }
@@ -506,13 +554,13 @@ fn build_envelope_fixture(
 fn build_poseidon_fixture() -> PoseidonConstantsFixture {
     let width3 = bn254_poseidon_params_width3();
     let width6 = bn254_poseidon_params_width6();
-    let encode_rounds = |rounds: [[[u8; 32]; 3]; 64]| {
+    let encode_rounds = |rounds: [[[u8; 32]; 3]; 65]| {
         rounds
             .into_iter()
             .map(|round| round.into_iter().map(encode).collect())
             .collect()
     };
-    let encode_rounds6 = |rounds: [[[u8; 32]; 6]; 64]| {
+    let encode_rounds6 = |rounds: [[[u8; 32]; 6]; 68]| {
         rounds
             .into_iter()
             .map(|round| round.into_iter().map(encode).collect())
@@ -560,13 +608,31 @@ fn write_fixture<T: json::JsonSerialize>(
     Ok(())
 }
 fn main() -> Result<(), Box<dyn Error>> {
-    let check_only = env::args().any(|arg| arg == "--check");
+    let Some(options) = parse_arguments(env::args_os().skip(1))? else {
+        println!("{USAGE}");
+        return Ok(());
+    };
     let descriptor = build_descriptor_fixture()?;
     let envelope = build_envelope_fixture(&descriptor)?;
     let poseidon = build_poseidon_fixture();
-    write_fixture(Path::new(DESCRIPTOR_FIXTURE_PATH), &descriptor, check_only)?;
-    write_fixture(Path::new(ENVELOPE_FIXTURE_PATH), &envelope, check_only)?;
-    write_fixture(Path::new(POSEIDON_FIXTURE_PATH), &poseidon, check_only)?;
+    if !options.check_only {
+        fs::create_dir_all(&options.output_dir)?;
+    }
+    write_fixture(
+        &options.output_dir.join(FIXTURE_NAMES[0]),
+        &descriptor,
+        options.check_only,
+    )?;
+    write_fixture(
+        &options.output_dir.join(FIXTURE_NAMES[1]),
+        &envelope,
+        options.check_only,
+    )?;
+    write_fixture(
+        &options.output_dir.join(FIXTURE_NAMES[2]),
+        &poseidon,
+        options.check_only,
+    )?;
     Ok(())
 }
 
@@ -581,6 +647,53 @@ mod tests {
     };
     use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
     use iroha_primitives::numeric::Quantity;
+
+    #[test]
+    fn fixture_destination_and_check_mode_are_explicit_without_changing_filenames() {
+        let parse = |args: &[&str]| {
+            super::parse_arguments(args.iter().map(|arg| std::ffi::OsString::from(*arg)))
+        };
+        let default = parse(&[]).unwrap().unwrap();
+        assert_eq!(
+            default.output_dir,
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+        );
+        assert!(!default.check_only);
+        let explicit = parse(&["--check", "--output-dir", "report/fixtures"])
+            .unwrap()
+            .unwrap();
+        assert_eq!(explicit.output_dir, std::path::Path::new("report/fixtures"));
+        assert!(explicit.check_only);
+        assert_eq!(
+            super::FIXTURE_NAMES,
+            [
+                "axt_descriptor_multi_ds.json",
+                "axt_envelope_multi_ds.json",
+                "axt_poseidon_constants.json"
+            ]
+        );
+        assert_eq!(parse(&["--help"]), Ok(None));
+    }
+
+    #[test]
+    fn malformed_or_ambiguous_fixture_arguments_fail_before_generation() {
+        for args in [
+            vec!["--unknown"],
+            vec!["--output-dir"],
+            vec!["--output-dir", ""],
+            vec!["--output-dir", "--check"],
+            vec!["--check", "--check"],
+            vec!["--output-dir", "one", "--output-dir", "two"],
+            vec!["--help", "--check"],
+            vec!["--check", "--help"],
+        ] {
+            assert!(
+                super::parse_arguments(args.iter().map(|arg| std::ffi::OsString::from(*arg)))
+                    .is_err(),
+                "{args:?}"
+            );
+        }
+    }
 
     #[test]
     fn clear_fixture_proofs_require_exact_nonzero_integer_scalars() {

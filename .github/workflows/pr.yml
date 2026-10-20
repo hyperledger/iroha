@@ -192,6 +192,53 @@ jobs:
       - name: State commitment candidate measurement target (smoke run)
         run: cargo test --locked -p iroha_core_privacy --features fastpq-replay-measurement --test state_commitment_candidates_measurement
 
+  # The Rust lanes test default features only. The maximum-proof transport matrix of task
+  # X.2 (twelve Exact12 envelopes at the 9,437,184-byte proof ceiling, every supported
+  # signature algorithm, within the 10,485,760-byte transaction cap) compiles only under the
+  # opt-in `privacy-exact12-conformance` feature. The node-side X.2 regressions (policy
+  # coherence, maximum gossip and Sumeragi frames, admission and proposer bounds, and the
+  # genesis and daemon startup frame checks) are default tests; the steps below name them.
+  x2_maximum_proof_transport:
+    name: Maximum-proof transport bounds (X.2)
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Complete canonical envelopes and exact/one-over contract bounds
+        run: cargo test --locked -p iroha_data_model --features privacy-exact12-conformance --test resource_contract_v1
+      - name: Committed policy coherence, chain frame and sync bounds, complete maximum frames
+        run: |
+          cargo test --locked -p iroha_data_model --lib -- parameter::system::resource_coherence parameter::system::tests::sumeragi_parameter_defaults_match_the_consensus_core
+          cargo test --locked -p iroha_genesis --lib -- effective_resource_parameters effective_chain_parameters_fit_the_protocol_transport_limit
+          cargo test --locked -p iroha_config --test iroha_config_integration -- fixtures::network_defaults_carry_maximal_sumeragi_frames
+          cargo test --locked -p iroha_sumeragi --lib -- pacemaker:: machine::sync::tests:: message::tests::generic_maximum_frames_fit_every_admissible_transport message::tests::source_complete_maximum_certificate_and_header_fit_declared_frame_allowance
+      - name: Daemon startup refuses frame caps below the chain, sync and control bounds
+        run: cargo test --locked -p irohad_lib --lib -- block_sync_topic_must_carry_the_local_sync_budget control_topic_must_carry_the_largest_control_frame check_config_and_runtime_enforce_frame_cap_boundary
+      - name: Node admission, gossip, proposer, restore and serving bounds
+        run: |
+          cargo test --locked -p iroha_core --lib -- \
+            resource_coherence:: \
+            state::deserialize::state_snapshot_decode_error_tests::resource_restore_ \
+            gossiper::tests::shipped_gossip_frames_carry_the_maximum_admitted_signed_transaction \
+            gossiper::tests::ordinary_gossip_exact_frame_boundary_preserves_original_body_on_requeue \
+            queue::tests::default_limits_admit_and_select_the_largest_includable_transaction \
+            queue::tests::transaction_cap_is_exact_at_admission_and_block_validation \
+            queue::tests::queue_admission_and_proposer_selection_share_the_includable_bound \
+            sumeragi::payload::resource_contract_tests:: \
+            sumeragi::executor::publication_tests::global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve \
+            sumeragi::driver::serve::tests::admitted_maximum_frames_fit_frame_overhead_and_the_block_sync_frame \
+            sumeragi::driver::serve::tests::generic_maximum_control_frames_fit_the_control_topic \
+            privacy::tests::privacy_block_counts_and_actual_aggregate_bytes_are_independent
+
   norito_rpc_verify:
     runs-on: ubuntu-latest
     container:
@@ -323,6 +370,7 @@ jobs:
             scripts/tests/check_zk_feature_parity_test.py \
             scripts/tests/check_zk_operation_inventory_test.py \
             scripts/tests/check_durable_workflow_contract_test.py \
+            scripts/tests/check_operation_contract_test.py \
             scripts/tests/check_zk_economic_invariants_test.py \
             scripts/tests/check_zk_primitive_workloads_test.py \
             scripts/tests/check_state_commitment_candidates_test.py \
@@ -342,15 +390,15 @@ jobs:
           python3 -I -S scripts/check_telemetry_metric_catalog_v2.py
           python3 -I -S scripts/check_telemetry_metric_catalog_v2.py --self-test
           python3 -m unittest \
+            scripts.tests.check_no_vendored_halo2_test \
             scripts.tests.connect_gating_fixture_compaction_source_test \
             scripts.tests.developer_executable_retirement_source_test \
-            scripts.tests.native_prover_retirement_source_test \
-            scripts.tests.check_no_vendored_halo2_test \
             scripts.tests.integration_target_consolidation_source_test \
             scripts.tests.isi_instruction_box_macro_source_test \
             scripts.tests.ivm_vector_metal_compaction_source_test \
             scripts.tests.kotodama_ir_compaction_source_test \
             scripts.tests.kotodama_typed_case_registry_source_test \
+            scripts.tests.native_prover_retirement_source_test \
             scripts.tests.norito_codec_contracts_test \
             scripts.tests.norito_scratch_retirement_source_test \
             scripts.tests.obsolete_developer_test_retirement_source_test \
@@ -363,6 +411,7 @@ jobs:
           python3 -I -S scripts/check_zk_runtime_validity.py
           python3 -I -S scripts/check_zk_operation_inventory.py
           python3 -I -S scripts/check_durable_workflow_contract.py
+          python3 -I -S scripts/check_operation_contract.py
           python3 -I -S scripts/check_zk_economic_invariants.py
           python3 -I -S scripts/check_zk_primitive_workloads.py
           python3 -I -S scripts/check_state_commitment_candidates.py

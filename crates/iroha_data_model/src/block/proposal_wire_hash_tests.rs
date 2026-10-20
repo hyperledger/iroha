@@ -883,6 +883,50 @@ fn merged_execution_projects_exact_original_signed_proposal_in_every_borrowed_op
 }
 
 #[test]
+fn checked_proposal_header_identity_uses_the_original_prefix_without_rebinding() {
+    let plain = plain_signed_block();
+    assert_eq!(
+        plain.canonical_resultless_header().unwrap().hash(),
+        plain.hash()
+    );
+    let (original, mut expanded) = merged_projection_fixture();
+    let entrypoints = expanded.payload.external_entrypoints.as_ptr();
+    let contexts = expanded.execution_context().unwrap().external.as_ptr();
+    let merges = expanded.lane_merge().unwrap().merges.as_ptr();
+    assert_ne!(expanded.hash(), original.hash());
+    for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+        let _ambient = norito::core::DecodeFlagsGuard::enter(flags);
+        assert_eq!(
+            expanded.canonical_resultless_header().unwrap().hash(),
+            original.hash()
+        );
+        assert_eq!(norito::core::get_decode_flags(), flags);
+    }
+    expanded.result = Some(BlockResult::default());
+    assert_eq!(
+        expanded.canonical_resultless_header().unwrap().hash(),
+        original.hash()
+    );
+    assert_eq!(expanded.payload.external_entrypoints.as_ptr(), entrypoints);
+    assert_eq!(
+        expanded.execution_context().unwrap().external.as_ptr(),
+        contexts
+    );
+    assert_eq!(expanded.lane_merge().unwrap().merges.as_ptr(), merges);
+    let mut context = expanded.execution_context().unwrap().clone();
+    context.lane_merge.as_mut().unwrap().time_floor_ms += 1;
+    expanded.set_execution_context(Some(context));
+    assert_ne!(
+        expanded.canonical_resultless_header().unwrap().hash(),
+        original.hash()
+    );
+    assert_eq!(
+        expanded.canonical_resultless_header().unwrap().hash(),
+        expanded.canonical_resultless_proposal().unwrap().hash()
+    );
+}
+
+#[test]
 fn merged_projection_never_normalizes_raw_proposal_ingress() {
     let (original, expanded) = merged_projection_fixture();
     assert!(expanded.is_resultless_proposal());

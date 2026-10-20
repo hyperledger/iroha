@@ -1,0 +1,614 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo check --profile local-release -p iroha_core -p iroha_torii -p iroha -p iroha_cli -p iroha_kagami -p irohad --all-targets --features iroha_torii/connect
+    Blocking waiting for file lock on build directory
+    Checking cfg-if v1.0.4
+    Checking libc v0.2.186
+    Checking typenum v1.20.0
+    Checking zeroize v1.8.2
+    Checking subtle v2.6.1
+    Checking const-oid v0.9.6
+    Checking zerocopy v0.8.48
+   Compiling num-traits v0.2.19
+    Checking getrandom v0.2.17
+    Checking rand_core v0.6.4
+    Checking memchr v2.8.0
+    Checking generic-array v0.14.7
+    Checking once_cell v1.21.4
+    Checking byteorder v1.5.0
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+   Compiling num-integer v0.1.46
+   Compiling serde_core v1.0.228
+    Checking digest v0.10.7
+    Checking cpufeatures v0.2.17
+    Checking itoa v1.0.18
+    Checking smallvec v1.15.1
+    Checking either v1.16.0
+   Compiling num-bigint v0.3.3
+   Compiling displaydoc v0.2.5
+    Checking thiserror v2.0.18
+    Checking zerofrom v0.1.8
+    Checking stable_deref_trait v1.2.1
+    Checking yoke v0.8.2
+    Checking ppv-lite86 v0.2.21
+    Checking arrayref v0.3.9
+    Checking tap v1.0.1
+    Checking rand_chacha v0.3.1
+    Checking wyz v0.5.1
+    Checking rand v0.8.7
+    Checking crossbeam-utils v0.8.21
+    Checking radium v0.7.0
+   Compiling addchain v0.2.1
+    Checking arrayvec v0.7.6
+    Checking funty v2.0.0
+    Checking constant_time_eq v0.4.2
+   Compiling ff_derive v0.13.1
+    Checking zerovec v0.11.6
+    Checking hybrid-array v0.4.12
+    Checking bitvec v1.0.1
+    Checking rand_core v0.10.1
+    Checking getrandom v0.4.3
+    Checking memuse v0.2.2
+    Checking crossbeam-epoch v0.9.20
+    Checking rand_xorshift v0.3.0
+    Checking crypto-common v0.2.2
+    Checking tinystr v0.8.3
+    Checking hmac v0.12.1
+    Checking errno v0.3.14
+    Checking writeable v0.6.3
+    Checking litemap v0.8.2
+    Checking crossbeam-deque v0.8.6
+    Checking sha2-asm v0.6.4
+    Checking icu_locale_core v2.2.0
+    Checking potential_utf v0.1.5
+    Checking zerotrie v0.2.4
+    Checking percent-encoding v2.3.2
+    Checking utf8_iter v1.0.4
+    Checking rayon-core v1.13.0
+    Checking icu_collections v2.2.0
+    Checking ff v0.13.1
+    Checking sha2 v0.10.9
+    Checking rayon v1.12.0
+    Checking icu_provider v2.2.0
+    Checking icu_normalizer_data v2.2.0
+    Checking icu_properties_data v2.2.0
+    Checking block-buffer v0.12.0
+    Checking bitflags v2.13.0
+    Checking icu_properties v2.2.0
+    Checking group v0.13.0
+    Checking icu_normalizer v2.2.0
+    Checking form_urlencoded v1.2.2
+    Checking keccak v0.1.6
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.2
+    Checking num-bigint v0.4.6 (/Users/mtakemiya/dev/iroha/vendor/num-bigint-0.4.6)
+    Checking idna_adapter v1.2.2
+    Checking inout v0.2.2
+    Checking indexmap v2.14.0
+    Checking cmov v0.5.3
+    Checking idna v1.1.0
+    Checking ctutils v0.4.2
+    Checking simd-adler32 v0.3.9
+    Checking ryu v1.0.23
+    Checking winnow v1.0.3
+    Checking universal-hash v0.6.1
+    Checking url v2.5.8
+    Checking blake3 v1.8.5
+    Checking cipher v0.5.2
+    Checking zstd-sys v2.0.16+zstd.1.5.7
+    Checking sha3 v0.10.9
+    Checking adler2 v2.0.1
+    Checking iroha_allocation v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_allocation)
+    Checking miniz_oxide v0.8.9
+    Checking chacha20 v0.10.2
+    Checking serde v1.0.228
+    Checking toml_parser v1.1.2+spec-1.1.0
+    Checking zstd-safe v7.2.4
+    Checking poly1305 v0.9.0
+    Checking aead v0.6.0-rc.10
+    Checking hkdf v0.12.4
+    Checking serde_spanned v1.1.1
+    Checking toml_datetime v0.7.5+spec-1.1.0
+    Checking toml_writer v1.1.1+spec-1.1.0
+   Compiling norito v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito)
+    Checking winnow v0.7.15
+    Checking chacha20poly1305 v0.11.0-rc.3
+    Checking iroha_schema v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_schema)
+    Checking zstd v0.13.3
+    Checking iroha_audio v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_audio)
+    Checking crc64fast v1.1.0
+    Checking simdutf8 v0.1.5
+    Checking base64ct v1.8.3
+    Checking toml v0.9.12+spec-1.1.0
+   Compiling object v0.37.3
+    Checking inout v0.1.4
+    Checking gimli v0.32.3
+    Checking cipher v0.4.4
+    Checking rustc-demangle v0.1.27
+    Checking spin v0.9.9
+    Checking lazy_static v1.5.0
+    Checking getrandom v0.3.4
+    Checking powerfmt v0.2.0
+   Compiling parking_lot_core v0.9.12
+   Compiling time-core v0.1.8
+    Checking addr2line v0.25.1
+    Checking fixedbitset v0.4.2
+   Compiling num-conv v0.2.2
+    Checking petgraph v0.6.5
+   Compiling time-macros v0.2.27
+    Checking backtrace v0.3.76
+    Checking deranged v0.5.8
+    Checking pem-rfc7468 v0.7.0
+    Checking scopeguard v1.2.0
+    Checking pin-project-lite v0.2.17
+    Checking lock_api v0.4.14
+    Checking der v0.7.10
+   Compiling derive_more-impl v2.1.1
+    Checking time v0.3.47
+    Checking spki v0.7.3
+    Checking pkcs8 v0.10.2
+    Checking parking_lot v0.12.5
+    Checking ark-std v0.4.0
+    Checking universal-hash v0.5.1
+    Checking opaque-debug v0.3.1
+    Checking base64 v0.22.1
+    Checking base16ct v0.2.0
+   Compiling rustix v1.1.4
+    Checking sec1 v0.7.3
+    Checking ark-serialize v0.4.2
+    Checking ahash v0.8.12
+    Checking rand_core v0.9.5
+   Compiling ark-ff-macros v0.4.2
+    Checking itertools v0.10.5
+    Checking blake2 v0.10.6
+    Checking signature v2.2.0
+    Checking crypto-bigint v0.5.5
+    Checking ark-ff v0.4.2
+    Checking derive_more v2.1.1
+    Checking elliptic-curve v0.13.8
+    Checking rand_chacha v0.9.0
+    Checking hashbrown v0.13.2
+    Checking hex v0.4.3
+    Checking static_assertions v1.1.0
+    Checking rand v0.9.4
+    Checking iroha_macro v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_macro)
+   Compiling curve25519-dalek v4.1.3
+    Checking rfc6979 v0.4.0
+    Checking aho-corasick v1.1.4
+    Checking regex-syntax v0.8.10
+    Checking pqcrypto-internals v0.2.11
+   Compiling iroha_primitives_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_primitives_derive)
+    Checking pairing v0.23.0
+    Checking num_cpus v1.17.0
+    Checking const-oid v0.10.2
+    Checking pqcrypto-traits v0.3.5
+    Checking digest v0.11.3
+    Checking threadpool v1.8.1
+    Checking iroha_primitives v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_primitives)
+    Checking ecdsa v0.16.9
+    Checking regex-automata v0.4.14
+    Checking primeorder v0.13.6
+    Checking polyval v0.6.2
+    Checking password-hash v0.5.0
+    Checking ghash v0.5.1
+    Checking pqcrypto-mlkem v0.1.1
+    Checking pqcrypto-mldsa v0.1.2
+    Checking blst v0.3.16
+    Checking ark-poly v0.4.2
+    Checking ed25519 v2.2.3
+    Checking sm4 v0.5.1
+    Checking merlin v3.0.0
+    Checking sm3 v0.4.2
+    Checking ark-ec v0.4.2
+    Checking byte-slice-cast v1.2.3
+    Checking fastrand v2.4.1
+   Compiling libm v0.2.16
+    Checking tempfile v3.27.0
+    Checking blstrs v0.7.1
+    Checking sm2 v0.13.3
+    Checking ed25519-dalek v2.2.0
+    Checking sm4-gcm v0.1.2
+   Compiling iroha_plonk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk)
+    Checking soranet_pq v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/soranet_pq)
+    Checking ark-bls12-377 v0.4.0
+    Checking ark-bls12-381 v0.4.0
+    Checking argon2 v0.5.3
+    Checking k256 v0.13.4
+    Checking x25519-dalek v2.0.1
+    Checking sm3 v0.5.0
+    Checking w3f-bls v0.1.9
+    Checking streebog v0.11.0
+    Checking iroha_pasta v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_pasta)
+    Checking iroha_fhe v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_fhe)
+    Checking crypto-bigint v0.6.1
+    Checking fastpq_isi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/fastpq_isi)
+    Checking log v0.4.30
+    Checking hex-literal v1.1.0
+    Checking sm3-neon v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sm3_neon)
+    Checking sm4-neon v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sm4_neon)
+    Checking tracing-core v0.1.36
+   Compiling tracing-attributes v0.1.31
+   Compiling halo2derive v0.2.0
+    Checking tracing v0.1.44
+    Checking iroha_crypto v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_crypto)
+    Checking plonky2_maybe_rayon v1.0.0
+   Compiling iroha_sumeragi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sumeragi)
+    Checking halo2curves v0.9.0
+    Checking bech32 v0.11.1
+    Checking bytes v1.11.1 (/Users/mtakemiya/dev/iroha/vendor/bytes)
+    Checking regex v1.12.3
+    Checking signal-hook-registry v1.4.8
+   Compiling iroha_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_data_model)
+    Checking iroha_zkp_poseidon v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_poseidon)
+    Checking mio v1.2.0
+    Checking p256 v0.13.2
+    Checking iroha_version v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_version)
+    Checking nonzero_ext v0.3.0
+    Checking futures-core v0.3.32
+    Checking bs58 v0.5.1
+    Checking rustc-hash v2.1.2
+    Checking socket2 v0.6.3
+   Compiling tokio-macros v2.7.0
+   Compiling serde_json v1.0.150
+    Checking tokio v1.52.3
+    Checking zmij v1.0.21
+    Checking futures-sink v0.3.32
+   Compiling ring v0.17.14
+    Checking http v1.4.0
+    Checking untrusted v0.9.0
+    Checking slab v0.4.12
+    Checking futures-channel v0.3.32
+    Checking rustls-pki-types v1.14.1
+   Compiling eyre v0.6.12
+   Compiling futures-macro v0.3.32
+    Checking futures-io v0.3.32
+    Checking futures-task v0.3.32
+    Checking indenter v0.3.4
+    Checking futures-util v0.3.32
+   Compiling httparse v1.10.1
+    Checking core-foundation-sys v0.8.7
+   Compiling rustls v0.23.45
+    Checking security-framework-sys v2.17.0
+    Checking core-foundation v0.10.1
+    Checking rustls-webpki v0.103.15
+   Compiling error-stack v0.8.0
+    Checking fnv v1.0.7
+    Checking security-framework v3.7.0
+   Compiling iroha_executor_data_model_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_executor_data_model_derive)
+   Compiling heck v0.5.0
+    Checking rustls-native-certs v0.8.3
+   Compiling crunchy v0.2.4
+    Checking drop_bomb v0.1.5
+    Checking iroha_service_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_service_model)
+    Checking iroha_config_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config_base)
+    Checking tokio-rustls v0.26.4
+    Checking tokio-util v0.7.18
+    Checking data-encoding v2.11.0
+    Checking iroha_fs v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_fs)
+    Checking sha1 v0.10.6
+    Checking sorafs_chunker v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_chunker)
+    Checking iroha_model_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_model_base)
+   Compiling tiny-keccak v2.0.2
+    Checking tungstenite v0.29.0
+    Checking thread_local v1.1.9
+   Compiling strum_macros v0.28.0
+    Checking tokio-tungstenite v0.29.0
+    Checking tracing-serde v0.2.0
+    Checking matchers v0.2.0
+    Checking sharded-slab v0.1.7
+    Checking nu-ansi-term v0.50.3
+    Checking iroha_accel v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_accel)
+    Checking tracing-subscriber v0.3.23
+    Checking anstyle v1.0.14
+    Checking utf8parse v0.2.2
+   Compiling owo-colors v4.3.0
+    Checking anstyle-parse v1.0.0
+   Compiling color-spantrace v0.3.0
+    Checking colorchoice v1.0.5
+    Checking anstyle-query v1.1.5
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstream v1.0.0
+    Checking tracing-error v0.2.1
+    Checking strum v0.28.0
+   Compiling pin-project-internal v1.1.13
+    Checking strsim v0.11.1
+    Checking clap_lex v1.1.0
+    Checking clap_builder v4.6.0
+   Compiling clap_derive v4.6.1
+    Checking pin-project v1.1.13
+    Checking tracing-futures v0.2.5
+    Checking color-eyre v0.6.5
+    Checking futures-executor v0.3.32
+   Compiling prometheus v0.14.0
+    Checking futures v0.3.32
+   Compiling objc2 v0.6.4
+    Checking clap v4.6.1
+   Compiling iroha_telemetry_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_telemetry_derive)
+    Checking blake2b_simd v1.0.4
+    Checking objc2-encode v4.1.0
+    Checking pasta_curves v0.5.2
+    Checking block2 v0.6.2
+    Checking objc2-core-foundation v0.3.2
+    Checking iroha_zkp_halo2 v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_halo2)
+   Compiling likely_stable v0.1.3
+   Compiling indexmap v1.9.3
+    Checking objc2-foundation v0.3.2
+   Compiling ivm v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm)
+    Checking dispatch2 v0.3.1
+    Checking iroha_i18n v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_i18n)
+    Checking hashbrown v0.12.3
+    Checking poly1305 v0.8.0
+    Checking aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+    Checking chacha20 v0.9.1
+    Checking maybe-rayon v0.1.1
+    Checking bls12_381 v0.8.0
+    Checking aead v0.5.2
+   Compiling fastpq_prover v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/fastpq_prover)
+    Checking halo2_legacy_pdqsort v0.1.0
+    Checking halo2_proofs v0.3.4
+    Checking chacha20poly1305 v0.10.1
+    Checking jubjub v0.10.0
+    Checking halo2_poseidon v0.1.0
+    Checking sinsemilla v0.1.0
+    Checking zcash_spec v0.2.1
+    Checking uint v0.9.5
+    Checking pem v3.0.6
+    Checking cbc v0.1.2
+    Checking halo2_gadgets v0.5.0
+    Checking fpe v0.6.1
+    Checking zip32 v0.2.1
+    Checking reddsa v0.5.2
+    Checking zcash_note_encryption v0.4.2
+    Checking yasna v0.5.2
+    Checking concread v0.5.10 (/Users/mtakemiya/dev/iroha/vendor/concread)
+    Checking incrementalmerkletree v0.8.2
+   Compiling visibility v0.1.1
+    Checking nonempty v0.11.0
+   Compiling iroha_p2p v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_p2p)
+    Checking corez v0.1.1
+    Checking orchard v0.15.4 (https://github.com/zcash/orchard.git?rev=9d07047d32c4787e1b7964b4cf4fa0286c93824c#9d07047d)
+    Checking mv v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/mv)
+    Checking rcgen v0.14.5
+    Checking memmap2 v0.9.11
+   Compiling async-trait v0.1.89
+   Compiling iroha_core v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core)
+   Compiling kotodama_lang v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_lang)
+    Checking hashbrown v0.14.5
+    Checking dashmap v6.2.1
+    Checking iroha_file_mmap v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_file_mmap)
+    Checking http-body v1.0.1
+    Checking iroha_panic_hook v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_panic_hook)
+    Checking settlement_router v0.1.0 (/Users/mtakemiya/dev/iroha/crates/settlement_router)
+    Checking crossbeam-queue v0.3.12
+    Checking tower-service v0.3.3
+    Checking try-lock v0.2.5
+    Checking atomic-waker v1.1.2
+    Checking h2 v0.4.16
+    Checking want v0.3.1
+    Checking sync_wrapper v1.0.2
+    Checking httpdate v1.0.3
+    Checking tower-layer v0.3.3
+   Compiling unicase v2.9.0
+    Checking mime v0.3.17
+    Checking ipnet v2.12.0
+   Compiling mime_guess v2.0.5
+    Checking tower v0.5.3
+    Checking http-body-util v0.1.3 (/Users/mtakemiya/dev/iroha/vendor/http-body-util)
+    Checking webpki-roots v1.0.7
+    Checking serde_urlencoded v0.7.1
+   Compiling iroha_test_samples v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_test_samples)
+    Checking hyper v1.9.0
+    Checking objc2-metal v0.3.2
+    Checking tower-http v0.6.11
+    Checking minimal-lexical v0.2.1
+    Checking nom v7.1.3
+    Checking hyper-util v0.1.20
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking rusticata-macros v4.1.0
+   Compiling asn1-rs-derive v0.6.0
+   Compiling asn1-rs-impl v0.2.0
+    Checking asn1-rs v0.7.2
+    Checking half v2.7.1
+   Compiling oid-registry v0.8.1
+    Checking ciborium-io v0.2.2
+    Checking ciborium-ll v0.2.2
+    Checking ciborium v0.2.2
+   Compiling iroha v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha)
+    Checking der-parser v10.0.0
+    Checking x509-parser v0.18.1
+   Compiling crc32fast v1.5.0
+    Checking futures-timer v3.0.4
+    Checking flate2 v1.1.9
+    Checking plotters-backend v0.3.7
+    Checking salsa20 v0.10.2
+    Checking plotters-svg v0.3.7
+    Checking pbkdf2 v0.12.2
+    Checking itertools v0.13.0
+    Checking same-file v1.0.6
+    Checking cast v0.3.0
+    Checking walkdir v2.5.0
+    Checking scrypt v0.11.0
+    Checking plotters v0.3.7
+    Checking alloca v0.4.0
+    Checking tinytemplate v1.2.1
+    Checking criterion-plot v0.8.2
+    Checking page_size v0.6.0
+    Checking anes v0.1.6
+    Checking oorandom v11.1.5
+    Checking axum-core v0.5.6 (/Users/mtakemiya/dev/iroha/vendor/axum-core)
+    Checking serde_path_to_error v0.1.20
+    Checking criterion v0.8.2
+   Compiling axum-macros v0.5.1
+    Checking matchit v0.8.4
+    Checking dissimilar v1.0.11
+    Checking axum v0.8.9
+    Checking expect-test v1.5.1
+    Checking iroha_operation_journal v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_operation_journal)
+    Checking ctr v0.9.2
+   Compiling build-support v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/build-support)
+   Compiling rustversion v1.0.22
+    Checking is_ci v1.2.0
+    Checking supports-color v3.0.2
+    Checking simple_asn1 v0.6.4
+   Compiling pretty-error-debug-derive v0.3.1
+    Checking humantime v2.3.0
+   Compiling iroha_torii v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_torii)
+    Checking pretty-error-debug v0.3.2
+    Checking jsonwebtoken v9.3.1
+    Checking urlencoding v2.1.3
+   Compiling iroha_deploy v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_deploy)
+    Checking pathdiff v0.2.3
+    Checking clap-markdown v0.1.5
+   Compiling irohad_lib v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/irohad)
+   Compiling irohad v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/irohad/bins)
+    Checking fdeflate v0.3.7
+    Checking pxfm v0.1.29
+   Compiling signal-hook v0.3.18
+    Checking color_quant v1.1.0
+    Checking weezl v0.1.12
+    Checking gif v0.14.2
+    Checking png v0.18.1
+    Checking tokio-stream v0.1.18
+    Checking iroha_measurement v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_measurement)
+    Checking byteorder-lite v0.1.0
+    Checking assertables v9.9.0
+    Checking bytemuck v1.25.0
+    Checking predicates-core v1.0.10
+    Checking moxcms v0.8.1
+   Compiling iroha_cli v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_cli/bins)
+    Checking termtree v0.5.1
+    Checking iroha_petal v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_petal)
+   Compiling assert_cmd v2.2.2
+    Checking difflib v0.4.0
+   Compiling litrs v1.0.0
+    Checking predicates v3.1.4
+   Compiling document-features v0.2.12
+    Checking predicates-tree v1.0.13
+    Checking signal-hook-mio v0.2.5
+    Checking bstr v1.12.1
+    Checking path-dedot v3.1.1
+    Checking wait-timeout v0.2.1
+    Checking toml_datetime v1.1.1+spec-1.1.0
+    Checking toml_edit v0.25.11+spec-1.1.0
+    Checking path-absolutize v3.1.1
+    Checking crossterm v0.29.0
+    Checking fuzzy-matcher v0.3.7
+    Checking unicode-width v0.2.0
+    Checking dyn-clone v1.0.20
+    Checking unicode-segmentation v1.13.2
+    Checking inquire v0.9.4
+    Checking image v0.25.10
+warning: iroha_plonk@2.0.0-rc.2.0: closed source registry disabled: source changed during identity computation
+    Checking sorafs_manifest v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_manifest)
+    Checking iroha_plonk_gadgets v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk_gadgets)
+    Checking kaigi_zk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kaigi_zk)
+    Checking iroha_plonk_recursion v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk_recursion)
+    Checking iroha_kagemusha_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_kagemusha_proof)
+    Checking iroha_executor_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_executor_data_model)
+    Checking iroha_sccp v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sccp)
+    Checking ivm_abi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm_abi)
+    Checking kotodama_surface v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_surface)
+    Checking ivm_artifact_admission v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm_artifact_admission)
+    Checking iroha_torii_shared v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_torii_shared)
+    Checking iroha_core_timed_ovn v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_timed_ovn)
+    Checking iroha_core_zk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_zk)
+    Checking sorafs_car v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_car)
+    Checking soranet_incentives v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/soranet_incentives)
+    Checking iroha_swarm v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_swarm)
+    Checking iroha_config v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config)
+warning: method `local_blacklist` is never used
+   --> crates/iroha_core_zk/src/kagemusha_wallet_state_v1/manifest/blacklists.rs:167:49
+    |
+ 93 | impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    | ----------------------------------------------------------------------- method in this implementation
+...
+167 |     pub(in crate::kagemusha_wallet_state_v1) fn local_blacklist(
+    |                                                 ^^^^^^^^^^^^^^^
+    |
+    = note: `-W dead-code` implied by `-W unused`
+    = help: to override `-W unused` add `#[allow(dead_code)]`
+
+warning: `iroha_core_zk` (lib) generated 1 warning
+    Checking iroha_logger v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_logger)
+    Checking iroha_genesis v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_genesis)
+    Checking iroha_telemetry v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_telemetry)
+    Checking iroha_futures v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_futures)
+    Checking iroha_schema_gen v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_schema_gen)
+    Checking iroha_sccp_rpc v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sccp_rpc)
+    Checking iroha_wallet v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_wallet)
+    Checking sorafs_orchestrator v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_orchestrator)
+    Checking sorafs_node v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_node)
+    Checking iroha_storage_client v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_storage_client)
+    Checking iroha_core_privacy v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_privacy)
+    Checking iroha_musubi_service v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_musubi_service)
+    Checking iroha_contract_deploy v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_contract_deploy)
+warning: unused `ErrReport` that must be used
+     --> crates/iroha/src/client.rs:28174:13
+      |
+28174 | /             quote_fees_with_response(&client, &payload, &store, response)
+28175 | |                 .await
+28176 | |                 .expect_err("a refusal must not become an automatic retry");
+      | |___________________________________________________________________________^
+      |
+      = note: `-W unused-must-use` implied by `-W unused`
+      = help: to override `-W unused` add `#[allow(unused_must_use)]`
+help: use `let _ = ...` to ignore the resulting value
+      |
+28174 |             let _ = quote_fees_with_response(&client, &payload, &store, response)
+      |             +++++++
+
+warning: unused `ErrReport` that must be used
+     --> crates/iroha/src/client.rs:28216:9
+      |
+28216 | /         quote_fees_with_response(
+28217 | |             &expired,
+28218 | |             &payload,
+28219 | |             &store,
+...     |
+28222 | |         .await
+28223 | |         .expect_err("expired operation cannot dispatch");
+      | |________________________________________________________^
+      |
+help: use `let _ = ...` to ignore the resulting value
+      |
+28216 |         let _ = quote_fees_with_response(
+      |         +++++++
+
+warning: `iroha` (lib test) generated 2 warnings
+    Checking iroha_sccp_wallet v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sccp_wallet)
+    Checking kotodama_toolchain v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_toolchain)
+    Checking musubi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/musubi)
+warning: method `executed_successor_authority` is never used
+   --> crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs:250:8
+    |
+ 39 | impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
+    | --------------------------------------------------------- method in this implementation
+...
+250 |     fn executed_successor_authority<'a>(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `-W dead-code` implied by `-W unused`
+    = help: to override `-W unused` add `#[allow(dead_code)]`
+
+warning: methods `authenticate_parent_service` and `verify_parent_service_at` are never used
+    --> crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs:1092:19
+     |
+ 971 | impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
+     | --------------------------------------------------------- methods in this implementation
+...
+1092 |     pub(crate) fn authenticate_parent_service(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1135 |     pub(super) fn verify_parent_service_at(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `iroha_core` (lib) generated 2 warnings
+    Checking iroha_cli_lib v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_cli)
+    Checking iroha_kagami v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_kagami)
+    Finished `local-release` profile [optimized] target(s) in 19m 10s

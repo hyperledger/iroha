@@ -1,0 +1,25 @@
+{
+  "schema": "iroha.bn254.poseidon.parameters.v1",
+  "source": "https://github.com/iden3/circomlibjs/blob/4f094c5be05c1f0210924a3ab204d8fd8da69f49/src/poseidon_constants.json",
+  "source_sha256": "354f31bbed9d9a8b884d8f2181e339cb425b6e3e4cc7240bd3dd22f0070f3f2c",
+  "selected_tables": {
+    "width3": {
+      "rounds": [
+        8,
+        57
+      ],
+      "field_count": 204,
+      "le_sha256": "e4b7f120fccdc21a73dd32fb210837a733555cb831173a0210d606f1a7705975"
+    },
+    "width6": {
+      "rounds": [
+        8,
+        60
+      ],
+      "field_count": 444,
+      "le_sha256": "51ccbda8c3a46b0b214c9ad507fb0f5028340eb8efbf9b64aa772dbc862d7cdd"
+    }
+  },
+  "mode_owner": "specs/zk_primitive_workloads.json semantic_profiles; Iroha fixed-arity capacity=arity*2^64, rate coordinates1.., output1; additive two-block hash6",
+  "qualification": "Parameter equality and deterministic vectors establish conformance, not security certification or physical GPU execution."
+}

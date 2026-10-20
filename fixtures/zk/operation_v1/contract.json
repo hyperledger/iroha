@@ -1,0 +1,868 @@
+{
+  "artifacts": [
+    {
+      "fields": [
+        {
+          "meaning": "The unsigned payload with every proof-free field fixed: domain, authority, creation time, lifetime, a nonce from the secure random source, fee payment, metadata, the canonical instructions of every composed action in order, and the ordered intent descriptor with its declared attachment slots. Generated proof bytes, their lengths and hashes and the statement digests are absent.",
+          "name": "payload",
+          "type": "TransactionPayload"
+        },
+        {
+          "meaning": "`TransactionPayload::ordered_intent_digest_v1` of `payload`.",
+          "name": "intent_digest",
+          "type": "OrderedIntentDigestV1"
+        },
+        {
+          "meaning": "The public statement digest of each declared action in action order (`TransactionPayload::action_statement_digests_v1`); the proof of action i binds entry i.",
+          "name": "statements",
+          "type": "Vec<ActionStatementDigestV1>"
+        },
+        {
+          "meaning": "Every declared attachment occurrence in index order.",
+          "name": "attachment_slots",
+          "type": "Vec<AttachmentSlotV1>"
+        },
+        {
+          "meaning": "One entry per bound of `batch_limits`, in that order.",
+          "name": "resource_quote",
+          "type": "Vec<ResourceQuoteEntryV1>"
+        },
+        {
+          "meaning": "The committed parameters the quote used.",
+          "name": "parameters",
+          "type": "ParameterSnapshotV1"
+        }
+      ],
+      "meaning": "The proof-free, unsigned form of one operation or of one batch composed into one transaction. Public: it holds no private material.",
+      "name": "PreparedZkOperationV1",
+      "returned_by": "prepare"
+    },
+    {
+      "fields": [
+        {
+          "meaning": "The ordered intent digest of the prepared artifact; building never changes it.",
+          "name": "intent_digest",
+          "type": "OrderedIntentDigestV1"
+        },
+        {
+          "meaning": "`TransactionBuilder::encode_payload`: the canonical complete payload, every attachment occurrence and statement digest bound, which an external signer receives.",
+          "name": "signing_bytes",
+          "type": "Vec<u8>"
+        },
+        {
+          "meaning": "`TransactionBuilder::payload_hash` of the same payload: the prehash every transaction signature signs.",
+          "name": "signing_prehash",
+          "type": "Hash"
+        },
+        {
+          "meaning": "`TransactionBuilder::hash_as_entrypoint`: the transaction identity before any signature, equal to the signed transaction's entrypoint hash.",
+          "name": "entrypoint_hash",
+          "type": "HashOf<TransactionEntrypoint>"
+        },
+        {
+          "meaning": "The exact measured value of every bound of `batch_limits` except the signed transaction size, which `sign` measures.",
+          "name": "resource_usage",
+          "type": "Vec<ResourceQuoteEntryV1>"
+        }
+      ],
+      "meaning": "The complete, unsigned transaction an internal or external signer signs. Public: it holds no private material.",
+      "name": "BuiltZkOperationV1",
+      "returned_by": "build"
+    }
+  ],
+  "batch": {
+    "atomicity": "one_signed_transaction",
+    "over_bound": "ResourceLimitExceeded",
+    "over_bound_stage": "plan",
+    "split": "never"
+  },
+  "batch_limits": [
+    {
+      "checked_at": [
+        "plan"
+      ],
+      "committed": false,
+      "id": "attachment.max_actions",
+      "maximum": 16,
+      "measures": "Declared attachment-backed actions of the composed transaction.",
+      "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+      "symbol": "SIGNED_ATTACHMENTS_MAX_ACTIONS_V1",
+      "unit": "count"
+    },
+    {
+      "checked_at": [
+        "plan"
+      ],
+      "committed": false,
+      "id": "attachment.max_occurrences",
+      "maximum": 16,
+      "measures": "Declared attachment occurrences of the composed transaction.",
+      "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+      "symbol": "SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1",
+      "unit": "count"
+    },
+    {
+      "checked_at": [
+        "plan",
+        "build"
+      ],
+      "committed": false,
+      "id": "attachment.occurrence_max_bytes",
+      "maximum": 9437184,
+      "measures": "Length of one attachment occurrence: its expected length at prepare, its generated length at build.",
+      "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+      "symbol": "SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1",
+      "unit": "bytes"
+    },
+    {
+      "checked_at": [
+        "plan",
+        "build"
+      ],
+      "committed": false,
+      "id": "attachment.signed_frame_max_bytes",
+      "maximum": 9502720,
+      "measures": "Complete canonical Norito frame of the ordered intent descriptor and its occurrences: quoted from the expected lengths at prepare, exact at build.",
+      "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+      "symbol": "SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1",
+      "unit": "bytes"
+    },
+    {
+      "checked_at": [
+        "plan",
+        "build"
+      ],
+      "committed": true,
+      "id": "transaction.max_decompressed_bytes",
+      "maximum": 10485760,
+      "measures": "Sum of the attachment occurrence lengths.",
+      "path": "crates/iroha_data_model/src/parameter/system.rs",
+      "symbol": "max_decompressed_bytes",
+      "unit": "bytes"
+    },
+    {
+      "checked_at": [
+        "plan",
+        "sign"
+      ],
+      "committed": true,
+      "id": "transaction.max_tx_bytes",
+      "maximum": 10485760,
+      "measures": "Framed canonical signed transaction, checked by `Parameters::check_signed_transaction_bytes` against the includable maximum of its route: quoted with the authority's largest signature at prepare, exact after signing.",
+      "path": "crates/iroha_data_model/src/parameter/system.rs",
+      "symbol": "max_tx_bytes",
+      "unit": "bytes"
+    }
+  ],
+  "calls": [
+    {
+      "events": [
+        "open_attempt"
+      ],
+      "id": "prepare",
+      "stages": [
+        "plan"
+      ]
+    },
+    {
+      "events": [
+        "build_started",
+        "build_failed"
+      ],
+      "id": "prove",
+      "stages": [
+        "prove"
+      ]
+    },
+    {
+      "events": [
+        "build_failed"
+      ],
+      "id": "local_verify",
+      "stages": [
+        "local_verify"
+      ]
+    },
+    {
+      "events": [
+        "payload_built",
+        "build_failed"
+      ],
+      "id": "build",
+      "stages": [
+        "build"
+      ]
+    },
+    {
+      "events": [
+        "signed"
+      ],
+      "id": "sign",
+      "stages": [
+        "sign"
+      ]
+    },
+    {
+      "events": [
+        "dispatch_intent",
+        "dispatch_accepted",
+        "dispatch_already_known",
+        "dispatch_refused",
+        "dispatch_not_admitted",
+        "dispatch_ambiguous"
+      ],
+      "id": "submit",
+      "stages": [
+        "submit"
+      ]
+    },
+    {
+      "events": [
+        "dispatch_interrupted",
+        "observed_in_pipeline",
+        "reconciled_applied",
+        "reconciled_rejected",
+        "reconciled_expired"
+      ],
+      "id": "await_finality",
+      "stages": [
+        "reconcile",
+        "finality"
+      ]
+    }
+  ],
+  "custody": {
+    "private_material": [
+      "signing_key",
+      "witness",
+      "share",
+      "decryption_key",
+      "randomness"
+    ],
+    "rules": [
+      {
+        "id": "opaque_signer_handles",
+        "statement": "The default signer is an opaque handle or a platform signer, so a private key never crosses the native boundary or enters managed memory. Raw-key entry points are explicit test or advanced APIs, named as such."
+      },
+      {
+        "id": "secure_randomness",
+        "statement": "Transaction nonces and proof randomness come from the platform's cryptographically secure random source. Caller-supplied randomness is an explicit test or advanced option, named as such."
+      },
+      {
+        "id": "no_private_material_upload",
+        "statement": "No call sends private material to Torii, a prover service or any other remote party, and no artifact, journal record, error or diagnostic contains it. A capability driver that needs to upload private material is refused with `UnsupportedOperation` before any network effect."
+      },
+      {
+        "id": "public_artifacts_only",
+        "statement": "The prepared and built artifacts, the journal and the signed transaction hold only public data and opaque custody references."
+      },
+      {
+        "id": "zeroize_private_material",
+        "statement": "Private material the SDK holds in memory is erased after use where the platform allows; a family whose managed types cannot be erased documents that limitation."
+      }
+    ],
+    "upload_refusal_code": "UnsupportedOperation"
+  },
+  "dispatch_classification": {
+    "acknowledged_statuses": [
+      200,
+      202
+    ],
+    "classes": [
+      {
+        "error_code": null,
+        "established_by": "HTTP 200 or 202.",
+        "event": "dispatch_accepted",
+        "id": "accepted"
+      },
+      {
+        "error_code": null,
+        "established_by": "A response validated against one row of `definite_rows` with this class.",
+        "event": "dispatch_already_known",
+        "id": "already_known"
+      },
+      {
+        "error_code": "Rejected",
+        "established_by": "A response validated against one row of `definite_rows` with this class.",
+        "event": "dispatch_refused",
+        "id": "refused"
+      },
+      {
+        "error_code": "LocalResourceUnavailable",
+        "established_by": "A response validated against one row of `definite_rows` with this class.",
+        "event": "dispatch_not_admitted",
+        "id": "deferred"
+      },
+      {
+        "error_code": null,
+        "established_by": "A local failure before any byte left the client, reported by the code of its cause.",
+        "event": "dispatch_not_admitted",
+        "id": "not_dispatched"
+      },
+      {
+        "error_code": null,
+        "established_by": "Everything else: transport failure, timeout, 5xx, an oversized or undecodable body, an unlisted code, any outcome-unknown claim.",
+        "event": "dispatch_ambiguous",
+        "id": "ambiguous"
+      }
+    ],
+    "definite_rows": [
+      {
+        "class": "already_known",
+        "details_repeat_reject_code": true,
+        "envelope_code": "already_committed",
+        "reject_code": "PRTRY:ALREADY_COMMITTED",
+        "status": 409
+      },
+      {
+        "class": "already_known",
+        "details_repeat_reject_code": true,
+        "envelope_code": "already_enqueued",
+        "reject_code": "PRTRY:ALREADY_ENQUEUED",
+        "status": 409
+      },
+      {
+        "class": "deferred",
+        "details_repeat_reject_code": false,
+        "envelope_code": "admission_deferred",
+        "reject_code": "PRTRY:ADMISSION_DEFERRED",
+        "status": 429
+      },
+      {
+        "class": "deferred",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_full",
+        "reject_code": "PRTRY:QUEUE_FULL",
+        "status": 429
+      },
+      {
+        "class": "deferred",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_latency_saturated",
+        "reject_code": "PRTRY:QUEUE_LATENCY",
+        "status": 429
+      },
+      {
+        "class": "deferred",
+        "details_repeat_reject_code": true,
+        "envelope_code": "per_user_queue_limit",
+        "reject_code": "PRTRY:QUEUE_RATE",
+        "status": 429
+      },
+      {
+        "class": "deferred",
+        "details_repeat_reject_code": true,
+        "envelope_code": "sccp_forgery_throttled",
+        "reject_code": "PRTRY:SCCP_FORGERY_THROTTLED",
+        "status": 429
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "sccp_evidence_duplicate",
+        "reject_code": "PRTRY:SCCP_EVIDENCE_DUPLICATE",
+        "status": 409
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "sccp_evidence_rejected",
+        "reject_code": "PRTRY:SCCP_EVIDENCE_REJECTED",
+        "status": 400
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "transaction_expired",
+        "reject_code": "ED07",
+        "status": 400
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "transaction_rejected",
+        "reject_code": "transaction_rejected",
+        "status": 400
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "unsupported_transaction_admission",
+        "reject_code": "PRTRY:UNSUPPORTED_TRANSACTION_ADMISSION",
+        "status": 400
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_unresolved_route",
+        "reject_code": "PRTRY:ROUTE_UNRESOLVED",
+        "status": 400
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "unregistered_authority",
+        "reject_code": "PRTRY:UNREGISTERED_AUTHORITY",
+        "status": 403
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_governance_rejected",
+        "reject_code": "PRTRY:QUEUE_GOVERNANCE_REJECTED",
+        "status": 403
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_lane_compliance_denied",
+        "reject_code": "PRTRY:QUEUE_LANE_COMPLIANCE_DENIED",
+        "status": 403
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_lane_privacy_proof_rejected",
+        "reject_code": "PRTRY:QUEUE_LANE_PRIVACY_PROOF_REJECTED",
+        "status": 403
+      },
+      {
+        "class": "refused",
+        "details_repeat_reject_code": true,
+        "envelope_code": "queue_nexus_fee_rejected",
+        "reject_code": "PRTRY:NEXUS_FEE_ADMISSION_REJECTED",
+        "status": 422
+      }
+    ],
+    "identity_closure": [
+      {
+        "id": "no_clock_closes_an_identity",
+        "statement": "No clock closes an identity: neither the local observation bound, nor a local clock, nor Torii-reported time. Expiry is never inferred from any clock."
+      },
+      {
+        "id": "absence_is_not_an_outcome",
+        "statement": "Exact absence, a failed read and a response not bound to the identity change nothing."
+      },
+      {
+        "id": "identical_bytes_only",
+        "statement": "Retransmission sends the exact persisted bytes only under an explicit idempotent policy, after a fresh exact-absence read, within the dispatch bound of the identity."
+      },
+      {
+        "id": "no_automatic_replacement",
+        "statement": "A new transaction identity is opened only after the previous one is closed and only when the caller explicitly asks; no fresh nonce is created automatically."
+      }
+    ],
+    "max_response_bytes": 65536,
+    "outcome_unknown_evidence": {
+      "class": "ambiguous",
+      "envelope_code": "transaction_dispatch_outcome_unknown",
+      "identity_headers": [
+        "x-iroha-entrypoint-hash",
+        "x-iroha-signed-transaction-hash"
+      ],
+      "reject_code": "transaction_dispatch_outcome_unknown",
+      "status": 503
+    },
+    "owner": "crates/iroha/src/client.rs: AccountClient::dispatch_prepared_transaction_payload",
+    "validated": "Exactly one canonical error envelope (Norito or JSON, byte-identical to its re-encoding), exactly one `x-iroha-reject-code` header, the envelope details repeat the reject code exactly when the row says so, and status, envelope code and reject code equal one row. A response that claims an unknown outcome is never a row."
+  },
+  "durable_states": [
+    {
+      "holds_signed_bytes": false,
+      "id": "prepared",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "proving",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "ready_to_sign",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "signed",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "submitting",
+      "may_still_commit": true
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "outcome_unknown",
+      "may_still_commit": true
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "pending",
+      "may_still_commit": true
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "finalized",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "rejected",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "cancelled_before_submission",
+      "may_still_commit": false
+    }
+  ],
+  "error_codes": [
+    {
+      "id": "InvalidInput",
+      "meaning": "The request, a driver result or an external artifact is malformed."
+    },
+    {
+      "id": "NonCanonicalEncoding",
+      "meaning": "Bytes are not the canonical encoding of their value."
+    },
+    {
+      "id": "UnsupportedOperation",
+      "meaning": "The capability, the node or the requested mode is not supported, including a driver that would upload private material."
+    },
+    {
+      "id": "BindingMismatch",
+      "meaning": "A value is bound to another network, authority, intent, payload or identity, including an external signature that does not verify."
+    },
+    {
+      "id": "ResourceLimitExceeded",
+      "meaning": "A declared bound was exceeded; the error carries the bound, the action index when one action crosses it, the actual value and the maximum."
+    },
+    {
+      "id": "ProofInvalid",
+      "meaning": "A generated proof failed local verification; nothing was built, signed or dispatched."
+    },
+    {
+      "id": "AuthorizationDenied",
+      "meaning": "The authority lacks a permission, or the signer refused or lacks the capability."
+    },
+    {
+      "id": "Expired",
+      "meaning": "The transaction expired by authoritative ledger state."
+    },
+    {
+      "id": "ReplayRejected",
+      "meaning": "The ledger rejected the transaction as a replay."
+    },
+    {
+      "id": "LocalResourceUnavailable",
+      "meaning": "A local resource (storage, prover, verifier, custody, transport before dispatch) or node backpressure prevented progress; nothing was admitted."
+    },
+    {
+      "id": "EvidenceUnavailable",
+      "meaning": "A required evidence read did not complete with a classified result. It establishes no proof failure, ledger outcome or local capacity; the identity is kept."
+    },
+    {
+      "id": "SubmissionOutcomeUnknown",
+      "meaning": "A dispatch may have been admitted and nothing authoritative is known; the error carries the transaction identity."
+    },
+    {
+      "id": "FinalityPending",
+      "meaning": "The transaction is known to the network and its outcome is not yet established; the error carries the transaction identity."
+    },
+    {
+      "id": "Rejected",
+      "meaning": "The transaction identity was refused on its only possible admission or rejected by the ledger."
+    },
+    {
+      "id": "CancelledBeforeSubmission",
+      "meaning": "The operation was cancelled before any dispatch could have been admitted."
+    }
+  ],
+  "error_fields": [
+    {
+      "always": true,
+      "meaning": "One code of `error_codes` or `journal_error_codes`.",
+      "name": "code",
+      "required_for": [],
+      "type": "error code"
+    },
+    {
+      "always": true,
+      "meaning": "The stage that produced the error.",
+      "name": "stage",
+      "required_for": [],
+      "type": "stage"
+    },
+    {
+      "always": false,
+      "meaning": "Zero-based index of the composed action the error concerns, when one action is identifiable.",
+      "name": "action_index",
+      "required_for": [],
+      "type": "u32"
+    },
+    {
+      "always": false,
+      "meaning": "Identifier of the exceeded bound: an id of `batch_limits`, or the documented identifier of another declared bound.",
+      "name": "bound",
+      "required_for": [
+        "ResourceLimitExceeded"
+      ],
+      "type": "string"
+    },
+    {
+      "always": false,
+      "meaning": "The value that exceeded the bound.",
+      "name": "actual",
+      "required_for": [
+        "ResourceLimitExceeded"
+      ],
+      "type": "u64"
+    },
+    {
+      "always": false,
+      "meaning": "The largest permitted value.",
+      "name": "maximum",
+      "required_for": [
+        "ResourceLimitExceeded"
+      ],
+      "type": "u64"
+    },
+    {
+      "always": false,
+      "meaning": "Signed-transaction hash and entrypoint hash of the operation's identity, whenever one exists.",
+      "name": "transaction",
+      "required_for": [
+        "SubmissionOutcomeUnknown",
+        "FinalityPending"
+      ],
+      "type": "transaction identity"
+    },
+    {
+      "always": true,
+      "meaning": "Diagnostic without secret material.",
+      "name": "detail",
+      "required_for": [],
+      "type": "string"
+    },
+    {
+      "always": false,
+      "meaning": "Status and state of the last journal record the call validated; absent only when no trustworthy journal could be read.",
+      "name": "progress",
+      "required_for": [],
+      "type": "operation progress"
+    }
+  ],
+  "finality_modes": [
+    {
+      "closes_on_expired_status": false,
+      "closing_evidence": "A finality proof that `iroha_data_model::sumeragi_finality::SumeragiFinalityVerifier`, rooted in the caller's independently selected genesis, verifies to bind the exact signed transaction and its applied or rejected execution output to a finalized block. A status read only selects the candidate outcome.",
+      "default": true,
+      "id": "authenticated",
+      "trusts_torii": false
+    },
+    {
+      "closes_on_expired_status": true,
+      "closing_evidence": "The queried Torii's state-resolved global `Applied`, `Rejected` or `Expired` status of the exact identity. The caller trusts that Torii.",
+      "default": false,
+      "id": "torii_status",
+      "trusts_torii": true
+    }
+  ],
+  "handle_calls": [
+    {
+      "id": "run",
+      "stages": []
+    },
+    {
+      "id": "recover",
+      "stages": [
+        "reconcile",
+        "finality"
+      ]
+    },
+    {
+      "id": "cancel",
+      "stages": [
+        "cancel"
+      ]
+    },
+    {
+      "id": "progress",
+      "stages": []
+    }
+  ],
+  "journal_error_codes": [
+    "StorageCorrupted",
+    "JournalConflict"
+  ],
+  "journal_stages": [
+    "load",
+    "store"
+  ],
+  "local_verification": {
+    "authority": "diagnostic_only",
+    "failure_code": "ProofInvalid",
+    "failure_dispatches": false,
+    "failure_returns_to": "prepared",
+    "failure_stage": "local_verify",
+    "policy": "verify_before_build_and_sign"
+  },
+  "one_call": {
+    "durable": true,
+    "id": "execute_operation",
+    "returns": "a durable handle",
+    "runs": [
+      "prepare",
+      "prove",
+      "local_verify",
+      "build",
+      "sign",
+      "submit",
+      "await_finality"
+    ]
+  },
+  "records": [
+    {
+      "fields": [
+        {
+          "meaning": "Position of the occurrence in the transaction.",
+          "name": "index",
+          "type": "u32"
+        },
+        {
+          "meaning": "The declared action that references the occurrence.",
+          "name": "action_index",
+          "type": "u32"
+        },
+        {
+          "meaning": "A generated proof or admitted key material.",
+          "name": "kind",
+          "type": "AttachmentKindV1"
+        },
+        {
+          "meaning": "The role the occurrence plays for its action.",
+          "name": "role",
+          "type": "AttachmentRoleV1"
+        },
+        {
+          "meaning": "The exact length of key material; for a generated proof its canonical padded length when the proof format fixes one, else the largest length the capability can generate.",
+          "name": "expected_length",
+          "type": "u64"
+        }
+      ],
+      "meaning": "One declared attachment occurrence of the prepared form.",
+      "name": "AttachmentSlotV1",
+      "returned_by": null
+    },
+    {
+      "fields": [
+        {
+          "meaning": "An id of `batch_limits`.",
+          "name": "bound",
+          "type": "string"
+        },
+        {
+          "meaning": "In a quote: exact for counts, an upper bound for bytes. In a measurement: exact.",
+          "name": "value",
+          "type": "u64"
+        },
+        {
+          "meaning": "The bound's maximum: the constant, or the committed parameter of the snapshot.",
+          "name": "maximum",
+          "type": "u64"
+        }
+      ],
+      "meaning": "The value of one composition bound.",
+      "name": "ResourceQuoteEntryV1",
+      "returned_by": null
+    },
+    {
+      "fields": [
+        {
+          "meaning": "Height of the committed block the parameters were read at.",
+          "name": "block_height",
+          "type": "u64"
+        },
+        {
+          "meaning": "Committed `Parameters.transaction.max_tx_bytes`.",
+          "name": "max_tx_bytes",
+          "type": "u64"
+        },
+        {
+          "meaning": "Committed `Parameters.transaction.max_decompressed_bytes`.",
+          "name": "max_decompressed_bytes",
+          "type": "u64"
+        },
+        {
+          "meaning": "`Parameters::max_includable_transaction_bytes` for the transaction's inclusion route.",
+          "name": "max_includable_transaction_bytes",
+          "type": "u64"
+        }
+      ],
+      "meaning": "The committed parameters a quote used.",
+      "name": "ParameterSnapshotV1",
+      "returned_by": null
+    }
+  ],
+  "reducer": {
+    "cancel_events": [
+      "cancel"
+    ],
+    "initial_state": "planned",
+    "table": "fixtures/zk/workflow_v1/state_machine.json"
+  },
+  "review": {
+    "decisions": "dist/zk-delivery-handoff/claude/s1/provisional-decisions-2026-10-19.md",
+    "state": "provisional_pending_plan_author_review"
+  },
+  "rules": [
+    {
+      "id": "prepare_refuses_over_bound_batches",
+      "statement": "A batch is one signed atomic transaction. `prepare` refuses a request over any bound of `batch_limits` with `ResourceLimitExceeded` carrying stage `plan`, the bound, the index of the first action that crosses it, the actual value and the maximum, before any proof, journal or external effect exists. No call splits a batch into several transactions, and no split helper exists."
+    },
+    {
+      "id": "local_verification_before_signing",
+      "statement": "Every generated proof is verified locally before the payload is built and signed. A local failure is `ProofInvalid` at stage `local_verify`: the proof is discarded, nothing is built, signed or dispatched, and the operation returns to `prepared`. Local acceptance is diagnostic, never ledger authorization."
+    },
+    {
+      "id": "persist_before_dispatch",
+      "statement": "The exact signed bytes and their identity are durable before the dispatch ordinal, and the dispatch ordinal is durable before any byte is sent. A resumed operation dispatches the persisted bytes; it never proves, builds or signs an identity again once it is signed."
+    },
+    {
+      "id": "reconcile_read_only_first",
+      "statement": "An operation found in `submitting`, `outcome_unknown` or `pending` is first reconciled by a read-only query on its persisted identity. `recover` performs only such reads and never proves, builds, signs or dispatches."
+    },
+    {
+      "id": "no_clock_closes_an_identity",
+      "statement": "A submission timeout is `SubmissionOutcomeUnknown` with the transaction identity, never a guessed outcome. Exact absence, a failed read, the local observation bound, a local clock and Torii-reported time never close an identity, and no fresh nonce is created automatically."
+    },
+    {
+      "id": "identical_bytes_only",
+      "statement": "The only re-dispatch of an identity that may still commit is its exact persisted bytes, under the explicit retransmission policy and after a fresh exact-absence read."
+    },
+    {
+      "id": "cancellation_never_recalls",
+      "statement": "Cancellation before any dispatch could have been admitted ends the operation `cancelled_before_submission` and drops its payload or signed bytes. After a possible admission it only stops observation: the operation is `cancelling`, only read-only reconciliation runs and the actual outcome is reported."
+    },
+    {
+      "id": "external_signature_verified_before_persisting",
+      "statement": "An external signature is assembled with the exact built signing bytes and verified against the authority before it is persisted. A mismatch is `BindingMismatch` at stage `sign`: nothing is persisted or dispatched and the built payload stays `ready_to_sign`."
+    },
+    {
+      "id": "custody_stays_local",
+      "statement": "Private material stays in the caller's custody behind opaque handles. No call accepts it into an artifact or the journal or sends it to a remote party; a capability driver that needs to upload it is refused with `UnsupportedOperation` at the stage that asked, before any network effect."
+    },
+    {
+      "id": "authenticated_finality_by_default",
+      "statement": "In the default `authenticated` mode only an outcome the finality verifier authenticates closes an identity, and a status read selects the candidate only. The `torii_status` mode is explicit and weaker: the queried Torii's state-resolved global outcome closes the identity."
+    },
+    {
+      "id": "dispatch_classified_by_closed_table",
+      "statement": "A dispatch is classified from its HTTP status, canonical error envelope and reject-code header by `dispatch_classification`, never from text. A validated refusal closes an identity only when no earlier dispatch of the same bytes may have been admitted; backpressure and failures before any byte left keep the signed identity dispatchable."
+    }
+  ],
+  "schema": "iroha.zk_operation.contract.v1",
+  "specification": "specs/zk_operation_contract.md"
+}

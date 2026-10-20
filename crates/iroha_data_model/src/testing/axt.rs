@@ -84,9 +84,9 @@ pub struct PoseidonParamsFixture {
 /// Poseidon parameter fixtures for the supported widths.
 #[derive(Debug, Clone, DeriveJsonDeserialize, DeriveJsonSerialize, PartialEq, Eq, IntoSchema)]
 pub struct PoseidonConstantsFixture {
-    /// Width-3 Poseidon2 parameters.
+    /// Width-3 original BN254 Poseidon parameters.
     pub width3: PoseidonParamsFixture,
-    /// Width-6 Poseidon2 parameters.
+    /// Width-6 original BN254 Poseidon parameters.
     pub width6: PoseidonParamsFixture,
 }
 /// Load the canonical descriptor fixture.

@@ -62,8 +62,6 @@ SERVER_SUPPORTED_ROUTES = [
     "/v1/gov/parliament/attempts/{governance_attempt_id}/plan",
     "/v1/gov/parliament/transitions/draft",
     "/v1/gov/ballots/plain",
-    "/v1/gov/ballots/zk-v1",
-    "/v1/gov/ballots/zk-v1/ballot-proof",
     "/v1/validation-fee/proposals",
     "/v1/validation-fee/proposals/{proposal_id}",
     "/v1/validation-fee/proposals/draft",
@@ -226,7 +224,7 @@ def _capabilities() -> dict[str, Any]:
         "data_model_version": "4",
         "proposal_backed_referendum_ballots_supported": False,
         "standalone_plain_ballots_supported": False,
-        "standalone_zk_ballots_supported": True,
+        "standalone_zk_ballots_supported": False,
         "citizenship_asset_id": "citizenship#governance",
         "citizenship_bond_amount": "100",
         "citizenship_escrow_account": CANONICAL_OWNER,
@@ -1478,6 +1476,17 @@ def test_capabilities_require_every_canonical_parliament_route(route: str) -> No
     session = RecordingSession()
     session.queue(_json_response(payload))
     with pytest.raises(ValueError, match="does not advertise every canonical Parliament route"):
+        ToriiClient(
+            "https://node.test", session=session
+        ).get_governance_capabilities_v1(canonical_auth=_auth())
+
+
+def test_capabilities_reject_advertised_standalone_zk_ballots() -> None:
+    payload = _capabilities()
+    payload["standalone_zk_ballots_supported"] = True
+    session = RecordingSession()
+    session.queue(_json_response(payload))
+    with pytest.raises(ValueError, match="standalone ZK ballots have no supported relation"):
         ToriiClient(
             "https://node.test", session=session
         ).get_governance_capabilities_v1(canonical_auth=_auth())

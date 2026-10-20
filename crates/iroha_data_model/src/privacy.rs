@@ -175,7 +175,18 @@ pub const TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1: u32 = 512;
 ///
 /// The complete canonical envelope carries one ceiling proof, the bounded whole statement
 /// (including encrypted outputs), and 512 bytes for fixed identifiers and Norito framing.
-/// The signed transaction independently remains bounded by its 10 MiB aggregate cap.
+/// The signed transaction independently remains bounded by its 10 MiB aggregate cap. The
+/// 1 MiB between the proof ceiling and that cap holds the required context of a ceiling-proof
+/// transaction: up to the committed `max_signatures` signers of any supported algorithm with
+/// their authority, this envelope's statement and allowance, the authority fee intent with its
+/// Nexus and `PipelineGas` charge limits, the lifetime and nonce, the `tx_sequence` and
+/// `expires_at_height` metadata that the governed `require_sequence` and `require_height_ttl`
+/// flags make mandatory, and the Submit and transaction framing. Resource coherence
+/// (`validate_privacy_action_context`) refuses committed parameters under which one maximal
+/// action and this context no longer fit the transaction cap. Larger multisig member sets and
+/// other transaction metadata share the same cap with no promise that a ceiling proof still
+/// fits. `tests/maximum_proof_transport_v1.rs` measures these transport sizes and derives the
+/// context terms; they are not the widths of any native proof catalog.
 pub const TAIRA_PRIVACY_MAX_ACTION_BYTES_V1: u32 = TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1
     + TAIRA_PRIVACY_MAX_STATEMENT_AND_ENCRYPTED_OUTPUT_BYTES_PER_TRANSACTION_V1
     + TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1;

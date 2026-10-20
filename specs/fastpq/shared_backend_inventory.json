@@ -140,6 +140,10 @@
           "role": "test"
         },
         {
+          "path": "crates/iroha_core/src/kura/queued_sidecar_release_tests.rs",
+          "role": "test"
+        },
+        {
           "path": "crates/iroha_core/src/kura/tests/09_lane_artifacts_and_fastpq.rs",
           "role": "test"
         },
@@ -219,6 +223,7 @@
           "tree": "crates/iroha_core/src/fastpq/",
           "files": [
             "crates/iroha_core/src/fastpq/lane.rs",
+            "crates/iroha_core/src/fastpq/lane/producer.rs",
             "crates/iroha_core/src/fastpq/lane/source.rs",
             "crates/iroha_core/src/fastpq/mod.rs",
             "crates/iroha_core/src/fastpq/quantity_fixture.rs",
@@ -723,6 +728,10 @@
         {
           "path": "crates/iroha_core_privacy/src/privacy_profiles.rs",
           "role": "source"
+        },
+        {
+          "path": "crates/iroha_core_privacy/src/privacy_profiles_tests.rs",
+          "role": "test"
         },
         {
           "path": "crates/iroha_core_privacy/src/privacy_verifier.rs",
@@ -1742,6 +1751,10 @@
             "role": "source"
           },
           {
+            "path": "crates/iroha_core/src/smartcontracts/ivm/host/prepared_verifying_key_memo.rs",
+            "role": "source"
+          },
+          {
             "path": "crates/iroha_core/src/smartcontracts/ivm/host/zk_verification_tests.rs",
             "role": "test"
           },
@@ -2353,11 +2366,23 @@
             "role": "source"
           },
           {
+            "path": "crates/iroha_private_settlement/src/cold_context_tests.rs",
+            "role": "test"
+          },
+          {
+            "path": "crates/iroha_private_settlement/src/lib.rs",
+            "role": "source"
+          },
+          {
             "path": "crates/iroha_torii/src/private_settlement.rs",
             "role": "source"
           },
           {
             "path": "integration_tests/tests/nexus/atomic_private_settlement_localnet.rs",
+            "role": "test"
+          },
+          {
+            "path": "integration_tests/tests/nexus/atomic_private_settlement_onecall/wallet.rs",
             "role": "test"
           },
           {

@@ -17,6 +17,8 @@ fn intent_path_at(chain: &CertifiedTestChain, height: u64) -> std::path::PathBuf
 
 #[test]
 fn native_amx_discovery_advances_ordinary_global_height_then_delivers_both_final_tip_decisions() {
+    // Stabilize retired fixture storage while checking exact original-pool refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (roots, restored, tx, begin_height) = restarted_paid_decision();
     let budget = restored.state().ivm_execution_budget();
     budget.with_deferred_refund_notifications(|_| {
@@ -114,6 +116,8 @@ fn native_amx_discovery_advances_ordinary_global_height_then_delivers_both_final
 
 #[test]
 fn native_amx_discovery_advances_ordinary_private_height_and_refuses_missing_required_frame() {
+    // Stabilize retired fixture storage while checking exact original-pool refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let mut roots = paid_roots();
     let transaction = roots.transaction(100, 0xB1);
     roots.approve_all(&transaction);

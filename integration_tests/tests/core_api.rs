@@ -49,6 +49,8 @@ mod permissions;
 mod pipeline_block_rejected;
 #[path = "repo.rs"]
 mod repo;
+#[path = "resource_policy_network.rs"]
+mod resource_policy_network;
 #[path = "roles.rs"]
 mod roles;
 #[path = "scheduler_teu.rs"]

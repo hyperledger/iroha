@@ -602,9 +602,11 @@ fn digests_are_pinned() {
     // The first-release profile admits complete 17 MiB transaction-gossip frames.
     // Pipeline fee and ZK validity policies belong to committed parameters.
     // The static SCCP staking policy binds 21-day unbonding and 10000-bps maximum slashing.
+    // The root fee policy is part of the signed genesis recipe (`[genesis_recipe.root_fees]`),
+    // with sponsor-vault custody and an explicit, empty fee-exemption set.
     assert_eq!(
         profile.consensus_digest(4).unwrap().to_string(),
-        "79d3b3663e8c5f6349852e8c90f15130a2c73e31f58ee1f0b1bd80d750990449"
+        "34eaf875a5c6e3601cd783a9aee740b2ee919af2deb8ee0566267a3bded999cb"
     );
     // The retired Torii KAGEMUSHA command policy is absent from this canonical input.
     // Native proof-backend selection above does not change this separate policy input.

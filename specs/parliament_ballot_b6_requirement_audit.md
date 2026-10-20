@@ -49,6 +49,21 @@ complete; B6 qualification still requires the evidence below. A listed source te
   after the runs, not before and after every build; they do not establish complete
   candidate identity. These observations establish neither authenticated Core State
   execution, network finality, complete resource bounds nor qualification.
+  The [disk-recovery successor](../docs/validation/parliament_ballot_node_representation/resume-20261020/observations.json)
+  records 83 passing protocol tests (two fixture helpers ignored), all five
+  runner selections from that suite, 147 passing model/output tests and an
+  initial successful six-package all-target check. A genuine identical-ballot
+  test derives success and `DuplicateNullifier` from actual verification and
+  corpus state, then roundtrips both results at their canonical source positions.
+  Wider output controls first exposed an extra input lookup; the corrected code
+  preserves the original bounded-lookup assertion. The six retained logs have
+  byte-identical [source-control copies](../docs/validation/parliament_ballot_node_representation/resume-20261020/log-retention.json).
+  A later [Core build diagnostic](../docs/validation/parliament_ballot_node_representation/resume-20261020/core-merge-diagnostic.json)
+  failed before tests while a concurrent merge changed dependency APIs; a test's
+  private import was also corrected. Focused node/consumer validation and
+  post-merge protocol validation remain pending. None of these observations
+  establishes a complete unchanged compiler-input set or transfers the older
+  physical resource bounds to the merged candidate.
 - [Security ledger](parliament_ballot_b6_security_review.md) and
   [generator interface](parliament_ballot_b6_generator_interface.md): checked
   arithmetic, precise missing primitive/reduction/resource terms and limited

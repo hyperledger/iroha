@@ -54,6 +54,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::new_with_source_padding(0)
+    }
+
+    fn new_with_source_padding(source_padding: usize) -> Self {
         let key = |seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519);
         let manager_key = key(0xc1);
         let manager = AccountId::new(manager_key.public_key().clone());
@@ -99,7 +103,16 @@ impl Fixture {
             max_pending_movements_per_provider: 4,
             max_open_appeals_per_provider: 2,
         };
-        let mut chain = CertifiedTestChain::start(TestChainConfig::new(world, 1_000)).unwrap();
+        let mut config = TestChainConfig::new(world, 1_000);
+        // Keep each field below the public genesis string bound while making the
+        // genuine signed source larger than authentication's fixed working set.
+        for offset in (0..source_padding).step_by(512 * 1024) {
+            let bytes = (source_padding - offset).min(512 * 1024);
+            config
+                .genesis_instructions
+                .push(Log::new(iroha_logger::Level::TRACE, "p".repeat(bytes)).into());
+        }
+        let mut chain = CertifiedTestChain::start(config).unwrap();
         let signed = chain.sign(
             &manager_key,
             [Log::new(iroha_logger::Level::INFO, "reserve HTTP source".into()).into()],
@@ -390,10 +403,12 @@ async fn signed_reserve_http_refuses_unprivileged_signer_missing_auth_and_route_
 #[tokio::test]
 async fn signed_reserve_http_source_quota_refusal_does_not_become_absence_or_poison_retry() {
     let _auth = app_auth_test_guard(crate::app_auth::CanonicalRequestAuthConfig::default());
-    let f = Fixture::new();
+    let f = Fixture::new_with_source_padding(2 * 1024 * 1024);
     // Fund authentication, but leave the native block corridor one byte short
     // of the original genesis frame. This exercises source refusal after auth.
     let genesis_bytes = f.chain.committed(1).block().encode_wire().unwrap().len();
+    assert!(genesis_bytes > 2 * 1024 * 1024);
+    assert!(genesis_bytes < super::NATIVE_FINALITY_MAX_BLOCK_BYTES);
     let narrow_app = f.app(
         genesis_bytes
             .checked_sub(1)
@@ -415,7 +430,23 @@ async fn signed_reserve_http_source_quota_refusal_does_not_become_absence_or_poi
     assert_failure_is_not_absence(unsigned, StatusCode::UNAUTHORIZED).await;
     let refused = narrow.oneshot(f.manager_request(2)).await.unwrap();
     assert_private(&refused);
-    assert_failure_is_not_absence(refused, StatusCode::TOO_MANY_REQUESTS).await;
+    // A fixed source allowance cannot admit this original frame even after all
+    // occupants leave. It is a terminal policy refusal, not a transient pool wait.
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(refused.into_body(), MAX_RESERVE_POLICY_PROOF_BYTES_V1)
+        .await
+        .unwrap();
+    assert!(ReservePolicyProofV1::decode_frame(&bytes).is_err());
+    let error = norito::decode_canonical_with_limits::<crate::ErrorEnvelope>(
+        &bytes,
+        norito::canonical_decode_limits(bytes.len()),
+    )
+    .unwrap();
+    assert_eq!(error.code(), "query_validation_failed");
+    assert_eq!(
+        error.message(),
+        "native current cut exceeds its finite source policy"
+    );
     let proof = success_proof(
         router(f.app(WORKING_BYTES))
             .oneshot(f.manager_request(2))

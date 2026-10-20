@@ -510,3 +510,55 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
         assert!(view.world().sccp_forgery_offences().is_empty());
     });
 }
+
+#[test]
+fn physical_pairing_refusal_preserves_selected_input_and_publication_cause() {
+    let (chain, keys) = active_member_chain();
+    let view = chain.state().view();
+    let parent = view.latest_block().unwrap().unwrap();
+    let assembly = Assembly {
+        parent: &parent,
+        view: 0,
+        cadence: Duration::from_millis(1_000),
+        proposed_time: Duration::ZERO,
+    };
+    let mut selected = vec![carrier(&chain, future(&chain, &keys), 2_100)];
+    let hash = selected[0].hash_as_entrypoint();
+    let encoded = selected[0].entrypoint_bytes();
+    let pool = view.execution_budget();
+    let before = pool.reserved_bytes();
+    let layout = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_layout();
+    let (result, observed) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        recheck_sccp_forgery_for_proposal(&view, assembly, &mut selected, &MergeProposal::default())
+    });
+    assert!(observed, "actual proposer pairing allocation was refused");
+    let error = result.unwrap_err();
+    assert!(matches!(&error, PayloadError::SccpForgeryDeferred(_)));
+    let PayloadError::SccpForgeryDeferred(original) = error else {
+        unreachable!("asserted typed pairing refusal");
+    };
+    assert!(original.allocation_refusal().is_none());
+    assert!(
+        original
+            .allocator_refusal()
+            .and_then(|cause| cause.vec_reserve_error())
+            .is_some_and(|(_, actual)| actual == layout),
+        "HC966 SCCP proposer must retain the original physical pairing cause"
+    );
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].hash_as_entrypoint(), hash);
+    assert!(std::sync::Arc::ptr_eq(
+        &encoded,
+        &selected[0].entrypoint_bytes()
+    ));
+    assert_eq!(pool.reserved_bytes(), before);
+    recheck_sccp_forgery_for_proposal(&view, assembly, &mut selected, &MergeProposal::default())
+        .unwrap();
+    assert_eq!(selected[0].hash_as_entrypoint(), hash);
+    assert!(std::sync::Arc::ptr_eq(
+        &encoded,
+        &selected[0].entrypoint_bytes()
+    ));
+    assert_eq!(pool.reserved_bytes(), before);
+    assert_eq!(chain.height(), 2);
+}

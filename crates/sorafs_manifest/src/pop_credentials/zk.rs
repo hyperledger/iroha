@@ -1440,7 +1440,7 @@ mod migration_tests {
     #[test]
     fn native_rp56_parameters_match_every_upstream_constant() {
         let actual = poseidon_constants();
-        let (rounds, mds) = reference::parameters::<3>(include_str!(
+        let (rounds, mds) = reference::parameters::<3, 64>(include_str!(
             "../../../../fixtures/poseidon/pasta-fp-w3-rp56.hex"
         ));
         let field = |bytes| Fp::from_repr(bytes).unwrap();

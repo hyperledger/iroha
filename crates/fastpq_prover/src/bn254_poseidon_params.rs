@@ -6,7 +6,7 @@ pub(crate) const BN254_LIMBS: usize = 4;
 /// Poseidon width used for transcript digest hashing.
 pub(crate) const BN254_POSEIDON_WIDTH: usize = 3;
 /// Number of rounds in the original width-3 V1 permutation.
-const BN254_POSEIDON_ROUNDS: usize = 64;
+const BN254_POSEIDON_ROUNDS: usize = 65;
 /// Number of limbs in the complete fixed round-constant bank.
 const ROUND_CONSTANT_LIMBS: usize = BN254_POSEIDON_ROUNDS * BN254_POSEIDON_WIDTH * BN254_LIMBS;
 /// Number of limbs in the complete fixed dense MDS bank.
@@ -87,7 +87,7 @@ mod tests {
         let canonical = iroha_zkp_halo2::poseidon::bn254_poseidon_params_width3();
         let staged = bn254_poseidon_width3_params();
         assert_eq!(canonical.round_constants.len(), BN254_POSEIDON_ROUNDS);
-        assert_eq!(staged.round_constants.len(), 768);
+        assert_eq!(staged.round_constants.len(), 780);
         assert_eq!(staged.mds.len(), 36);
         let mut compared_limbs = 0;
         let mut fields_with_high_limbs = 0;
@@ -131,10 +131,10 @@ mod tests {
                 fields_with_high_limbs += usize::from(limbs[1..].iter().any(|limb| *limb != 0));
             }
         }
-        assert_eq!(compared_limbs, 804);
-        assert_eq!(fields_with_high_limbs, 201);
+        assert_eq!(compared_limbs, 816);
+        assert_eq!(fields_with_high_limbs, 204);
         #[cfg(target_os = "macos")]
-        assert_eq!(staged.round_count, 64);
+        assert_eq!(staged.round_count, 65);
     }
 
     #[test]
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(first.mds.as_ptr(), second.mds.as_ptr());
         let round_slice: &[u64] = &first.round_constants;
         let mds_slice: &[u64] = &first.mds;
-        assert_eq!(round_slice.len(), 64 * 3 * 4);
+        assert_eq!(round_slice.len(), 65 * 3 * 4);
         assert_eq!(mds_slice.len(), 3 * 3 * 4);
         assert_eq!(round_slice.as_ptr(), first.round_constants.as_ptr());
         assert_eq!(mds_slice.as_ptr(), first.mds.as_ptr());

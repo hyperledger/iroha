@@ -320,6 +320,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'producer_payload_errors_keep_original_release_and_terminal_classification',
         'sccp_evidence_publication_preserves_all_original_preparation_categories',
         'sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories',
+        'sccp_pairing_payload_refusal_preserves_actual_allocator_cause_without_release',
         'native_initializer_invariant_keeps_original_across_validation_and_producer_recovery',
         'original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader',
         'anonymous_ballot_adapter_absence_stays_deferred_through_publication',

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Independently rederive the fixed RP56 test corpus using integer arithmetic.
+"""Independently rederive the fixed parameter test corpus using integer arithmetic.
 
 This verifier does not read native constants or call a Rust implementation.
-The fixtures were captured from poseidon-primitives 0.2.0 before retirement.
+BN254 uses H.2-selected t3 8/57 and t6 8/60 parameters, independently
+compared with circomlibjs v0.1.7. The separate Pasta RP56 bank is unchanged.
 Grain uses a single-bit shift register, followed by rejection sampling and
 Cauchy matrix inversion; the native implementation uses batched bit updates.
 """
@@ -13,10 +14,10 @@ BN254 = int("30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001", 
 FP = int("40000000000000000000000000000000224698fc094cf91b992d30ed00000001", 16)
 
 
-def parameters(modulus, width):
-    """Derive all 64 round rows and the secure_mds=0 Cauchy matrix."""
+def parameters(modulus, width, partial_rounds):
+    """Derive every selected round row and the secure_mds=0 Cauchy matrix."""
     bits = modulus.bit_length()
-    seed = ((1, 2), (0, 4), (bits, 12), (width, 12), (8, 10), (56, 10))
+    seed = ((1, 2), (0, 4), (bits, 12), (width, 12), (8, 10), (partial_rounds, 10))
     state = [int(bit) for value, size in seed for bit in f"{value:0{size}b}"] + [1] * 30
     assert len(state) == 80
 
@@ -40,7 +41,7 @@ def parameters(modulus, width):
         return value
 
     constants = []
-    while len(constants) < 64 * width:
+    while len(constants) < (8 + partial_rounds) * width:
         value = word()
         if value < modulus:
             constants.append(value)
@@ -57,7 +58,7 @@ def permutation(state, modulus, rounds, mds):
     """Evaluate the complete dense permutation over Python integers."""
     for index, row in enumerate(rounds):
         state = [(x + c) % modulus for x, c in zip(state, row, strict=True)]
-        if 4 <= index < 60:
+        if 4 <= index < len(rounds) - 4:
             state[0] = pow(state[0], 5, modulus)
         else:
             state = [pow(x, 5, modulus) for x in state]
@@ -68,13 +69,13 @@ def permutation(state, modulus, rounds, mds):
 def expected_corpus():
     """Return exact little-endian hex text for every pinned reference file."""
     result = {}
-    for name, modulus, width in [
-        ("bn254-w3-rp56", BN254, 3), ("bn254-w6-rp56", BN254, 6),
-        ("pasta-fp-w3-rp56", FP, 3),
+    for name, modulus, width, partial in [
+        ("bn254-w3-rp57", BN254, 3, 57), ("bn254-w6-rp60", BN254, 6, 60),
+        ("pasta-fp-w3-rp56", FP, 3, 56),
     ]:
-        rounds, mds = parameters(modulus, width)
+        rounds, mds = parameters(modulus, width, partial)
         result[name + ".hex"] = "".join(x.to_bytes(32, "little").hex() + "\n" for row in rounds + mds for x in row)
-    rounds, mds = parameters(FP, 3)
+    rounds, mds = parameters(FP, 3, 56)
     vectors = []
     for domain in [0x4B41494749563143, 0x4B4149474956314E, 0x4B41494749563141]:
         for length in range(34):
@@ -103,7 +104,7 @@ def main():
     """Verify the checked-in corpus, without any write or regeneration mode."""
     root = Path(__file__).resolve().parents[1]
     verify_directory(root / "fixtures/poseidon")
-    print("PASS: 822 parameter fields and 102 complete framed-sponge vectors")
+    print("PASS: 849 parameter fields and 102 complete framed-sponge vectors")
 
 
 if __name__ == "__main__":

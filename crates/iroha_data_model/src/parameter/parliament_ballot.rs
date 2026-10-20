@@ -26,12 +26,9 @@ use iroha_primitives::json::Json;
 
 use super::{CustomParameter, CustomParameterId};
 use crate::governance::anonymous_ballot::{
-    ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1, BallotCapacityCommitmentV1,
+    ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1, BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1,
+    BallotCapacityCommitmentV1,
 };
-
-/// Largest canonical ballot envelope `E_max` plus authenticated context `C_max`: the
-/// verifier-input bytes one verification call can be charged.
-const VERIFIER_INPUT_BYTES_PER_CALL: u64 = 425_984;
 
 /// `E_wire`: the reserved wire bytes of one complete canonical anonymous-ballot entrypoint,
 /// per-input framing included.
@@ -108,7 +105,7 @@ pub fn reserved_ballot_slots_v1(
     max_verification_reservations_per_block: u32,
     max_verifier_input_bytes_per_block: u64,
 ) -> u32 {
-    u32::try_from(max_verifier_input_bytes_per_block / VERIFIER_INPUT_BYTES_PER_CALL)
+    u32::try_from(max_verifier_input_bytes_per_block / BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1)
         .map_or(max_verification_reservations_per_block, |calls| {
             calls.min(max_verification_reservations_per_block)
         })
@@ -155,7 +152,10 @@ pub fn parliament_ballot_capacity_v1(
             block_cadence_ms,
         })?;
     let ballots_per_block = u64::from(commitment.max_verification_reservations_per_block)
-        .min(commitment.max_verifier_input_bytes_per_block / VERIFIER_INPUT_BYTES_PER_CALL)
+        .min(
+            commitment.max_verifier_input_bytes_per_block
+                / BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1,
+        )
         .min(u64::from(commitment.reserved_ballot_slots_per_block))
         .min(commitment.reserved_ballot_wire_bytes_per_block / ENTRYPOINT_WIRE_BYTES);
     let capacity = u128::from(opportunities) * u128::from(ballots_per_block);
@@ -256,9 +256,9 @@ impl ParliamentBallotParametersV1 {
     /// Largest `max_verification_reservations_per_block`.
     pub const MAX_VERIFICATION_RESERVATIONS: u32 = 8;
     /// Smallest `max_verifier_input_bytes_per_block`: one verification call.
-    pub const MIN_VERIFIER_INPUT_BYTES: u64 = VERIFIER_INPUT_BYTES_PER_CALL;
+    pub const MIN_VERIFIER_INPUT_BYTES: u64 = BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1;
     /// Largest `max_verifier_input_bytes_per_block`: eight verification calls.
-    pub const MAX_VERIFIER_INPUT_BYTES: u64 = 8 * VERIFIER_INPUT_BYTES_PER_CALL;
+    pub const MAX_VERIFIER_INPUT_BYTES: u64 = 8 * BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1;
     /// Smallest `stamp_difficulty_bits`.
     pub const MIN_STAMP_DIFFICULTY_BITS: u8 = 28;
     /// Largest `stamp_difficulty_bits`.
@@ -523,6 +523,24 @@ mod tests {
                 "{field}"
             );
         }
+    }
+
+    #[test]
+    fn the_verifier_input_bounds_count_the_one_per_call_definition() {
+        let per_call = BALLOT_VERIFIER_INPUT_MAX_BYTES_PER_CALL_V1;
+        assert_eq!(per_call, 425_984);
+        assert_eq!(
+            ParliamentBallotParametersV1::MIN_VERIFIER_INPUT_BYTES,
+            per_call
+        );
+        assert_eq!(
+            ParliamentBallotParametersV1::MAX_VERIFIER_INPUT_BYTES,
+            8 * per_call
+        );
+        // Reserved slots count whole calls of the same definition, capped by the work budget.
+        assert_eq!(reserved_ballot_slots_v1(8, 3 * per_call - 1), 2);
+        assert_eq!(reserved_ballot_slots_v1(8, 3 * per_call), 3);
+        assert_eq!(reserved_ballot_slots_v1(2, 8 * per_call), 2);
     }
 
     /// The commitment of the budgets `(K, B_work, B_bytes)` at `cadence`, with the derived

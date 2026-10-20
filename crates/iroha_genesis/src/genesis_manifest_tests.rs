@@ -6,6 +6,31 @@ use iroha_data_model::{
     block::consensus::ConsensusGenesisParams, isi::SetParameter, parameter::system::BlockParameter,
 };
 use std::{convert::TryInto, num::NonZeroU64, path::PathBuf};
+/// Author the complete monetary policy explicitly for positive manifest fixtures.
+fn with_authored_root_fees(mut parameters: Parameters) -> Parameters {
+    use iroha_data_model::block::consensus::RootFeePolicy;
+    assert!(
+        !parameters
+            .custom()
+            .contains_key(&RootFeePolicy::parameter_id())
+    );
+    let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    if let Some(npos) = parameters
+        .custom()
+        .get(&SumeragiNposParameters::parameter_id())
+        .map(SumeragiNposParameters::from_custom_parameter)
+        .transpose()
+        .expect("valid authored fixture NPoS parameters")
+        .flatten()
+    {
+        fees.fee_asset_id = npos.xor_asset_definition_id;
+    }
+    parameters.set_parameter(Parameter::Custom(
+        fees.into_custom_parameter()
+            .expect("canonical authored root fee policy"),
+    ));
+    parameters
+}
 fn manifest_chain_discriminant_value() -> norito::json::Value {
     norito::json::value::to_value(&iroha_data_model::account::address::chain_discriminant())
         .expect("serialize chain discriminant")
@@ -278,7 +303,10 @@ fn with_consensus_meta_adds_fields_and_stable_fingerprint() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -409,7 +437,7 @@ fn with_consensus_meta_handles_npos_mode() {
         executor: None,
         ivm_dir: IvmPath::default(),
         transactions: vec![RawGenesisTx {
-            parameters: Some(params),
+            parameters: Some(with_authored_root_fees(params)),
             ..RawGenesisTx::default()
         }],
         consensus_mode: SumeragiConsensusMode::Npos,
@@ -514,7 +542,10 @@ fn build_and_sign_uses_stable_internal_creation_times() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -558,7 +589,13 @@ fn explicit_creation_time_makes_signed_genesis_reproducible() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default(), RawGenesisTx::default()],
+        transactions: vec![
+            RawGenesisTx {
+                parameters: Some(with_authored_root_fees(Parameters::default())),
+                ..RawGenesisTx::default()
+            },
+            RawGenesisTx::default(),
+        ],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -629,7 +666,13 @@ fn build_and_sign_checked_genesis_transaction_signatures_verify() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default(), RawGenesisTx::default()],
+        transactions: vec![
+            RawGenesisTx {
+                parameters: Some(with_authored_root_fees(Parameters::default())),
+                ..RawGenesisTx::default()
+            },
+            RawGenesisTx::default(),
+        ],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -680,7 +723,10 @@ fn build_and_sign_sets_confidential_digest() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -709,7 +755,10 @@ fn build_and_sign_sets_explicit_confidential_policy_hash() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -741,7 +790,10 @@ fn genesis_canonical_wire_roundtrip_preserves_digest() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -1429,7 +1481,10 @@ fn normalize_exposes_instruction_batches() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
@@ -1548,7 +1603,7 @@ fn permissioned_genesis_rejects_npos_parameters() {
         executor: None,
         ivm_dir: IvmPath::default(),
         transactions: vec![RawGenesisTx {
-            parameters: Some(parameters),
+            parameters: Some(with_authored_root_fees(parameters)),
             ..RawGenesisTx::default()
         }],
         consensus_mode: SumeragiConsensusMode::Permissioned,

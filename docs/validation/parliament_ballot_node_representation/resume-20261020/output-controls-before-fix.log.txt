@@ -1,0 +1,46 @@
+
+running 30 tests
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_cannot_be_a_pipeline_network_event_source ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_outputs_refuse_each_side_output_on_success_and_rejection ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_outputs_refuse_trigger_success_and_ordinary_rejections ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_outputs_roundtrip_all_three_canonical_outcomes ... ok
+test block::execution_output::tests::anonymous_ballot::identical_anonymous_inputs_keep_distinct_results_and_canonical_source_positions ... ok
+test block::execution_output::tests::anonymous_ballot::ordinary_network_and_internal_outputs_refuse_ballot_rejection_reasons ... ok
+test block::execution_output::tests::bounded_output_limit_terminals_roundtrip_and_preserve_invocation_identity ... ok
+test block::execution_output::tests::bounded_terminal_does_not_hide_receipts_or_ordinary_failure_diagnostics ... ok
+test block::execution_output::tests::bounded_terminals_roundtrip_maximum_trigger_name_and_scalar_positions ... ok
+test block::execution_output::tests::equal_time_displays_have_distinct_actual_occurrence_owners ... ok
+test block::execution_output::tests::execution_input_validation_uses_bounded_random_access ... 
+thread 'block::execution_output::tests::execution_input_validation_uses_bounded_random_access' (72216192) panicked at crates/iroha_data_model/src/block/execution_output_tests.rs:876:5:
+assertion `left == right` failed: two network checks, one lookup per event
+  left: 35
+ right: 34
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test block::execution_output::tests::execution_inputs_borrow_slices_arrays_vectors_and_block_sources ... ok
+test block::execution_output::tests::execution_output_allows_real_candidate_gaps_but_not_event_order_reversal ... ok
+test block::execution_output::tests::execution_output_json_requires_null_slot_and_rejects_unknown_owner_fields ... ok
+test block::execution_output::tests::execution_output_preserves_sealed_outer_source_and_inner_call_identity ... ok
+test block::execution_output::tests::execution_output_rejects_foreign_sources_phases_and_duplicate_candidates ... ok
+test block::execution_output::tests::execution_output_rejects_invalid_chronology_intervals_and_completion_positions ... ok
+test block::execution_output::tests::execution_output_rejects_root_diagnostic_and_rollback_receipt_substitutions ... ok
+test block::execution_output::tests::execution_output_roundtrips_all_owners_diagnostics_and_exact_receipts ... ok
+test block::execution_output::tests::invocation_identity_commits_every_prebody_field_and_distinct_domains ... ok
+test block::execution_output::tests::omitted_failure_root_requires_exact_typed_terminal_and_only_root_completion ... ok
+test block::execution_output::tests::omitted_internal_rejection_has_a_distinct_exact_roundtrip_shape ... ok
+test block::execution_output::tests::omitted_internal_rejection_refuses_tampered_result_root_completion_and_receipts ... ok
+test block::execution_output::tests::output_result_and_receipt_mutation_never_changes_prebody_identity ... ok
+test block::execution_output::tests::pipeline_network_event_requires_actual_signed_transaction_source_kind ... ok
+test block::execution_output::tests::rejected_internal_output_retains_only_the_whole_invocation_root_failure ... ok
+test block::execution_output::tests::rejected_network_output_cannot_retain_rolled_back_callback_completions ... ok
+test block::execution_output::tests::synthetic_time_entrypoint_cannot_decode_or_own_a_network_output ... ok
+test block::execution_output::tests::trigger_use_rejects_retired_parallel_authority_slot ... ok
+test block::tests::sealed_reveal_batch_outcome_aliases_are_unique_and_single_assignment ... ok
+
+failures:
+
+failures:
+    block::execution_output::tests::execution_input_validation_uses_bounded_random_access
+
+test result: FAILED. 29 passed; 1 failed; 0 ignored; 0 measured; 5620 filtered out; finished in 0.04s
+

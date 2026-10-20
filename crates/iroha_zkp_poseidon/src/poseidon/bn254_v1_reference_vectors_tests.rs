@@ -1,6 +1,6 @@
 //! BN254 Poseidon vectors regenerated outside this crate.
 //!
-//! `scripts/zk_bn254_poseidon_reference.py` regenerates the 621 fixed field
+//! `scripts/zk_bn254_poseidon_reference.py` regenerates the 648 fixed field
 //! elements with its own Grain LFSR and Cauchy construction, runs its own
 //! permutation over them and writes `bn254_v1_reference_vectors.txt`. These
 //! tests run the Rust owner over the same inputs. Agreement shows that the two
@@ -146,25 +146,42 @@ fn non_canonical_field_encodings_are_rejected() {
     }
 }
 
-/// The repository table is the Grain output for `R_P = 56`. The published BN254
-/// width-three instantiation (`poseidonperm_x5_254_3`) uses `R_P = 57`, and the
-/// Grain seed binds the round count, so no constant is shared.
-///
-/// TODO: task F.5 decides the parameter correction recorded as
-/// `BN254-POSEIDON-D1` in `specs/zk_primitive_workloads.json`; update this test
-/// together with the table when that lands.
+/// The selected width-three bank is the published permutation, not an alias.
 #[test]
-fn repository_width3_table_is_not_the_published_bn254_instantiation() {
-    assert_eq!((FULL_ROUNDS, PARTIAL_ROUNDS), (8, 56));
+fn selected_width3_table_is_the_published_bn254_instantiation() {
+    assert_eq!((FULL_ROUNDS, WIDTH3_PARTIAL_ROUNDS), (8, 57));
     let rows = rows("published_width3_first_round_constant");
     assert_eq!(rows.len(), 1);
-    let published = bytes32(rows[0][1]);
-    assert!(
-        bn254_poseidon_params_width3()
-            .round_constants
-            .iter()
-            .flatten()
-            .all(|constant| *constant != published),
-        "the width-three table holds a constant of the published R_P = 57 instantiation"
+    assert_eq!(
+        bn254_poseidon_params_width3().round_constants[0][0],
+        bytes32(rows[0][1])
     );
+}
+
+#[test]
+fn fixed_arity_capacity_output_and_second_absorption_are_binding() {
+    let inputs = [1, 2, 3, 4, 5, 6];
+    let mut wrong_tag = [Fr::ZERO, Fr::from(1), Fr::from(2)];
+    poseidon3_permute(&mut wrong_tag);
+    assert_ne!(hash2_bytes(1, 2), field_to_bytes(wrong_tag[1]));
+    let mut correct = [Fr::from_u128(2_u128 << 64), Fr::from(1), Fr::from(2)];
+    poseidon3_permute(&mut correct);
+    assert_eq!(hash2_bytes(1, 2), field_to_bytes(correct[1]));
+    assert_ne!(hash2_bytes(1, 2), field_to_bytes(correct[0]));
+    let mut six = [
+        Fr::from_u128(6_u128 << 64),
+        Fr::from(1),
+        Fr::from(2),
+        Fr::from(3),
+        Fr::from(4),
+        Fr::from(5),
+    ];
+    poseidon6_permute(&mut six);
+    assert_ne!(hash6_bytes(inputs), field_to_bytes(six[1]));
+    six[1] += Fr::from(6);
+    poseidon6_permute(&mut six);
+    assert_eq!(hash6_bytes(inputs), field_to_bytes(six[1]));
+    assert_ne!(hash6_bytes(inputs), field_to_bytes(six[0]));
+    assert_ne!(hash6_bytes(inputs), hash6_bytes([1, 2, 3, 4, 5, 0]));
+    assert_ne!(hash2_bytes(1, 2), hash6_bytes([1, 2, 0, 0, 0, 0]));
 }

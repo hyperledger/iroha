@@ -67,7 +67,21 @@ mod transaction_ingress_overload_tests {
         }
     }
     routing_test! { async transaction_ingress_allows_latency_saturated_queue_before_capacity
-        let mut world = World::default();
+        let first_key_pair =
+            checked_transaction_ingress_keypair(0x9A, "derive first ingress fixture signer key");
+        let second_key_pair =
+            checked_transaction_ingress_keypair(0x9B, "derive second ingress fixture signer key");
+        let first_authority = AccountId::new(first_key_pair.public_key().clone());
+        let second_authority = AccountId::new(second_key_pair.public_key().clone());
+        // Admission checks the original authority before queue latency pressure.
+        let mut world = World::with(
+            [],
+            [
+                Account::new(first_authority.clone()).build(&first_authority),
+                Account::new(second_authority.clone()).build(&second_authority),
+            ],
+            [],
+        );
         crate::test_utils::bind_fixture_root(
             &mut world,
             iroha_data_model::block::consensus::SumeragiRootScope::Global,
@@ -87,15 +101,11 @@ mod transaction_ingress_overload_tests {
             },
             events,
         ));
-        let first_key_pair =
-            checked_transaction_ingress_keypair(0x9A, "derive first ingress fixture signer key");
         let first = signed_log_transaction(*state.network_id_ref(), &first_key_pair, "first");
         handle_transaction(Arc::clone(&queue), Arc::clone(&state), first)
             .await
             .expect("first transaction should enter queue");
         queue.backdate_queued_transactions_for_tests(Duration::from_secs(3));
-        let second_key_pair =
-            checked_transaction_ingress_keypair(0x9B, "derive second ingress fixture signer key");
         let second = signed_log_transaction(*state.network_id_ref(), &second_key_pair, "second");
         handle_transaction(Arc::clone(&queue), Arc::clone(&state), second)
             .await

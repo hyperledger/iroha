@@ -15,12 +15,117 @@ fn invalid(message: impl std::fmt::Display) -> QueryExecutionFail {
 }
 
 /// Project a local read refusal only at the HTTP boundary, without inventing missing history.
+///
+/// An intrinsic item refusal carrying explicit required-target provenance (see
+/// [`permanent_refusal`]) is the typed permanent [`crate::Error::HistoryReadExceedsBudget`],
+/// which names the required quantity and the request's own limit and carries no retry hint.
+/// Every other deferral is transient capacity: a retryable `CapacityLimit` (HTTP 429).
 pub fn query_attempt_error(error: ExecutionAttemptError<QueryExecutionFail>) -> crate::Error {
     let query_error = match error {
-        ExecutionAttemptError::Deferred(_) => QueryExecutionFail::CapacityLimit,
+        ExecutionAttemptError::Deferred(deferred) => {
+            if let Some((resource, required, limit)) = permanent_refusal(&deferred) {
+                return crate::Error::HistoryReadExceedsBudget {
+                    resource,
+                    required,
+                    limit,
+                };
+            }
+            QueryExecutionFail::CapacityLimit
+        }
         ExecutionAttemptError::Rejected(error) => error,
     };
     crate::Error::Query(iroha_data_model::ValidationFail::QueryFailed(query_error))
+}
+
+/// The resource, required quantity and limit of an intrinsically oversized required target
+/// item, or `None` when permanence is not established.
+///
+/// Only the bounded history reader's explicit `HistoryTarget` provenance establishes that
+/// the item must be read again: checkpoints cannot replace the target's own frame. Within
+/// that scope, one allocation above its whole pool (`ExceedsLimit` or an unrepresentable
+/// layout), or a per-item decoder limit (field, sequence, archive or nesting), is permanent.
+/// Unclassified and ancestry refusals remain retryable. Cumulative allocations/elements
+/// also remain retryable, even at the target: earlier ancestry may have spent the budget.
+/// An occupied pool (`Capacity`), allocator failure and every other deferral remain transient.
+pub fn permanent_refusal(
+    deferred: &iroha_core::execution_attempt::ExecutionDeferred,
+) -> Option<(&'static str, u64, u64)> {
+    use iroha_allocation::AllocationRefusal;
+    use iroha_core::execution_attempt::ExecutionPhase;
+    use norito::core::{DecodeLocalRefusalKind, DecodeResourceError};
+    if deferred.phase() != Some(ExecutionPhase::HistoryTarget) {
+        return None;
+    }
+    if let Some(refusal) = deferred.allocation_refusal() {
+        return match refusal {
+            AllocationRefusal::ExceedsLimit {
+                requested_bytes,
+                limit_bytes,
+            } => Some((
+                "bytes",
+                u64::try_from(*requested_bytes).ok()?,
+                u64::try_from(*limit_bytes).ok()?,
+            )),
+            AllocationRefusal::DemandOverflow => Some((
+                "addressable bytes",
+                u64::MAX,
+                u64::try_from(isize::MAX).ok()?,
+            )),
+            AllocationRefusal::Capacity { .. } => None,
+        };
+    }
+    let refusal = deferred.decode_refusal()?;
+    if refusal.kind() != DecodeLocalRefusalKind::EnclosingLimit {
+        return None;
+    }
+    match refusal.resource_error() {
+        DecodeResourceError::FieldLengthExceeded { length, limit } => {
+            Some(("field bytes", length, limit))
+        }
+        DecodeResourceError::SequenceLengthExceeded { length, limit } => {
+            Some(("sequence elements", length, limit))
+        }
+        DecodeResourceError::ArchiveLengthExceeded { length, limit } => {
+            Some(("archive bytes", length, limit))
+        }
+        // A retry can start from authenticated checkpoints recorded by this or another
+        // attempt, so cumulative ancestry work does not prove the query can never fit.
+        DecodeResourceError::TotalAllocationExceeded { .. }
+        | DecodeResourceError::TotalElementsExceeded { .. } => None,
+        DecodeResourceError::NestingDepthExceeded { depth, limit, .. } => Some((
+            "nesting depth",
+            u64::try_from(depth).ok()?,
+            u64::try_from(limit).ok()?,
+        )),
+        DecodeResourceError::AllocationFailed { .. } => None,
+    }
+}
+
+/// The typed permanent refusal envelope of [`crate::Error::HistoryReadExceedsBudget`].
+///
+/// HTTP 413 with the stable code `history_read_exceeds_request_budget`, like the other
+/// too-large committed-history responses (`block_proof_capacity_exceeded`,
+/// `executed_block_wire_too_large`). `details.field` names the resource, `details.actual` the
+/// required target item's quantity and `details.expected` the request's own limit.
+/// That same required item cannot fit this budget, so the response carries neither
+/// `Retry-After` nor `retry_after_seconds`.
+pub fn history_read_budget_envelope(
+    resource: &'static str,
+    required: u64,
+    limit: u64,
+) -> iroha_torii_shared::ErrorEnvelope {
+    iroha_torii_shared::ErrorEnvelope::new(
+        "history_read_exceeds_request_budget",
+        format!(
+            "The committed history read needs at least {required} {resource}, but this request's own budget is {limit}; retrying the same request cannot succeed."
+        ),
+    )
+    .with_details(iroha_torii_shared::ErrorDetails {
+        field: Some(resource.to_owned()),
+        expected: Some(format!("at most {limit} {resource}")),
+        actual: Some(required.to_string()),
+        ..iroha_torii_shared::ErrorDetails::default()
+    })
 }
 
 /// Preserve canonical body failures and allocation refusal until the HTTP boundary.
@@ -83,7 +188,8 @@ pub fn signed_calls(
         let signed = match source {
             TransactionEntrypoint::External(signed) => signed,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => return None,
         };
         Some((source.hash(), signed, &output.result))
     }))

@@ -88,6 +88,7 @@ fn authority_registry_declares_every_owner_and_typed_canonical_schema() {
         fields()["state.ivm_execution_budget"].role,
         Role::Local(_)
     ));
+    // Off-chain finality proof resume points: consensus execution never reads them.
     assert!(matches!(
         fields()["state.finality_prefix_checkpoints"].role,
         Role::Local(_)

@@ -6077,6 +6077,7 @@ impl Executor {
         skip_nexus_fee: bool,
     ) -> Result<(), ValidationFail> {
         state_transaction.current_direct_privacy_instruction_index = None;
+        state_transaction.clear_direct_parliament_candidate_testing();
         state_transaction.current_direct_sccp_forgery = false;
         state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6446,6 +6447,13 @@ impl Executor {
                         index,
                         contract_runtime_context.is_none() && entrypoint_authorization.is_none(),
                     );
+                    state_transaction.arm_direct_parliament_candidate_testing(
+                        transaction,
+                        authority,
+                        &isi,
+                        index,
+                        contract_runtime_context.is_none() && entrypoint_authorization.is_none(),
+                    );
                     state_transaction.current_direct_kagemusha_load_instruction_index =
                         (contract_runtime_context.is_none() && entrypoint_authorization.is_none())
                             .then_some(index);
@@ -6471,6 +6479,7 @@ impl Executor {
                         contract_runtime_context,
                     );
                     state_transaction.current_direct_privacy_instruction_index = None;
+                    state_transaction.clear_direct_parliament_candidate_testing();
                     state_transaction.current_direct_sccp_forgery = false;
                     state_transaction.clear_direct_sccp_pause();
                     state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6619,6 +6628,7 @@ impl Executor {
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
         state_transaction.current_direct_privacy_instruction_index = None;
+        state_transaction.clear_direct_parliament_candidate_testing();
         state_transaction.current_direct_sccp_forgery = false;
         state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -6653,6 +6663,7 @@ impl Executor {
         // A contract frame cannot inherit a native instruction's signed ordinal.
         use crate::smartcontracts::ivm::host::CoreHostImpl as CoreCoreHost;
         state_transaction.current_direct_privacy_instruction_index = None;
+        state_transaction.clear_direct_parliament_candidate_testing();
         state_transaction.current_direct_sccp_forgery = false;
         state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
@@ -8228,6 +8239,10 @@ impl Executor {
         profile: InstructionExecutionProfile,
         contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
     ) -> Result<(), ValidationFail> {
+        // A user executor/contract cannot inherit original native genesis authority.
+        if contract_runtime_context.is_some() || matches!(self, Self::UserProvided(_)) {
+            state_transaction.clear_direct_parliament_candidate_testing();
+        }
         root_scope::ensure_instruction_scope(&instruction, state_transaction)?;
         ensure_contract_deployment_permission_mutation_allowed(
             state_transaction,
@@ -8283,6 +8298,8 @@ impl Executor {
         profile: InstructionExecutionProfile,
         contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
     ) -> Result<(), ValidationFail> {
+        // The original direct instruction loop uses the owned dispatcher exclusively.
+        state_transaction.clear_direct_parliament_candidate_testing();
         root_scope::ensure_instruction_scope(instruction, state_transaction)?;
         ensure_contract_deployment_permission_mutation_allowed(
             state_transaction,

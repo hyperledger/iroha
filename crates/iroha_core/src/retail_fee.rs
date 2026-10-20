@@ -597,11 +597,18 @@ fn set_balance(
     world.track_nonzero_asset_holder(id);
     Ok(())
 }
-fn funds_available(world: &impl WorldReadOnly, id: &AssetId, balance: u64) -> bool {
-    if balance == 0 {
-        return false;
+fn funds_available(
+    world: &impl WorldReadOnly,
+    id: &AssetId,
+    balance: u64,
+) -> Result<bool, FeeReadError> {
+    // Governed pool custody is installed by the authenticated bootstrap owner, not
+    // wallet enrollment. Maintenance may assess the period, but cannot spend backing.
+    // Check this exact balance only; unrelated privacy rows cannot deny its fee work.
+    if world.privacy_public_reserve_owner_v1(id)?.is_some() || balance == 0 {
+        return Ok(false);
     }
-    world
+    Ok(world
         .account(id.account())
         .ok()
         .and_then(|account| {
@@ -615,7 +622,7 @@ fn funds_available(world: &impl WorldReadOnly, id: &AssetId, balance: u64) -> bo
             store.find(id.definition()).is_none_or(|record| {
                 !record.blacklisted && record.outgoing_availability.is_enabled()
             })
-        })
+        }))
 }
 fn project(
     world: &impl WorldReadOnly,
@@ -664,7 +671,7 @@ pub fn projected_balance(
     {
         return Ok(None);
     }
-    let available = funds_available(world, id, record.balance_minor);
+    let available = funds_available(world, id, record.balance_minor)?;
     let (record, _) = project(world, record, now_ms, available)?;
     Ok(Some(quantity(record.balance_minor)))
 }
@@ -732,7 +739,8 @@ fn settle_balance_until(
     {
         return Ok(());
     }
-    let available = funds_available(world, id, record.balance_minor);
+    let available = funds_available(world, id, record.balance_minor)
+        .map_err(|error| world_read_error(world, error))?;
     let mut source_balance = record.balance_minor;
     let (record, receipts) = project(world, record, now_ms, available)
         .map_err(|error| world_read_error(world, error))?;
@@ -950,7 +958,7 @@ pub fn status(
         world,
         &AssetId::new(asset, account.clone()),
         record.balance_minor,
-    );
+    )?;
     project(world, record, now_ms, available).map(|(record, _)| Some(record))
 }
 /// Produce an exact quote from finalized ledger facts, including institutional sending accounts.
@@ -1276,6 +1284,19 @@ pub(crate) fn finalize(
         )
         .map_err(rejection)?;
         if assessment.fee_minor > 0 {
+            // A governed bootstrap can claim this balance after its payment was
+            // observed. Recheck the same exact custody at final consumption; the
+            // complete transaction must roll back instead of skipping its fee.
+            if stx
+                .world
+                .privacy_public_reserve_owner_v1(source)
+                .map_err(rejection)?
+                .is_some()
+            {
+                return Err(rejection(
+                    "payment fee cannot debit governed privacy reserve custody",
+                ));
+            }
             crate::validation_fee_rewards::ensure_reward_custody_debit(
                 stx,
                 source,
@@ -1402,7 +1423,7 @@ fn admitted_idle_boundary(
         &stx.world,
         record.clone(),
         through,
-        funds_available(&stx.world, &id, record.balance_minor),
+        funds_available(&stx.world, &id, record.balance_minor)?,
     )?;
     let mut used = 0;
     let mut admitted_through = record.last_accrual_ms;

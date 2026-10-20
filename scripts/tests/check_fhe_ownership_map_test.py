@@ -592,6 +592,60 @@ class ReachTest(TreeCase):
         tree = CHECKER.Tree(self.root)
         self.assertEqual(CHECKER.find_callers(tree, RING, "RnsChain::product", scope, []), (expected, False))
 
+    def test_type_turbofish_paths_preserve_the_explicit_qualifier(self) -> None:
+        for expression, qualifier in (
+            ("SecretPolynomialVectorV1::<TBOX_LEXT_V1>::zero()", "SecretPolynomialVectorV1"),
+            ("module::RnsChain::<Vec<Vec<u64>>>::zero()", "RnsChain"),
+            ("RnsChain::<fn() -> Vec<u8>>::zero()", "RnsChain"),
+            ("RnsChain::<T>::zero::<U>()", "RnsChain"),
+            ("polynomial::zero::<T>()", "polynomial"),
+            ("polynomial::zero()", "polynomial"),
+            ("<T as Factory>::zero()", "?"),
+            ("RnsChain::<Vec<T>::zero()", "?"),
+        ):
+            with self.subTest(expression=expression):
+                masked = CHECKER.mask_rust(expression)
+                self.assertEqual(
+                    CHECKER.classify_use(masked, masked.index("zero"), "zero"),
+                    ("path", qualifier),
+                )
+
+    def test_generic_type_constructor_is_not_a_free_function_caller(self) -> None:
+        self.append(RING, "pub fn zero() {}\n")
+        self.append(BACKEND, (
+            "struct SecretPolynomialVectorV1<const N: usize>;\n"
+            "impl<const N: usize> SecretPolynomialVectorV1<N> {\n"
+            "    fn zero() -> Self {\n        Self\n    }\n}\n"
+            "fn prove_attempt() {\n    SecretPolynomialVectorV1::<TBOX_LEXT_V1>::zero();\n}\n"
+            "fn shared_zero() {\n    low::ring::zero();\n}\n"
+        ))
+        tree = CHECKER.Tree(self.root)
+        self.assertEqual(
+            CHECKER.find_callers(tree, RING, "zero", [RING, BACKEND], []),
+            ({BACKEND: ["shared_zero"]}, True),
+        )
+        # Another parsed free zero (as in the Pasta macro) must not turn this
+        # explicit type-qualified call into an unresolved free-function use.
+        other = "crates/low/src/other.rs"
+        self.write(other, "pub fn zero() {}\n")
+        tree = CHECKER.Tree(self.root)
+        self.assertEqual(
+            CHECKER.find_callers(tree, RING, "zero", [RING, BACKEND, other], []),
+            ({BACKEND: ["shared_zero"]}, True),
+        )
+
+    def test_generic_type_method_is_attributed_and_unknown_receiver_stays_open(self) -> None:
+        self.append(RING, (
+            "fn typed_generic() {\n    RnsChain::<Vec<Vec<u64>>>::product(&RnsChain);\n}\n"
+            "fn typed_function() {\n    RnsChain::<fn() -> Vec<u8>>::product(&RnsChain);\n}\n"
+        ))
+        expected = {RING: ["typed_function", "typed_generic"]}
+        tree = CHECKER.Tree(self.root)
+        self.assertEqual(CHECKER.find_callers(tree, RING, "RnsChain::product", [RING], []), (expected, True))
+        self.append(RING, "fn unresolved() {\n    <T as Factory>::product();\n}\n")
+        tree = CHECKER.Tree(self.root)
+        self.assertEqual(CHECKER.find_callers(tree, RING, "RnsChain::product", [RING], []), (expected, False))
+
     def test_free_function_callers_follow_the_defining_module(self) -> None:
         self.write("crates/low/src/lib.rs", "//! Low layer.\npub mod ring;\npub mod other;\npub mod user;\n")
         self.write("crates/low/src/other.rs", "pub fn ntt_forward(values: &mut [u64]) {\n    let _ = values;\n}\nfn own() {\n    ntt_forward(&mut []);\n}\n")

@@ -154,9 +154,12 @@ fn observer_pool_is_charged_and_refusal_preserves_original_source() {
     let expected = budget
         .try_reserve(std::alloc::Layout::array::<ChargedBuffer<u8>>(1).unwrap())
         .unwrap_err();
-    let error = pending_evidence_admissions(state, 3, state.state_view_generation()).expect_err(
-        "HC912 pending selection must preserve original capacity refusal and signed source",
-    );
+    let error = match pending_evidence_admissions(state, 3, state.state_view_generation()) {
+        Err(error) => error,
+        Ok(selected) => panic!(
+            "HC912 pending selection must preserve original capacity refusal and signed source\n{selected:?}"
+        ),
+    };
     let EvidenceAdmissionError::Preparation(EvidencePreparationError::Admission(actual)) = error
     else {
         panic!("pending selection must preserve the original typed capacity source");

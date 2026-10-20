@@ -21,6 +21,9 @@ use crate::{
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 use iroha_data_model::{
     block::{ExternalExecutionRouteRole, consensus::SumeragiRootScope},
+    governance::anonymous_ballot::{
+        AuthenticatedParliamentCandidateTestingV1, authenticate_parliament_candidate_genesis_v1,
+    },
     transaction::error::TransactionRejectionReason,
 };
 use std::borrow::Cow;
@@ -39,6 +42,7 @@ pub(crate) struct CapturedNetworkPolicyRoute {
     native: RoutingDecision,
     signed_hash: Option<HashOf<SignedTransaction>>,
     projection: PolicyProjection,
+    candidate_testing: Option<AuthenticatedParliamentCandidateTestingV1>,
 }
 
 /// Opaque instruction bootstrap authority for one original authenticated Network input.
@@ -48,9 +52,28 @@ pub(crate) struct GenesisExecutionScope {
     header: BlockHeader,
     entrypoint: HashOf<TransactionEntrypoint>,
     index: u64,
+    candidate_testing: Option<AuthenticatedParliamentCandidateTestingV1>,
 }
 
 impl GenesisExecutionScope {
+    /// A consumed or rejected reserved instruction cannot reuse this input's selection.
+    pub(super) fn clear_candidate_testing(&mut self) {
+        self.candidate_testing = None;
+    }
+
+    /// Selection is useful only in its original network and exact signed input.
+    pub(super) fn candidate_testing(
+        &self,
+        state: &StateTransaction<'_, '_>,
+    ) -> Option<AuthenticatedParliamentCandidateTestingV1> {
+        let selection = self.candidate_testing?;
+        (self.for_transaction(state).is_some()
+            && selection.network_id() == state.network_id
+            && selection.source_entrypoint_hash() == self.entrypoint
+            && u64::try_from(selection.source_position().0).ok() == Some(self.index))
+        .then_some(selection)
+    }
+
     /// Keep nested effects within the original authenticated genesis input's overlay.
     pub(crate) fn for_transaction(
         &self,
@@ -84,6 +107,7 @@ impl CapturedNetworkPolicyRoute {
                 }
                 Ok(Some(GenesisExecutionScope {
                     scope,
+                    candidate_testing: self.candidate_testing,
                     header: state._curr_block,
                     entrypoint: tx.hash_as_entrypoint(),
                     index: state.current_entrypoint_index.ok_or_else(|| {
@@ -179,6 +203,7 @@ impl CapturedNetworkPolicyRoute {
             native,
             signed_hash: tx.external().map(SignedTransaction::hash),
             projection,
+            candidate_testing: None,
         })
     }
 }
@@ -189,10 +214,18 @@ fn policy_rejection(message: impl Into<String>) -> TransactionRejectionReason {
     ))
 }
 
+/// Compact per-input projection; the optional genesis selection is held once by its source.
+#[derive(Clone, Copy)]
+struct StoredPolicyRoute {
+    native: RoutingDecision,
+    signed_hash: Option<HashOf<SignedTransaction>>,
+    projection: PolicyProjection,
+}
+
 #[derive(Clone, Copy)]
 struct SourceRow {
     entrypoint: HashOf<TransactionEntrypoint>,
-    route: CapturedNetworkPolicyRoute,
+    route: StoredPolicyRoute,
 }
 
 /// Fixed backing remains charged while output/transaction owners coexist with these rows.
@@ -200,6 +233,7 @@ struct SourceRow {
 pub(super) struct CapturedNetworkPolicyRoutes {
     carrier: HashOf<BlockHeader>,
     rows: ChargedBuffer<SourceRow>,
+    candidate_testing: Option<AuthenticatedParliamentCandidateTestingV1>,
     invalid_context: Option<&'static str>,
     captured: bool,
 }
@@ -221,6 +255,7 @@ impl CapturedNetworkPolicyRoutes {
         Ok(Self {
             carrier: source.hash(),
             rows,
+            candidate_testing: None,
             invalid_context: None,
             captured: false,
         })
@@ -282,29 +317,22 @@ impl CapturedNetworkPolicyRoutes {
             })?
             .and_then(|block| u64::try_from(block.header().creation_time().as_millis()).ok())
             .unwrap_or(0);
-        let root_scope = if genesis {
+        let (root_scope, candidate_testing) = if genesis {
             // A height-one header alone is not genesis authority. Reuse the canonical
             // original-signature/domain/committee verifier before reading its scope.
-            iroha_data_model::sumeragi_finality::authenticated_genesis(source)
-                .map(|genesis| genesis.into_parts().0)
-                .map_err(|error| {
-                    crate::execution_attempt::genesis_read_attempt_error(error, |_| {
-                        "Network genesis has no authenticated original authority".into()
-                    })
-                })?;
-            Some(
-                iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(source)
-                    .map_err(|error| {
-                        crate::execution_attempt::genesis_read_attempt_error(error, |_| {
-                            "Network genesis has no valid signed root scope".into()
-                        })
-                    })?
-                    .sumeragi_context
-                    .root_scope,
+            let (authenticated, selection) =
+                authenticate_parliament_candidate_genesis_v1(source, &state.network_id)
+                    .map_err(super::parliament_candidate_testing::candidate_policy_attempt_error)?;
+            (
+                Some(authenticated.metadata().sumeragi_context.root_scope),
+                selection,
             )
         } else {
-            crate::sumeragi::lanes::routing::read_routing_root_scope(&state.world)
-                .map_err(ExecutionAttemptError::Deferred)?
+            (
+                crate::sumeragi::lanes::routing::read_routing_root_scope(&state.world)
+                    .map_err(ExecutionAttemptError::Deferred)?,
+                None,
+            )
         };
         let root_scope = root_scope.ok_or("Network source has no immutable root scope")?;
         let policy = crate::sumeragi::lanes::lane_policy(&state.world)
@@ -376,7 +404,7 @@ impl CapturedNetworkPolicyRoutes {
             self.rows
                 .append(&[SourceRow {
                     entrypoint: input.hash(),
-                    route: CapturedNetworkPolicyRoute {
+                    route: StoredPolicyRoute {
                         native,
                         signed_hash: accepted.external().map(SignedTransaction::hash),
                         projection,
@@ -384,6 +412,8 @@ impl CapturedNetworkPolicyRoutes {
                 }])
                 .expect("one prepaid row per exact Network input");
         }
+        // Publish the one original selection only after every source row is captured.
+        self.candidate_testing = candidate_testing;
         Ok(())
     }
 
@@ -420,7 +450,19 @@ impl CapturedNetworkPolicyRoutes {
         {
             return Err("physical policy source ordinal/hash changed");
         }
-        Ok((row.route.native, row.route))
+        let candidate_testing = self.candidate_testing.filter(|selection| {
+            matches!(row.route.projection, PolicyProjection::Genesis(_))
+                && selection.network_id() == NetworkId::from_genesis_hash(self.carrier)
+                && selection.source_position().0 == index
+                && selection.source_entrypoint_hash() == row.entrypoint
+        });
+        let route = CapturedNetworkPolicyRoute {
+            native: row.route.native,
+            signed_hash: row.route.signed_hash,
+            projection: row.route.projection,
+            candidate_testing,
+        };
+        Ok((route.native, route))
     }
 }
 
