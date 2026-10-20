@@ -167,13 +167,23 @@ fn malformed_frames_remain_corruption_without_funded_destination_or_absence() {
                 .complete(&budget)
                 .err()
                 .expect("malformed canonical part");
-            assert!(matches!(error, CertificateReadError::Decode(_)));
+            assert!(match (index, error) {
+                (0 | 1, CertificateReadError::Canonical(original)) =>
+                    original.kind() == ncore::DecodeAttemptErrorKind::Invalid,
+                (2, CertificateReadError::Decode(_)) => true,
+                _ => false,
+            });
             assert_eq!(budget.reserved_bytes(), 0);
             let (job, error) = job
                 .complete(&budget)
                 .err()
                 .expect("same corruption on retry");
-            assert!(matches!(error, CertificateReadError::Decode(_)));
+            assert!(match (index, error) {
+                (0 | 1, CertificateReadError::Canonical(original)) =>
+                    original.kind() == ncore::DecodeAttemptErrorKind::Invalid,
+                (2, CertificateReadError::Decode(_)) => true,
+                _ => false,
+            });
             assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
                 job.source(),
                 &changed
@@ -214,16 +224,16 @@ fn malformed_signed_table_count_and_header_cap_reject_before_output_allocation()
     ];
     assert!(matches!(
         metadata::decoded_header(&oversized),
-        Err(CertificateReadError::Decode(
-            norito::Error::FieldLengthExceeded { .. }
-        ))
+        Err(CertificateReadError::Canonical(original))
+            if original.kind() == ncore::DecodeAttemptErrorKind::Invalid
+                && matches!(original.error(), norito::Error::FieldLengthExceeded { .. })
     ));
     let budget = AllocationBudget::new(1 << 25);
     assert!(matches!(
         metadata::header(&oversized, &budget),
-        Err(CertificateReadError::Decode(
-            norito::Error::FieldLengthExceeded { .. }
-        ))
+        Err(CertificateReadError::Canonical(original))
+            if original.kind() == ncore::DecodeAttemptErrorKind::Invalid
+                && matches!(original.error(), norito::Error::FieldLengthExceeded { .. })
     ));
     assert_eq!(budget.reserved_bytes(), 0);
 }
@@ -252,14 +262,19 @@ fn prefix_metadata_refusal_retains_original_source_header_and_release_provenance
     let qc = metadata::qc(certificate.commit_qc(), &pool).unwrap();
     let qc_bytes = pool.reserved_bytes() - header_bytes;
     drop((header, qc));
+    let controls: usize = ncore::PreparedDecodeWorkspace::allocation_layouts()
+        .iter()
+        .map(std::alloc::Layout::size)
+        .sum();
+    let qc_peak = qc_bytes + controls;
     let blocker = pool
-        .try_reserve_bytes(pool.limit_bytes() - header_bytes - qc_bytes + 1)
+        .try_reserve_bytes(pool.limit_bytes() - header_bytes - qc_peak + 1)
         .unwrap();
     let (job, error) = CertificateRead::new(source.clone(), pool.clone())
         .complete_for_prefix(&pool)
         .err()
         .expect("original QC capacity refusal");
-    let expected = pool.try_reserve_bytes(qc_bytes).unwrap_err();
+    let expected = pool.try_reserve_bytes(qc_peak).unwrap_err();
     assert!(
         matches!(error,
         CertificateReadError::Admission(ByteAdmissionError::Buffer(iroha_allocation::ChargedBufferError::Admission(actual)))
@@ -591,9 +606,10 @@ fn certificate_metadata_kernel_matches_durable_decoder_verdicts_and_values() {
             }
             (
                 Err(_),
-                Err(CertificateReadError::Decode(_)),
-                Err(CertificateReadError::Decode(_)),
-            ) => {}
+                Err(CertificateReadError::Canonical(funded)),
+                Err(CertificateReadError::Canonical(native)),
+            ) if funded.kind() == ncore::DecodeAttemptErrorKind::Invalid
+                && native.kind() == ncore::DecodeAttemptErrorKind::Invalid => {}
             _ => panic!(
                 "{label}: durable {durable:?}, funded {funded:?} and native {native:?} disagree"
             ),
@@ -614,9 +630,10 @@ fn certificate_metadata_kernel_matches_durable_decoder_verdicts_and_values() {
             }
             (
                 Err(_),
-                Err(CertificateReadError::Decode(_)),
-                Err(CertificateReadError::Decode(_)),
-            ) => {}
+                Err(CertificateReadError::Canonical(funded)),
+                Err(CertificateReadError::Canonical(native)),
+            ) if funded.kind() == ncore::DecodeAttemptErrorKind::Invalid
+                && native.kind() == ncore::DecodeAttemptErrorKind::Invalid => {}
             _ => panic!(
                 "{label}: durable {durable:?}, funded {funded:?} and native {native:?} disagree"
             ),
@@ -657,7 +674,12 @@ fn reader_verdicts(
             assert_eq!(native.header, *prefix.header, "{label}");
             assert_eq!(native.commit_qc, *prefix.commit_qc, "{label}");
         }
-        (Err((_, CertificateReadError::Decode(_))), Err((_, CertificateReadError::Decode(_)))) => {
+        (
+            Err((_, CertificateReadError::Canonical(native))),
+            Err((_, CertificateReadError::Canonical(prefix))),
+        ) if native.kind() == ncore::DecodeAttemptErrorKind::Invalid
+            && prefix.kind() == ncore::DecodeAttemptErrorKind::Invalid =>
+        {
             assert!(!accepted, "{label}: both readers reject an accepted frame")
         }
         (native, prefix) => panic!(

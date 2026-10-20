@@ -1,0 +1,166 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --profile local-release -p iroha_data_model --features transparent_api --lib -- anonymous block::execution_output::tests block::tests::sealed_reveal_batch_outcome_aliases_are_unique_and_single_assignment --nocapture --test-threads=1
+    Blocking waiting for file lock on artifact directory
+   Compiling iroha_plonk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk)
+warning: iroha_plonk@2.0.0-rc.2.0: closed source registry disabled: source changed during identity computation
+   Compiling sorafs_manifest v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_manifest)
+   Compiling iroha_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_data_model)
+    Finished `local-release` profile [optimized] target(s) in 20m 39s
+     Running unittests src/lib.rs (target/cargo-fast/parliament-development/local-release/deps/iroha_data_model-8be1310064781985)
+
+running 147 tests
+test account::address::tests::address_resource_conversions_preserve_fields_and_anonymous_bounds_without_minting_scope ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_cannot_be_a_pipeline_network_event_source ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_outputs_refuse_each_side_output_on_success_and_rejection ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_outputs_refuse_trigger_success_and_ordinary_rejections ... ok
+test block::execution_output::tests::anonymous_ballot::anonymous_ballot_outputs_roundtrip_all_three_canonical_outcomes ... ok
+test block::execution_output::tests::anonymous_ballot::identical_anonymous_inputs_keep_distinct_results_and_canonical_source_positions ... ok
+test block::execution_output::tests::anonymous_ballot::ordinary_network_and_internal_outputs_refuse_ballot_rejection_reasons ... ok
+test block::execution_output::tests::bounded_output_limit_terminals_roundtrip_and_preserve_invocation_identity ... ok
+test block::execution_output::tests::bounded_terminal_does_not_hide_receipts_or_ordinary_failure_diagnostics ... ok
+test block::execution_output::tests::bounded_terminals_roundtrip_maximum_trigger_name_and_scalar_positions ... ok
+test block::execution_output::tests::equal_time_displays_have_distinct_actual_occurrence_owners ... ok
+test block::execution_output::tests::execution_input_validation_uses_bounded_random_access ... ok
+test block::execution_output::tests::execution_inputs_borrow_slices_arrays_vectors_and_block_sources ... ok
+test block::execution_output::tests::execution_output_allows_real_candidate_gaps_but_not_event_order_reversal ... ok
+test block::execution_output::tests::execution_output_json_requires_null_slot_and_rejects_unknown_owner_fields ... ok
+test block::execution_output::tests::execution_output_preserves_sealed_outer_source_and_inner_call_identity ... ok
+test block::execution_output::tests::execution_output_rejects_foreign_sources_phases_and_duplicate_candidates ... ok
+test block::execution_output::tests::execution_output_rejects_invalid_chronology_intervals_and_completion_positions ... ok
+test block::execution_output::tests::execution_output_rejects_root_diagnostic_and_rollback_receipt_substitutions ... ok
+test block::execution_output::tests::execution_output_roundtrips_all_owners_diagnostics_and_exact_receipts ... ok
+test block::execution_output::tests::invocation_identity_commits_every_prebody_field_and_distinct_domains ... ok
+test block::execution_output::tests::omitted_failure_root_requires_exact_typed_terminal_and_only_root_completion ... ok
+test block::execution_output::tests::omitted_internal_rejection_has_a_distinct_exact_roundtrip_shape ... ok
+test block::execution_output::tests::omitted_internal_rejection_refuses_tampered_result_root_completion_and_receipts ... ok
+test block::execution_output::tests::output_result_and_receipt_mutation_never_changes_prebody_identity ... ok
+test block::execution_output::tests::pipeline_network_event_requires_actual_signed_transaction_source_kind ... ok
+test block::execution_output::tests::rejected_internal_output_retains_only_the_whole_invocation_root_failure ... ok
+test block::execution_output::tests::rejected_network_output_cannot_retain_rolled_back_callback_completions ... ok
+test block::execution_output::tests::synthetic_time_entrypoint_cannot_decode_or_own_a_network_output ... ok
+test block::execution_output::tests::trigger_use_rejects_retired_parallel_authority_slot ... ok
+test block::tests::sealed_reveal_batch_outcome_aliases_are_unique_and_single_assignment ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::a_stricter_enclosing_budget_refuses_before_copy_and_is_restored_afterward ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::binary_carrier_keeps_the_original_inner_proof_budget_refusal ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::every_vote_decodes_with_one_exact_proof_charge_and_no_sequence_elements ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::json_carrier_keeps_the_original_inner_proof_budget_refusal ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::malformed_prefixes_and_unknown_vote_tags_fail_before_the_proof_charge ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::outer_cap_and_unusable_frame_lengths_refuse_before_the_proof_charge ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::post_proof_failure_returns_no_value_and_does_not_refund_nominal_charges ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::wrong_fixed_field_lengths_with_valid_outer_framing_never_copy_the_proof ... ok
+test governance::anonymous_ballot::ballot::envelope_decode_tests::wrong_proof_lengths_with_valid_outer_framing_refuse_before_allocation ... ok
+test governance::anonymous_ballot::ballot::tests::a_wrong_length_ballot_field_is_rejected_at_decode ... ok
+test governance::anonymous_ballot::ballot::tests::choices_use_the_profile_codes ... ok
+test governance::anonymous_ballot::ballot::tests::corpus_entries_copy_the_public_fields_and_need_a_height ... ok
+test governance::anonymous_ballot::ballot::tests::rejections_round_trip_and_explain_themselves ... ok
+test governance::anonymous_ballot::ballot::tests::the_authorization_payload_is_every_field_but_the_stamp ... ok
+test governance::anonymous_ballot::ballot::tests::the_canonical_envelope_check_leaves_the_enclosing_decode_intact ... ok
+test governance::anonymous_ballot::ballot::tests::the_canonical_envelope_keeps_exactly_the_canonical_bytes ... ok
+test governance::anonymous_ballot::ballot::tests::the_envelope_has_a_fixed_canonical_size_within_its_cap ... ok
+test governance::anonymous_ballot::bytes::tests::proofs_have_exactly_the_candidate_row_lengths ... ok
+test governance::anonymous_ballot::bytes::tests::short_values_encode_exactly_their_raw_bytes ... ok
+test governance::anonymous_ballot::bytes::tests::short_values_have_exactly_their_length_and_spelling ... ok
+test governance::anonymous_ballot::bytes::tests::the_v1_profile_identifier_is_the_candidate_descriptor_digest ... ok
+test governance::anonymous_ballot::closure::tests::a_consistent_record_validates_and_round_trips ... ok
+test governance::anonymous_ballot::closure::tests::inconsistent_counts_outcomes_and_flags_are_refused ... ok
+test governance::anonymous_ballot::closure::tests::the_clock_and_closure_anchors_are_checked ... ok
+test governance::anonymous_ballot::closure::tests::the_design_boundaries_recompute_exactly ... ok
+test governance::anonymous_ballot::closure::tests::the_record_must_agree_with_its_frozen_policy ... ok
+test governance::anonymous_ballot::context::context_decode_tests::binary_list_carrier_retains_the_original_inner_budget_refusal ... ok
+test governance::anonymous_ballot::context::context_decode_tests::excessive_policy_counts_refuse_before_policy_sequence_allocation ... ok
+test governance::anonymous_ballot::context::context_decode_tests::excessive_roster_counts_refuse_before_sequence_allocation ... ok
+test governance::anonymous_ballot::context::context_decode_tests::individually_bounded_sequences_cannot_exceed_the_combined_count ... ok
+test governance::anonymous_ballot::context::context_decode_tests::json_list_carrier_retains_the_original_inner_budget_refusal ... ok
+test governance::anonymous_ballot::context::context_decode_tests::malformed_record_length_refuses_before_graph_allocation ... ok
+test governance::anonymous_ballot::context::context_decode_tests::narrower_enclosing_limits_survive_and_failed_decode_restores_scope ... ok
+test governance::anonymous_ballot::context::context_decode_tests::outer_cap_and_declared_frame_length_refuse_before_graph_allocation ... ok
+test governance::anonymous_ballot::context::context_decode_tests::smaller_excess_policy_lists_still_fail_structural_validation ... ok
+test governance::anonymous_ballot::context::context_wire_size_tests::canonical_sizes_match_both_vector_prefix_transitions ... ok
+test governance::anonymous_ballot::context::context_wire_size_tests::envelope_width_is_fixed_for_every_vote_choice ... ok
+test governance::anonymous_ballot::context::context_wire_size_tests::every_canonical_body_subset_has_the_predicted_width ... ok
+test governance::anonymous_ballot::context::context_wire_size_tests::integral_bond_signed_length_boundaries_match_the_formula ... ok
+test governance::anonymous_ballot::context::context_wire_size_tests::maximal_valid_context_fits_and_roundtrips_through_the_typed_decoder ... ok
+test governance::anonymous_ballot::context::context_wire_size_tests::source_formula_is_monotone_over_the_complete_valid_size_domain ... ok
+test governance::anonymous_ballot::context::tests::authenticated_contexts_validate_and_fit_the_cap_at_one_thousand_seats ... ok
+test governance::anonymous_ballot::context::tests::body_contexts_are_binding_juries ... ok
+test governance::anonymous_ballot::context::tests::decoding_refuses_an_invalid_list ... ok
+test governance::anonymous_ballot::context::tests::published_list_bytes_are_exactly_the_canonical_frame ... ok
+test governance::anonymous_ballot::context::tests::registrations_pairs_and_bindings_round_trip ... ok
+test governance::anonymous_ballot::context::tests::roster_preimages_are_canonical_and_bind_one_seat_per_assignment ... ok
+test governance::anonymous_ballot::context::tests::sealed_lists_enforce_size_order_profile_and_seats ... ok
+test governance::anonymous_ballot::context::tests::the_largest_sealed_list_fits_the_context_cap_with_raw_commitments ... ok
+test governance::anonymous_ballot::context::tests::the_sealed_seats_are_capped_by_the_frozen_target_and_at_least_three ... ok
+test governance::anonymous_ballot::context::tests::validating_decode_hooks_leave_the_enclosing_decode_intact ... ok
+test governance::anonymous_ballot::digests::tests::corpus_digests_follow_their_formulas ... ok
+test governance::anonymous_ballot::digests::tests::stamp_digests_follow_their_formulas_and_count_leading_zeros ... ok
+test governance::anonymous_ballot::digests::tests::the_authority_binding_and_proposal_digest_frame_their_typed_values ... ok
+test governance::anonymous_ballot::digests::tests::the_corpus_fold_rejects_every_noncanonical_corpus ... ok
+test governance::anonymous_ballot::digests::tests::the_encoded_context_constructor_enforces_its_byte_cap ... ok
+test governance::anonymous_ballot::digests::tests::the_encoded_context_form_decides_exactly_as_the_simple_form ... ok
+test governance::anonymous_ballot::digests::tests::the_envelope_digest_frames_the_exact_bytes ... ok
+test governance::anonymous_ballot::digests::tests::the_frame_tags_are_distinct_ascii ... ok
+test governance::anonymous_ballot::digests::tests::the_registration_mapping_digest_sorts_by_assignment_and_frames_the_pairs ... ok
+test governance::anonymous_ballot::digests::tests::the_registration_mapping_must_be_exactly_the_sealed_list ... ok
+test governance::anonymous_ballot::digests::tests::the_result_root_frames_the_closure_record ... ok
+test governance::anonymous_ballot::digests::tests::the_roster_root_frames_the_extended_preimage ... ok
+test governance::anonymous_ballot::framing::tests::a_frame_digest_is_sha3_512_of_the_frame ... ok
+test governance::anonymous_ballot::framing::tests::a_frame_has_the_layout_of_the_profile ... ok
+test governance::anonymous_ballot::framing::tests::canonical_decoders_retain_original_enclosing_refusals ... ok
+test governance::anonymous_ballot::framing::tests::decode_enc_refuses_every_other_header_and_payload ... ok
+test governance::anonymous_ballot::framing::tests::enc_is_the_pinned_canonical_frame ... ok
+test governance::anonymous_ballot::framing::tests::frame_misuse_is_a_typed_error ... ok
+test governance::anonymous_ballot::framing::tests::schema_limits_are_invalid_even_when_an_enclosing_limit_has_the_same_ceiling ... ok
+test governance::anonymous_ballot::framing::tests::the_flags_byte_is_compact_len_exactly_when_a_length_prefix_is_written ... ok
+test governance::anonymous_ballot::outcome::tests::malformed_tallies_are_errors ... ok
+test governance::anonymous_ballot::outcome::tests::outcomes_and_the_rule_round_trip ... ok
+test governance::anonymous_ballot::outcome::tests::the_emergency_quorum_applies_to_the_policy_jury_only ... ok
+test governance::anonymous_ballot::outcome::tests::the_narrow_edge_is_strictly_below_five_percent ... ok
+test governance::anonymous_ballot::outcome::tests::three_seats_need_all_three_ballots ... ok
+test governance::anonymous_ballot::outcome::tests::ties_reject_for_every_body_and_tier ... ok
+test governance::anonymous_ballot::outcome::tests::turnout_one_below_the_floor_is_no_quorum ... ok
+test governance::anonymous_ballot::output::tests::a_published_list_must_decode_to_a_valid_list ... ok
+test governance::anonymous_ballot::output::tests::every_block_start_output_round_trips_and_validates ... ok
+test governance::anonymous_ballot::output::tests::only_the_casting_clock_uses_the_prelude_anchor ... ok
+test governance::anonymous_ballot::output::tests::the_largest_encoding_of_each_ballot_output_fits_its_row_cap ... ok
+test governance::anonymous_ballot::output::tests::the_partition_holds_every_prelude_row_and_one_maximal_item ... ok
+test governance::anonymous_ballot::policy::tests::a_public_pipeline_freezes_without_a_binding_policy ... ok
+test governance::anonymous_ballot::policy::tests::both_ballot_policies_derive_from_the_snapshot_and_differ_only_by_role ... ok
+test governance::anonymous_ballot::policy::tests::casting_parameters_and_capacity_are_enforced ... ok
+test governance::anonymous_ballot::policy::tests::fixed_constants_and_the_role_are_enforced ... ok
+test governance::anonymous_ballot::policy::tests::freezing_refuses_incomplete_or_invalid_inputs ... ok
+test governance::anonymous_ballot::policy::tests::lifecycle_bounds_are_enforced_per_window ... ok
+test governance::anonymous_ballot::policy::tests::sortition_bounds_are_enforced_against_their_own_ceilings ... ok
+test governance::anonymous_ballot::policy::tests::the_attempt_policy_freezes_the_committed_parameters ... ok
+test governance::anonymous_ballot::policy::tests::the_capacity_commitment_records_the_derived_reservations ... ok
+test governance::anonymous_ballot::policy::tests::the_pipeline_is_ordered_with_both_juries_and_correct_modes ... ok
+test governance::anonymous_ballot::progress::tests::a_ticket_advances_one_height_towards_the_nearest_slot ... ok
+test governance::anonymous_ballot::progress::tests::malformed_tickets_are_refused_and_due_times_are_checked ... ok
+test governance::anonymous_ballot::proof_crate_tests::sealed_list_validation_agrees_with_the_proof_crate ... ok
+test governance::anonymous_ballot::proof_crate_tests::the_frame_and_its_digest_equal_the_proof_crate ... ok
+test governance::anonymous_ballot::proof_crate_tests::the_proposal_digest_equals_the_proof_crate_helper ... ok
+test governance::anonymous_ballot::proof_crate_tests::the_v1_profile_and_proof_lengths_are_the_compiled_candidate_row ... ok
+test governance::anonymous_ballot::proof_crate_tests::typed_encodings_are_valid_opaque_proof_inputs ... ok
+test governance::anonymous_ballot::qualification::tests::every_tuple_field_and_the_service_latency_must_match_the_candidate ... ok
+test governance::anonymous_ballot::qualification::tests::the_candidate_tuple_is_the_decided_one ... ok
+test governance::anonymous_ballot::qualification::tests::the_launch_gate_is_closed ... ok
+test governance::anonymous_ballot::qualification::tests::the_record_digest_frames_the_canonical_record ... ok
+test governance::anonymous_ballot::qualification::tests::the_record_must_name_the_compiled_candidate_and_sound_bounds ... ok
+test governance::anonymous_ballot::tests::a_canonical_envelope_carrier_fits_the_entrypoint_wire_reservation ... ok
+test governance::anonymous_ballot::tests::the_resource_constants_are_the_integration_decisions ... ok
+test transaction::error::tests::anonymous_ballot_rejections_roundtrip_with_their_exact_reason ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_binary_retains_the_inner_local_refusal ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_fixed_v1_ignores_and_restores_ambient_layout ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_has_no_signed_authority_or_metadata_and_hashes_full_carrier ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_json_delegates_to_checked_carrier_and_exact_writer ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_json_retains_the_inner_local_refusal ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_preserves_exact_envelope_in_every_binary_form ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_refuses_bad_inner_frames_versions_and_suffixes ... ok
+test transaction::signed::anonymous_ballot_tests::anonymous_ballot_entrypoint_tag_and_schema_leave_retired_three_unassigned ... ok
+
+test result: ok. 147 passed; 0 failed; 0 ignored; 0 measured; 5503 filtered out; finished in 0.64s
+

@@ -975,7 +975,7 @@ fn assert_same_epoch_parameter_change(chain: &CertifiedTestChain) {
         assert_eq!(
             funded.as_ref().ok(),
             oracle.as_ref().ok(),
-            "HC953 same-epoch parameter activation must verify with the active native configuration: {funded:?}"
+            "HC953 same-epoch parameter activation must verify with the active native configuration\n{funded:?}"
         );
         assert!(oracle.is_ok(), "genuine height {height}");
         assert_eq!(prefix.current_epoch_context(), incumbent.material());
@@ -1507,7 +1507,11 @@ fn assert_one_shot_push_funds_no_successor_owner(chain: &CertifiedTestChain) {
     assert_eq!(prefix.prefix.tip.height(), 3);
     let (current, genesis) = prefix
         .push_prepared(artifacts)
-        .expect("HC963 one-shot pushes admit no successor owner from the original pool")
+        .unwrap_or_else(|error| {
+            panic!(
+                "HC963 one-shot pushes admit no successor owner from the original pool\n{error:?}"
+            )
+        })
         .into_parts();
     assert!(genesis.is_none());
     assert_eq!(current.id(), expected);

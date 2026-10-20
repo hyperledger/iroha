@@ -22,6 +22,8 @@ pub(in crate::sumeragi) enum CertificateReadError {
     ForeignBudget,
     MissingCertificate,
     Decode(norito::Error),
+    /// Original decoder classification captured before its enclosing scope retires.
+    Canonical(ncore::DecodeAttemptError),
     Admission(ByteAdmissionError),
 }
 impl std::fmt::Display for CertificateReadError {
@@ -30,6 +32,7 @@ impl std::fmt::Display for CertificateReadError {
             Self::ForeignBudget => f.write_str("certificate read uses a foreign allocation pool"),
             Self::MissingCertificate => f.write_str("stored block has no certificate"),
             Self::Decode(error) => error.fmt(f),
+            Self::Canonical(error) => error.fmt(f),
             Self::Admission(error) => error.fmt(f),
         }
     }
@@ -38,6 +41,7 @@ impl std::error::Error for CertificateReadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Decode(error) => Some(error),
+            Self::Canonical(error) => Some(error),
             Self::Admission(error) => Some(error),
             _ => None,
         }

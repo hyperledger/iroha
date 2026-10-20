@@ -2063,6 +2063,32 @@ pub fn inspect_len_from_slice(bytes: &[u8]) -> Result<(usize, usize), Error> {
     let len = usize::try_from(value).map_err(|_| Error::LengthMismatch)?;
     Ok((len, used))
 }
+/// Inspect only a field prefix for a caller-bounded, non-authoritative shape plan.
+///
+/// Reuses the canonical prefix parser, including minimal-varint and flag checks,
+/// but neither checks active field ceilings nor charges any decode counters. The
+/// returned length does not establish that the referenced bytes exist or are
+/// admissible. Callers must bound the complete input and every resulting extent
+/// before sizing storage; they must then use the ordinary canonical decoder or
+/// [`PreparedDecodeWorkspace::decode_canonical_into`] as their sole authoritative
+/// field/depth/accounting traversal before publishing a value. This inspection
+/// must never replace canonical decoding, grant protocol authority, or reset an
+/// enclosing caller budget. It accepts an explicit already-advertised flag set so
+/// ambient payload context cannot silently select another layout.
+///
+/// # Errors
+/// Returns the existing prefix/flag error for unsupported flags, truncation,
+/// nonminimal or overflowing varints, or a length outside the platform's `usize`.
+#[doc(hidden)]
+pub fn inspect_raw_len_from_slice_with_flags(
+    bytes: &[u8],
+    flags: u8,
+) -> Result<(usize, usize), Error> {
+    validate_header_flags(flags)?;
+    let (value, used) = read_raw_len_from_slice_with_flags(bytes, flags)?;
+    let length = usize::try_from(value).map_err(|_| Error::LengthMismatch)?;
+    Ok((length, used))
+}
 /// Read a length prefix from a slice using an explicit Norito flag snapshot.
 /// Returns (value, bytes consumed).
 #[doc(hidden)]
@@ -2114,14 +2140,36 @@ pub fn read_seq_len_slice(bytes: &[u8]) -> Result<(usize, usize), Error> {
 pub fn inspect_seq_len_slice(bytes: &[u8]) -> Result<(usize, usize), Error> {
     read_seq_len_slice_impl(bytes, false)
 }
-fn read_seq_len_slice_impl(bytes: &[u8], account: bool) -> Result<(usize, usize), Error> {
+/// Inspect only the fixed sequence count for a caller-bounded shape plan.
+///
+/// This shares the fixed-count parser with [`read_seq_len_slice`] but does not
+/// inspect active sequence ceilings or charge elements/allocation. A count is
+/// not evidence that any elements exist. Before sizing storage, the caller must
+/// bound the complete input, count and every element extent independently. The
+/// subsequent ordinary canonical or prepared canonical traversal must enforce
+/// all original field, depth, element and allocation limits exactly once. This
+/// function grants no decoded-value validity and cannot replace that traversal.
+///
+/// # Errors
+/// Returns the existing truncation error or rejects a count outside `usize`.
+#[doc(hidden)]
+pub fn inspect_raw_seq_len_slice(bytes: &[u8]) -> Result<(usize, usize), Error> {
+    let raw_len = read_raw_seq_len_slice(bytes)?;
+    Ok((len_u64_to_usize(raw_len)?, 8))
+}
+
+fn read_raw_seq_len_slice(bytes: &[u8]) -> Result<u64, Error> {
     if bytes.len() < 8 {
         return Err(Error::LengthMismatch);
     }
     let mut len_bytes = [0u8; 8];
     len_bytes.copy_from_slice(&bytes[..8]);
     record_slice_access(bytes, 8);
-    let raw_len = u64::from_le_bytes(len_bytes);
+    Ok(u64::from_le_bytes(len_bytes))
+}
+
+fn read_seq_len_slice_impl(bytes: &[u8], account: bool) -> Result<(usize, usize), Error> {
+    let raw_len = read_raw_seq_len_slice(bytes)?;
     if account {
         enforce_decode_sequence_length(raw_len)?;
     } else {

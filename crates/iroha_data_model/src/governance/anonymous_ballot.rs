@@ -38,6 +38,7 @@
 
 mod ballot;
 mod bytes;
+mod candidate_testing;
 mod closure;
 mod context;
 pub mod digests;
@@ -59,6 +60,11 @@ pub use self::{
         AdmissionNonceV1, BallotAuthorityBindingV1, BallotProofBytesV1, BallotScopeV1,
         CredentialCommitmentV1, Digest512, FixedBytesErrorV1, NullifierV1, ProofProfileIdV1,
         RegistrationAuthorizationV1, RegistrationProofBytesV1, VoteAuthorizationV1,
+    },
+    candidate_testing::{
+        AuthenticatedParliamentCandidateTestingV1, ParliamentCandidateTestingErrorV1,
+        ParliamentCandidateTestingPolicyV1, authenticate_parliament_candidate_genesis_v1,
+        parliament_candidate_testing_from_genesis_v1,
     },
     closure::{BallotClosureErrorV1, BallotClosureRecordV1},
     context::{

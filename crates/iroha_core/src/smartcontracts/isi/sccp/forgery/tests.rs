@@ -1231,9 +1231,9 @@ fn proposal_recheck_requires_same_original_parent_and_preserves_local_refusal() 
     let refusal =
         verify_for_proposal(&view, current.block(), &evidence, 3_000, &scarce).unwrap_err();
     assert!(!refusal.is_protocol_rejection());
-    let crate::state::StateStorageAdmissionError::SccpEvidence(
+    let ForgeryLocalRefusal::Storage(crate::state::StateStorageAdmissionError::SccpEvidence(
         crate::state::EvidencePreparationError::Admission(refused),
-    ) = refusal.into_local_refusal().unwrap()
+    )) = refusal.into_local_refusal().unwrap()
     else {
         panic!("original pairing refusal, not protocol rejection")
     };

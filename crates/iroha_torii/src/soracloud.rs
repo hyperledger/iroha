@@ -12206,7 +12206,7 @@ mod tests {
                 model_name: None,
                 bundle_root: None,
             },
-            "service_name must use its exact canonical V1 spelling",
+            "invalid service_name: Name must already use the exact NFC spelling",
         );
         assert_bad_request(
             UploadedModelStatusQuery {
@@ -12266,7 +12266,7 @@ mod tests {
                 model_name: Some("cafe\u{301}".to_string()),
                 bundle_root: None,
             },
-            "model_name must use its exact canonical V1 spelling",
+            "invalid model_name: Name must already use the exact NFC spelling",
         );
         assert_bad_request(
             UploadedModelStatusQuery {

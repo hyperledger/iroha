@@ -541,8 +541,7 @@ fn policy_rows_remain_charged_until_the_original_block_owner_drops() {
 
 #[test]
 fn only_genesis_carries_explicit_bootstrap_policy_and_normal_scope_has_no_fallback() {
-    let state = state();
-    let entry = input(&state, "bootstrap");
+    let mut state = state();
     let genesis = crate::sumeragi::test_chain::signed_genesis_fixture(
         &state.chain_id,
         &ALICE_KEYPAIR,
@@ -553,6 +552,8 @@ fn only_genesis_carries_explicit_bootstrap_policy_and_normal_scope_has_no_fallba
         None,
     )
     .unwrap();
+    state.network_id = NetworkId::from_genesis_hash(genesis.hash());
+    let entry = input(&state, "bootstrap");
     before_effects(&state, &genesis, false, |block| {
         let (native, token) = block
             .network_policy_routes
@@ -675,12 +676,13 @@ fn allocation_refusal_precedes_normal_and_replacement_pristine_callbacks() {
 
 #[test]
 fn height_one_ordinary_carrier_cannot_acquire_genesis_bootstrap_authority() {
-    let state = state();
+    let mut state = state();
     let forged = source(
         vec![input(&state, "ordinary domain is not genesis")],
         1,
         None,
     );
+    state.network_id = NetworkId::from_genesis_hash(forged.hash());
     before_effects(&state, &forged, false, |block| {
         assert_eq!(
             block
@@ -695,13 +697,14 @@ fn height_one_ordinary_carrier_cannot_acquire_genesis_bootstrap_authority() {
 
 #[test]
 fn genesis_scope_comes_from_original_signed_body_and_private_bootstrap_stays_scoped() {
-    let state = state(); // Its synthetic committed metadata deliberately says Global.
+    let mut state = state(); // Its synthetic committed metadata deliberately says Global.
     let own = DataSpaceId::new((1_u64 << 40) + 9);
     let scope = SumeragiRootScope::Dataspace {
         parent_network_id: state.network_id,
         dataspace_id: own,
     };
     let genesis = crate::sumeragi::lanes::routing::test_support::signed_genesis(scope);
+    state.network_id = NetworkId::from_genesis_hash(genesis.hash());
     before_effects(&state, &genesis, false, |block| {
         let (native, token) = block
             .network_policy_routes
@@ -755,9 +758,10 @@ fn ordinary_capture_requires_immutable_metadata_even_with_valid_lane_policy() {
 
 #[test]
 fn genesis_instruction_capability_requires_both_signed_route_and_exact_authenticated_input() {
-    let state = state();
+    let mut state = state();
     let genesis =
         crate::sumeragi::lanes::routing::test_support::signed_genesis(SumeragiRootScope::Global);
+    state.network_id = NetworkId::from_genesis_hash(genesis.hash());
     let authenticated =
         crate::block::authenticate_genesis_block_intents(&genesis, &ALICE_ID).unwrap();
     let original = authenticated.transaction_for(&genesis, 0).unwrap();
@@ -947,4 +951,105 @@ fn original_root_scope_read_refusal_does_not_publish_invalid_native_context() {
 #[test]
 fn original_lane_policy_read_refusal_after_root_keeps_exact_capture_retryable() {
     original_routing_capture_refusal(None);
+}
+
+#[test]
+fn ordinary_policy_rows_keep_the_compact_layout_and_carry_no_genesis_selection() {
+    // These fields describe the row before candidate-selection custody was added.
+    // Compare layouts on this target rather than pinning speculative byte counts.
+    #[derive(Clone, Copy)]
+    struct PreviousRoute {
+        _native: RoutingDecision,
+        _signed_hash: Option<HashOf<SignedTransaction>>,
+        _projection: PolicyProjection,
+    }
+    #[derive(Clone, Copy)]
+    struct PreviousSourceRow {
+        _entrypoint: HashOf<TransactionEntrypoint>,
+        _route: PreviousRoute,
+    }
+    assert_eq!(
+        std::mem::size_of::<SourceRow>(),
+        std::mem::size_of::<PreviousSourceRow>(),
+    );
+    assert_eq!(
+        std::mem::align_of::<SourceRow>(),
+        std::mem::align_of::<PreviousSourceRow>(),
+    );
+    assert!(!std::mem::needs_drop::<SourceRow>());
+
+    let state = state();
+    let source = carrier(vec![
+        input(&state, "compact row a"),
+        input(&state, "compact row b"),
+    ]);
+    before_effects(&state, &source, false, |block| {
+        let owner = block.network_policy_routes.as_ref().unwrap();
+        assert!(owner.candidate_testing.is_none());
+        for index in 0..source.network_entrypoint_count() {
+            let (_, route) = owner.get(&source, index).unwrap();
+            assert!(route.candidate_testing.is_none());
+            assert!(matches!(route.projection, PolicyProjection::Signed(_)));
+        }
+    });
+}
+
+#[test]
+fn one_genesis_selection_is_attached_only_to_its_exact_original_input() {
+    use iroha_data_model::{
+        governance::anonymous_ballot::ParliamentCandidateTestingPolicyV1, isi::SetParameter,
+    };
+
+    let first =
+        crate::sumeragi::lanes::routing::test_support::signed_genesis(SumeragiRootScope::Global);
+    let mut originals: Vec<_> = first.external_transactions().cloned().collect();
+    let original = originals.first().unwrap();
+    let mut builder = TransactionBuilder::new_genesis(
+        original.authority().clone(),
+        original.fee_payment_intent().clone(),
+    );
+    builder.set_creation_time(std::time::Duration::from_millis(2_000));
+    let selected = builder
+        .with_instructions([SetParameter::new(Parameter::Custom(
+            ParliamentCandidateTestingPolicyV1::CANDIDATE_V1
+                .to_custom_parameter()
+                .unwrap(),
+        ))])
+        .sign(ALICE_KEYPAIR.private_key());
+    let selected_hash = selected.hash_as_entrypoint();
+    let selected_index = originals.len();
+    originals.push(selected);
+    let source = SignedBlock::try_genesis_with_da_proof_policies(
+        originals,
+        ALICE_KEYPAIR.private_key(),
+        None,
+        None,
+        first.da_proof_policies().cloned(),
+    )
+    .unwrap();
+    let mut state = state();
+    state.network_id = NetworkId::from_genesis_hash(source.hash());
+    before_effects(&state, &source, false, |block| {
+        let owner = block.network_policy_routes.as_ref().unwrap();
+        let selection = owner.candidate_testing.unwrap();
+        assert_eq!(selection.source_position(), (selected_index, 0));
+        assert_eq!(selection.source_entrypoint_hash(), selected_hash);
+        for index in 0..source.network_entrypoint_count() {
+            let (_, route) = owner.get(&source, index).unwrap();
+            if index == selected_index {
+                let attached = route.candidate_testing.unwrap();
+                assert_eq!(attached.source_position(), selection.source_position());
+                assert_eq!(attached.source_entrypoint_hash(), selected_hash);
+                assert_eq!(attached.network_id(), state.network_id);
+            } else {
+                assert!(route.candidate_testing.is_none());
+            }
+        }
+        assert!(
+            owner
+                .get(&source, source.network_entrypoint_count())
+                .is_err()
+        );
+        assert!(owner.get(&first, 0).is_err());
+    });
 }

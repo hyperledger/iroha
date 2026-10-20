@@ -83,6 +83,9 @@ fn native_amx_handoff_registration_without_explicit_genesis_grant_refuses() {
 
 #[test]
 fn native_amx_handoff_discovery_delivers_final_boundary_without_record_and_replays_both_roots() {
+    // Keep unrelated State retirement fixed while measuring exact reader/proof refunds.
+    // Pin before replay can retire charged generations into the shared epoch collector.
+    let _state_retirement = crossbeam_epoch::pin();
     let (global, mut participant) = boundary_roots();
     assert!(
         !prepared_intent_path(&global).exists(),

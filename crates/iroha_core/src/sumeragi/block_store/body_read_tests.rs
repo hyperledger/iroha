@@ -83,6 +83,14 @@ impl BodyReadJob for FixtureRead {
                         CertificateReadError::Decode(error) => {
                             Err(BodyReadError::from_decode(error))
                         }
+                        CertificateReadError::Canonical(original) => {
+                            Err(BodyReadError::from_attempt(
+                                crate::execution_attempt::canonical_decode_attempt_error(
+                                    original,
+                                    |error| io::Error::new(io::ErrorKind::InvalidData, error),
+                                ),
+                            ))
+                        }
                         CertificateReadError::Admission(error) if error.is_local_refusal() => {
                             Ok(BodyReadPoll::Pending(error))
                         }

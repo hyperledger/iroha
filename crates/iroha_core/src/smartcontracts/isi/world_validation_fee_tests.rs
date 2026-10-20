@@ -1337,6 +1337,22 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
         ]
     };
     let (state, program_id, vault_key) = staged_fee_sponsor_activation_fixture();
+    let mut nexus = state.nexus_snapshot();
+    nexus.dataspace_fee_sponsor_program_ids.clear();
+    nexus.fees.fee_asset_id = vault_key.asset_definition_id.clone();
+    nexus.fees.base_fee = Quantity::zero();
+    nexus.fees.per_byte_fee = Quantity::zero();
+    nexus.fees.per_instruction_fee = "0.001".parse().unwrap();
+    nexus.fees.per_gas_unit_fee = "0.00005".parse().unwrap();
+    // Quote the exact stored monetary policy. Local configuration cannot supply
+    // the predecessor's fee schedule for this ordinary-height component fixture.
+    let mut parameters = state.world.parameters.block();
+    parameters
+        .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+            nexus.fees.clone().into_custom_parameter().unwrap(),
+        ))
+        .expect("author the component fee policy");
+    parameters.commit();
     let header =
         iroha_data_model::block::BlockHeader::new(NonZeroU64::new(146).unwrap(), None, None, 0, 0);
     let mut block = state.block(header);
@@ -1390,9 +1406,6 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
     }
     .execute(&ALICE_ID, &mut stx)
     .expect("funded program activates with exact prospective eligibility");
-    let mut nexus = stx.nexus.clone();
-    nexus.dataspace_fee_sponsor_program_ids.clear();
-    nexus.fees.fee_asset_id = vault_key.asset_definition_id.clone();
     assert_eq!(
         crate::block::resolve_network_xor_asset_definition(
             &stx.world,
@@ -1408,10 +1421,6 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
             .asset_definition(&vault_key.asset_definition_id)
             .is_ok()
     );
-    nexus.fees.base_fee = Quantity::zero();
-    nexus.fees.per_byte_fee = Quantity::zero();
-    nexus.fees.per_instruction_fee = "0.001".parse().unwrap();
-    nexus.fees.per_gas_unit_fee = "0.00005".parse().unwrap();
     let pipeline = iroha_config::parameters::actual::Pipeline::default();
     for (authority, eligible) in [(&beneficiary, true), (&other, false)] {
         let mut payload = TransactionPayload {

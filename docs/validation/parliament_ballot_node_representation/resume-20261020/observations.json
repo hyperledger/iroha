@@ -1,0 +1,168 @@
+{
+  "schema": "parliament-node-representation-resumed-engineering-observations-v1",
+  "recorded_on": "2026-10-20",
+  "predecessors": [
+    "../observations.json",
+    "../pending-validation.json"
+  ],
+  "scope": "Local component tests and cross-crate compilation after disk recovery; no authenticated node State ballot execution or network finality.",
+  "qualification_established": false,
+  "production_activation_authorized_by_this_record": false,
+  "full_compiler_input_integrity_established": false,
+  "source_scope": "Concurrent checkout. Initial source/binary identity record retained separately. Corrected model run has selected before/after source hashes, not a complete compiler input inventory; Torii source changed during this run. Initial all-target check also observed source drift.",
+  "files": {
+    "model-initial.log": {
+      "sha256": "99a564b08c7c3644fc786a8987e612b877663db78ecafc51486105d1a5fe2b20",
+      "bytes": 26190,
+      "source": ".codex/parliament-e2-resume-20261020-model.log"
+    },
+    "output-controls-before-fix.log": {
+      "sha256": "11332a66c7eda87a8ec317d5a49a75b80206ca1859e41a537513f68997ad8030",
+      "bytes": 4090,
+      "source": ".codex/parliament-e2-resume-20261020-output-controls.log"
+    },
+    "protocol-full.log": {
+      "sha256": "ea6b7c7e1486ae68671d6e00bbf906d782bdde0e24fdfbb2ccf5e6b148d8c555",
+      "bytes": 10844,
+      "source": ".codex/parliament-e2-resume-20261020-protocol.log"
+    },
+    "protocol-five.log": {
+      "sha256": "6027c5613311dfcf4fc6cadfc3bface70c3c3ad5d977685cdedfd524373ccba1",
+      "bytes": 587,
+      "source": ".codex/parliament-e2-resume-20261020-protocol-focused-five.log"
+    },
+    "node-check-initial.log": {
+      "sha256": "180452b6a46529ad8d59ea0892600aa98abc2c99b36924efa2cd3b0407aeab5e",
+      "bytes": 25840,
+      "source": ".codex/parliament-e2-resume-20261020-node-check.log"
+    },
+    "initial-identities.json": {
+      "sha256": "3addfb714e88c4c9ed2effcc654e2ae16b27e8e795f82d895b170ee86c5d882f",
+      "bytes": 1922,
+      "source": ".codex/parliament-e2-resume-20261020-initial-identities.json"
+    },
+    "model-output-corrected.log": {
+      "sha256": "b99a76612e10f199143804e2b6937ac8f7740022fc9b1af969101abbb983da55",
+      "bytes": 18353,
+      "source": ".codex/parliament-e2-focused-resume-20261020/model-output.log"
+    }
+  },
+  "results": {
+    "model-initial": {
+      "passed": 123,
+      "failed": 0,
+      "scope": "Anonymous model filters after decoder and duplicate call fixes; before additional random-access correction."
+    },
+    "output-controls-before-fix": {
+      "passed": 29,
+      "failed": 1,
+      "failed_test": "block::execution_output::tests::execution_input_validation_uses_bounded_random_access",
+      "finding": "Duplicate-owner classification introduced a second lookup for Network call hashing: expected 34, observed 35."
+    },
+    "model-output-corrected": {
+      "passed": 147,
+      "failed": 0,
+      "ignored": 0,
+      "change": "Resolve each Network input once for both its canonical execution-call hash and anonymous-owner classification. Preserve the existing 34-lookup assertion. Ordinary/internal/mixed collision controls remain enforced.",
+      "run": {
+        "name": "model-output",
+        "argv": [
+          "scripts/cargo_fast.sh",
+          "--target-slot",
+          "parliament-development",
+          "--jobs",
+          "4",
+          "--stable-local-metadata",
+          "--",
+          "test",
+          "--profile",
+          "local-release",
+          "-p",
+          "iroha_data_model",
+          "--features",
+          "transparent_api",
+          "--lib",
+          "--",
+          "anonymous",
+          "block::execution_output::tests",
+          "block::tests::sealed_reveal_batch_outcome_aliases_are_unique_and_single_assignment",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "started_at": "2026-10-20T09:14:10.324606+00:00",
+        "selected_sources_before": {
+          "crates/iroha_data_model/src/block/execution_output.rs": "968eaeba1397f0da9a81cbe887090c802b1970139f6ea7b698c91dd6bb8bc968",
+          "crates/iroha_data_model/src/block/execution_output_ballot_tests.rs": "8a6c0fcb94c0e30a00d961f27d9d60904bb361d3fd72ca3c3e2a62df88e96152",
+          "crates/iroha_data_model/src/block/execution_output_tests.rs": "1c30e22b323441ce3d98c0079287399ea7912354171004ca616557d6768c4ea1",
+          "crates/iroha_parliament_ballot/src/entrypoint_tests.rs": "f63f1f7f3c45749c4cffc8763984a5e19d007df5b20d05c9b9c0beb8fabb4120",
+          "crates/norito/src/core.rs": "2c2a499258813c38627bb58796e6363d32648c931f6984252134c271eab68606",
+          "crates/norito/src/lib.rs": "329bcf33e9371a35217d17236ef28bd6550fb5042a56f47cb76ebc85672b0c3b",
+          "crates/iroha_core/src/tx.rs": "a89290ae0d56a760488f8256905e281434c669f5f3366a9959d583380c69bbe7",
+          "crates/iroha_core/src/queue.rs": "9c3c0598e41e558ee67956a7092644ccdb4948620249ee9a811c3190ae900734",
+          "crates/iroha_torii/src/lib.rs": "e086cbd8073747ea226c4a088ebc03629561fdf062882f9ae2ce74e9d7afaab5",
+          "crates/iroha_torii/src/routing.rs": "9de88039a8bf3ea869bf6b8e904d46d9069fa2ad91409ec072554e45ce17787c",
+          "crates/iroha/src/client/explorer_transaction_proof_tests.rs": "05bdf70e9e2054468c3cd16c75435b81431e18ca049af6a0912bd40258f60e65",
+          "python/iroha_python/iroha_python_rs/src/lib.rs": "9ab373e6910f15ee1581d5dae6cc1477334af33e2a8634cf5846635dce0b79aa",
+          "mochi/mochi-core/src/torii/tests_part1.rs": "a650ef5a2b4a50f8d79baaa0094f019fe3b0912b66e271923d41c4bc26ed7931"
+        },
+        "head_before": "7b3c0190b9b1b244765d358071fcbe5d4a1b8163",
+        "status": "complete",
+        "exit_code": 0,
+        "finished_at": "2026-10-20T09:34:52.315324+00:00",
+        "selected_sources_after": {
+          "crates/iroha_data_model/src/block/execution_output.rs": "968eaeba1397f0da9a81cbe887090c802b1970139f6ea7b698c91dd6bb8bc968",
+          "crates/iroha_data_model/src/block/execution_output_ballot_tests.rs": "8a6c0fcb94c0e30a00d961f27d9d60904bb361d3fd72ca3c3e2a62df88e96152",
+          "crates/iroha_data_model/src/block/execution_output_tests.rs": "1c30e22b323441ce3d98c0079287399ea7912354171004ca616557d6768c4ea1",
+          "crates/iroha_parliament_ballot/src/entrypoint_tests.rs": "f63f1f7f3c45749c4cffc8763984a5e19d007df5b20d05c9b9c0beb8fabb4120",
+          "crates/norito/src/core.rs": "2c2a499258813c38627bb58796e6363d32648c931f6984252134c271eab68606",
+          "crates/norito/src/lib.rs": "329bcf33e9371a35217d17236ef28bd6550fb5042a56f47cb76ebc85672b0c3b",
+          "crates/iroha_core/src/tx.rs": "a89290ae0d56a760488f8256905e281434c669f5f3366a9959d583380c69bbe7",
+          "crates/iroha_core/src/queue.rs": "9c3c0598e41e558ee67956a7092644ccdb4948620249ee9a811c3190ae900734",
+          "crates/iroha_torii/src/lib.rs": "e086cbd8073747ea226c4a088ebc03629561fdf062882f9ae2ce74e9d7afaab5",
+          "crates/iroha_torii/src/routing.rs": "80690b1c1097eb6a0cfbdbe289d187f9cd2fe7e45690e4e461cd9fce1a36ba5e",
+          "crates/iroha/src/client/explorer_transaction_proof_tests.rs": "05bdf70e9e2054468c3cd16c75435b81431e18ca049af6a0912bd40258f60e65",
+          "python/iroha_python/iroha_python_rs/src/lib.rs": "9ab373e6910f15ee1581d5dae6cc1477334af33e2a8634cf5846635dce0b79aa",
+          "mochi/mochi-core/src/torii/tests_part1.rs": "a650ef5a2b4a50f8d79baaa0094f019fe3b0912b66e271923d41c4bc26ed7931"
+        }
+      }
+    },
+    "protocol-full": {
+      "passed": 83,
+      "failed": 0,
+      "ignored": 2,
+      "scope": "Actual protocol registration/vote proofs and state fixture; includes actual Accepted then DuplicateNullifier verdicts for identical genuine ballots, mapped into canonical block outputs and roundtripped."
+    },
+    "protocol-five": {
+      "passed": 5,
+      "failed": 0,
+      "scope": "Direct invocation of the same emitted test binary with the five default runner filters. Subset of the 83, not five additional distinct tests."
+    },
+    "node-check-initial": {
+      "exit_code": 0,
+      "packages": [
+        "iroha_core",
+        "iroha_torii",
+        "iroha",
+        "iroha_cli",
+        "iroha_kagami",
+        "irohad"
+      ],
+      "all_targets": true,
+      "features": [
+        "iroha_torii/connect"
+      ],
+      "scope": "Component compilation on a concurrently changing checkout, before the bounded lookup correction. Not stable-candidate qualification."
+    }
+  },
+  "remaining_validation": [
+    "Focused Core, Torii, Rust client, Python native and Mochi tests currently running; record their terminal results separately.",
+    "Refreshed all-target compilation after the bounded lookup correction.",
+    "Source-contract baseline and matching mutation suites after reviewed current-source reconciliation."
+  ],
+  "functional_work_remaining": "Authenticated registration acceptance, coordinated 64-byte roster/seal identity and publication migration, compact State/restore, signerless admission/execution, API/client submission, immutable development-network activation policy and four-validator testing.",
+  "external_requirements_unchanged": [
+    "Independent cryptographic review and accepted quantified premises",
+    "Complete security/resource certificates",
+    "Named validator/mobile hardware qualification; Intel work deferred to owner"
+  ]
+}

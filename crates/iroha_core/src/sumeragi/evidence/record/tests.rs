@@ -75,7 +75,7 @@ fn restored_rejection(error: &json::Error) -> Rejection {
         col: 1,
     } = error
     else {
-        panic!("HC921 restore diagnostics must be fixed allocation-free errors: {error:?}");
+        panic!("HC921 restore diagnostics must be fixed allocation-free errors\n{error:?}");
     };
     match *msg {
         "missing required evidence JSON field" => Rejection::Missing,

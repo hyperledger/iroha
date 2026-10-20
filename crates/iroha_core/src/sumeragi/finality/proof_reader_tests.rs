@@ -15,6 +15,9 @@ use std::num::NonZeroUsize;
 // fixture, heap-indirected proof graph or a larger thread stack.
 #[inline(never)]
 fn with_chain_at(height: u64, check: fn(&CertifiedTestChain)) {
+    // Hold unrelated retired State generations stable for every exact pool census.
+    // Reader, frame and checkpoint owners below still refund on their actual drop.
+    let _state_retirement = crossbeam_epoch::pin();
     let mut chain = if height == 10 {
         CertifiedTestChain::npos_boundary_fixture()
     } else {
@@ -750,7 +753,12 @@ fn check_finite_finality_interval(chain: &CertifiedTestChain) {
     let view = chain.state().view();
     let from = 5;
     let to = chain.height();
-    let budget = view.execution_budget();
+    let state_budget = view.execution_budget();
+    let state_reserved = state_budget.reserved_bytes();
+    // The State wrapper retains completed prefix checkpoints in its original pool.
+    // Give this response its own actual owner at the same configured capacity so
+    // its exact refund is distinct from the still-live State checkpoint custody.
+    let budget = iroha_allocation::AllocationBudget::new(state_budget.limit_bytes());
     let reserved = budget.reserved_bytes();
     // Derive the finite allowance from this exact public producer and genuine
     // signed boundary fixture, including its durable-body/metadata prelude.
@@ -794,11 +802,22 @@ fn check_finite_finality_interval(chain: &CertifiedTestChain) {
                 budget.reserved_bytes() > reserved,
                 "original response allocations remain charged while borrowed"
             );
+            assert!(retained.cache_retention_refusal().is_none());
+            let retained_state_bytes = state_budget.reserved_bytes();
+            assert!(
+                retained_state_bytes > state_reserved,
+                "completed checkpoints retain their original State funding"
+            );
             // Test oracle copies only; production exposes immutable charged loans.
             let actual: Vec<_> = (0..retained.len())
                 .map(|index| retained.proof(index).unwrap().clone())
                 .collect();
             drop(retained);
+            assert_eq!(
+                state_budget.reserved_bytes(),
+                retained_state_bytes,
+                "response retirement must preserve the live State checkpoints"
+            );
             actual
         })
     });
