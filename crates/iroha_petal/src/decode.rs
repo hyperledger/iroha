@@ -14,6 +14,12 @@
 //! *normalised read* is tried: it rescales each patch (and each template) by
 //! its own contrast, so over-exposure, veiling light, glare, shadows and
 //! gradients cancel out.
+//!
+//! A camera sees each shown frame three or four times. [`tile_evidence`] keeps
+//! what one capture shows of the tile field, and [`merge_tiles`] reads lanes
+//! `P` and `K` from the average of several captures of one shown frame, which
+//! recovers lanes that noise, display banding or hand shake cost each capture
+//! alone.
 
 use std::sync::OnceLock;
 
@@ -173,6 +179,7 @@ impl core::fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Reference {
     lit: [f64; 4],
     dark: [f64; 4],
@@ -668,10 +675,10 @@ fn classify(
     best_reads
 }
 
-/// The level read: every patch is judged against the light and dark levels measured at the
-/// finders, interpolated to the tile.
-fn read_tiles(patches: &[[f64; CELLS]], reference: &Reference, sigmas: &[f64; 5]) -> Vec<TileRead> {
-    let levelled: Vec<[f64; CELLS]> = patches
+/// Every patch normalised as `(v − dark) / (lit − dark)` with the light and dark levels measured
+/// at the finders, interpolated to the tile.
+fn levelled_patches(patches: &[[f64; CELLS]], reference: &Reference) -> Vec<[f64; CELLS]> {
+    patches
         .iter()
         .enumerate()
         .map(|(tile, raw)| {
@@ -683,8 +690,18 @@ fn read_tiles(patches: &[[f64; CELLS]], reference: &Reference, sigmas: &[f64; 5]
             }
             patch
         })
-        .collect();
-    classify(&levelled, sigmas, false, &[false; TILE_COUNT])
+        .collect()
+}
+
+/// The level read: every patch is judged against the light and dark levels measured at the
+/// finders, interpolated to the tile.
+fn read_tiles(patches: &[[f64; CELLS]], reference: &Reference, sigmas: &[f64; 5]) -> Vec<TileRead> {
+    classify(
+        &levelled_patches(patches, reference),
+        sigmas,
+        false,
+        &[false; TILE_COUNT],
+    )
 }
 
 /// The normalised read: every patch and every template is rescaled by its own contrast
@@ -1088,6 +1105,99 @@ pub fn tile_match_error(
     let patches = sample_patches(image, &frame.homography);
     let reads = read_tiles(&patches, &reference, &options.template_sigmas);
     Some(reads.iter().map(|r| r.error).sum::<f64>() / reads.len() as f64)
+}
+
+/// What one capture shows of a frame's tile field: the 8×8 patch of every tile sampled under the
+/// capture's decoded pose, in camera levels as [`decode`] samples them, and the finder levels of
+/// that capture. Captures of one shown frame merge with [`merge_tiles`]. One evidence holds about
+/// 128 KB.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TileEvidence {
+    patches: Vec<[f64; CELLS]>,
+    reference: Reference,
+}
+
+/// The tile evidence of `image` under the pose `frame` was decoded with.
+///
+/// Returns `None` when the image is unusable (see [`DecodeError::UnsupportedImage`]), the frame
+/// names a corner that does not exist, or the finder levels under that pose are too weak.
+#[must_use]
+pub fn tile_evidence(
+    image: &Luma,
+    frame: &DecodedFrame,
+    options: &DecodeOptions,
+) -> Option<TileEvidence> {
+    // a frame built by the caller may name a corner that does not exist
+    if !is_decodable(image, options) || frame.inferred_corner.is_some_and(|c| c > 3) {
+        return None;
+    }
+    let inferred = frame.inferred_corner.map(usize::from);
+    let reference = reference_levels(image, &frame.homography, inferred)?;
+    Some(TileEvidence {
+        patches: sample_patches(image, &frame.homography),
+        reference,
+    })
+}
+
+/// The cell-by-cell mean of several sets of patches, summed in the order given.
+fn mean_patches<S: AsRef<[[f64; CELLS]]>>(sets: impl IntoIterator<Item = S>) -> Vec<[f64; CELLS]> {
+    let mut mean = vec![[0.0f64; CELLS]; TILE_COUNT];
+    let mut count = 0usize;
+    for set in sets {
+        count += 1;
+        for (sum, patch) in mean.iter_mut().zip(set.as_ref()) {
+            for (s, &value) in sum.iter_mut().zip(patch) {
+                *s += value;
+            }
+        }
+    }
+    let count = count as f64;
+    for patch in &mut mean {
+        for value in patch.iter_mut() {
+            *value /= count;
+        }
+    }
+    mean
+}
+
+/// Lanes `P` and `K` from several captures of one shown frame.
+///
+/// The level read classifies the mean of every capture's patches levelled by its own finder
+/// levels: for one template blur this picks the hypothesis with the least template error summed
+/// over the captures, and it averages the sensor noise down. A lane it leaves unreadable is read
+/// again from the normalised read of the mean raw patches. One evidence reads exactly the tile
+/// lanes [`decode`] read from that capture. The caller checks that every evidence comes from
+/// captures of the same shown frame: a lane read here names its frame in its own header.
+#[must_use]
+pub fn merge_tiles(
+    evidence: &[TileEvidence],
+    options: &DecodeOptions,
+) -> (Option<LaneResult>, Option<LaneResult>) {
+    if evidence.is_empty() {
+        return (None, None);
+    }
+    let sigmas = &options.template_sigmas;
+    let levelled = mean_patches(
+        evidence
+            .iter()
+            .map(|e| levelled_patches(&e.patches, &e.reference)),
+    );
+    let reads = classify(&levelled, sigmas, false, &[false; TILE_COUNT]);
+    let ((p_word, p_conf), (k_word, k_conf)) = tile_words(&reads);
+    let mut p = decode_with_erasures(Lane::P, &p_word, &p_conf);
+    let mut k = decode_with_erasures(Lane::K, &k_word, &k_conf);
+    if p.is_none() || k.is_none() {
+        let raw = mean_patches(evidence.iter().map(|e| &e.patches));
+        let reads = read_tiles_normalised(&raw, sigmas);
+        let ((p_word, p_conf), (k_word, k_conf)) = tile_words(&reads);
+        if p.is_none() {
+            p = decode_with_erasures(Lane::P, &p_word, &p_conf);
+        }
+        if k.is_none() {
+            k = decode_with_erasures(Lane::K, &k_word, &k_conf);
+        }
+    }
+    (p, k)
 }
 
 const _: () = {
@@ -1808,5 +1918,93 @@ mod tests {
                 "{by_rotation:?}"
             );
         }
+    }
+
+    #[test]
+    fn merging_one_capture_reads_the_tile_lanes_decode_read() {
+        let options = DecodeOptions::default();
+        let (_, clean) = setup(5);
+        // a shadow band that only the normalised read gets through
+        let mut shadowed = clean.to_luma();
+        let width = shadowed.width;
+        for row in shadowed.data.chunks_mut(width) {
+            for value in &mut row[width * 7 / 20..width * 3 / 5] {
+                *value = (f64::from(*value) * 0.3).round() as u8;
+            }
+        }
+        let (_, hidden) = hidden_blossom(2, 3);
+        let n = hidden.width;
+        let mut mirrored = hidden.clone();
+        for y in 0..n {
+            for x in 0..n {
+                let (src, dst) = ((y * n + (n - 1 - x)) * 3, (y * n + x) * 3);
+                mirrored.data[dst..dst + 3].copy_from_slice(&hidden.data[src..src + 3]);
+            }
+        }
+        for (name, image) in [
+            ("clean", clean.to_luma()),
+            ("shadowed", shadowed),
+            ("hidden corner", hidden.to_luma()),
+            ("mirrored hidden corner", mirrored.to_luma()),
+        ] {
+            let frame = decode(&image, &options).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(frame.p.is_some() && frame.k.is_some(), "{name}");
+            let evidence = tile_evidence(&image, &frame, &options).expect("evidence");
+            assert_eq!(
+                merge_tiles(&[evidence], &options),
+                (frame.p.clone(), frame.k.clone()),
+                "{name}"
+            );
+        }
+    }
+
+    /// Uniform noise of ±382 levels per cell: far more than one capture's tile read survives.
+    const NOISE_TEST_GAIN: f64 = 3.0;
+
+    #[test]
+    fn averaging_captures_cancels_their_independent_noise() {
+        let (encoder, luma, h, patches) = clean_patches(5);
+        let (p_data, k_data, _) = encoder.lane_data(5);
+        let reference = reference_levels(&luma, &h, None).expect("reference levels");
+        let options = DecodeOptions::default();
+        let mut rng = crate::prng::Xorshift32::new(9);
+        let captures: Vec<TileEvidence> = (0..4)
+            .map(|_| TileEvidence {
+                patches: patches
+                    .iter()
+                    .map(|raw| {
+                        let mut patch = *raw;
+                        for value in &mut patch {
+                            *value += (f64::from(rng.next_byte()) - 127.5) * NOISE_TEST_GAIN;
+                        }
+                        patch
+                    })
+                    .collect(),
+                reference,
+            })
+            .collect();
+        for capture in &captures {
+            assert!(
+                merge_tiles(std::slice::from_ref(capture), &options)
+                    .1
+                    .is_none(),
+                "one noisy capture must not read lane K, or the test proves nothing"
+            );
+        }
+        let (p, k) = merge_tiles(&captures, &options);
+        assert_eq!(p.map(|l| l.data), Some(p_data));
+        assert_eq!(k.map(|l| l.data), Some(k_data));
+    }
+
+    #[test]
+    fn evidence_needs_a_usable_image_and_a_real_corner() {
+        let options = DecodeOptions::default();
+        let (_, rgb) = setup(5);
+        let image = rgb.to_luma();
+        let mut frame = decode(&image, &options).expect("decodes");
+        assert!(tile_evidence(&Luma::new(20, 20), &frame, &options).is_none());
+        frame.inferred_corner = Some(7);
+        assert!(tile_evidence(&image, &frame, &options).is_none());
+        assert_eq!(merge_tiles(&[], &options), (None, None));
     }
 }

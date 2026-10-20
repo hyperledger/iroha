@@ -892,6 +892,14 @@ analyzer.attach(to: videoDataOutput)
   read against the light and dark levels of the finders; a lane that stays
   unreadable is read again with every patch normalised by its own contrast, so
   over-exposure, veiling light, glare and shadows cancel out.
+- `PetalScanSession` averages up to four captures of each of the last six
+  shown frames to recover tile lanes lost to noise or display banding.
+  Independently decoded lane headers identify each group; unkeyed or torn
+  captures are excluded, and recovered lanes must name the same shown frame.
+  `PetalScanOutcome.merged` reports recovered lanes separately from the lanes
+  read in one capture; `PetalScanStats.merges`, `.mergedP` and `.mergedK` count
+  the attempts and recoveries. `PetalDecoder.tileEvidence(_:frame:)` and
+  `.mergeTiles(_:)` expose the same averaging for custom camera pipelines.
 - When a thumb, a glare or the edge of the frame hides one corner blossom,
   three blossoms that form a corner still locate the code: the fourth corner is
   inferred, refined against the dotted rings and reported as
@@ -910,9 +918,9 @@ analyzer.attach(to: videoDataOutput)
   callback and an `AsyncStream`, and stops after the payload completes.
   Scanner setup: use the 1280×720 session preset
   (`AVCaptureSession.Preset.hd1280x720`) where the device sustains about five
-  decoded frames per second and fall back to 640×480 only when it cannot (at
-  480p only lanes `P` and `D` read, so a 7.5 KB payment takes roughly four
-  times longer). Automatic exposure over-exposes a mostly black screen, so set
+  decoded frames per second and fall back to 640×480 only when it cannot.
+  Lane `K` is harder to read at 480p; averaging repeated captures of a shown
+  frame can recover it. Automatic exposure over-exposes a mostly black screen, so set
   the exposure target bias to about −1 EV
   (`AVCaptureDevice.setExposureTargetBias`) or lock the exposure once the code
   has been seen (`specs/petal_stream.md` section 8, "Scanner guidance").

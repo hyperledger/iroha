@@ -112,6 +112,14 @@ glare, shadows and gradients cancel out, and tiles that lost their contrast
 become the first Reed-Solomon erasures. Frames the level read already decodes
 never pay for the second read.
 
+A scan session also averages repeated captures of one shown frame when either
+tile lane is missing. Every decoded lane must agree on its tag and frame counter.
+It holds at most six shown frames and four captures per frame, levels each
+capture by its own finders before averaging, and offers a recovered lane only
+when its header matches that frame. `ScanOutcome.merged` names newly recovered
+lanes; `ScanStats.merges`, `merged_p` and `merged_k` count attempts and recovery.
+Reset and receive timeouts clear the held evidence. The wire format is unchanged.
+
 ## Command line
 
 ```bash
@@ -124,7 +132,7 @@ python3 -m iroha_petal inspect frames/frame_0004.png
 count). `decode` reads PNG (8-bit grey, grey + alpha, RGB, RGBA, palette;
 non-interlaced) and binary PGM/PPM frames, downscales frames larger than
 `--max-side` (default 1280), marks frames read by tracking and frames with a
-hidden corner blossom, prints the session counters, and exits with status 1 if
+hidden corner blossom and recovered tile lanes, prints the session counters, and exits with status 1 if
 the stream is incomplete. `inspect` prints the orientation, a hidden (inferred)
 corner, the homography and every lane that decodes. There is no network or
 camera access.
@@ -151,6 +159,9 @@ the lanes and inferred corner the reference tracked (`reference_tracked`); and
 the negatives are rejected. The tile lanes of `overexposed-540p` and
 `shadow-band-540p`, and lane `K` of `veiled-720p`, are read only through the
 normalised read. The renderer reproduces the `clean-512` capture byte for byte.
+The noisy and banded merge sets recover the recorded tile lanes; the mixed-frame
+set recovers a lane whose header names another shown frame and verifies that a
+session refuses to offer its atoms.
 
 The decoder keeps the reference's constants, order of operations and IEEE
 double arithmetic, including the order of every floating-point sum, the

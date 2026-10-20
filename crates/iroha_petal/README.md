@@ -13,7 +13,7 @@ The crate is `std`-only and has no runtime dependencies.
 | `layout`, `glyphs` | normative geometry, the 256-tile `天` mask, rings, finders, 16 katakana |
 | `lanes`, `fountain`, `stream` | the three lane codewords, the GF(2) fountain code, `StreamEncoder` / `StreamAssembler` |
 | `render` | software renderer for frames (SDKs also expose a vector draw list) |
-| `locate`, `decode`, `session` | camera luma → finders (three are enough) → pose → lanes; `ScanSession` tracks the pose between frames |
+| `locate`, `decode`, `session` | camera luma → finders (three are enough) → pose → lanes; `ScanSession` tracks the pose between frames and merges the captures of one shown frame |
 | `sim`, `qualify` | deterministic camera simulator and end-to-end stream trials |
 
 ```text

@@ -182,7 +182,7 @@ public sealed class PetalCameraAnalyzer
         {
             if (!ValidGeometry(plane.Length, width, height, rowStride, pixelStride, Session.Limits.Decode.MaxPixels))
             {
-                outcome = new PetalScanOutcome(PetalDecodeError.UnsupportedImage, string.Empty, Session.Progress, null);
+                outcome = new PetalScanOutcome(PetalDecodeError.UnsupportedImage, string.Empty, string.Empty, Session.Progress, null);
             }
             else
             {

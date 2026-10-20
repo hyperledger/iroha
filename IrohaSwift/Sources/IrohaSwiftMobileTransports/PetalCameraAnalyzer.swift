@@ -145,7 +145,9 @@ public enum PetalCameraFrame {
 /// Attach it to an `AVCaptureVideoDataOutput` (``attach(to:)``); every
 /// camera frame is converted to luma, decoded and fed to one
 /// ``PetalScanSession``, which follows the code from frame to frame without a
-/// full finder search while the hand stays steady. Each result is reported through `onOutcome` (called
+/// full finder search while the hand stays steady and merges repeated captures
+/// of each shown frame to recover tile lanes lost to noise or display banding.
+/// Each result is reported through `onOutcome` (called
 /// on the thread that analysed the frame, normally ``queue``) and through
 /// ``outcomes``. Once a payload completes, the analyzer ignores further frames
 /// until ``reset()``, so the completed outcome is always the last one
@@ -157,8 +159,8 @@ public enum PetalCameraFrame {
 /// and device stay with the app:
 /// - Use a 1280×720 session preset (`AVCaptureSession.Preset.hd1280x720`)
 ///   where the device sustains about five decoded frames per second, and fall
-///   back to 640×480 only when it cannot. At 480p only lanes `P` and `D` can
-///   be read, so a 7.5 KB payment takes roughly four times longer.
+///   back to 640×480 only when it cannot. Lane `K` is harder to read at 480p;
+///   repeated captures of one shown frame can recover it by averaging.
 /// - Automatic exposure over-exposes a mostly black screen. Set the exposure
 ///   target bias to about −1 EV (`AVCaptureDevice.setExposureTargetBias`) or
 ///   lock the exposure once the code has been seen.

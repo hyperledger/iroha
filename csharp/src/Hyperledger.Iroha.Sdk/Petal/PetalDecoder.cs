@@ -221,6 +221,19 @@ public readonly struct PetalDecodeResult
     internal static PetalDecodeResult Fail(PetalDecodeError error) => new(null, error);
 }
 
+/// <summary>Owned tile patches and finder levels from one decoded capture (about 128 KB).</summary>
+public sealed class PetalTileEvidence
+{
+    internal PetalTileEvidence(double[] patches, PetalDecoder.Reference reference)
+    {
+        Patches = patches;
+        Reference = reference;
+    }
+
+    internal double[] Patches { get; }
+    internal PetalDecoder.Reference Reference { get; }
+}
+
 /// <summary>
 /// From a camera luma plane to lane data.
 /// </summary>
@@ -483,6 +496,61 @@ public static class PetalDecoder
         if (reference is null)
             return null;
         return Finish(image, options, 0, false, homography, reference.Value, null, null);
+    }
+
+    /// <summary>Samples owned tile evidence under a decoded pose; unusable images or poses return null.</summary>
+    public static PetalTileEvidence? TileEvidence(PetalLuma image, PetalDecodedFrame frame, PetalDecodeOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(frame);
+        options ??= PetalDecodeOptions.Default;
+        if (!Supported(image, options) || frame.InferredCorner is { } corner && (uint)corner > 3)
+            return null;
+        if (ReferenceLevels(image, frame.Homography, frame.InferredCorner) is not { } reference)
+            return null;
+        var patches = new double[PatchValues];
+        SamplePatches(image, frame.Homography, patches);
+        return new PetalTileEvidence(patches, reference);
+    }
+
+    /// <summary>
+    /// Reads tile lanes from the ordered mean of captures of one shown frame. The caller
+    /// must group captures by independently decoded headers and check recovered headers.
+    /// </summary>
+    public static (PetalLaneResult? P, PetalLaneResult? K) MergeTiles(
+        IReadOnlyList<PetalTileEvidence> evidence, PetalDecodeOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        if (evidence.Count == 0)
+            return (null, null);
+        options ??= PetalDecodeOptions.Default;
+        using var mean = PooledValues.Rent(PatchValues);
+        using var levelled = PooledValues.Rent(PatchValues);
+        mean.Span.Clear();
+        foreach (var item in evidence)
+        {
+            LevelPatches(item.Patches, item.Reference, levelled.Span);
+            for (var i = 0; i < PatchValues; i++)
+                mean.Span[i] += levelled.Span[i];
+        }
+        for (var i = 0; i < PatchValues; i++)
+            mean.Span[i] /= evidence.Count;
+        var (pWord, pConfidence, kWord, kConfidence) = TileWords(Classify(mean.Span, options.TemplateSigmas, false, NoErasures));
+        var p = DecodeWithErasures(PetalLane.P, pWord, pConfidence);
+        var k = DecodeWithErasures(PetalLane.K, kWord, kConfidence);
+        if (p is null || k is null)
+        {
+            mean.Span.Clear();
+            foreach (var item in evidence)
+                for (var i = 0; i < PatchValues; i++)
+                    mean.Span[i] += item.Patches[i];
+            for (var i = 0; i < PatchValues; i++)
+                mean.Span[i] /= evidence.Count;
+            (pWord, pConfidence, kWord, kConfidence) = TileWords(ReadTilesNormalised(mean.Span, options.TemplateSigmas));
+            p ??= DecodeWithErasures(PetalLane.P, pWord, pConfidence);
+            k ??= DecodeWithErasures(PetalLane.K, kWord, kConfidence);
+        }
+        return (p, k);
     }
 
     /// <summary>Builds the cells a decoder believes it saw, for diagnostics.</summary>
@@ -1237,7 +1305,12 @@ public static class PetalDecoder
     internal static TileRead[] ReadTiles(ReadOnlySpan<double> patches, in Reference reference, IReadOnlyList<double> sigmas)
     {
         using var levelled = PooledValues.Rent(PatchValues);
-        var output = levelled.Span;
+        LevelPatches(patches, reference, levelled.Span);
+        return Classify(levelled.Span, sigmas, false, NoErasures);
+    }
+
+    private static void LevelPatches(ReadOnlySpan<double> patches, in Reference reference, Span<double> output)
+    {
         for (var tile = 0; tile < PetalLayout.TileCount; tile++)
         {
             var center = PetalLayout.TileCenterUnchecked(tile);
@@ -1248,7 +1321,6 @@ public static class PetalDecoder
                 patch[c] = (raw[c] - dark) / (lit - dark);
         }
 
-        return Classify(output, sigmas, false, NoErasures);
     }
 
     /// <summary>

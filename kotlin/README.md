@@ -757,6 +757,16 @@ line up, and reported as `PetalDecodedFrame.inferredCorner` (canonical index).
 `PetalScanSession` reads the frames after a decoded one by `PetalDecoder.track`,
 which follows the last pose (at most 500 ms old) instead of searching the whole
 image, and counts both in `stats().tracked` and `stats().inferred`.
+When a capture loses a tile lane, the session holds up to four captures of each
+of six shown frames. It averages patches under their decoded canonical poses,
+first using each capture's finder levels, then the normalised mean raw patches
+for any lane still missing. Only captures whose decoded lane headers agree on
+the stream tag and frame counter share evidence; a recovered lane must name that
+same shown frame. `outcome.merged` names newly recovered tile lanes, while
+`stats().merges`, `stats().mergedP` and `stats().mergedK` count averaging and its
+recoveries. A frame only gains missing lanes. Reset and accepted stream metadata
+replacement drop held evidence; learning the first beacon preserves pre-beacon
+captures.
 The tile lanes `P` and `K` are read in two ways: the *level read* judges every
 8×8 tile patch against the light and dark levels measured at the finders, and a
 lane it cannot decode is retried with the *normalised read*, which rescales each
@@ -776,7 +786,8 @@ NV21 previews); they use API 19 or older platform calls.
 The tests check every section of `../fixtures/petal/petal_stream_v1.json`,
 decode the golden camera captures of `../fixtures/petal/petal_captures_v1.json`
 with exactly the lanes and inferred corners the reference reads, and track its
-golden frame pairs:
+golden frame pairs, recover the missing lanes of its noisy and banded merge
+sets, and refuse lanes from mixed-frame captures:
 
 ```bash
 ./gradlew :core-jvm:test --tests '*Petal*' --console=plain
