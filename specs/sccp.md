@@ -1248,10 +1248,12 @@ D17); the Parliament workstream owns the ballot items that the pass runs.
 
 S0 (§4.2) runs first and is not part of the pass. The pass runs, on the global
 chain's ordinary carrier only, in this order under the shared budget
-`gov.governance_block_start_work_units` (default 64, minimum 10):
-The committed minimum funds all six possible cost-one SCCP conclusions and one
-cost-four enactment in a pass, preventing recertification alone from starving
-every enactment. Genesis and parameter updates enforce the same minimum.
+`gov.governance_block_start_work_units` (default 64, minimum 43):
+The committed minimum funds one cost-one recurring height-progress ticket, one
+cost-32 complete generation draw (the largest Parliament item), all six
+possible cost-one SCCP conclusions and one cost-four enactment in a pass
+(1 + 32 + 6 + 4 = 43), preventing recertification alone from starving every
+enactment. Genesis and parameter updates enforce the same minimum.
 
 - **G0** pause-panel draw (§4.14.7), at the native pre-boundary pulse
   carrying height, one block before the committee boundary. Outside the budget;

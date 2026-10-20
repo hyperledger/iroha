@@ -78,7 +78,9 @@ fn first_release_capabilities_expose_only_attempt_based_parliament() {
         .find("],\n    }))")
         .expect("capability route projection end")];
     assert!(capabilities.contains("/v1/gov/ballots/plain"));
-    assert!(capabilities.contains("/v1/gov/ballots/zk-v1"));
+    // Core refuses every standalone ZK ballot and tally, so their draft routes are not
+    // advertised as supported.
+    assert!(!capabilities.contains("/v1/gov/ballots/zk-v1"));
     let advertised_parliament_routes = capabilities
         .lines()
         .filter_map(|line| {
@@ -100,6 +102,30 @@ fn first_release_capabilities_expose_only_attempt_based_parliament() {
     assert!(!capabilities.contains("\"/v1/gov/parliament/ballots\".to_owned()"));
     assert!(!capabilities.contains("/v1/gov/finalize"));
     assert!(!capabilities.contains("/v1/gov/enact"));
+}
+#[tokio::test]
+async fn capabilities_state_that_standalone_zk_ballots_are_unsupported() {
+    let harness = mk_governance_harness(true);
+    let response = handle_gov_capabilities(harness.state)
+        .await
+        .expect("capabilities after committed genesis")
+        .0;
+    assert!(!response.standalone_zk_ballots_supported);
+    assert!(!response.proposal_backed_referendum_ballots_supported);
+    assert!(
+        response
+            .supported_routes
+            .iter()
+            .all(|route| !route.starts_with("/v1/gov/ballots/zk-v1")),
+        "refused standalone ZK ballot routes must not be advertised: {:?}",
+        response.supported_routes
+    );
+    assert!(
+        response
+            .supported_routes
+            .iter()
+            .any(|route| route == "/v1/gov/ballots/plain")
+    );
 }
 #[tokio::test]
 async fn parliament_draft_handlers_frame_exact_native_instructions() {

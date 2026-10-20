@@ -1187,7 +1187,7 @@ class PoseidonChecks(TreeFixture):
     def test_generator_reproduces_the_repository_and_the_published_tables(self) -> None:
         tables = poseidon.parse_repository_table(ROOT)
         for width in (3, 6):
-            generated = poseidon.generate_parameters(width, 8, 56)
+            generated = poseidon.generate_parameters(width, 8, poseidon.PARTIAL_ROUNDS_BY_WIDTH[width])
             self.assertEqual(generated, tables[width])
             self.assertEqual(poseidon.table_sha256(*generated), poseidon.REPOSITORY_TABLE_SHA256[width])
         published = poseidon.generate_parameters(3, 8, 57)
@@ -1195,7 +1195,7 @@ class PoseidonChecks(TreeFixture):
             tuple(published[0][0] + published[0][1]), poseidon.PUBLISHED_WIDTH3_FIRST_ROUND_CONSTANTS
         )
         self.assertEqual(tuple(tuple(row) for row in published[1]), poseidon.PUBLISHED_WIDTH3_MDS)
-        self.assertNotEqual(published[1], tables[3][1])
+        self.assertEqual(published[1], tables[3][1])
 
     def test_round_number_rule(self) -> None:
         self.assertEqual(poseidon.minimum_partial_rounds(3, 8), {"without_margin": 52, "with_margin": 56})
@@ -1223,18 +1223,20 @@ class PoseidonChecks(TreeFixture):
         # Vectors of the Rust test `hash_bytes_known_vectors`.
         self.assertEqual(
             poseidon.hash_bytes(b"", tables[3]).to_bytes(32, "little").hex(),
-            "f3cd5624f551e76cb76d3982cef929247312c01714e6ac8ac58c16fe816fad28",
+            "bd329b0ff084555f0f93c53e8d7a00cb8d8989214f112c26e5e52782bb38eb00",
         )
         self.assertEqual(
             poseidon.hash_bytes(b"poseidon", tables[3]).to_bytes(32, "little").hex(),
-            "f497ea4983add44535ac5425ceaedea180d04265e69189a6070ee557afb67a05",
+            "dea4301e1991400e415eb269a3e56c6d17a2acd1b8418a9eac89e604a145380e",
         )
-        self.assertEqual(poseidon.hash2(1, 2, tables[3]), poseidon.permute([1, 2, 0], *tables[3])[0])
-        self.assertEqual(poseidon.hash6([1] * 6, tables[6]), poseidon.permute([1] * 6, *tables[6])[0])
+        self.assertEqual(poseidon.hash2(1, 2, tables[3]), poseidon.permute([2 << 64, 1, 2], *tables[3])[1])
+        state = poseidon.permute([6 << 64, 1, 1, 1, 1, 1], *tables[6])
+        state[1] = (state[1] + 1) % poseidon.BN254_FR
+        self.assertEqual(poseidon.hash6([1] * 6, tables[6]), poseidon.permute(state, *tables[6])[1])
         report = poseidon.build_report(ROOT)
         fixture = poseidon.render_vector_fixture(report["vectors"])
         self.assertEqual((ROOT / poseidon.VECTOR_FIXTURE).read_text(encoding="utf-8"), fixture)
-        self.assertEqual(report["total_field_elements"], 621)
+        self.assertEqual(report["total_field_elements"], 648)
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(poseidon.main(["--root", str(ROOT), "--print-vectors"]), 0)
         self.assertEqual(json.loads(printed.getvalue()), report["vectors"])
@@ -1245,7 +1247,7 @@ class PoseidonChecks(TreeFixture):
             target = root / poseidon.REPOSITORY_TABLE
             target.parent.mkdir(parents=True)
             text = (ROOT / poseidon.REPOSITORY_TABLE).read_text(encoding="utf-8")
-            target.write_text(text.replace("0x16, 0x28, 0x05", "0x17, 0x28, 0x05", 1), encoding="utf-8")
+            target.write_text(text.replace("0x6e, 0x8e, 0xcd", "0x6f, 0x8e, 0xcd", 1), encoding="utf-8")
             with self.assertRaises(ValueError):
                 poseidon.build_report(root)
             with contextlib.redirect_stderr(io.StringIO()) as printed:
@@ -1720,6 +1722,32 @@ class SemanticProfiles(TreeFixture):
         self.assertIsNone(checker.workload_profile_set(self.spec, ["unknown.profile"]))
         self.assertIsNone(checker.workload_profile_set(self.spec, []))
 
+    def test_retained_algorithm_is_owned_by_the_role_not_global_prose(self) -> None:
+        spec = self.mutated()
+        before = copy.deepcopy(spec["semantic_profiles"]["retained_profiles"])
+        next(p for p in spec["digest_primitives"] if p["id"] == "poseidon")["algorithm"] = "unrelated primitive summary"
+        checker.refresh_semantic_profiles(spec)
+        self.assertEqual(spec["semantic_profiles"]["retained_profiles"], before)
+        self.assertEqual(self.profile_errors(spec), self.profile_errors(self.spec))
+        role = self.role(spec, "kaigi.relation-poseidon")
+        role["algorithm"] += "; changed relation semantics"
+        self.assertReported(self.profile_errors(spec), "parameters differ from the role record")
+        checker.refresh_semantic_profiles(spec)
+        changed = [p["name"] for p, q in zip(spec["semantic_profiles"]["retained_profiles"], before, strict=True) if p != q]
+        self.assertEqual(changed, ["retained.kaigi.relation-poseidon"])
+
+    def test_retained_algorithm_never_falls_back_when_missing_or_empty(self) -> None:
+        for value in (None, "", " ", 57):
+            spec = self.mutated()
+            role = self.role(spec, "kaigi.relation-poseidon")
+            if value is None:
+                del role["algorithm"]
+            else:
+                role["algorithm"] = value
+            self.assertReported(self.profile_errors(spec), "retained role algorithm is missing or empty")
+            with self.assertRaises(profile_reference.ProfileError):
+                checker.refresh_semantic_profiles(spec)
+
     def test_a_retained_profile_follows_its_role_record(self) -> None:
         spec = self.mutated()
         self.role(spec, "halo2.transcript-blake2b")["output_bytes"] = 32
@@ -1803,7 +1831,7 @@ class SemanticProfiles(TreeFixture):
             profile["identity"] = profile_reference.identity_of(profile)
             return self.profile_errors(spec)
 
-        self.assertReported(changed("bn254.poseidon.x5-t3.v1", "partial_rounds", 56), "the defective repository round count is frozen")
+        self.assertReported(changed("bn254.poseidon.x5-t3.v1", "partial_rounds", 56), "width or round numbers differ from the frozen correction")
         self.assertReported(changed("bn254.poseidon.x5-t6.v1", "partial_rounds", 57), "width or round numbers differ from the frozen correction")
         self.assertReported(changed("bn254.poseidon.x5-t6.v1", "capacity", 0), "the mode has no single capacity coordinate")
         self.assertReported(changed("bn254.poseidon.x5-t3.v1", "tables_sha3_256", "00" * 32), "table digest differs from the regenerated tables")

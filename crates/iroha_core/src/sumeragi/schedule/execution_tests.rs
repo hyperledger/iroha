@@ -54,7 +54,21 @@ fn sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment() {
         .map(|genesis| genesis.into_parts().0)
         .unwrap();
     let world = registered_world(&context);
-    for units in [0, 1, 4, 9, 10, 64] {
+    let minimum = GovernanceClockParametersV1::MIN_BLOCK_START_WORK_UNITS;
+    let maximum = GovernanceClockParametersV1::MAX_BLOCK_START_WORK_UNITS;
+    for units in [
+        0,
+        1,
+        4,
+        9,
+        10,
+        minimum - 1,
+        minimum,
+        64,
+        maximum,
+        maximum + 1,
+        u32::MAX,
+    ] {
         let policy = GovernanceClockParametersV1 {
             governance_block_start_work_units: units,
             ..GovernanceClockParametersV1::default()
@@ -73,17 +87,17 @@ fn sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment() {
             parameters.commit();
         }
         let result = validate_executed_genesis(&world.view(), &context);
-        if units < 10 {
+        if !(minimum..=maximum).contains(&units) {
             assert!(
                 matches!(result,
                     Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
                         ScheduleError::Epoch(ref message)))
-                        if message == "governance block-start work budget must be at least ten"
+                        if message == "governance block-start work budget must be between 43 and 4096"
                 ),
-                "genesis must reject budgets that cannot certify six rounds and enact one pause"
+                "genesis must reject budgets outside the current ticket, draw, six-conclusion and enactment range"
             );
         } else {
-            result.expect("the inclusive ten-unit floor supports SCCP progress");
+            result.expect("the inclusive canonical work-unit range supports shared governance and SCCP progress");
         }
     }
 }

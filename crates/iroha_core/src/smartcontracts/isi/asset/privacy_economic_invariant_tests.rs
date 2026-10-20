@@ -133,6 +133,56 @@ fn economic_withdrawal_of_one<'a>(
     }
 }
 
+/// Route the fixture's existing units through the actual deposit owner, without minting
+/// or reconstructing an allowance from a balance. The final two balances are unchanged.
+fn economic_fund_reserve_from_existing_balance(
+    transaction: &mut StateTransaction<'_, '_>,
+    reserve_asset_id: &AssetId,
+    owner: PrivacyPublicReserveOwnerV1,
+) {
+    let amount = asset_balance_or_zero(transaction, reserve_asset_id);
+    execute_user_numeric_asset_transfer(
+        transaction,
+        &ALICE_ID,
+        reserve_asset_id.clone(),
+        BOB_ID.clone(),
+        amount.clone(),
+    )
+    .unwrap();
+    economic_seed_reserve_custody(transaction, reserve_asset_id, owner);
+    execute_verified_privacy_pool_public_balance_transfer(
+        transaction,
+        &BOB_ID,
+        PrivacyStatementDigestV1::new([0xEF; 32]),
+        owner,
+        reserve_asset_id.definition(),
+        *reserve_asset_id.scope(),
+        reserve_asset_id.account(),
+        PrivacyValueBalanceDirectionV1::IntoPool,
+        amount.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        economic_funded_allowance(transaction, reserve_asset_id, owner),
+        amount
+    );
+}
+
+fn economic_funded_allowance(
+    transaction: &StateTransaction<'_, '_>,
+    id: &AssetId,
+    owner: PrivacyPublicReserveOwnerV1,
+) -> Quantity {
+    transaction
+        .world
+        .privacy_commitments
+        .get(&PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), id).unwrap())
+        .unwrap()
+        .public_reserve_funded_allowance()
+        .unwrap()
+        .clone()
+}
+
 fn economic_owners() -> [PrivacyPublicReserveOwnerV1; 2] {
     [
         economic_orchard_owner(0xA1),
@@ -149,7 +199,7 @@ fn faulty_verifier_pool_withdrawal_is_bounded_by_the_reserve_balance() {
         let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
         let mut transaction =
             block.transaction_for_fastpq_testing(Hash::prehashed([seed; Hash::LENGTH]));
-        economic_seed_reserve_custody(&mut transaction, &reserve_asset_id, owner);
+        economic_fund_reserve_from_existing_balance(&mut transaction, &reserve_asset_id, owner);
         let holders = [&*ALICE_ID, &*BOB_ID];
         let supply = economic_transparent_units(&transaction, &definition, &holders);
         let withdrawal = |amount: u32, statement: u8| FaultyVerifierPoolEffect {
@@ -176,7 +226,8 @@ fn faulty_verifier_pool_withdrawal_is_bounded_by_the_reserve_balance() {
             "{owner:?}: a refused withdrawal credited nothing"
         );
 
-        // The remaining exposure is the whole reserve of this one pool: the ledger pays it out.
+        // This reserve was funded entirely by an actual deposit. A faulty verifier can
+        // steal its funded allowance; the public counter does not protect entitlement.
         apply_faulty_verifier_pool_effect(&mut transaction, &BOB_ID, &withdrawal(10, 2))
             .expect("the ledger cannot tell a wrongly verified withdrawal within the reserve");
         assert_eq!(
@@ -406,7 +457,8 @@ fn dropped_transaction_discards_a_faulty_pool_withdrawal() {
     block.admit_fastpq_source_for_testing(Hash::prehashed([0xBE; Hash::LENGTH]));
     {
         let mut custody = block.transaction();
-        economic_seed_reserve_custody(&mut custody, &reserve_asset_id, owner);
+        seed_test_call_hash(&mut custody, 0xBE);
+        economic_fund_reserve_from_existing_balance(&mut custody, &reserve_asset_id, owner);
         custody.apply();
     }
     {
@@ -452,3 +504,224 @@ fn dropped_transaction_discards_a_faulty_pool_withdrawal() {
 // D-HARNESS-NO-SEAM-AFTER-VERIFIER (P.3, P.1). The fee-sponsor capacity and lease
 // boundary is covered separately in world_fee_sponsor_ledger_effect_tests.rs; its
 // genuine proof integration and original codec-refusal propagation remain separate.
+
+#[test]
+fn funded_turnstile_does_not_authorize_bootstrap_balance_or_unsolicited_topups() {
+    for (index, owner) in economic_owners().into_iter().enumerate() {
+        let (state, definition, reserve) = build_asset_transfer_control_test_state(10);
+        let depositor = AssetId::new(definition.clone(), BOB_ID.clone());
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        let attempt_hash = |phase: u8| Hash::new([u8::try_from(index).unwrap(), phase]);
+        let withdrawal = |amount, statement| FaultyVerifierPoolEffect {
+            owner,
+            definition: &definition,
+            scope: AssetBalanceScope::Global,
+            reserve_account: &ALICE_ID,
+            direction: PrivacyValueBalanceDirectionV1::OutOfPool,
+            amount,
+            statement,
+        };
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(0));
+            economic_seed_reserve_custody(&mut tx, &reserve, owner);
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::zero()
+            );
+            tx.apply();
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(1));
+            let error =
+                apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &withdrawal(1, 1)).unwrap_err();
+            assert!(error.to_string().contains("exceeds funded allowance"));
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(10_u32));
+            assert_eq!(asset_balance_or_zero(&tx, &depositor), Quantity::zero());
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::zero()
+            );
+            // The rejected movement poisons this disposable attempt. Never apply or reuse it.
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(2));
+            Mint::asset_quantity(7_u32, depositor.clone())
+                .execute(&ALICE_ID, &mut tx)
+                .unwrap();
+            execute_user_numeric_asset_transfer(
+                &mut tx,
+                &BOB_ID,
+                depositor.clone(),
+                ALICE_ID.clone(),
+                Quantity::from(4_u32),
+            )
+            .unwrap();
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(14_u32));
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::zero()
+            );
+            tx.apply();
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(3));
+            let error =
+                apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &withdrawal(1, 2)).unwrap_err();
+            assert!(error.to_string().contains("exceeds funded allowance"));
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(14_u32));
+            assert_eq!(
+                asset_balance_or_zero(&tx, &depositor),
+                Quantity::from(3_u32)
+            );
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::zero()
+            );
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(4));
+            let deposit = FaultyVerifierPoolEffect {
+                direction: PrivacyValueBalanceDirectionV1::IntoPool,
+                ..withdrawal(3, 3)
+            };
+            apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &deposit).unwrap();
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(17_u32));
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::from(3_u32)
+            );
+            tx.apply();
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(5));
+            let error =
+                apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &withdrawal(4, 4)).unwrap_err();
+            assert!(error.to_string().contains("exceeds funded allowance"));
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(17_u32));
+            assert_eq!(asset_balance_or_zero(&tx, &depositor), Quantity::zero());
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::from(3_u32)
+            );
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(6));
+            apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &withdrawal(3, 5)).unwrap();
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(14_u32));
+            assert_eq!(
+                asset_balance_or_zero(&tx, &depositor),
+                Quantity::from(3_u32)
+            );
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::zero()
+            );
+            tx.apply();
+        }
+        {
+            let mut tx = block.transaction_for_fastpq_testing(attempt_hash(7));
+            let error =
+                apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &withdrawal(3, 5)).unwrap_err();
+            assert!(
+                error.to_string().contains("exceeds funded allowance"),
+                "a repeated effect cannot spend exhausted allowance"
+            );
+            assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(14_u32));
+            assert_eq!(
+                asset_balance_or_zero(&tx, &depositor),
+                Quantity::from(3_u32)
+            );
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::zero()
+            );
+            assert_eq!(
+                economic_transparent_units(&tx, &definition, &[&*ALICE_ID, &*BOB_ID]),
+                Quantity::from(17_u32)
+            );
+        }
+        let tx = block.transaction();
+        assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(14_u32));
+        assert_eq!(
+            asset_balance_or_zero(&tx, &depositor),
+            Quantity::from(3_u32)
+        );
+        assert_eq!(
+            economic_funded_allowance(&tx, &reserve, owner),
+            Quantity::zero()
+        );
+        assert_eq!(
+            economic_transparent_units(&tx, &definition, &[&*ALICE_ID, &*BOB_ID]),
+            Quantity::from(17_u32)
+        );
+    }
+}
+
+#[test]
+fn funded_turnstile_failed_deposit_withdrawal_batch_rolls_back_counter_and_balances() {
+    for (index, owner) in economic_owners().into_iter().enumerate() {
+        let (state, definition, reserve) = build_asset_transfer_control_test_state(10);
+        let depositor = AssetId::new(definition.clone(), BOB_ID.clone());
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        block.admit_fastpq_source_for_testing(Hash::prehashed(
+            [0xC4 + u8::try_from(index).unwrap(); Hash::LENGTH],
+        ));
+        {
+            let mut tx = block.transaction();
+            seed_test_call_hash(&mut tx, 0xC4 + u8::try_from(index).unwrap());
+            execute_user_numeric_asset_transfer(
+                &mut tx,
+                &ALICE_ID,
+                reserve.clone(),
+                BOB_ID.clone(),
+                Quantity::from(10_u32),
+            )
+            .unwrap();
+            economic_seed_reserve_custody(&mut tx, &reserve, owner);
+            tx.apply();
+        }
+        {
+            let mut tx = block.transaction();
+            seed_test_call_hash(&mut tx, 0xC4 + u8::try_from(index).unwrap());
+            let deposit = FaultyVerifierPoolEffect {
+                owner,
+                definition: &definition,
+                scope: AssetBalanceScope::Global,
+                reserve_account: &ALICE_ID,
+                direction: PrivacyValueBalanceDirectionV1::IntoPool,
+                amount: 6,
+                statement: 1,
+            };
+            apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &deposit).unwrap();
+            let withdraw = FaultyVerifierPoolEffect {
+                direction: PrivacyValueBalanceDirectionV1::OutOfPool,
+                amount: 2,
+                statement: 2,
+                ..deposit
+            };
+            apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &withdraw).unwrap();
+            assert_eq!(
+                economic_funded_allowance(&tx, &reserve, owner),
+                Quantity::from(4_u32)
+            );
+            let fail = FaultyVerifierPoolEffect {
+                amount: 5,
+                statement: 3,
+                ..withdraw
+            };
+            assert!(apply_faulty_verifier_pool_effect(&mut tx, &BOB_ID, &fail).is_err());
+            // Failure of the third instruction drops this same disposable transaction.
+        }
+        let tx = block.transaction();
+        assert_eq!(
+            economic_funded_allowance(&tx, &reserve, owner),
+            Quantity::zero()
+        );
+        assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::zero());
+        assert_eq!(
+            asset_balance_or_zero(&tx, &depositor),
+            Quantity::from(10_u32)
+        );
+        assert!(tx.world.internal_event_buf.is_empty());
+    }
+}

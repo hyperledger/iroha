@@ -1,0 +1,103 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "interrupt_before_submit_dispatches_the_persisted_bytes_once",
+  "category": "interruption_before_submission",
+  "rules": [
+    "persist_before_dispatch"
+  ],
+  "description": "The process stops inside the signer, then again right after the signed bytes are durable and before the dispatch ordinal is stored. Each resume continues from the durable state: the persisted payload is signed without proving again, and the persisted signed bytes are dispatched exactly once without signing again.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1",
+          "sign:1"
+        ],
+        "status": "in_progress",
+        "state": "ready_to_sign"
+      }
+    },
+    {
+      "op": "execute",
+      "script": {
+        "signs": [
+          "ok"
+        ]
+      },
+      "interrupt_after": "signed",
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "sign:1"
+        ],
+        "status": "in_progress",
+        "state": "signed",
+        "identity": {
+          "dispatches": 0,
+          "possible_admissions": 0
+        }
+      }
+    },
+    {
+      "op": "execute",
+      "script": {
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "finality_proofs": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "dispatch:1",
+          "status:1",
+          "finality:1"
+        ],
+        "status": "completed",
+        "state": "finalized",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1,
+          "evidence": "applied"
+        }
+      }
+    }
+  ]
+}

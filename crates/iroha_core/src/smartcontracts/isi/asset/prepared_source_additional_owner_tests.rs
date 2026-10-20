@@ -104,7 +104,43 @@ fn privacy_public_reserve_apply_rejects_nonconserving_delta_before_balances_chan
     let destination_asset_id = AssetId::new(definition_id, BOB_ID.clone());
     let mut block = state.block(occurrence_header());
     let mut transaction = block.transaction();
+    let funding = transaction
+        .world
+        .precheck_numeric_asset_transfer_delta_exact(
+            &reserve_asset_id,
+            &destination_asset_id,
+            &Quantity::from(10_u32),
+        )
+        .unwrap();
+    transaction
+        .world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &reserve_asset_id,
+            &destination_asset_id,
+            &funding.amount,
+            &funding,
+            NumericAssetTransferSourcePolicy::User,
+        )
+        .unwrap();
     let owner = seed_prepared_test_orchard_reserve(&mut transaction, &reserve_asset_id);
+    let deposit = transaction
+        .world
+        .precheck_numeric_asset_transfer_delta_exact(
+            &destination_asset_id,
+            &reserve_asset_id,
+            &Quantity::from(10_u32),
+        )
+        .unwrap();
+    transaction
+        .world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &destination_asset_id,
+            &reserve_asset_id,
+            &deposit.amount,
+            &deposit,
+            NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner),
+        )
+        .unwrap();
     let exact = transaction
         .world
         .precheck_numeric_asset_transfer_delta_exact(
@@ -1123,4 +1159,175 @@ fn original_supply_preparation_rejects_source_and_recipient_controls_before_writ
             .total_quantity(),
         &Quantity::from(10_u32)
     );
+}
+
+#[test]
+fn funded_turnstile_apply_rechecks_deposit_owner_and_consumes_exact_delta_once() {
+    use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+    let (state, definition, reserve) = build_asset_transfer_control_test_state(10);
+    let depositor = AssetId::new(definition, BOB_ID.clone());
+    let mut block = state.block(occurrence_header());
+    let mut tx = block.transaction();
+    let funding = tx
+        .world
+        .precheck_numeric_asset_transfer_delta_exact(&reserve, &depositor, &Quantity::from(10_u32))
+        .unwrap();
+    tx.world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &reserve,
+            &depositor,
+            &funding.amount,
+            &funding,
+            NumericAssetTransferSourcePolicy::User,
+        )
+        .unwrap();
+    let owner = seed_prepared_test_orchard_reserve(&mut tx, &reserve);
+    let key =
+        PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &reserve).unwrap();
+    let exact = tx
+        .world
+        .precheck_numeric_asset_transfer_delta_exact(&depositor, &reserve, &Quantity::from(3_u32))
+        .unwrap();
+    tx.world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &depositor,
+            &reserve,
+            &exact.amount,
+            &exact,
+            NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner),
+        )
+        .unwrap();
+    let custody = tx.world.privacy_commitments.get(&key).unwrap().clone();
+    assert_eq!(
+        custody.public_reserve_funded_allowance(),
+        Some(&Quantity::from(3_u32))
+    );
+    let error = tx
+        .world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &depositor,
+            &reserve,
+            &exact.amount,
+            &exact,
+            NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("reserve delta must conserve"));
+    let next = tx
+        .world
+        .precheck_numeric_asset_transfer_delta_exact(&depositor, &reserve, &Quantity::one())
+        .unwrap();
+    let PrivacyPublicReserveOwnerV1::Orchard { namespace, .. } = owner else {
+        unreachable!()
+    };
+    let wrong_owner = PrivacyPublicReserveOwnerV1::Orchard {
+        namespace,
+        bootstrap_digest: iroha_data_model::privacy::PrivacyOrchardPoolBootstrapDigestV1::new(
+            [0xEE; 32],
+        ),
+    };
+    let error = tx
+        .world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &depositor,
+            &reserve,
+            &next.amount,
+            &next,
+            NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(wrong_owner),
+        )
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("does not match governed reserve custody")
+    );
+    assert_eq!(tx.world.privacy_commitments.get(&key), Some(&custody));
+    assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(3_u32));
+    assert_eq!(
+        asset_balance_or_zero(&tx, &depositor),
+        Quantity::from(7_u32)
+    );
+
+    // An inconsistent retained counter cannot be repaired or topped up implicitly.
+    let mut unbacked = custody;
+    let PrivacyStateItemRecordV1::PublicReserveCustody {
+        funded_allowance, ..
+    } = &mut unbacked
+    else {
+        unreachable!()
+    };
+    *funded_allowance = Quantity::from(4_u32);
+    tx.world
+        .privacy_commitments
+        .insert(key.clone(), unbacked.clone());
+    let error = tx
+        .world
+        .apply_prechecked_numeric_asset_transfer_delta_exact(
+            &depositor,
+            &reserve,
+            &next.amount,
+            &next,
+            NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner),
+        )
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("allowance exceeds its exact balance")
+    );
+    assert_eq!(tx.world.privacy_commitments.get(&key), Some(&unbacked));
+    assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(3_u32));
+    assert_eq!(
+        asset_balance_or_zero(&tx, &depositor),
+        Quantity::from(7_u32)
+    );
+}
+
+#[test]
+fn funded_turnstile_rejects_zero_self_cross_asset_and_cross_scope_effects() {
+    let (state, definition, reserve) = build_asset_transfer_control_test_state(10);
+    let depositor = AssetId::new(definition.clone(), BOB_ID.clone());
+    let mut block = state.block(occurrence_header());
+    let mut tx = block.transaction();
+    let owner = seed_prepared_test_orchard_reserve(&mut tx, &reserve);
+    let foreign_asset = AssetId::new(wonderland_asset_definition_id("tulip"), BOB_ID.clone());
+    let foreign_scope = AssetId::with_scope(
+        definition,
+        BOB_ID.clone(),
+        AssetBalanceScope::Dataspace(iroha_model_base::topology::DataSpaceId::new(7)),
+    );
+    for (source, amount) in [
+        (&depositor, Quantity::zero()),
+        (&reserve, Quantity::one()),
+        (&foreign_asset, Quantity::one()),
+        (&foreign_scope, Quantity::one()),
+    ] {
+        let error = tx
+            .world
+            .prepare_privacy_reserve_allowance_update(
+                source,
+                &reserve,
+                &amount,
+                NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner),
+            )
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("exact nonzero public movement"),
+            "{error}"
+        );
+    }
+    let source = crate::privacy_state::PrivacyCommitmentKeyV1::public_reserve_custody(
+        owner.protocol_id(),
+        &reserve,
+    )
+    .unwrap();
+    assert_eq!(
+        tx.world
+            .privacy_commitments
+            .get(&source)
+            .unwrap()
+            .public_reserve_funded_allowance(),
+        Some(&Quantity::zero())
+    );
+    assert_eq!(asset_balance_or_zero(&tx, &reserve), Quantity::from(10_u32));
 }

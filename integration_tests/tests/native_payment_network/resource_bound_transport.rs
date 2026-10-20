@@ -70,7 +70,7 @@ pub(super) fn verify_rows(
     ensure!(header.payload_len as usize == verified.block().resultless_proposal_wire_len()?);
     ensure!(header.payload_len as usize <= BLOCK_PAYLOAD_CAP);
     let shape = layout.shape(u64::from(header.payload_len))?;
-    let key = |id: &iroha_data_model::peer::PeerId| -> Result<String> {
+    let key = |id: &iroha_model_base::peer::PeerId| -> Result<String> {
         Ok(hex::encode(
             iroha_data_model::sumeragi_finality::consensus_key(id)?.as_bytes(),
         ))

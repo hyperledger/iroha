@@ -26,7 +26,11 @@ impl Geometry {
                 _ => 0,
             },
             full_rounds: 8,
-            partial_rounds: 56,
+            partial_rounds: match width {
+                3 => 57,
+                6 => 60,
+                _ => 0,
+            },
         }
     }
     fn request(self) -> Option<(usize, usize, usize, WorkRequest)> {
@@ -34,7 +38,12 @@ impl Geometry {
             return None;
         }
         let state_words = self.count.checked_mul(self.width)?.checked_mul(4)?;
-        let constants = 64usize.checked_mul(self.width)?.checked_mul(4)?;
+        let rounds = match self.width {
+            3 => 65usize,
+            6 => 68usize,
+            _ => return None,
+        };
+        let constants = rounds.checked_mul(self.width)?.checked_mul(4)?;
         let mds = self.width.checked_mul(self.width)?.checked_mul(4)?;
         let buffers = state_words
             .checked_add(constants)?
@@ -147,7 +156,7 @@ mod tests {
             let (state, constants, mds, request) =
                 Geometry::canonical(width, 257).request().unwrap();
             assert_eq!(state, 257 * width * 4);
-            assert_eq!(constants, 64 * width * 4);
+            assert_eq!(constants, (if width == 3 { 65 } else { 68 }) * width * 4);
             assert_eq!(mds, width * width * 4);
             assert_eq!(request.host_bytes, state * 8 + 8);
             assert_eq!(request.pinned_bytes, (state + constants + mds) * 8 + 8);

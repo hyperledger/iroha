@@ -459,6 +459,8 @@ MUTATIONS = [
       ["det_l33_verified_sync_donor_survives_saturated_history"], []),
     m("ML34", "process_sync_buffer: rejected deferred donor cannot refresh the missing height",
       ["det_l34_deferred_sync_donor_failure_refetches_current_height"], []),
+    m("ML35", "entry_bytes: charge the former header and skipped-leader allowance, not the canonical entry",
+      ["det_l35_sync_buffer_charges_canonical_entry_bytes"], []),
     m("MS42", "original publication recovery does not halt the core",
       ["det_s42_original_publication_recovery_halts"], []),
     m("MS43", "signing domains omit epoch identity and complete context", ["det_s43_every_signature_binds_epoch_and_complete_context"], []),
@@ -1920,6 +1922,16 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("SCCP local allocation refusal must remain an original deferred attempt",
           "crates/iroha_core/src/smartcontracts/isi/sccp/self_claim/bundled_tests.rs"),)),
 
+    m("HC435", "SCCP forgery: allocate a diagnostic while mapping a retained local refusal",
+      ["smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison"],
+      causes=(ExpectedFailure("local SCCP refusal cannot allocate a replacement diagnostic",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/tests.rs"),)),
+
+    m("HC436", "SCCP evidence record: omit the raw offender-array committee bound before nested decode",
+      ["sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode"],
+      causes=(ExpectedFailure("oversized SCCP graph is refused before nested decode",
+          "crates/iroha_core/src/sumeragi/evidence/sccp_record/tests.rs"),)),
+
     m("HC308", "SC1 SCCP result: omit the original fixed header from ordinary voting",
       ["sumeragi::executor::publication_tests::published_execution_result_binds_the_original_header_and_body_digest"],
       causes=(ExpectedFailure("SC1 ordinary voting must bind the original finality header and body digest",
@@ -2030,7 +2042,7 @@ CORE_MUTATIONS = [
 
     m("HC304", "SCCP clock policy: accept a budget that can recertify but never enact a pause",
       ["sumeragi::schedule::execution::tests::sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment"],
-      causes=(ExpectedFailure("genesis must reject budgets that cannot certify six rounds and enact one pause",
+      causes=(ExpectedFailure("genesis must reject budgets outside the current ticket, draw, six-conclusion and enactment range",
           "crates/iroha_core/src/sumeragi/schedule/execution_tests.rs"),)),
 
     m("HC302", "SCCP keepalive: replace the original parent pause-due set with the overlay",

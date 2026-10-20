@@ -326,7 +326,7 @@
   },
   {
    "id": "poseidon",
-   "algorithm": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)",
+   "algorithm": "Original Poseidon (Hades) permutations: BN254 x^5 width 3 (57 partial rounds) and width 6 (60 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)",
    "kind": "algebraic",
    "output_bytes": [8, 32],
    "token": {
@@ -1038,7 +1038,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Native-field algebraic hash constrained by the Kaigi PIPA-R relation; a byte-oriented digest cannot replace it. Its 56-round relation sponge is distinct from the 57-round PIPA-R transcript sponge."
-   }
+   },
+   "algorithm": "Original Poseidon over Pasta Fp: width 3, rate 2, x^5, 8 full and 56 partial rounds, dense Cauchy MDS selector 0; Kaigi length-framed relation sponge."
   },
   {
    "key": "confidential.spentness-tree",
@@ -1149,7 +1150,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Native-field algebraic hash of the confidential PIPA-R relations, using the pinned 57-round iroha_pasta tables and the native relation gadget; Kaigi instead constrains a 56-round relation sponge."
-   }
+   },
+   "algorithm": "Original Poseidon over Pasta Fp: width 3, rate 2, x^5, 8 full and 57 partial rounds, dense Cauchy MDS selector 0; confidential domain-tagged relation sponge."
   },
   {
    "key": "confidential.key-derivation",
@@ -1170,7 +1172,8 @@
    "canonical_native": {
     "decision": "not-a-commitment",
     "note": "A key derivation; the canonical native commitment does not apply."
-   }
+   },
+   "algorithm": "HKDF (RFC 5869) over SHA-2 or SHA-3"
   },
   {
    "key": "confidential.shielded-commitment-leaf",
@@ -1191,7 +1194,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Part of the ledger Merkle family built on iroha_crypto::Hash. F.5 checks whether a privacy role still consumes these roots before deciding a migration."
-   }
+   },
+   "algorithm": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
   },
   {
    "key": "mkhe.proof-digest",
@@ -1581,7 +1585,8 @@
    "canonical_native": {
     "decision": "proof-internal",
     "note": "Recomputed inside the admission relation; it follows the in-circuit profile H.2 freezes, not the native candidate."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "zk-ams.phase-v-sha3-512",
@@ -1602,7 +1607,8 @@
    "canonical_native": {
     "decision": "proof-internal",
     "note": "Fiat-Shamir and hash-to-group of a discrete-log argument; it keeps the hash its construction specifies."
-   }
+   },
+   "algorithm": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
   },
   {
    "key": "zk-ams.generator-digest-sha3-256",
@@ -1692,7 +1698,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Transcript of the Spartan/Nova and Bulletproof families over T256; it keeps the hash its construction specifies."
-   }
+   },
+   "algorithm": "Keccak-f[1600] with the original Keccak-256 padding, and files that name the Keccak permutation behind SHA-3"
   },
   {
    "key": "vega.xof-shake256",
@@ -1712,7 +1719,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Parameter and challenge expansion of a distinct proof family."
-   }
+   },
+   "algorithm": "SHAKE128 and SHAKE256 extendable-output functions (FIPS 202)"
   },
   {
    "key": "fastpq.digest384",
@@ -1798,7 +1806,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "It constrains the retained ledger identity hash; it changes only if G.3 replaces the State commitment it opens."
-   }
+   },
+   "algorithm": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
   },
   {
    "key": "fastpq.bn254-poseidon-statement",
@@ -1860,7 +1869,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Retained explicit BLAKE2b transcript profile; not the selected Fiat-Shamir transcript of current PIPA-R admission."
-   }
+   },
+   "algorithm": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
   },
   {
    "key": "halo2.ipa-transcript-sha3",
@@ -1887,7 +1897,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Transcript of the IPA family."
-   }
+   },
+   "algorithm": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
   },
   {
    "key": "halo2.pasta-poseidon",
@@ -1912,7 +1923,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Native-field algebraic hash used by current native PLONK/PIPA-R owners and retained scalar-field profiles. The 57-round permutation is distinct from the 56-round relation sponges of Kaigi and SoraFS."
-   }
+   },
+   "algorithm": "Original Poseidon over Pasta Fp and Fq: width 3, rate 2, x^5, 8 full and 57 partial rounds, dense Cauchy MDS selector 0; pinned rp57_fp.bin and rp57_fq.bin."
   },
   {
    "key": "halo2.pasta-poseidon-rp56-candidate",
@@ -1933,7 +1945,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "A candidate, not the hash of any admitted relation. H.2 either selects it for a relation with its circuit adapters qualified or F.5 removes it."
-   }
+   },
+   "algorithm": "Original Poseidon P128Pow5T3 over Pasta Fp and Fq: width 3, rate 2, x^5, 8 full and 56 partial rounds; positive fixed-length ConstantLength sponge, capacity last, length times 2^64, zero padding, coordinate-zero output."
   },
   {
    "key": "sorafs.pop-credential-poseidon",
@@ -1954,7 +1967,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Native-field algebraic hash of a native PIPA-R relation outside the Exact12 catalog; the 56-round circuit sponge is separate from the 57-round transcript sponge."
-   }
+   },
+   "algorithm": "Original Poseidon over Pasta Fp: width 3, x^5, 8 full and 56 partial rounds, dense Cauchy MDS selector 0; domain-tagged [left,right,domain] compression with coordinate-zero output."
   },
   {
    "key": "bulletproofs.fcmp-transcript-blake2b",
@@ -1974,7 +1988,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Transcript of the Bulletproof family."
-   }
+   },
+   "algorithm": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
   },
   {
    "key": "privacy-substrate.outer-sha3-384",
@@ -2014,7 +2029,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "In-circuit hash of the note relations; H.2 decides the in-circuit profile from measured cost."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "x509.certificate-sha2",
@@ -2035,7 +2051,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Dictated by X.509; not replaceable. The Boolean-circuit SHA-256 in zk_x509/sha256_air.rs is a test-only differential oracle, not the release relation."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "zk-ace.identity-digest384",
@@ -2145,7 +2162,8 @@
       }
      ]
     }
-   }
+   },
+   "algorithm": "BLAKE3 (default 256-bit output, 256-bit chaining value)"
   },
   {
    "key": "ram-lfe.public-commitment-blake2b",
@@ -2166,7 +2184,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Thirteen commitments through the ledger identity hash, not BLAKE3. REQ-063 does not name them. R.2 and R.3 decide which of them a program-hiding relation must open; one that is opened follows the in-circuit profile, the others may move to the canonical frame with F.5."
-   }
+   },
+   "algorithm": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
   },
   {
    "key": "ram-lfe.prf-hkdf-sha3-512",
@@ -2186,7 +2205,8 @@
    "canonical_native": {
     "decision": "not-a-commitment",
     "note": "A keyed function; R.6 retires the plaintext backends."
-   }
+   },
+   "algorithm": "HKDF (RFC 5869) over SHA-2 or SHA-3"
   },
   {
    "key": "ram-lfe.phone-number-commitment-digest384",
@@ -2229,7 +2249,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "The State commitment is selected by G.2 and G.3, not by the native commitment of this file; G.3 replaces it in a fresh-genesis cutover."
-   }
+   },
+   "algorithm": "LtHash16 homomorphic multiset hash of the world State"
   },
   {
    "key": "ledger.identity-hash",
@@ -2250,7 +2271,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Separately named ledger identity family. REQ-063 does not replace it; F.5 migrates only its uses inside the named privacy roles where appropriate."
-   }
+   },
+   "algorithm": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
   },
   {
    "key": "ledger.merkle-sha256",
@@ -2277,7 +2299,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Ledger Merkle family."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "ledger.merkle-application",
@@ -2298,7 +2321,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Ledger Merkle family on the ledger identity hash."
-   }
+   },
+   "algorithm": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
   },
   {
    "key": "ivm.opcode-sha256block",
@@ -2318,7 +2342,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.2 and M.3 prove it as an IVM step."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "ivm.opcode-sha3block",
@@ -2338,7 +2363,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.2 and M.3 prove it as an IVM step."
-   }
+   },
+   "algorithm": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
   },
   {
    "key": "ivm.opcode-poseidon2",
@@ -2406,7 +2432,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.2 and M.3 prove it as an IVM step."
-   }
+   },
+   "algorithm": "BLAKE2s-256 (RFC 7693)"
   },
   {
    "key": "ivm.syscall-sha256-hash",
@@ -2431,7 +2458,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "ivm.syscall-sha3-256-hash",
@@ -2456,7 +2484,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it."
-   }
+   },
+   "algorithm": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
   },
   {
    "key": "ivm.syscall-blake2b256-hash",
@@ -2481,7 +2510,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it."
-   }
+   },
+   "algorithm": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
   },
   {
    "key": "ivm.syscall-keccak256-hash",
@@ -2506,7 +2536,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it."
-   }
+   },
+   "algorithm": "Keccak-f[1600] with the original Keccak-256 padding, and files that name the Keccak permutation behind SHA-3"
   },
   {
    "key": "ivm.syscall-sm3-hash",
@@ -2531,7 +2562,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it. The host returns PermissionDenied unless its SM switch is set (finding F72 of the plan ledger: a node-local switch that changes ABI behaviour)."
-   }
+   },
+   "algorithm": "SM3 (GB/T 32905-2016)"
   },
   {
    "key": "ivm.syscall-iroha-hash",
@@ -2556,7 +2588,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "The ledger identity hash exposed to contracts; it follows that family and the proved invocation recomputes it."
-   }
+   },
+   "algorithm": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
   },
   {
    "key": "ivm.syscall-memory-merkle",
@@ -2586,7 +2619,8 @@
    "canonical_native": {
     "decision": "standard-internal",
     "note": "Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it. The memory commitment is also the authenticated memory of the IVM proof, so its hash is chosen with the in-circuit profile H.2 freezes."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "ivm.syscall-private-numeric-valcom",
@@ -2616,7 +2650,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "A discrete-log commitment, not a digest; its scalar derivation uses the ledger identity hash. Part of ABI V1; M.1 to M.3 prove every ABI syscall, so the relation of a proved invocation recomputes it."
-   }
+   },
+   "algorithm": "Pedersen commitments and vector commitments over elliptic-curve groups (T256, ristretto255, Pasta, BLS12-381 G1)"
   },
   {
    "key": "pq.mlkem-public-key-hash",
@@ -2676,7 +2711,8 @@
    "canonical_native": {
     "decision": "not-a-commitment",
     "note": "A key derivation."
-   }
+   },
+   "algorithm": "HKDF (RFC 5869) over SHA-2 or SHA-3"
   },
   {
    "key": "privacy.state-digest-blake3",
@@ -2832,7 +2868,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Transaction truth, not evidence metadata, and not named by REQ-063. At least the personhood credential hash and the registry transition are recomputed inside the ZK-AMS admission relation (zk-ams.admission-sha256), so they keep the hash that relation constrains; F.5 reviews the others one by one before moving any of them."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "privacy.evidence-digest-sha256",
@@ -2857,7 +2894,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Evidence metadata: the plan keeps source, artifact and release digests out of transaction truth, so the native commitment does not apply. P.5 removes the activation and review predicates that read such manifests."
-   }
+   },
+   "algorithm": "SHA-256 (FIPS 180-4)"
   },
   {
    "key": "bn254-poseidon.native-helpers",
@@ -2874,7 +2912,7 @@
     },
     {
      "path": "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1.rs",
-     "symbol": "pub(super) const WIDTH6: Bn254PoseidonParams<6>"
+     "symbol": "pub(super) const WIDTH6: Bn254PoseidonParams<6, 68>"
     }
    ],
    "canonical_native": {
@@ -2927,7 +2965,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Proof-internal field transcript; listing its current parameters does not establish a security level or authorize a digest replacement."
-   }
+   },
+   "algorithm": "Original Poseidon over the Pasta proof-curve base field Fp or Fq: width 3, rate 2, x^5, 8 full and 57 partial rounds, dense Cauchy MDS selector 0; PIPA-R base-field transcript sponge."
   },
   {
    "key": "pipa-r.vk-binding-blake2b",
@@ -2954,7 +2993,8 @@
    "canonical_native": {
     "decision": "retained-family",
     "note": "Descriptor/VK binding consumed by the field transcript; replacing it changes proof semantics and requires joint profile migration."
-   }
+   },
+   "algorithm": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
   }
  ],
  "consumers": {
@@ -3221,10 +3261,6 @@
      "class": "role",
      "note": "AXT binding.",
      "roles": ["axt.binding-poseidon"]
-    },
-    "poseidon2": {
-     "class": "label-only",
-     "note": "Documentation that calls the two-input sponge Poseidon2."
     },
     "sha2-256": {
      "class": "evidence-metadata",
@@ -4794,6 +4830,8 @@
    "crates/iroha_core/src/fastpq/digest_backend_tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/fastpq/finalized_source/tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/fastpq/lane.rs": ["digest384", "iroha-hash", "poseidon"],
+   "crates/iroha_core/src/fastpq/lane/durable.rs": ["iroha-hash"],
+   "crates/iroha_core/src/fastpq/lane/producer/proof_completion_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/fastpq/mod.rs": ["blake2b", "iroha-hash", "poseidon"],
    "crates/iroha_core/src/fastpq/permission_context.rs": ["iroha-hash"],
    "crates/iroha_core/src/fastpq/quantity_statement.rs": ["iroha-hash"],
@@ -4814,6 +4852,7 @@
    "crates/iroha_core/src/fastpq/source_reservation/entry_bundle/tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/fastpq/source_statement_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/kiso.rs": ["argon2", "iroha-hash", "pedersen", "poseidon"],
+   "crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/kura/fastpq_artifact_store.rs": ["iroha-hash"],
    "crates/iroha_core/src/kura/tests/09_lane_artifacts_and_fastpq.rs": ["iroha-hash"],
    "crates/iroha_core/src/pipeline/overlay_atomic_settlement_tests.rs": ["iroha-hash", "poseidon"],
@@ -4827,6 +4866,9 @@
    "crates/iroha_core/src/privacy_release_evidence/vega.rs": ["sha2-256"],
    "crates/iroha_core/src/privacy_release_evidence/verange_and_rng.rs": ["digest384", "poseidon", "sha2-256"],
    "crates/iroha_core/src/privacy_release_evidence/zk_x509.rs": ["sha2-256"],
+   "crates/iroha_core/src/query/native_context_archive/fastpq_source.rs": ["iroha-hash"],
+   "crates/iroha_core/src/query/native_context_archive/fastpq_source/read/decode.rs": ["iroha-hash"],
+   "crates/iroha_core/src/query/native_context_archive/fastpq_source/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/queue/privacy_governance_compliance_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/receiver_snapshot/fastpq_source_archive_bridge_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/receiver_snapshot/fastpq_source_archive_tests.rs": ["iroha-hash"],
@@ -4863,7 +4905,9 @@
    "crates/iroha_core/src/smartcontracts/ivm/host/native_event_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/native_events.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/nested_contract_state_and_rollback_tests.rs": ["iroha-hash"],
+   "crates/iroha_core/src/smartcontracts/ivm/host/nested_return_funding_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/pointer_abi_and_sm_tests.rs": ["sm3"],
+   "crates/iroha_core/src/smartcontracts/ivm/host/setup_snapshot_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/tlv_transport.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/ivm/host/zk_verification_tests.rs": ["poseidon"],
    "crates/iroha_core/src/soracloud_runtime.rs": ["iroha-hash"],
@@ -4877,6 +4921,8 @@
    "crates/iroha_core/src/state/authority_registry/complete/frozen_contract_subjects/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/complete/frozen_escrows/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/complete/frozen_nfts_rwas/tests.rs": ["iroha-hash"],
+   "crates/iroha_core/src/state/authority_registry/complete/original_stream/encoding.rs": ["iroha-hash"],
+   "crates/iroha_core/src/state/authority_registry/complete/original_stream/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/complete/table_capture.rs": ["iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_core/src/state/authority_registry/complete/table_capture/aggregate/group_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/complete/table_capture/catalog.rs": ["iroha-hash"],
@@ -4908,6 +4954,7 @@
    "crates/iroha_core/src/state/authority_registry/leaf/selection/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/leaf/tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/nexus_policy.rs": ["iroha-hash"],
+   "crates/iroha_core/src/state/authority_registry/policy_borrowed.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/runtime_codec_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/state.rs": ["iroha-hash"],
    "crates/iroha_core/src/state/authority_registry/tests.rs": ["iroha-hash"],
@@ -5004,6 +5051,7 @@
    "crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/stark.rs": ["iroha-hash", "sha3"],
    "crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/test_fixtures.rs": ["iroha-hash"],
    "crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/wallet.rs": ["iroha-hash"],
+   "crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/wallet/preparation.rs": ["iroha-hash"],
    "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/credential_sampling.rs": ["sha2-256"],
    "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/falcon512/comm/chacha.rs": ["sha2-256"],
    "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/falcon512/comm/shake.rs": ["keccak", "shake"],
@@ -5451,6 +5499,9 @@
    "crates/iroha_data_model/src/fastpq.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_data_model/src/fastpq/commitment.rs": ["keccak", "sha3"],
    "crates/iroha_data_model/src/fastpq/execution_effect.rs": ["iroha-hash"],
+   "crates/iroha_data_model/src/fastpq/execution_effect/admitted.rs": ["iroha-hash"],
+   "crates/iroha_data_model/src/fastpq/execution_effect/admitted/fixed.rs": ["iroha-hash"],
+   "crates/iroha_data_model/src/fastpq/execution_effect/admitted/tests.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/fastpq/execution_effect/commitment.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/fastpq/execution_effect/commitment/tests.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/fastpq/execution_effect/tests.rs": ["iroha-hash"],
@@ -5476,7 +5527,7 @@
    "crates/iroha_data_model/src/kaigi.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/kaigi/authorization.rs": ["digest384", "iroha-hash", "poseidon", "shake"],
    "crates/iroha_data_model/src/kaigi/scalar.rs": ["blake2b"],
-   "crates/iroha_data_model/src/nexus/axt.rs": ["blake2b", "iroha-hash", "poseidon", "poseidon2"],
+   "crates/iroha_data_model/src/nexus/axt.rs": ["blake2b", "iroha-hash", "poseidon"],
    "crates/iroha_data_model/src/nexus/axt/tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_data_model/src/nexus/privacy.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/nexus/private_settlement/confidential_encoding.rs": ["iroha-hash"],
@@ -5508,7 +5559,7 @@
    "crates/iroha_data_model/src/soracloud/tests/provenance.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/soracloud/tests/runtime_state_validation.rs": ["iroha-hash"],
    "crates/iroha_data_model/src/soranet/privacy_metrics.rs": ["blake3"],
-   "crates/iroha_data_model/src/testing/axt.rs": ["iroha-hash", "poseidon", "poseidon2"],
+   "crates/iroha_data_model/src/testing/axt.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_data_model/src/zk.rs": ["digest384", "iroha-hash", "poseidon", "poseidon2", "sha2-256", "sha2-512"],
    "crates/iroha_data_model/src/zk_validity_policy.rs": ["pedersen", "poseidon"],
    "crates/iroha_data_model/tests/axt_envelope_fixture.rs": ["iroha-hash"],
@@ -5720,7 +5771,6 @@
    "crates/iroha_torii/tests/zk_proofs_query_integration.rs": ["iroha-hash"],
    "crates/iroha_torii/tests/zk_roots_handler_integration.rs": ["iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_torii/tests/zk_vk_post_integration.rs": ["iroha-hash"],
-   "crates/iroha_torii_shared/src/parliament_api.rs": ["iroha-hash", "pedersen", "sha2-256"],
    "crates/iroha_zkp_halo2/src/backend/bn254.rs": ["sha3"],
    "crates/iroha_zkp_halo2/src/backend/pallas.rs": ["sha3"],
    "crates/iroha_zkp_halo2/src/generalized_bulletproof.rs": ["pedersen"],
@@ -5925,7 +5975,7 @@
    "crates/iroha_zkp_poseidon/src/pasta.rs": ["poseidon"],
    "crates/iroha_zkp_poseidon/src/pasta/tests.rs": ["sha2-256"],
    "crates/iroha_zkp_poseidon/src/poseidon.rs": ["poseidon", "poseidon2", "sha2-256"],
-   "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1.rs": ["poseidon", "sha2-256"],
+   "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1.rs": ["poseidon"],
    "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_reference_vectors_tests.rs": ["poseidon"],
    "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_tests.rs": ["poseidon"],
    "crates/iroha_zkp_vole/src/bavc.rs": ["shake"],
@@ -6105,7 +6155,7 @@
    "crates/ivm/src/zk/register_authentication.rs": ["iroha-hash", "sha2-256"],
    "crates/ivm/src/zk/register_batches/tests.rs": ["iroha-hash"],
    "crates/ivm/src/zk/register_events/tests.rs": ["iroha-hash"],
-   "crates/ivm/src/zk_poseidon.rs": ["poseidon", "poseidon2"],
+   "crates/ivm/src/zk_poseidon.rs": ["poseidon"],
    "crates/ivm/tests/abi_syscall_list_golden.rs": ["blake2b", "keccak", "sha2-256", "sm3"],
    "crates/ivm/tests/axt_host_flow.rs": ["iroha-hash"],
    "crates/ivm/tests/byte_merkle_tree.rs": ["sha2-256"],
@@ -6221,7 +6271,7 @@
    "crates/ivm/tests/zk_verify_pointer_type.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_positive_matrix.rs": ["iroha-hash"],
    "crates/ivm/tests/zk_verify_syscall.rs": ["iroha-hash"],
-   "crates/ivm_abi/src/axt.rs": ["iroha-hash", "poseidon2"],
+   "crates/ivm_abi/src/axt.rs": ["iroha-hash", "poseidon"],
    "crates/ivm_abi/src/contract_call.rs": ["iroha-hash"],
    "crates/ivm_abi/src/encoding.rs": ["poseidon", "poseidon2"],
    "crates/ivm_abi/src/instruction.rs": ["blake2s", "poseidon", "poseidon2", "sha2-256"],
@@ -6371,7 +6421,7 @@
    "IrohaSwift#other": ["blake2b", "blake2s", "blake3", "hkdf", "hmac", "iroha-hash", "sha2-256", "sha3"],
    "benchmarks#other": ["sha2-256"],
    "ci#other": ["sha2-256"],
-   "contracts#other": ["hkdf", "hmac", "keccak", "sha2-256"],
+   "contracts#other": ["blake2b", "hkdf", "hmac", "keccak", "sha2-256"],
    "crates/connect_norito_bridge#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "sha2-256", "sha3"],
    "crates/iroha#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "sha2-256", "sha3"],
    "crates/iroha_cli#other": ["blake2b", "blake3", "hkdf", "iroha-hash", "keccak", "scrypt", "sha1", "sha2-256", "sha3", "sm3"],
@@ -6391,6 +6441,7 @@
    "crates/iroha_musubi_service#other": ["blake3", "iroha-hash", "sha2-256"],
    "crates/iroha_operation_journal#other": ["sha2-256"],
    "crates/iroha_p2p#other": ["argon2", "blake2b", "iroha-hash", "sha2-256", "sha2-512", "sm3"],
+   "crates/iroha_parliament_ballot#other": ["iroha-hash", "sha3"],
    "crates/iroha_primitives#other": ["blake3", "sha2-256"],
    "crates/iroha_private_settlement#other": ["iroha-hash"],
    "crates/iroha_sccp#other": ["blake2b", "hkdf", "hmac", "iroha-hash", "keccak", "sha2-256", "sha2-512"],
@@ -6432,7 +6483,7 @@
    "kagemusha": ["blake2b", "hmac", "iroha-hash", "pedersen", "poseidon", "sha1", "sha2-256"],
    "kotlin#other": ["argon2", "blake2b", "blake2s", "blake3", "hkdf", "hmac", "iroha-hash", "sha1", "sha2-256", "sha3"],
    "mochi#other": ["iroha-hash", "sha2-256"],
-   "pytests#other": ["blake2b", "blake3", "keccak", "poseidon", "scrypt", "sha1", "sha2-256", "sha2-512", "sha3"],
+   "pytests#other": ["blake2b", "blake3", "iroha-hash", "keccak", "poseidon", "scrypt", "sha1", "sha2-256", "sha2-512", "sha3"],
    "python#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "scrypt", "sha2-256", "sha2-512", "sha3", "sm3"],
    "scripts#other": ["anemoi", "argon2", "blake2b", "blake2s", "blake3", "digest384", "hkdf", "hmac", "iroha-hash", "keccak", "md5", "monolith", "poseidon", "poseidon2", "rescue", "sha1", "sha2-256", "sha2-512", "sha3", "shake", "sm3", "streebog", "tip5"],
    "state-candidates": ["blake2b", "blake3", "digest384", "iroha-hash", "poseidon", "poseidon2", "rescue", "sha2-256"],
@@ -7681,13 +7732,13 @@
   "reference_script": "scripts/zk_bn254_poseidon_reference.py",
   "vector_fixture": "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_reference_vectors.txt",
   "vector_tests": "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_reference_vectors_tests.rs",
-  "construction": "Original Poseidon (not Poseidon2) over the BN254 scalar field: x^5, dense Cauchy MDS, widths 3 (rate 2) and 6 (rate 5), 8 full and 56 partial rounds for both widths, first Cauchy candidate (secure_mds = 0).",
-  "method": ["The reference script regenerates all 621 field elements with its own Grain LFSR and Cauchy construction and compares them with the Rust table.", "The same generator run with the published round numbers reproduces pinned constants of the published BN254 width-three instantiation, so the generator is anchored to published values and not only to the repository table.", "Every square minor of both matrices is checked, with three bounded linear-layer screens for one active S-box per partial round.", "The paper's round-number inequalities for x^5 at a 128-bit target are evaluated with the objective of the fewest S-boxes and the margin of two full rounds and 7.5% partial rounds.", "The Rust test runs the owner over vectors the script computed with its own permutation."],
-  "limits": "Agreement of two implementations, nonzero minors and the bounded screens do not qualify the parameter set. The inequalities are transcribed from the paper; the original round-number script was not fetched. Parameters are not changed by this task.",
+  "construction": "Original Poseidon over BN254 scalar field, x^5: width3 8 full/57 partial rounds and width6 8 full/60 partial rounds, exact circomlibjs v0.1.7 constants and dense Cauchy MDS. Fixed-arity Iroha mode uses capacity coordinate0 arity*2^64, additive rate coordinates1..rate, output1; hash6 uses two rate5 blocks.",
+  "method": ["The reference script regenerates all 648 field elements with its independent Grain LFSR/Cauchy construction and compares them with the sole Rust owner; all constants and MDS also match pinned primary circomlibjs v0.1.7.", "The same generator run with the published round numbers reproduces pinned constants of the published BN254 width-three instantiation, so the generator is anchored to published values and not only to the repository table.", "Every square minor of both matrices is checked, with three bounded linear-layer screens for one active S-box per partial round.", "The paper's round-number inequalities for x^5 at a 128-bit target are evaluated with the objective of the fewest S-boxes and the margin of two full rounds and 7.5% partial rounds.", "The Rust test runs the owner over vectors the script computed with its own permutation."],
+  "limits": "Parameter equality, deterministic vectors, nonzero minors and bounded screens do not establish cryptographic security. The Iroha fixed-arity mode is separate from circomlib helper semantics. Native/IVM/FASTPQ/SDK runtime and physical accelerator qualification require actual current-source execution; no constrained BN254 Halo2 consumer is present.",
   "sites": [
    {
     "path": "crates/iroha_zkp_poseidon/src/poseidon.rs",
-    "symbol": "const PARTIAL_ROUNDS: usize = 56;"
+    "symbol": "pub const WIDTH3_PARTIAL_ROUNDS: usize = 57;"
    },
    {
     "path": "crates/iroha_zkp_poseidon/src/poseidon.rs",
@@ -7699,53 +7750,56 @@
    },
    {
     "path": "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_tests.rs",
-    "symbol": "fn all_621_fixed_fields_match_original_v1_grain_mds_and_strict_round_trips"
+    "symbol": "fn all_648_fixed_fields_match_selected_v1_grain_mds_and_strict_round_trips"
    },
    {
     "path": "crates/iroha_zkp_poseidon/src/poseidon/bn254_v1_reference_vectors_tests.rs",
-    "symbol": "fn repository_width3_table_is_not_the_published_bn254_instantiation"
+    "symbol": "fn selected_width3_table_is_the_published_bn254_instantiation"
    }
   ],
   "consumer_needles": ["iroha_zkp_poseidon::poseidon", "iroha_zkp_halo2::poseidon", "bn254_poseidon_params_width3", "bn254_poseidon_params_width6", "hash2_bytes", "hash2_u64", "hash6_bytes", "hash6_u64", "PoseidonByteHasher", "poseidon6"],
   "defects": [
    {
     "id": "BN254-POSEIDON-D1",
-    "title": "The width-three table is not the published BN254 instantiation",
-    "class": "published-instantiation mismatch",
-    "evidence": "The published BN254 x^5 width-three permutation (hadeshash poseidonperm_x5_254_3, also shipped as the bn256 parameters of the poseidon-primitives 0.2.0 test oracle) uses 57 partial rounds. The repository uses 56. The Grain seed binds the round count, so none of the 195 published round constants and none of the MDS entries equal the repository's. The repository's value satisfies the margin rule as evaluated here (minimum 56).",
-    "effect": "Outputs differ from every other BN254 Poseidon deployment that follows the published instantiation; no attack follows from the round count.",
+    "title": "Selected published width-three table replaces the prior mismatch",
+    "class": "implemented correction awaiting current qualification",
+    "evidence": "All 195 round constants and nine MDS fields now match the published/circomlib t3 8/57 permutation; current runtime qualification remains pending.",
+    "effect": "Selected-source cutover; prior outputs are removed without compatibility paths. No whole F.5 or security qualification follows.",
     "consumer_needles": ["iroha_zkp_poseidon::poseidon", "iroha_zkp_halo2::poseidon", "bn254_poseidon_params_width3", "hash2_bytes", "hash2_u64", "PoseidonByteHasher"],
-    "owner_task": "F.5"
+    "owner_task": "F.5",
+    "disposition": "corrected-source-qualification-pending"
    },
    {
     "id": "BN254-POSEIDON-D2",
-    "title": "The width-six round count is one partial round below the margin rule",
-    "class": "margin-rule defect candidate",
-    "evidence": "For width 6 the inequalities need 53 partial rounds with 6 full rounds; the margin gives 8 full and 57 partial rounds. The repository uses 8 and 56. This is the result of the transcribed inequalities, not of the fetched reference script, and it is not a demonstrated attack. No published BN254 width-six instantiation exists to compare constants with.",
-    "effect": "The width-six permutation has less than the recommended margin.",
+    "title": "Selected circomlib width-six table replaces the prior margin defect",
+    "class": "implemented correction awaiting current qualification",
+    "evidence": "All 408 round constants and 36 MDS fields now match the circomlib t6 8/60 permutation. Sixty is the selected table value, not a claim about the minimum secure round count.",
+    "effect": "Selected-source cutover; prior outputs are removed without compatibility paths. No whole F.5 or security qualification follows.",
     "consumer_needles": ["bn254_poseidon_params_width6", "hash6_bytes", "hash6_u64", "poseidon6"],
-    "owner_task": "F.5"
+    "owner_task": "F.5",
+    "disposition": "corrected-source-qualification-pending"
    },
    {
     "id": "BN254-POSEIDON-D3",
-    "title": "The two- and six-input helpers are single permutations without capacity or domain separation",
-    "class": "mode finding",
-    "evidence": "hash2 starts from the state [a, b, 0] and hash6 fills all six state coordinates with inputs; both return coordinate 0 of one permutation. hash6 has no capacity element: for unrestricted field inputs a collision is found by inverting the permutation, so its collision resistance rests on every caller and every circuit restricting the inputs to 64-bit values. hash2_u64 and hash6_u64 return only the low 64 bits. Neither helper shares a domain word with the byte sponge.",
-    "effect": "A consumer that treats these helpers as general collision-resistant hashes over field elements, or the 64-bit forms as commitments, has a weaker guarantee than its label.",
+    "title": "Fixed-arity capacity and domain mode replaces untagged compression",
+    "class": "implemented correction awaiting current qualification",
+    "evidence": "hash2 starts [2*2^64,a,b] and returns coordinate1; hash6 starts [6*2^64,x0..x4], permutes, adds x5 to coordinate1, permutes again and returns coordinate1. Low64 forms remain non-commitment opcode outputs.",
+    "effect": "Selected-source cutover; prior outputs are removed without compatibility paths. No whole F.5 or security qualification follows.",
     "consumer_needles": ["hash2_bytes", "hash2_u64", "hash6_bytes", "hash6_u64", "poseidon6"],
     "owner_task": "F.5",
     "sites": [
      {
       "path": "crates/iroha_zkp_poseidon/src/poseidon.rs",
       "symbol": "fn hash2_field(a: u64, b: u64) -> Fr {",
-      "literals": ["let mut state = [Fr::from(a), Fr::from(b), Fr::ZERO];"]
+      "literals": ["Fr::from_raw([0, 2, 0, 0])", "state[1]"]
      },
      {
       "path": "crates/iroha_zkp_poseidon/src/poseidon.rs",
       "symbol": "fn hash6_field(inputs: [u64; 6]) -> Fr {",
-      "literals": ["Fr::from(inputs[5]),"]
+      "literals": ["Fr::from_raw([0, 6, 0, 0])", "state[1] += fr_from_u64(inputs[5]);", "poseidon6_permute(&mut state);"]
      }
-    ]
+    ],
+    "disposition": "corrected-source-qualification-pending"
    }
   ],
   "regeneration": {
@@ -7753,19 +7807,19 @@
    "field_bits": 254,
    "alpha": 5,
    "security_bits": 128,
-   "total_field_elements": 621,
+   "total_field_elements": 648,
    "widths": {
     "3": {
      "rate": 2,
-     "field_elements": 201,
-     "table_sha256": "20a6364b21446c75eafb313c00cda37f1e772a3e76f158d6938b40fd52988709",
+     "field_elements": 204,
+     "table_sha256": "e4b7f120fccdc21a73dd32fb210837a733555cb831173a0210d606f1a7705975",
      "square_minors": 19,
      "zero_minors": 0,
      "inactive_invariant_dimension": 0,
      "krylov_powers_checked": 12,
      "krylov_ranks_all_full": true,
      "repository_full_rounds": 8,
-     "repository_partial_rounds": 56,
+     "repository_partial_rounds": 57,
      "margin_rule_full_rounds": 8,
      "margin_rule_partial_rounds": 56,
      "minimum_partial_rounds_without_margin": 52,
@@ -7775,20 +7829,20 @@
     },
     "6": {
      "rate": 5,
-     "field_elements": 420,
-     "table_sha256": "443ee9a4a9e5f8425720a184e8ef3fbe1897c9fcae80e4c1827cf0a246889bda",
+     "field_elements": 444,
+     "table_sha256": "51ccbda8c3a46b0b214c9ad507fb0f5028340eb8efbf9b64aa772dbc862d7cdd",
      "square_minors": 923,
      "zero_minors": 0,
      "inactive_invariant_dimension": 0,
      "krylov_powers_checked": 24,
      "krylov_ranks_all_full": true,
      "repository_full_rounds": 8,
-     "repository_partial_rounds": 56,
+     "repository_partial_rounds": 60,
      "margin_rule_full_rounds": 8,
      "margin_rule_partial_rounds": 57,
      "minimum_partial_rounds_without_margin": 53,
      "minimum_partial_rounds_with_margin": 57,
-     "repository_meets_margin_rule": false,
+     "repository_meets_margin_rule": true,
      "repository_meets_unmargined_bound": true
     }
    },
@@ -7798,8 +7852,8 @@
     "partial_rounds": 57,
     "table_sha256": "e4b7f120fccdc21a73dd32fb210837a733555cb831173a0210d606f1a7705975",
     "generator_reproduces_pinned_values": true,
-    "round_constants_shared_with_repository": 0,
-    "mds_equal_to_repository": false
+    "round_constants_shared_with_repository": 195,
+    "mds_equal_to_repository": true
    }
   },
   "consumers": {
@@ -7814,6 +7868,7 @@
    "crates/fastpq_prover/src/gadgets/compact_smt_batch_schedule.rs": ["PoseidonByteHasher", "iroha_zkp_halo2::poseidon"],
    "crates/fastpq_prover/src/gadgets/public_transfer_statement.rs": ["PoseidonByteHasher", "iroha_zkp_halo2::poseidon"],
    "crates/fastpq_prover/src/gadgets/transfer.rs": ["PoseidonByteHasher", "iroha_zkp_halo2::poseidon"],
+   "crates/fastpq_prover/src/metal_tests.rs": ["iroha_zkp_halo2::poseidon"],
    "crates/fastpq_prover/tests/support/offline_compact_capture.rs": ["PoseidonByteHasher", "iroha_zkp_halo2::poseidon"],
    "crates/fastpq_prover/tests/support/offline_compact_maximum.rs": ["PoseidonByteHasher", "iroha_zkp_halo2::poseidon"],
    "crates/iroha_core/benches/crypto_hotpaths.rs": ["PoseidonByteHasher", "hash2_u64", "hash6_u64", "iroha_zkp_halo2::poseidon"],
@@ -7868,7 +7923,8 @@
    "python/iroha_python/src/iroha_python/__init__.py": ["poseidon6"],
    "python/iroha_python/src/iroha_python/gpu.py": ["poseidon6"],
    "xtask/src/poseidon_bench.rs": ["poseidon6"]
-  }
+  },
+  "upstream_provenance": "fixtures/poseidon/bn254-provenance.json"
  },
  "post_quantum": {
   "standards": {
@@ -8452,7 +8508,7 @@
     "measured": ["proving and verification time by phase", "proof and verifying-key bytes", "rows and Poseidon invocations"],
     "phases": ["prove_flow", "witness_build", "commit", "transcript", "ipa_open", "verify_flow", "verify"],
     "profiles": ["retained.pipa-r.transcript-poseidon-base", "retained.pipa-r.vk-binding-blake2b", "retained.halo2.pasta-poseidon", "retained.kaigi.relation-poseidon", "retained.confidential.note-poseidon", "retained.sorafs.pop-credential-poseidon"],
-    "profile_set_identity": "2f903bbfde3c1682bde0f67e4c406e1b95f5e468bc8eb101f3bb296ab1e924ec"
+    "profile_set_identity": "50e063d705e37c2c47f3071dfd9c0943fcd772c8e647e982b68fdae7e1e9e482"
    },
    {
     "id": "h1.family.bulletproofs",
@@ -9262,7 +9318,7 @@
     "identity": "de665d06b2fef0fff425e7efa19498b9d5b20fc4cbca06389db9c632f3c3d7f3",
     "summary": "Correction of BN254-POSEIDON-D1 and of the two-input half of D3: the published x^5 width-3 instantiation (8 full, 57 partial rounds, Grain constants, first Cauchy MDS) with a fixed-arity domain tag in the capacity coordinate.",
     "typed_owner": null,
-    "typed_owner_pending": "F.5 replaces the tables and helpers of crates/iroha_zkp_poseidon and must reproduce this identity; I.5 regenerates the ABI V1 outputs of the POSEIDON2 opcode.",
+    "typed_owner_pending": "Fixed width/round-count canonical parameters and mode implemented in crates/iroha_zkp_poseidon; typed shared semantic-profile descriptor binding and full F.5/I.5 qualification remain open.",
     "implemented_by": "F.5",
     "parameters": [
      {
@@ -9383,8 +9439,8 @@
     ],
     "security": {
      "basis": "The published instantiation of the Poseidon authors for a 128-bit target; one BN254 field element of output and of capacity gives about 126.8 bits against classical collision search, not 128.",
-     "evidence": "scripts/zk_bn254_poseidon_reference.py generates the tables with the Grain procedure; for (3, 8, 57) and for (5, 8, 60) the permutation of (0, 1, 2) and of (0, .., 4) equals the published reference vectors recorded in `checks`. The published values were not fetched in this task.",
-     "not_established": "A review of the round numbers against cryptanalysis published after the instantiation; the output of the original round-number script."
+     "evidence": "All selected constants/MDS were independently regenerated and compared byte-for-byte with circomlibjs v0.1.7 commit4f094c5be05c1f0210924a3ab204d8fd8da69f49; frozen BE-SHA3 table pins and both H.2 fixed-mode examples match. Current source/runtime review remains separate.",
+     "not_established": "A current cryptanalysis review or numerical composition security proof; constrained BN254 Halo2 consumer; physical CUDA/x86-64 qualification."
     },
     "checks": {
      "permutation_0_1_2_coordinate_0_be": "115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a",
@@ -9398,7 +9454,7 @@
     "identity": "8bcead265dfa201df79d9d9d92bc5a7aa7a1a17f2d3bc6be799e9555002523e1",
     "summary": "Correction of BN254-POSEIDON-D2 and of the six-input half of D3: width 6 with 8 full and 60 partial rounds, the round numbers of the deployed circomlib width-6 table, generated by the same Grain procedure, and a six-input hash that is a rate-5, capacity-1 sponge over two permutations.",
     "typed_owner": null,
-    "typed_owner_pending": "F.5 replaces the tables and helpers and must reproduce this identity and compare the generated table with the fetched circomlib table; I.5 regenerates the ABI V1 outputs of the POSEIDON6 opcode and its CPU, SIMD and CUDA paths.",
+    "typed_owner_pending": "Fixed width/round-count canonical parameters and mode implemented in crates/iroha_zkp_poseidon; typed shared semantic-profile descriptor binding and full F.5/I.5 qualification remain open.",
     "implemented_by": "F.5",
     "parameters": [
      {
@@ -9519,8 +9575,8 @@
     ],
     "security": {
      "basis": "The round numbers 8 and 60 are those of the deployed circomlib width-6 parameter table; they are selected as that table's values and are not presented as the minimum of the unavailable round-number script. They exceed the 57 partial rounds of the margin rule H.1 transcribed. About 126.8 bits against classical collision search.",
-     "evidence": "The generator that reproduces the published width-3 and width-5 vectors produces this table. Its equality with the circomlib width-6 table was not checked in this task: no download was made.",
-     "not_established": "Equality with the circomlib table until F.5 compares them; a review of the round numbers against later cryptanalysis."
+     "evidence": "All selected constants/MDS were independently regenerated and compared byte-for-byte with circomlibjs v0.1.7 commit4f094c5be05c1f0210924a3ab204d8fd8da69f49; frozen BE-SHA3 table pins and both H.2 fixed-mode examples match. Current source/runtime review remains separate.",
+     "not_established": "A current cryptanalysis review or numerical composition security proof; constrained BN254 Halo2 consumer; physical CUDA/x86-64 qualification."
     }
    },
    {
@@ -9788,7 +9844,7 @@
     "name": "retained.kaigi.relation-poseidon",
     "kind": "in-circuit-digest",
     "status": "retained",
-    "identity": "f8a21c09f21cec43f4d828a595a32779177ff85c6e487771d8beed3f88ddddab",
+    "identity": "4469300cd1137185b7056d617cd4248f2433b050a0b7b4b0ee5bb1a51e10741f",
     "role": "kaigi.relation-poseidon",
     "parameters": [
      {
@@ -9809,7 +9865,7 @@
      {
       "key": "algorithm",
       "type": "text",
-      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+      "value": "Original Poseidon over Pasta Fp: width 3, rate 2, x^5, 8 full and 56 partial rounds, dense Cauchy MDS selector 0; Kaigi length-framed relation sponge."
      },
      {
       "key": "output_bytes",
@@ -9827,7 +9883,7 @@
     "name": "retained.confidential.note-poseidon",
     "kind": "in-circuit-digest",
     "status": "retained",
-    "identity": "b4f8899375d881e467e858602b34aad3bd0c1e15084612e630029d60e018c94f",
+    "identity": "7ec0a01f11c6e0aed427e2938d9d9b710e5f6dc08b80f5e57be7529d54c34657",
     "role": "confidential.note-poseidon",
     "parameters": [
      {
@@ -9848,7 +9904,7 @@
      {
       "key": "algorithm",
       "type": "text",
-      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+      "value": "Original Poseidon over Pasta Fp: width 3, rate 2, x^5, 8 full and 57 partial rounds, dense Cauchy MDS selector 0; confidential domain-tagged relation sponge."
      },
      {
       "key": "output_bytes",
@@ -10217,7 +10273,7 @@
     "name": "retained.halo2.pasta-poseidon",
     "kind": "in-circuit-digest",
     "status": "retained",
-    "identity": "91b68689fefb640f3b5929d21e1f99a93a6270206de3d8fd4f912ce6a1938f97",
+    "identity": "9b48eab382177d77fd91f169f528ebd73657389591a349fb58e0d6ee6bd0fb3e",
     "role": "halo2.pasta-poseidon",
     "parameters": [
      {
@@ -10238,7 +10294,7 @@
      {
       "key": "algorithm",
       "type": "text",
-      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+      "value": "Original Poseidon over Pasta Fp and Fq: width 3, rate 2, x^5, 8 full and 57 partial rounds, dense Cauchy MDS selector 0; pinned rp57_fp.bin and rp57_fq.bin."
      },
      {
       "key": "output_bytes",
@@ -10256,7 +10312,7 @@
     "name": "retained.halo2.pasta-poseidon-rp56-candidate",
     "kind": "in-circuit-digest",
     "status": "retained",
-    "identity": "9940b5b621868dcb0211eeca66b790355c0032e635db11996a7d92f0c4959a0e",
+    "identity": "fc3697ce959d0aad92af3b7ddc8c4372ba2741e866cc33cd107af1492231f47a",
     "role": "halo2.pasta-poseidon-rp56-candidate",
     "parameters": [
      {
@@ -10277,7 +10333,7 @@
      {
       "key": "algorithm",
       "type": "text",
-      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+      "value": "Original Poseidon P128Pow5T3 over Pasta Fp and Fq: width 3, rate 2, x^5, 8 full and 56 partial rounds; positive fixed-length ConstantLength sponge, capacity last, length times 2^64, zero padding, coordinate-zero output."
      },
      {
       "key": "output_bytes",
@@ -10295,7 +10351,7 @@
     "name": "retained.sorafs.pop-credential-poseidon",
     "kind": "in-circuit-digest",
     "status": "retained",
-    "identity": "53c00cb1acff295d92400a8de72955de3aab4cbbd7085a60e0bcdcc6408f2ace",
+    "identity": "cbd05f4a9b761763ce5f6fed7cc682ebf29a080f190bd85977557e1cfa93c650",
     "role": "sorafs.pop-credential-poseidon",
     "parameters": [
      {
@@ -10316,7 +10372,7 @@
      {
       "key": "algorithm",
       "type": "text",
-      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+      "value": "Original Poseidon over Pasta Fp: width 3, x^5, 8 full and 56 partial rounds, dense Cauchy MDS selector 0; domain-tagged [left,right,domain] compression with coordinate-zero output."
      },
      {
       "key": "output_bytes",
@@ -11270,7 +11326,7 @@
     "name": "retained.pipa-r.transcript-poseidon-base",
     "kind": "transcript",
     "status": "retained",
-    "identity": "5605a984a713b14409e49c1a0673d9fd05915ab519851951c5f86e9826a470a6",
+    "identity": "6f09117a59b327d893a7c00ebb8a54fac95d2661d77bec16e4c791d2f3b4ef90",
     "role": "pipa-r.transcript-poseidon-base",
     "parameters": [
      {
@@ -11291,7 +11347,7 @@
      {
       "key": "algorithm",
       "type": "text",
-      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+      "value": "Original Poseidon over the Pasta proof-curve base field Fp or Fq: width 3, rate 2, x^5, 8 full and 57 partial rounds, dense Cauchy MDS selector 0; PIPA-R base-field transcript sponge."
      },
      {
       "key": "output_bytes",

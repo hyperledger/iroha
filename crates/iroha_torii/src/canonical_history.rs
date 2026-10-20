@@ -15,12 +15,114 @@ fn invalid(message: impl std::fmt::Display) -> QueryExecutionFail {
 }
 
 /// Project a local read refusal only at the HTTP boundary, without inventing missing history.
+///
+/// A deferral whose original refusal no retry of the same request can satisfy (see
+/// [`permanent_refusal`]) is the typed permanent [`crate::Error::HistoryReadExceedsBudget`],
+/// which names the required quantity and the request's own limit and carries no retry hint.
+/// Every other deferral is transient capacity: a retryable `CapacityLimit` (HTTP 429).
 pub fn query_attempt_error(error: ExecutionAttemptError<QueryExecutionFail>) -> crate::Error {
     let query_error = match error {
-        ExecutionAttemptError::Deferred(_) => QueryExecutionFail::CapacityLimit,
+        ExecutionAttemptError::Deferred(deferred) => {
+            if let Some((resource, required, limit)) = permanent_refusal(&deferred) {
+                return crate::Error::HistoryReadExceedsBudget {
+                    resource,
+                    required,
+                    limit,
+                };
+            }
+            QueryExecutionFail::CapacityLimit
+        }
         ExecutionAttemptError::Rejected(error) => error,
     };
     crate::Error::Query(iroha_data_model::ValidationFail::QueryFailed(query_error))
+}
+
+/// The resource, required quantity and limit of a local refusal that no retry of the same
+/// request can satisfy, or `None` for transient capacity.
+///
+/// Permanent: one allocation demand larger than its whole pool (`ExceedsLimit`, or a layout
+/// the address space cannot represent), and a decoder limit of the request's own budget that
+/// this deterministic read exceeds (one field, sequence or archive, or its cumulative
+/// allocations, elements or nesting). These do not depend on other requests. Transient: a pool
+/// that other owners occupy (`Capacity`), an allocator failure and every other deferral.
+pub fn permanent_refusal(
+    deferred: &iroha_core::execution_attempt::ExecutionDeferred,
+) -> Option<(&'static str, u64, u64)> {
+    use iroha_allocation::AllocationRefusal;
+    use norito::core::{DecodeLocalRefusalKind, DecodeResourceError};
+    if let Some(refusal) = deferred.allocation_refusal() {
+        return match refusal {
+            AllocationRefusal::ExceedsLimit {
+                requested_bytes,
+                limit_bytes,
+            } => Some((
+                "bytes",
+                u64::try_from(*requested_bytes).ok()?,
+                u64::try_from(*limit_bytes).ok()?,
+            )),
+            AllocationRefusal::DemandOverflow => Some((
+                "addressable bytes",
+                u64::MAX,
+                u64::try_from(isize::MAX).ok()?,
+            )),
+            AllocationRefusal::Capacity { .. } => None,
+        };
+    }
+    let refusal = deferred.decode_refusal()?;
+    if refusal.kind() != DecodeLocalRefusalKind::EnclosingLimit {
+        return None;
+    }
+    match refusal.resource_error() {
+        DecodeResourceError::FieldLengthExceeded { length, limit } => {
+            Some(("field bytes", length, limit))
+        }
+        DecodeResourceError::SequenceLengthExceeded { length, limit } => {
+            Some(("sequence elements", length, limit))
+        }
+        DecodeResourceError::ArchiveLengthExceeded { length, limit } => {
+            Some(("archive bytes", length, limit))
+        }
+        DecodeResourceError::TotalAllocationExceeded { attempted, limit } => {
+            Some(("decoded bytes", attempted, limit))
+        }
+        DecodeResourceError::TotalElementsExceeded { attempted, limit } => {
+            Some(("decoded elements", attempted, limit))
+        }
+        DecodeResourceError::NestingDepthExceeded { depth, limit, .. } => Some((
+            "nesting depth",
+            u64::try_from(depth).ok()?,
+            u64::try_from(limit).ok()?,
+        )),
+        DecodeResourceError::AllocationFailed { .. } => None,
+    }
+}
+
+/// The typed permanent refusal envelope of [`crate::Error::HistoryReadExceedsBudget`].
+///
+/// HTTP 413 with the stable code `history_read_exceeds_request_budget`, like the other
+/// too-large committed-history responses (`block_proof_capacity_exceeded`,
+/// `executed_block_wire_too_large`). `details.field` names the resource, `details.actual` the
+/// quantity at which the read is refused (one item's exact size, or the cumulative amount it
+/// reached) and `details.expected` the request's own limit. The read
+/// is deterministic, so the same request can never succeed and the response carries neither
+/// `Retry-After` nor `retry_after_seconds`.
+pub fn history_read_budget_envelope(
+    resource: &'static str,
+    required: u64,
+    limit: u64,
+) -> iroha_torii_shared::ErrorEnvelope {
+    iroha_torii_shared::ErrorEnvelope::new(
+        "history_read_exceeds_request_budget",
+        format!(
+            "The committed history read needs at least {required} {resource}, but this request's own budget is {limit}; retrying the same request cannot succeed."
+        ),
+    )
+    .with_details(iroha_torii_shared::ErrorDetails {
+        field: Some(resource.to_owned()),
+        expected: Some(format!("at most {limit} {resource}")),
+        actual: Some(required.to_string()),
+        ..iroha_torii_shared::ErrorDetails::default()
+    })
 }
 
 /// Preserve canonical body failures and allocation refusal until the HTTP boundary.

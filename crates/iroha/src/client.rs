@@ -33,6 +33,7 @@ pub mod musubi;
 #[cfg(test)]
 mod musubi_http_tests;
 pub mod nexus;
+pub mod operation_contract;
 #[cfg(test)]
 mod operator_auth_tests;
 mod private_settlement;

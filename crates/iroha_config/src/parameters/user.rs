@@ -5959,7 +5959,9 @@ pub struct Sumeragi {
     pub sync_batch: Option<u16>,
     /// Override of the sync request retry interval in milliseconds.
     pub sync_retry_ms: Option<DurationMs>,
-    /// Override of the byte limit of one sync response (at least `max_block_bytes + 64 KiB`).
+    /// Override of the byte limit of one sync response (at least `max_block_bytes +
+    /// FRAME_OVERHEAD`, and with `FRAME_OVERHEAD` added at most the chain frame limit; both
+    /// are 17,041,440 bytes at the 16 MiB payload default).
     pub sync_max_bytes: Option<u32>,
     /// Override of the number of observers kept in the peer table besides the committee.
     pub max_observers: Option<u32>,
@@ -7996,6 +7998,10 @@ pub struct Network {
     #[config(default = "defaults::network::MAX_FRAME_BYTES_CONTROL")]
     pub max_frame_bytes_control: NonZeroUsize,
     /// Maximum frame size for block synchronization traffic.
+    ///
+    /// Sync responses, proposals, manifests and payload rows share this topic. Startup
+    /// refuses a value below the complete P2P frame of the largest sync response that the
+    /// local `sumeragi.sync_max_bytes` requests.
     #[config(default = "defaults::network::MAX_FRAME_BYTES_BLOCK_SYNC")]
     pub max_frame_bytes_block_sync: NonZeroUsize,
     /// Maximum frame size for transaction gossip traffic.

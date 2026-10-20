@@ -4,8 +4,9 @@
 //! byte-level construction in `specs/parliament_ballot_proof_profile.md` §6, and the
 //! production integration decisions of 2026-10-18 fix the envelope, the admission order,
 //! the corpus, the stamp, the encodings and the full-verification interface. This crate is
-//! the one implementation of those rules that Core, Torii, the CLI, the Rust client and the
-//! native bridge share. It sits between the data-model wire types
+//! the one implementation of those rules. No crate depends on it yet: its integration into
+//! Core, Torii, the CLI, the Rust client and the native bridge is P.8 work still to come.
+//! It sits between the data-model wire types
 //! ([`iroha_data_model::governance::anonymous_ballot`]) and the state-free proof relations
 //! ([`iroha_parliament_ballot_proof`]):
 //!
@@ -25,11 +26,12 @@
 //! # Status
 //!
 //! **Nothing here is qualified.** The data-model launch gate
-//! [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] is `None`, so binding production use stays
-//! disabled; Core enforces that gate at its dispatch and state boundaries. This crate
-//! neither reads nor changes the gate and claims nothing about it: engineering completion
-//! and the tests here are not qualification evidence. The proof relations are the real
-//! candidate relations; no verification step is a placeholder.
+//! [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] is `None`. No Core path reads that gate or this
+//! crate: Core has no anonymous-ballot entrypoint, registration, sealing, casting or closure
+//! path, so no node accepts a binding anonymous ballot. That Core integration is P.8 work
+//! still to come. This crate neither reads nor changes the gate and claims nothing about it:
+//! engineering completion and the tests here are not qualification evidence. The proof
+//! relations are the real candidate relations; no verification step is a placeholder.
 //!
 //! # One row
 //!
@@ -38,8 +40,8 @@
 //! scoped context checks that the compiled descriptor digest is
 //! [`ProofProfileIdV1::V1`]. This crate depends on the proof crate without its
 //! `diagnostics` feature, so the comparator row (integration decision 6: test and
-//! diagnostic support only) is not compiled into it, nor into the node, wallet and
-//! native-bridge builds that use it.
+//! diagnostic support only) is not compiled into it, nor into any build that depends on it
+//! (no node, wallet or native-bridge build does yet).
 //!
 //! # Determinism and secrets
 //!

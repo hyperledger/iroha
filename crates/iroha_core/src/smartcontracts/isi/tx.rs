@@ -635,6 +635,34 @@ impl FinalizedExecutionCarrier {
     }
 }
 
+/// One exact committed Network transaction's authenticated outcome.
+///
+/// Produced by [`crate::state::State::read_committed_network_outcome`], which reads bounded
+/// windows of the carrier frame instead of decoding its transaction bodies. The header is the
+/// carrier's journal-authenticated Iroha header; the results belong to every Network input
+/// whose committed identity (its entrypoint hash or a sealed reveal's signed alias) equals the
+/// requested one, in input order. A unique match has exactly one result; none means the
+/// identity is absent from its carrier; more than one is an ambiguous carrier. This immutable
+/// read result carries no authority to mutate or publish State.
+#[derive(Debug, Clone)]
+pub struct CommittedNetworkOutcome {
+    pub(crate) header: BlockHeader,
+    pub(crate) results:
+        Vec<Result<(), iroha_data_model::transaction::error::TransactionRejectionReason>>,
+}
+impl CommittedNetworkOutcome {
+    /// The carrier's journal-authenticated Iroha header (height and ledger time).
+    pub fn header(&self) -> &BlockHeader {
+        &self.header
+    }
+    /// Results of the matched Network inputs, in input order.
+    pub fn matched_results(
+        &self,
+    ) -> &[Result<(), iroha_data_model::transaction::error::TransactionRejectionReason>] {
+        &self.results
+    }
+}
+
 /// Read a complete native execution from an independently configured, immutable State cut.
 ///
 /// This is an offchain boundary: every native prefix frame is admitted before reading and

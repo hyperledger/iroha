@@ -1,16 +1,17 @@
-# RP56 independent test corpus
+# Independent Poseidon test corpus
 
-These test fixtures preserve the complete parameter and framing comparisons
-previously supplied by the `poseidon-primitives` 0.2.0 dev dependency. They do
-not change any production parameter, transcript or proof format. KAGEMUSHA's
-RP57 transcript uses its own parameter set.
+The BN254 banks use the H.2-selected original Poseidon permutations: width
+three with 8 full/57 partial rounds and width six with 8 full/60 partial rounds.
+Every constant and MDS field matches pinned circomlibjs v0.1.7; provenance is
+in `bn254-provenance.json`. The Iroha fixed-arity sponge mode is specified
+separately in `specs/zk_primitive_workloads.json` and tested against independent
+integer vectors. The prior BN254 banks are removed.
 
-The capture uses the upstream `Spec::constants` generator with prime fields,
-the fifth-power S-box, 8 full rounds, 56 partial rounds and `secure_mds = 0`.
-Fields are exact 32-byte canonical little-endian values, one lowercase hex
-line per field. Each bank contains 64 round-major rows followed by row-major
-MDS entries. The banks cover all 621 BN254 fields (widths 3 and 6) and all
-201 Pasta Fp fields (width 3) used by Kaigi and SoraFS PoP.
+Fields are canonical 32-byte little-endian hex, one field per line. Each bank
+contains all round-major constants followed by row-major MDS entries. BN254
+contains 204 + 444 fields. The separate 201-field Pasta Fp RP56 bank and its
+Kaigi/SoraFS framing controls remain unchanged. KAGEMUSHA's RP57 transcript
+has a separate parameter owner.
 
 `kaigi-framed-rp56.hex` captures upstream `Hash::permute` results for each of
 the commitment, nullifier and authorization domains, at every payload length
@@ -21,12 +22,12 @@ absorbed at rate 2 into `[0, 0, domain]`.
 
 | File | Fields/cases | SHA-256 of exact text |
 | --- | ---: | --- |
-| `bn254-w3-rp56.hex` | 201 | `e810aae64667b8f1f705211bc247f659f6f040958dbdfcbe84a45064fcae9eac` |
-| `bn254-w6-rp56.hex` | 420 | `8a62ec6ea258b5caeaa19a0a95070a8d392c9ce26b3b3e04ee78625df1dfe72b` |
+| `bn254-w3-rp57.hex` | 204 | `42aef4c7c7a01489c71b7a737c17d569285144e2eafdf3ea2d4e717620255e5f` |
+| `bn254-w6-rp60.hex` | 444 | `23fc9edd2a86db59837055b279d39df6edf36aeef34bb2b425a6bc89155bcbc6` |
 | `pasta-fp-w3-rp56.hex` | 201 | `1cb71721fdaf658cdb359e2337b8dbc71e99a50b0f7a709c8d8d7f6d2f76918a` |
 | `kaigi-framed-rp56.hex` | 102 | `a4ade8dc7a8134f2728d03c8cbce1995a9e390a84c0d5537784955be135ffc0c` |
 
-Run `python3 scripts/check_poseidon_reference.py` to independently rederive
+Run `python3.12 scripts/check_poseidon_reference.py` to independently rederive
 every byte using a single-bit Grain register and Python integer arithmetic.
 It imports no native crate, does not read production constants, and has no
 write mode. The Rust test-only reader checks exact field widths, bank shapes

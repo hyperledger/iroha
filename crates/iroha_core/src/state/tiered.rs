@@ -2775,8 +2775,12 @@ mod measured_bytes_impls {
                     .saturating_add(state.reserve_account().measured_bytes_extra())
                     .saturating_add(state.frontier_heap_bytes()),
                 Self::PublicReserveCustody {
-                    reserve_asset_id, ..
-                } => reserve_asset_id.measured_bytes_extra(),
+                    reserve_asset_id,
+                    funded_allowance,
+                    ..
+                } => reserve_asset_id
+                    .measured_bytes_extra()
+                    .saturating_add(funded_allowance.measured_bytes_extra()),
                 Self::ProofManagedPoolBootstrap {
                     bootstrap,
                     accumulator_state,
@@ -4820,6 +4824,64 @@ include!("tiered_hot_byte_accounting.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn funded_public_reserve_charges_allowance_magnitude_in_hot_tier() {
+        use crate::privacy_state::{PrivacyPublicReserveOwnerV1, PrivacyStateItemRecordV1};
+        use iroha_data_model::{
+            asset::AssetId,
+            privacy::{
+                PrivacyNamespaceScopeV1, PrivacyNamespaceV1, PrivacyOrchardPoolBootstrapDigestV1,
+                PrivacyPoolIdV1, PrivacyPoolNamespaceV1, PrivacyProtocolIdV1,
+            },
+        };
+        use iroha_primitives::numeric::Quantity;
+
+        let definition = AssetDefinitionId::from_uuid_bytes([
+            0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x47, 0x98, 0x80, 0x19, 0x2a, 0x3b, 0x4c, 0x5d,
+            0x6e, 0x7f,
+        ])
+        .expect("valid asset UUID");
+        let id = AssetId::new(definition, iroha_test_samples::ALICE_ID.clone());
+        let owner = PrivacyPublicReserveOwnerV1::Orchard {
+            namespace: PrivacyNamespaceV1::new(
+                PrivacyProtocolIdV1::OrchardHalo2ActionsV1,
+                PrivacyNamespaceScopeV1::Pool(PrivacyPoolNamespaceV1 {
+                    pool_id: PrivacyPoolIdV1::new([0xD1; 32]),
+                }),
+            ),
+            bootstrap_digest: PrivacyOrchardPoolBootstrapDigestV1::new([0xD2; 32]),
+        };
+        let empty = PrivacyStateItemRecordV1::public_reserve_custody(id, owner)
+            .expect("valid reserve owner");
+        let base = MeasuredBytes::measured_bytes(&empty);
+        // The existing deterministic numeric budget charges the magnitude's used
+        // bytes. Zero, one and 2^128 require zero, one and seventeen bytes.
+        for (amount, extra) in [
+            ("0", 0),
+            ("1", 1),
+            ("340282366920938463463374607431768211456", 17),
+        ] {
+            let mut funded = empty.clone();
+            let PrivacyStateItemRecordV1::PublicReserveCustody {
+                funded_allowance, ..
+            } = &mut funded
+            else {
+                unreachable!("same reserve variant")
+            };
+            *funded_allowance = amount.parse::<Quantity>().expect("bounded quantity");
+            assert_eq!(
+                MeasuredBytes::measured_bytes(&funded),
+                base + extra,
+                "amount {amount}"
+            );
+            assert_eq!(MeasuredBytes::measured_bytes(&funded.clone()), base + extra);
+            assert_eq!(
+                funded.public_reserve_custody_ref(),
+                empty.public_reserve_custody_ref()
+            );
+        }
+    }
+
     fn tiered_x509_root_world() -> World {
         use crate::privacy_state::{
             PrivacyCommitmentKeyV1, PrivacyRootHeadKeyV1, PrivacyRootHeadRecordV1,

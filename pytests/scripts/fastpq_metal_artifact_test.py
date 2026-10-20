@@ -55,9 +55,13 @@ def mock_children(producer, monkeypatch, tmp_path, *, fault=None):
         if arguments[1:] == ["-v"]:
             stdout = "public mocked version"
         elif arguments[1:] == ["-help"]:
-            stdout = "unsupported" if fault == "flag" else "-fno-fast-math"
+            stdout = "-ffast-math"  # Real Apple help omits the accepted negative spelling.
         elif "-c" in arguments:
-            if fault == "compile":
+            if fault == "flag":
+                status, stderr = 9, "unknown argument: '-fno-fast-math'"
+            elif fault == "unused_flag":
+                status, stderr = 9, "argument unused during compilation [-Werror,-Wunused-command-line-argument]"
+            elif fault == "compile":
                 status, stderr = 9, "terminal compiler refusal"
             elif fault != "output":
                 Path(arguments[-1]).write_bytes(b"public mocked AIR")
@@ -128,6 +132,10 @@ def test_captured_sources_six_natural_children_and_unqualified_create_only_metad
     assert len(compiles) == 6
     assert [Path(call[-3]).name for call in compiles] == [Path(p).name for p in producer.TRANSLATION_UNITS]
     assert all("-fno-fast-math" in call for call in compiles)
+    assert all("-Werror=unused-command-line-argument" in call for call in compiles)
+    help_record = next(row for row in record["commands"] if row["arguments"][1:] == ["-help"])
+    assert "-fno-fast-math" not in help_record["stdout"]
+    assert help_record["stdout"] == "-ffast-math"
     assert record["entry_points"] == list(producer.ENTRY_POINTS)
     assert record["admission_authority"] is record["signed_provenance"] is record["hardware_qualification"] is False
     assert record["library"]["sha256"] == hashlib.sha256((output / "fastpq.metallib").read_bytes()).hexdigest()
@@ -141,7 +149,8 @@ def test_captured_sources_six_natural_children_and_unqualified_create_only_metad
 
 
 @pytest.mark.parametrize("fault,diagnostic", [
-    ("flag", "does not advertise"), ("compile", "terminal compiler refusal"),
+    ("flag", "unknown argument"), ("unused_flag", "argument unused during compilation"),
+    ("compile", "terminal compiler refusal"),
     ("link", "terminal linker refusal"), ("output", "fresh non-empty regular file"),
     ("link_output", "Metal library was not produced"),
 ])
@@ -239,5 +248,133 @@ def test_tool_version_probe_refuses_changed_file_identity(
 
     monkeypatch.setattr(producer, "run", changed_probe)
     with pytest.raises(producer.GenerationError, match="identity changed during its version probe"):
+        producer.generate(captured_repo, tmp_path / "candidate", "aarch64-apple-darwin")
+    assert not (tmp_path / "candidate").exists()
+
+
+def test_discovery_preserves_multicall_basename_and_probes_resolved_identity(
+    producer, monkeypatch, tmp_path
+):
+    executable = tmp_path / "air-lld"
+    executable.write_bytes(b"public multicall test identity")
+    invocation = tmp_path / "metallib"
+    invocation.symlink_to(executable.name)
+    calls = []
+
+    def discover(arguments, commands):
+        calls.append(arguments)
+        if arguments[0] == "xcrun":
+            stdout = str(invocation) + "\n"
+        else:
+            assert arguments[0] == str(invocation), "resolved basename loses metallib mode"
+            stdout = "public metallib mode " + arguments[1]
+        return subprocess.CompletedProcess(arguments, 0, stdout, "")
+
+    monkeypatch.setattr(producer, "run", discover)
+    discovered = producer.find_tool("metallib", [])
+    assert discovered == invocation and discovered.name == "metallib"
+    identity = producer.probe_tool(discovered, [])
+    assert identity["path"] == str(invocation)
+    assert identity["resolved_path"] == str(executable)
+    assert identity["sha256"] == hashlib.sha256(executable.read_bytes()).hexdigest()
+    assert identity["version_stdout"] == "public metallib mode -v"
+    assert identity["help_stdout"] == "public metallib mode -help"
+    producer.recheck_tool(discovered, identity, [], "during generation")
+    assert calls[0] == ["xcrun", "-sdk", "macosx", "--find", "metallib"]
+
+
+@pytest.mark.parametrize("phase", ["-v", "-help"])
+def test_probe_rejects_same_byte_alias_retarget(producer, monkeypatch, tmp_path, phase):
+    original = tmp_path / "original"
+    replacement = tmp_path / "replacement"
+    original.write_bytes(b"same public executable bytes")
+    replacement.write_bytes(original.read_bytes())
+    invocation = tmp_path / "metallib"
+    invocation.symlink_to(original.name)
+
+    def retarget(arguments, commands):
+        if arguments[1:] == [phase]:
+            invocation.unlink()
+            invocation.symlink_to(replacement.name)
+        return subprocess.CompletedProcess(arguments, 0, "public mode", "")
+
+    monkeypatch.setattr(producer, "run", retarget)
+    with pytest.raises(producer.GenerationError, match="identity changed during its"):
+        producer.probe_tool(invocation, [])
+
+
+@pytest.mark.parametrize("stream,message", [
+    ("stderr", "air-lld: warning: ignoring file 'original.air', AIR2.4 exceeds target1.8"),
+    ("stdout", "warning: omitted object due to unsupported target"),
+    ("stderr", "ignoring object original.air"),
+])
+def test_zero_exit_linker_warning_or_omitted_object_never_publishes(
+    producer, captured_repo, monkeypatch, tmp_path, stream, message
+):
+    tools, _ = mock_children(producer, monkeypatch, tmp_path)
+    original = producer.run
+
+    def warn(arguments, commands):
+        result = original(arguments, commands)
+        if arguments[0] == str(tools["metallib"]) and "-o" in arguments:
+            assert result.returncode == 0 and Path(arguments[-1]).is_file()
+            setattr(result, stream, message)
+            commands[-1][stream] = message
+        return result
+
+    monkeypatch.setattr(producer, "run", warn)
+    with pytest.raises(producer.GenerationError, match="linker warned or omitted input"):
+        producer.generate(captured_repo, tmp_path / "candidate", "aarch64-apple-darwin")
+    assert not (tmp_path / "candidate").exists()
+    retained = list(tmp_path.glob(".candidate.generation-*"))
+    assert len(retained) == 1
+    assert (retained[0] / "fastpq.metallib").is_file()
+    assert len(list(retained[0].glob("*.air"))) == 6
+
+
+@pytest.mark.parametrize("phase", ["-v", "-help"])
+def test_mode_drift_after_link_refuses_unchanged_tool_bytes(
+    producer, captured_repo, monkeypatch, tmp_path, phase
+):
+    tools, _ = mock_children(producer, monkeypatch, tmp_path)
+    original = producer.run
+    linked = False
+
+    def mode_drift(arguments, commands):
+        nonlocal linked
+        result = original(arguments, commands)
+        if arguments[0] == str(tools["metallib"]):
+            if "-o" in arguments:
+                linked = True
+            elif linked and arguments[1:] == [phase]:
+                result.stdout += " changed public mode"
+        return result
+
+    monkeypatch.setattr(producer, "run", mode_drift)
+    with pytest.raises(producer.GenerationError, match="mode changed during generation"):
+        producer.generate(captured_repo, tmp_path / "candidate", "aarch64-apple-darwin")
+    assert not (tmp_path / "candidate").exists()
+
+
+def test_alias_retarget_after_link_refuses_identical_replacement_bytes(
+    producer, captured_repo, monkeypatch, tmp_path
+):
+    tools, _ = mock_children(producer, monkeypatch, tmp_path)
+    executable = tmp_path / "air-lld"
+    tools["metallib"].rename(executable)
+    tools["metallib"].symlink_to(executable.name)
+    replacement = tmp_path / "other-air-lld"
+    replacement.write_bytes(executable.read_bytes())
+    original = producer.run
+
+    def retarget(arguments, commands):
+        result = original(arguments, commands)
+        if arguments[0] == str(tools["metallib"]) and "-o" in arguments:
+            tools["metallib"].unlink()
+            tools["metallib"].symlink_to(replacement.name)
+        return result
+
+    monkeypatch.setattr(producer, "run", retarget)
+    with pytest.raises(producer.GenerationError, match="identity changed during generation"):
         producer.generate(captured_repo, tmp_path / "candidate", "aarch64-apple-darwin")
     assert not (tmp_path / "candidate").exists()

@@ -47,7 +47,7 @@ use iroha_p2p::{
     peer::message::PeerMessage,
 };
 use iroha_sumeragi::{
-    message::{TrafficClass, traffic_class_of_frame},
+    message::{TrafficClass, WireMessage, traffic_class_of_frame},
     pacemaker::FRAME_OVERHEAD,
     types::{Hash32, PublicKey},
 };
@@ -194,6 +194,188 @@ impl FrameCaps {
             TrafficClass::Bulk => self.bulk,
         }
     }
+}
+
+/// Outer `SyncResponse` framing that the per-entry serving charge (encoded length plus 16
+/// bytes) may not cover for a response of very few entries: the Norito header, enum tag,
+/// instance and entry-count prefix. The serving tests bound the measured one-entry framing by it.
+pub(crate) const SYNC_RESPONSE_FRAMING_SLACK: usize = 128;
+
+/// A sufficient block-sync topic cap that carries this node's own largest sync response.
+///
+/// A node requests sync responses of at most its local `sync_max_bytes`, and the responder
+/// clamps the request to its own budget. Payload rows and the proposal-class frames are far
+/// smaller. The result is the larger of the direct and broadcast P2P frames (the Sumeragi
+/// envelope, the `NetworkMessage` variant, the signed relay and the Data wrapper) of a
+/// Sumeragi frame of that budget plus `SYNC_RESPONSE_FRAMING_SLACK`; `usize::MAX` if `origin`
+/// is not a node identity.
+#[must_use]
+pub fn minimum_block_sync_frame_bytes(
+    origin: &PeerId,
+    overrides: &iroha_config::parameters::actual::SumeragiLocalOverrides,
+) -> usize {
+    // The committee size changes timers only, never the sync budget.
+    let budget = super::node::local_params(4, overrides).sync_max_bytes;
+    let frame = usize::try_from(budget)
+        .ok()
+        .and_then(|bytes| bytes.checked_add(SYNC_RESPONSE_FRAMING_SLACK));
+    let Some(frame) = frame else {
+        return usize::MAX;
+    };
+    let network =
+        NetworkMessage::Sumeragi(Arc::new(SumeragiFrame::new(Hash32::ZERO, vec![0; frame])));
+    iroha_p2p::network::data_frame_wire_len(origin, Some(origin), &network).max(
+        iroha_p2p::network::data_frame_wire_len(origin, None, &network),
+    )
+}
+
+/// One message of every control-class variant at the core's generic decode bounds (§3.5): signer
+/// bitmaps and timeout entries of `MAX_COMMITTEE_SIZE` members, every optional certificate,
+/// probe and echo present, a `MAX_PUBLIC_KEY_LEN`-byte echo key and a full
+/// `MAX_CONTROL_WITNESS_BYTES` application partial. Every other field has one fixed width, so no
+/// control frame that `WireMessage::decode` accepts is longer than the longest of these. `None`
+/// only if a core bound no longer admits its own maximum.
+pub(crate) fn generic_maximum_control_messages() -> Option<Vec<WireMessage>> {
+    use iroha_sumeragi::{
+        api::ApplicationControlContext,
+        message::{
+            ApplicationControl, Echo, PayloadRequest, Qc, Status, SyncRequest, TcEntry,
+            TimeoutCert, TimeoutVote, Vote, VoteKind,
+        },
+        types::{
+            AggregateSignature, Bitmap, ControlWitness, EpochId, MAX_COMMITTEE_SIZE,
+            MAX_CONTROL_WITNESS_BYTES, MAX_PUBLIC_KEY_LEN, SIGNATURE_LEN, Signature,
+            ValidatorIndex,
+        },
+    };
+
+    let h = |byte: u8| Hash32([byte; 32]);
+    let epoch = EpochId {
+        epoch: u64::MAX,
+        context: h(0xEE),
+    };
+    let members = (0..MAX_COMMITTEE_SIZE)
+        .map(ValidatorIndex::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let signers = Bitmap::from_indices(MAX_COMMITTEE_SIZE, members.iter().copied())?;
+    let qc = |kind, view| Qc {
+        kind,
+        instance: h(1),
+        epoch,
+        height: u64::MAX,
+        view,
+        block_hash: h(7),
+        result: h(8),
+        signers: signers.clone(),
+        agg_sig: AggregateSignature([9; SIGNATURE_LEN]),
+    };
+    let tc = TimeoutCert {
+        instance: h(1),
+        epoch,
+        height: u64::MAX,
+        view: u64::MAX - 1,
+        entries: members
+            .iter()
+            .map(|&signer| TcEntry {
+                signer,
+                hq: Some(u64::MAX - 2),
+            })
+            .collect(),
+        agg_sig: AggregateSignature([10; SIGNATURE_LEN]),
+        high_pqc: Some(qc(VoteKind::Prepare, u64::MAX - 2)),
+    };
+    let echo = Echo {
+        epoch,
+        nonce: u64::MAX,
+        key: PublicKey::new(vec![7; MAX_PUBLIC_KEY_LEN]).ok()?,
+        sig: Signature([15; SIGNATURE_LEN]),
+    };
+    let witness = ControlWitness::try_from_slice(&[3; MAX_CONTROL_WITNESS_BYTES]).ok()?;
+    // On the heap: eight maximal messages exceed a reasonable stack array.
+    Some(vec![
+        WireMessage::Vote(Vote {
+            kind: VoteKind::Commit,
+            instance: h(1),
+            epoch,
+            height: u64::MAX,
+            view: u64::MAX,
+            block_hash: h(7),
+            result: h(8),
+            signer: ValidatorIndex::MAX,
+            sig: Signature([11; SIGNATURE_LEN]),
+        }),
+        WireMessage::Qc(qc(VoteKind::Commit, u64::MAX)),
+        WireMessage::Timeout(Box::new(TimeoutVote {
+            instance: h(1),
+            epoch,
+            height: u64::MAX,
+            view: u64::MAX,
+            high_pqc: Some(qc(VoteKind::Prepare, u64::MAX - 2)),
+            signer: ValidatorIndex::MAX,
+            sig: Signature([12; SIGNATURE_LEN]),
+        })),
+        WireMessage::Tc(Box::new(tc.clone())),
+        WireMessage::Status(Box::new(Status {
+            instance: h(1),
+            height: u64::MAX,
+            view: u64::MAX,
+            committed_qc: Some(qc(VoteKind::Commit, u64::MAX)),
+            high_pqc: Some(qc(VoteKind::Prepare, u64::MAX)),
+            high_tc: Some(tc),
+            proposal_hash: Some(h(14)),
+            want_proposal: true,
+            probe: Some(u64::MAX),
+            echo: Some(echo),
+        })),
+        WireMessage::SyncRequest(SyncRequest {
+            instance: h(1),
+            from_height: u64::MAX,
+            max_count: u16::MAX,
+            max_bytes: u32::MAX,
+        }),
+        WireMessage::PayloadRequest(PayloadRequest {
+            instance: h(1),
+            height: u64::MAX,
+            block_hash: h(7),
+        }),
+        WireMessage::ApplicationControl(ApplicationControl {
+            context: ApplicationControlContext {
+                instance: h(1),
+                epoch,
+                height: u64::MAX,
+                parent_hash: h(2),
+                parent_result: h(3),
+            },
+            bytes: witness,
+        }),
+    ])
+}
+
+/// A sufficient consensus-safety (control) topic cap: the larger of the direct and broadcast P2P
+/// frames (the Sumeragi envelope, the `NetworkMessage` variant, the signed relay and the Data
+/// wrapper) of the longest control-class frame the core decodes at its generic bounds (votes,
+/// certificates, timeouts, status, requests and application control). A committee's own control
+/// frames are never longer. `usize::MAX` if a maximal message cannot be built or encoded, so a
+/// caller refuses every cap.
+#[must_use]
+pub fn minimum_control_frame_bytes(origin: &PeerId) -> usize {
+    let Some(messages) = generic_maximum_control_messages() else {
+        return usize::MAX;
+    };
+    messages
+        .iter()
+        .map(|message| {
+            message.encode().map_or(usize::MAX, |frame| {
+                let network =
+                    NetworkMessage::Sumeragi(Arc::new(SumeragiFrame::new(Hash32::ZERO, frame)));
+                iroha_p2p::network::data_frame_wire_len(origin, Some(origin), &network).max(
+                    iroha_p2p::network::data_frame_wire_len(origin, None, &network),
+                )
+            })
+        })
+        .max()
+        .unwrap_or(usize::MAX)
 }
 
 /// The exact `WireMessage` bytes inside the bare `SumeragiFrame` payload `field` (the value

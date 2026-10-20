@@ -105,6 +105,7 @@ GAS_REQUIRE = "pub const fn require_transaction_gas_limit("
 GAS_SIGNED_QUOTE = "fn signed_executable_proposal_gas_cost("
 GAS_ENTRYPOINT = "pub(crate) fn compute_proposal_gas_cost("
 GAS_ADMISSION = "fn prepare_checked_for_enqueue<C: QueueAdmissionStateAccess>("
+GAS_REFUSAL = "fn refused("
 
 
 def test_queue_signed_proposal_gas_baseline_and_entrypoint() -> None:
@@ -152,8 +153,14 @@ def test_queue_signed_proposal_gas_baseline_and_entrypoint() -> None:
     (1, GAS_ENTRYPOINT, "Self::signed_executable_proposal_gas_cost(reveal.signed_transaction(), zk_gas)", "Ok(0)"),
     (1, GAS_ENTRYPOINT, "gas::meter_sealed_transaction_commitment(tx.encoded_len())", "0"),
     (1, GAS_ADMISSION, "Self::compute_proposal_gas_cost(checked.as_accepted(), &zk_gas)", "Ok(0)"),
-    (1, GAS_ADMISSION, "})?;\n        let enqueued_at_ms", "}).unwrap_or(0);\n        let enqueued_at_ms"),
-    (1, GAS_ADMISSION, "Error::Deferred(original)\n                    }", "Error::Full\n                    }"),
+    (1, GAS_ADMISSION,
+     "                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) => {\n"
+     "                    return Err(Self::refused(Error::Deferred(original), checked));\n"
+     "                }",
+     "                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_original)) => 0,"),
+    (1, GAS_ADMISSION, "Self::refused(Error::Deferred(original), checked)",
+     "Self::refused(Error::Full, checked)"),
+    (1, GAS_REFUSAL, "tx: Box::new(checked.into_accepted()),", "tx: Box::new(other.into_accepted()),"),
     (1, GAS_ADMISSION, "code: FeeRejectionCode::InvalidGasLimit", "code: FeeRejectionCode::Other"),
     (1, GAS_ADMISSION, "            proposal_gas_cost,\n            enqueued_at_ms,", "            proposal_gas_cost: 0,\n            enqueued_at_ms,"),
     (1, GAS_ADMISSION, "let pending_teu = proposal_gas_cost;", "let pending_teu = 0;"),
@@ -180,7 +187,7 @@ def test_queue_signed_proposal_gas_rejects_bypasses(
 
 @pytest.mark.parametrize("owner,declaration", (
     (0, GAS_CLASSIFIER), (0, GAS_PARSE), (0, GAS_REQUIRE),
-    (1, GAS_SIGNED_QUOTE), (1, GAS_ENTRYPOINT), (1, GAS_ADMISSION),
+    (1, GAS_SIGNED_QUOTE), (1, GAS_ENTRYPOINT), (1, GAS_ADMISSION), (1, GAS_REFUSAL),
 ))
 def test_queue_signed_proposal_gas_rejects_disconnected_owners(owner: int, declaration: str) -> None:
     """Live-looking text cannot substitute for an unconditional production owner."""
@@ -911,8 +918,6 @@ READINESS = "fn validate_threshold_signer_startup_readiness_v1("
 BEACON_CAPABILITY = "fn require_global_beacon_capability_for_local_seat_v1("
 BEACON_SEAT = "fn require_global_beacon_signer_for_local_seat_v1("
 PREFLIGHT = "async fn preflight_threshold_signer_startup_readiness_v1("
-TLE_PROBE = "impl iroha_core::tle_release::TlePartialReleaseSignerV1 for CapabilityProbeSigner {"
-INVERSION_TEST = "fn threshold_signer_startup_readiness_never_consults_parliament_tle_custody() {"
 BEACON_CUSTODY_TEST = (
     "fn threshold_signer_startup_readiness_requires_global_beacon_custody_for_local_seat() {"
 )
@@ -933,6 +938,14 @@ DAEMON_PREFLIGHT = """                preflight_threshold_signer_startup_readine
                 .await
                 .map_err(|message| Report::new(StartError::StartP2p).attach(message))?;
 """
+BEACON_FIELD = """    sumeragi_global_beacon_partial_signer:
+        Option<Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>>,
+"""
+BEACON_SETTER = """        with_sumeragi_global_beacon_partial_signer(
+            signer: Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,
+        ) => sumeragi_global_beacon_partial_signer;
+"""
+# The retired Parliament TLE signer field and setter, as they were before 3be383b0e7.
 TLE_SETTER = """        with_parliament_tle_partial_release_signer(
             signer: Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>,
         ) => parliament_tle_partial_release_signer;
@@ -1052,41 +1065,8 @@ def test_threshold_signer_readiness_rejects_each_retired_helper(helper: str, sha
     (PREFLIGHT, "validate_threshold_signer_startup_readiness_v1(&state, &local_peer, "
      "&runtime_deps)", "Ok(())"),
     (PREFLIGHT, "tokio::task::spawn_blocking(move || {", "tokio::spawn(async move {"),
-    ("pub(crate) fn parliament_tle_release_coordinator(",
-     "self.parliament_tle_partial_release_signer", "None::<Arc<_>>"),
-    ("pub(crate) fn parliament_tle_release_coordinator(",
-     "iroha_core::tle_release::TleReleaseCoordinatorV1::from_signer,",
-     "|_| iroha_core::tle_release::TleReleaseCoordinatorV1::without_signer(),"),
-    ("pub struct IrohaRuntimeDeps {", TLE_FIELD, ""),
-    ("define_runtime_dep_setters_v1! {", TLE_SETTER, ""),
-    (TLE_PROBE, ".push((", ".retain(|_| false); let _ = (("),
-    (TLE_PROBE, "self.sign_calls.fetch_add(1, Ordering::AcqRel);", ""),
-    (INVERSION_TEST, "threshold_signer_readiness_fixture_v1(13)",
-     "threshold_signer_readiness_fixture_v1(14)"),
-    (INVERSION_TEST, ".tle_key_sessions_required_for_runtime_custody_v1(13)",
-     ".tle_key_sessions_required_for_runtime_custody_v1(99)"),
-    (INVERSION_TEST, "                        fixture.retained_key_session_id,\n"
-     "                        fixture.active_key_session_id,\n",
-     "                        fixture.active_key_session_id,\n"),
-    (INVERSION_TEST, "                    fixture.local_peer,\n",
-     "                    frozen_roster[usize::from(participant_index - 1)],\n"),
-    (INVERSION_TEST, "[CapabilityMode::Rejected, CapabilityMode::MismatchedSeat]",
-     "[CapabilityMode::Exact]"),
-    (INVERSION_TEST, ".with_parliament_tle_partial_release_signer(tle_signer.clone());", ";"),
-    (INVERSION_TEST, "tle_signer.attestation_calls().is_empty(),", "true,"),
-    (INVERSION_TEST, "assert_eq!(tle_signer.sign_calls.load(Ordering::Acquire), 0);", ""),
-    (INVERSION_TEST, "tle_signer.sign_calls.load(Ordering::Acquire), 0",
-     "tle_signer.sign_calls.load(Ordering::Acquire), 1"),
-    (INVERSION_TEST, "assert_eq!(beacon_signer.sign_calls.load(Ordering::Acquire), 0);", ""),
-    (INVERSION_TEST, "                &runtime_deps,\n                ),\n                Ok(())",
-     "                &runtime_deps,\n                ),\n                Err(\"refused\")"),
-    (INVERSION_TEST, "                &unavailable,\n            ),\n            Ok(())",
-     "                &IrohaRuntimeDeps::default(),\n            ),\n            Ok(())"),
-    (INVERSION_TEST,
-     "vec![(fixture.beacon_session_id, fixture.beacon_signer_index)],\n"
-     "            \"the consensus-native custody check still ran\"",
-     "vec![],\n            \"the consensus-native custody check still ran\""),
-    (INVERSION_TEST, "#[test]", "#[cfg(any())]"),
+    ("pub struct IrohaRuntimeDeps {", BEACON_FIELD, ""),
+    ("define_runtime_dep_setters_v1! {", BEACON_SETTER, ""),
     (BEACON_CUSTODY_TEST, "Err(\"local global-beacon committee seat has no resolved partial "
      "signer\")", "Ok(())"),
     (BEACON_CUSTODY_TEST, "(CapabilityMode::Exact, Ok(())),", ""),
@@ -1101,27 +1081,20 @@ def test_threshold_signer_readiness_rejects_each_retired_helper(helper: str, sha
      "Err(\"active global-beacon key session is not bound to the startup roster\")", "Ok(())"),
     (BEACON_CUSTODY_TEST, "assert!(exact_signer.attestation_calls().is_empty());", ""),
     (BEACON_CUSTODY_TEST, "#[test]", ""),
-    (INVERSION_TEST, "demanded.into_iter().collect::<Vec<_>>(),",
-     "expected_demand(&fixture),"),
-    (INVERSION_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
-     "return;\n        let fixture = threshold_signer_readiness_fixture_v1(13);"),
-    (INVERSION_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
-     "let fixture = threshold_signer_readiness_fixture_v1(13);\n"
-     "        if true {\n            return;\n        }"),
     (BEACON_CUSTODY_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
      "if true {\n            return;\n        }\n"
      "        let fixture = threshold_signer_readiness_fixture_v1(13);"),
     *((test, "#[test]", attribute + "\n    #[test]")
-      for test in (INVERSION_TEST, BEACON_CUSTODY_TEST)
+      for test in (BEACON_CUSTODY_TEST,)
       for attribute in DISABLING_ATTRIBUTES),
     *((test, "#[test]", "#[test]\n    " + attribute)
-      for test in (INVERSION_TEST, BEACON_CUSTODY_TEST)
+      for test in (BEACON_CUSTODY_TEST,)
       for attribute in DISABLING_ATTRIBUTES[:3]),
 ), ids=lambda value: None if "\n" in value or len(value) > 60 else value)
 def test_threshold_signer_readiness_rejects_lost_beacon_custody_or_decisive_assertions(
     declaration: str, old: str, new: str,
 ) -> None:
-    """The beacon check, retained TLE surface and each decisive assertion stay in their owner."""
+    """The beacon check, its field and setter and each decisive assertion stay in their owner."""
     runtime_deps, daemon = _readiness_sources()
     if old == "#[test]":
         attributed = "#[test]\n    " + declaration
@@ -1134,6 +1107,33 @@ def test_threshold_signer_readiness_rejects_lost_beacon_custody_or_decisive_asse
         guard.require_threshold_signer_startup_readiness(changed, daemon)
 
 
+@pytest.mark.parametrize("declaration,anchor,insertion", (
+    ("pub struct IrohaRuntimeDeps {", BEACON_FIELD, TLE_FIELD),
+    ("define_runtime_dep_setters_v1! {", BEACON_SETTER, TLE_SETTER),
+))
+def test_threshold_signer_readiness_rejects_the_retired_tle_field_and_setter(
+    declaration: str, anchor: str, insertion: str,
+) -> None:
+    """The retired Parliament TLE signer dependency cannot return beside the beacon signer."""
+    runtime_deps, daemon = _readiness_sources()
+    body = guard.rust_item(runtime_deps, declaration, RUNTIME_DEPS_PATH)
+    assert body.count(anchor) == 1
+    changed = runtime_deps.replace(body, body.replace(anchor, anchor + insertion, 1), 1)
+    with pytest.raises(RuntimeError, match="retired public Parliament identifier"):
+        guard.require_threshold_signer_startup_readiness(changed, daemon)
+
+
+@pytest.mark.parametrize("identifier", guard.RETIRED_TLE_DAEMON_IDENTIFIERS)
+def test_threshold_signer_readiness_rejects_each_retired_tle_daemon_item(identifier: str) -> None:
+    """Every retired daemon TLE item, under any live owner, fails; prose does not."""
+    runtime_deps, daemon = _readiness_sources()
+    guard.require_threshold_signer_startup_readiness(
+        runtime_deps + f"\n// {identifier} was retired with the TLE signer.\n", daemon)
+    with pytest.raises(RuntimeError, match="retired public Parliament identifier"):
+        guard.require_threshold_signer_startup_readiness(
+            runtime_deps + f"\nfn {identifier}() {{}}\n", daemon)
+
+
 @pytest.mark.parametrize("attributes", (
     "#[cfg(any())]\n#[cfg(test)]", "#[cfg(test)]\n#[cfg(any())]", "",
 ))
@@ -1142,10 +1142,10 @@ def test_threshold_signer_readiness_tests_stay_in_the_compiled_test_module(
 ) -> None:
     """The test module carries `#[cfg(test)]` and no attribute that removes it."""
     runtime_deps, daemon = _readiness_sources()
-    module = "#[cfg(test)]\nmod parliament_tle_release_tests {"
+    module = "#[cfg(test)]\nmod threshold_signer_startup_tests {"
     assert runtime_deps.count(module) == 1
     changed = runtime_deps.replace(
-        module, (attributes + "\nmod parliament_tle_release_tests {").lstrip("\n"), 1
+        module, (attributes + "\nmod threshold_signer_startup_tests {").lstrip("\n"), 1
     )
     with pytest.raises(RuntimeError, match="must stay a test module"):
         guard.require_threshold_signer_startup_readiness(changed, daemon)
@@ -1267,9 +1267,6 @@ def test_threshold_signer_preflight_cannot_move_behind_consensus_start() -> None
     (BEACON_CAPABILITY, "let attestation = signer",
      "// sign_partial_release( and .sign_partial( stay out of startup.\n"
      "    let attestation = signer"),
-    (INVERSION_TEST, "let fixture = threshold_signer_readiness_fixture_v1(13);",
-     "// A refusal would read Err(\"...\"); this test expects none.\n"
-     "        let fixture =\n            threshold_signer_readiness_fixture_v1( 13 );"),
     (BEACON_CUSTODY_TEST, "assert!(observer_signer.attestation_calls().is_empty());",
      "assert!( observer_signer.attestation_calls().is_empty() ); /* observer: no seat */"),
 ))
@@ -1353,8 +1350,12 @@ def test_signed_staking_fee_boundary_baseline() -> None:
         ),
         (
             "crates/iroha_core/src/smartcontracts/isi/asset.rs",
-            "retail_payment: source_policy == NumericAssetTransferSourcePolicy::User",
-            "retail_payment: false",
+            "retail_payment: matches!(\n"
+            "                    source_policy,\n"
+            "                    NumericAssetTransferSourcePolicy::User\n"
+            "                        | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_)\n"
+            "                ),",
+            "retail_payment: false,",
         ),
         (
             "crates/iroha_core/src/retail_fee.rs",
@@ -2104,7 +2105,10 @@ def test_block_start_phase_bodies_reject_changed_height_or_rollback(
     (SCCP_LAPSE_CALL,
      "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb).unwrap();"),
     ("\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n        let result = after_start(&mut sb, continuation).unwrap()"),
-    ("\n            let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n            let result = after_start(&mut sb, continuation).unwrap()"),
+    ("return Err(StateBlockStartError::Policy(error.clone()));",
+     "return Err(StateBlockStartError::Policy(String::new()));"),
+    ("if let Some(Err(error)) = &sb.fastpq_source_quota {",
+     "if let Some(Err(error)) = &sb.fastpq_source_quota && false {"),
 ))
 def test_block_start_admission_and_stage_refusals_remain_typed(
     original: str, replacement: str,
@@ -2460,6 +2464,12 @@ def test_retained_world_validation_accepts_layout_and_comment_changes(
     (None, "            musubi_live_validated,\n            musubi_validated,",
      "            musubi_live_validated: musubi_validated,\n"
      "            musubi_validated: musubi_live_validated,", WORLD_VALIDATION_SUCCESS),
+    # The retained Musubi capture between the last stage and tiered capture
+    # keeps its propagated refusal and its retired-reader check.
+    (None, "        .advance_for_publication()?;", "        .advance_for_publication().ok();",
+     WORLD_VALIDATION_REFUSAL),
+    (None, "        if musubi_group_read.as_ref().is_none_or(|plan| !plan.retired) {",
+     "        if false {", WORLD_VALIDATION_REFUSAL),
 ))
 @pytest.mark.parametrize("decoy", ("", "/* {original} */"))
 def test_retained_world_validation_keeps_each_original_stage_and_success_owner(
@@ -2485,8 +2495,11 @@ def test_retained_world_validation_keeps_each_original_stage_and_success_owner(
 @pytest.mark.parametrize("original,replacement", (
     ("        self.try_publish_inner()\n    }", "        self.try_publish_inner().discard()\n    }"),
     ("self.try_publish_inner().into_result()", "Ok(())"),
-    (".unwrap_or_else(|| StatePublication::new(self.state_ref))",
-     ".unwrap_or_else(|| StatePublication::new(other_state))"),
+    (".unwrap_or_else(|| StatePublication::new(self.state_ref, self.pipeline.state_capture))",
+     ".unwrap_or_else(|| StatePublication::new(other_state, self.pipeline.state_capture))"),
+    ("            self.publication = Some(original);\n"
+     "            return StatePublicationOutcome::RecoveryRequired(",
+     "            return StatePublicationOutcome::RecoveryRequired("),
     ("if original.published {", "if false {"),
     ("self.attempt_original_publication(&mut original)",
      "self.attempt_original_publication(&mut replacement)"),
@@ -4738,255 +4751,107 @@ def test_threshold_startup_delegates_only_its_prepared_runtime(
         guard.require_threshold_signer_startup_readiness(runtime_deps, changed)
 
 
+# 3be383b0e7 retired the Torii timed-OVN release adapter, its handlers, route
+# descriptors and the four ballot routes; the contract keeps them absent.
 TORII_RELEASE_SERVICE = "crates/iroha_torii/src/parliament_tle_release.rs"
 TORII_RELEASE_LIB = "crates/iroha_torii/src/lib.rs"
-TORII_RELEASE_RECOVERY = "crates/iroha_torii/src/panic_recovery.rs"
-TORII_RELEASE_OWNERS = (
-    (TORII_RELEASE_SERVICE, "pub async fn require_empty_body_v1("),
-    (TORII_RELEASE_SERVICE, "fn parse_ballot_attempt_id("),
-    (TORII_RELEASE_SERVICE, "fn map_coordinator_error("),
-    (TORII_RELEASE_SERVICE, "pub async fn request_local_partial_release_v1("),
-    (TORII_RELEASE_LIB, "async fn handler_gov_parliament_tle_partial_release("),
-    (TORII_RELEASE_LIB, "pub(crate) struct QueryAdmissionPermit"),
-    (TORII_RELEASE_LIB, "async fn acquire_query_admission("),
-    (TORII_RELEASE_RECOVERY, "pub fn spawn_blocking_recoverable<F, T>("),
-    (TORII_RELEASE_RECOVERY, "pub async fn join_recoverable<T>("),
-)
+TORII_ROUTE_CATALOG = "crates/iroha_torii_shared/src/route_catalog.rs"
 
 
-@pytest.fixture(scope="module")
-def torii_release_sources() -> dict[str, str]:
-    """Retain actual source text once; mutations never change the worktree."""
-    return {path: guard.read(path) for path in (
-        TORII_RELEASE_SERVICE, TORII_RELEASE_LIB, TORII_RELEASE_RECOVERY,
-    )}
+def _torii_retirement_sources() -> tuple[str, str]:
+    return guard.read(TORII_RELEASE_LIB), guard.read(TORII_ROUTE_CATALOG)
 
 
-def _check_torii_release_sources(sources: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
-    """Supply the real recovery dependency through the same production read hook."""
-    original_read = guard.read
-    monkeypatch.setattr(guard, "read", lambda path: sources[path] if path in sources else original_read(path))
-    guard.require_local_partial_release_boundary(sources[TORII_RELEASE_SERVICE], sources[TORII_RELEASE_LIB])
+def test_timed_ovn_release_routes_stay_retired_in_the_current_tree() -> None:
+    """The deleted adapter, handlers, descriptors and routes are absent today."""
+    assert not (guard.ROOT / TORII_RELEASE_SERVICE).exists()
+    guard.require_timed_ovn_release_routes_retired(*_torii_retirement_sources())
 
 
-def test_torii_release_current_source_boundary(
-    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Current pub functions remain under their original private app_api module."""
-    _check_torii_release_sources(torii_release_sources, monkeypatch)
-
-
-def test_torii_release_check_is_directly_connected_to_main() -> None:
-    """The production entrypoint calls the new check with its two actual reads."""
+def test_timed_ovn_release_retirement_is_directly_connected_to_main() -> None:
+    """The production entrypoint calls the retirement check with its two actual reads."""
     tree = ast.parse(inspect.getsource(guard.main)).body[0]
     calls = [node.value for node in tree.body if isinstance(node, ast.Expr)
              and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
-             and node.value.func.id == "require_local_partial_release_boundary"]
+             and node.value.func.id == "require_timed_ovn_release_routes_retired"]
     assert len(calls) == 1
-    assert [arg.id for arg in calls[0].args] == ["local_release", "torii"]
+    assert [arg.id for arg in calls[0].args] == ["torii", "route_catalog"]
     assignments = {node.targets[0].id: node.value for node in tree.body
                    if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
-    local_read = assignments["local_release"]
-    assert isinstance(local_read, ast.Call) and local_read.func.id == "read"
-    assert local_read.args[0].value == TORII_RELEASE_SERVICE
     assert assignments["torii_path"].value == TORII_RELEASE_LIB
-    assert assignments["torii"].func.id == "read" and assignments["torii"].args[0].id == "torii_path"
+    assert assignments["route_catalog_path"].value == TORII_ROUTE_CATALOG
+    for name, path_name in (("torii", "torii_path"), ("route_catalog", "route_catalog_path")):
+        assert assignments[name].func.id == "read"
+        assert assignments[name].args[0].id == path_name
 
 
-@pytest.mark.parametrize("path,declaration", TORII_RELEASE_OWNERS)
-@pytest.mark.parametrize("mode", ("disabled", "nested", "macro", "raw_duplicate"))
-def test_torii_release_rejects_wrong_or_disabled_owners(
-    path: str, declaration: str, mode: str,
-    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+def test_recreated_release_adapter_module_is_rejected(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An intact function under cfg, another module or a macro cannot be a live owner."""
-    sources = dict(torii_release_sources)
-    item = guard.rust_item(sources[path], declaration, path)
-    if mode == "disabled":
-        replacement = "#[cfg(any())]\n" + item
-    elif mode == "nested":
-        replacement = "mod wrong_owner {\n" + item + "\n}"
-    elif mode == "macro":
-        replacement = "macro_rules! unused_decoy { () => {\n" + item + "\n} }"
-    else:
-        raw_item = re.sub(r"\b(fn|struct) (\w+)", r"\1 r#\2", item, count=1)
-        assert raw_item != item
-        replacement = raw_item + "\n#[cfg(any())]\n" + item
-    sources[path] = sources[path].replace(item, replacement, 1)
-    with pytest.raises(RuntimeError, match=re.escape(path)):
-        _check_torii_release_sources(sources, monkeypatch)
+    """Recreating the deleted adapter file fails, whatever it contains."""
+    adapter = tmp_path / TORII_RELEASE_SERVICE
+    adapter.parent.mkdir(parents=True)
+    adapter.write_text("// recreated\n", encoding="utf-8")
+    monkeypatch.setattr(guard, "ROOT", tmp_path)
+    with pytest.raises(RuntimeError, match=re.escape(TORII_RELEASE_SERVICE)):
+        guard.require_timed_ovn_release_routes_retired("", "")
 
 
-TORII_RELEASE_MUTATIONS = (
-    # Bodies/IDs may not be accepted via short circuits or enlarged input bounds.
-    (0, "to_bytes(body, 1)", "to_bytes(body, usize::MAX)"),
-    (0, "Ok(bytes) if bytes.is_empty() => Ok(())", "Ok(_) => Ok(())"),
-    (0, "match axum::body", "return Ok(()); match axum::body"),
-    (0, 'code: "parliament_tle_partial_release_body_not_empty"', 'code: "different_body_error"'),
-    (1, ".all(|byte| *byte == 0)", ".all(|byte| *byte != 0)"),
-    (1, "value.parse::<BallotAttemptId>()", "value.trim().parse::<BallotAttemptId>()"),
-    (1, "Ok(ballot_attempt_id)", "Ok(BallotAttemptId::default())"),
-    # Every error mapping stays closed, with constant text and the original class.
-    (2, "TleReleaseCoordinatorErrorV1::SignerUnavailable", "TleReleaseCoordinatorErrorV1::SignerFailed"),
-    (2, 'code: "parliament_tle_release_signer_invalid_output"', 'code: "unverified_output_accepted"'),
-    (2, "=> crate::Error::AppNotFound", "=> crate::Error::AppServiceUnavailable"),
-    (2, 'message: "the Parliament TLE release signer could not produce a share".to_owned()', 'message: format!("{error:?}")'),
-    # Capacity must follow the physical closure through the committed-state call.
-    (3, "let _signer_admission = signer_admission;", "drop(signer_admission);"),
-    (3, "let _signer_admission = signer_admission;", "let _ = signer_admission;"),
-    (3, "move || {", "move || { return Err(TleReleaseCoordinatorErrorV1::SignerFailed);"),
-    (3, "let view = state.query_view();", "drop(_signer_admission); let view = state.query_view();"),
-    (3, "let view = state.query_view();", "let view = foreign_state.query_view();"),
-    (3, "coordinator.request_partial_release(&view, ballot_attempt_id)", "coordinator.request_partial_release(&view, foreign_ballot_attempt_id)"),
-    (3, "crate::panic_recovery::spawn_blocking_recoverable(", "tokio::task::spawn_blocking("),
-    (3, "crate::panic_recovery::join_recoverable(", "identity("),
-    (3, ".map_err(map_coordinator_error)", ".map_err(|error| crate::routing::conversion_error(format!(\"{error:?}\")))"),
-    (3, 'message: "the Parliament TLE release worker is unavailable".to_owned()', 'message: "provider private handle".to_owned()'),
-    (3, "let ballot_attempt_id = parse_ballot_attempt_id(&ballot_attempt_id)?;", "let ballot_attempt_id = BallotAttemptId::default();"),
-    # Handler keeps the same request body, heavy permit, state/coordinator/ID and output.
-    (4, "check_access(", "unused_access_check("),
-    (4, "request.into_body()", "Body::empty()"),
-    (4, "acquire_query_admission(app.as_ref(), true)", "acquire_query_admission(app.as_ref(), false)"),
-    (4, "app.state.clone()", "foreign_state.clone()"),
-    (4, "app.parliament_tle_release_coordinator.clone()", "foreign_coordinator.clone()"),
-    (4, "        signer_admission,", "        replacement_admission,"),
-    (4, "identity_digest: share.identity_digest", "identity_digest: foreign_identity"),
-    (4, "    check_access(", "    return Ok(fake_response);\n    check_access("),
-    # Explicit admission/recovery premises are structural, not runtime proofs.
-    (5, "_heavy: Option<tokio::sync::OwnedSemaphorePermit>", "_heavy: ()"),
-    (5, "_query: tokio::sync::OwnedSemaphorePermit", "_query: Option<tokio::sync::OwnedSemaphorePermit>"),
-    (6, "app.query_queue_timeout.is_zero()", "true"),
-    (6, ".then(|| app.query_heavy_inflight.clone().try_acquire_owned())", ".then(|| app.query_inflight.clone().try_acquire_owned())"),
-    (6, "tokio::time::timeout(app.query_queue_timeout, acquire)", "tokio::time::timeout(std::time::Duration::MAX, acquire)"),
-    (7, "iroha_panic_hook::catch_unwind_suppressed(operation)", "operation()"),
-    (8, "Ok(Err(_)) => Err(RecoverableTaskError::Panicked)", "Ok(Err(error)) => panic!(\"{error:?}\")"),
-)
-
-
-@pytest.mark.parametrize("owner,original,replacement", TORII_RELEASE_MUTATIONS)
-@pytest.mark.parametrize("retain_comment", (False, True))
-def test_torii_release_rejects_semantic_mutations_with_decoys(
-    owner: int, original: str, replacement: str, retain_comment: bool,
-    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Retained old text in comments never rescues changed guarded code or literals."""
-    sources = dict(torii_release_sources)
-    path, declaration = TORII_RELEASE_OWNERS[owner]
-    item = guard.rust_item(sources[path], declaration, path)
-    assert item.count(original) == 1
-    changed = item.replace(original, ("/* " + original + " */" if retain_comment else "") + replacement, 1)
-    sources[path] = sources[path].replace(item, changed, 1)
-    with pytest.raises(RuntimeError, match=re.escape(path)):
-        _check_torii_release_sources(sources, monkeypatch)
-
-
-@pytest.mark.parametrize("mutation", ("early_permit", "reorder_body_admission", "reorder_fields"))
-def test_torii_release_rejects_reordered_custody(
-    mutation: str, torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The same tokens cannot move admission outside the physical owner or before body rejection."""
-    sources = dict(torii_release_sources)
-    if mutation == "early_permit":
-        path, declaration = TORII_RELEASE_OWNERS[3]
-        item = guard.rust_item(sources[path], declaration, path)
-        line = "            let _signer_admission = signer_admission;"
-        changed = item.replace(line, "", 1).replace("    crate::panic_recovery::join_recoverable", line + "\n    crate::panic_recovery::join_recoverable", 1)
-    elif mutation == "reorder_body_admission":
-        path, declaration = TORII_RELEASE_OWNERS[4]
-        item = guard.rust_item(sources[path], declaration, path)
-        body = "    crate::parliament_tle_release::require_empty_body_v1(request.into_body()).await?;"
-        admission = "    let signer_admission = acquire_query_admission(app.as_ref(), true).await?;"
-        assert body + "\n" + admission in item
-        changed = item.replace(body + "\n" + admission, admission + "\n" + body, 1)
-    else:
-        path, declaration = TORII_RELEASE_OWNERS[5]
-        item = guard.rust_item(sources[path], declaration, path)
-        fields = "    _heavy: Option<tokio::sync::OwnedSemaphorePermit>,\n    _query: tokio::sync::OwnedSemaphorePermit,"
-        assert fields in item
-        changed = item.replace(fields, "    _query: tokio::sync::OwnedSemaphorePermit,\n    _heavy: Option<tokio::sync::OwnedSemaphorePermit>,", 1)
-    assert changed != item
-    sources[path] = sources[path].replace(item, changed, 1)
-    with pytest.raises(RuntimeError, match=re.escape(path)):
-        _check_torii_release_sources(sources, monkeypatch)
-
-
-@pytest.mark.parametrize("original,replacement", (
-    ('#[cfg(feature = "app_api")]\nmod parliament_tle_release;', '#[cfg(any())]\nmod parliament_tle_release;'),
-    ('#[cfg(feature = "app_api")]\nmod parliament_tle_release;', '#[cfg(feature = "app_api")]\npub mod parliament_tle_release;'),
-    ('#[cfg(feature = "app_api")]\nmod parliament_tle_release;', '#[cfg_attr(feature = "app_api", cfg(any()))]\nmod parliament_tle_release;'),
-    ('mod panic_recovery;', '#[cfg(test)]\nmod panic_recovery;'),
-    ('#[cfg(feature = "app_api")]\nasync fn handler_gov_parliament_tle_partial_release(', '#[cfg(feature = "app_api")]\n#[cfg(any())]\nasync fn handler_gov_parliament_tle_partial_release('),
-    ('#![allow(unexpected_cfgs)]', '#![cfg(any())]'),
-    ('#![allow(unexpected_cfgs)]', '#![allow(unexpected_cfgs)]\n#![cfg(any())]'),
-    ('all(test, feature = "node-api")', 'all(test, feature = "app_api")'),
-    ('mod account_activity;', 'mod account_activity;\n#![allow(dead_code)]'),
-))
-def test_torii_release_rejects_module_and_lint_attribute_changes(
-    original: str, replacement: str,
-    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Only the exact reviewed lint attributes and original module/handler cfg are allowed."""
-    sources = dict(torii_release_sources)
-    assert sources[TORII_RELEASE_LIB].count(original) == 1
-    sources[TORII_RELEASE_LIB] = sources[TORII_RELEASE_LIB].replace(original, replacement, 1)
+@pytest.mark.parametrize("identifier", guard.RETIRED_TIMED_OVN_TORII_IDENTIFIERS)
+def test_reintroduced_torii_release_item_is_rejected(identifier: str) -> None:
+    """A live retired module, handler, coordinator or setter name in Torii fails."""
+    torii, catalog = _torii_retirement_sources()
     with pytest.raises(RuntimeError, match=re.escape(TORII_RELEASE_LIB)):
-        _check_torii_release_sources(sources, monkeypatch)
+        guard.require_timed_ovn_release_routes_retired(
+            torii + f"\nfn {identifier}() {{}}\n", catalog)
 
 
-@pytest.mark.parametrize("path,prefix", (
-    (TORII_RELEASE_SERVICE, "use hostile::coordinator as TleReleaseCoordinatorV1;\n"),
-    (TORII_RELEASE_SERVICE, "macro_rules! unused { () => {} }\n"),
-    (TORII_RELEASE_RECOVERY, "use hostile::tokio;\n"),
-    (TORII_RELEASE_RECOVERY, "macro_rules! unused { () => {} }\n"),
-))
-def test_torii_release_pins_small_defining_modules(
-    path: str, prefix: str, torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("descriptor", guard.RETIRED_TIMED_OVN_ROUTE_DESCRIPTORS)
+def test_reintroduced_release_route_descriptor_is_rejected(descriptor: str) -> None:
+    """A retired route descriptor cannot return to the route catalog."""
+    torii, catalog = _torii_retirement_sources()
+    with pytest.raises(RuntimeError, match=re.escape(TORII_ROUTE_CATALOG)):
+        guard.require_timed_ovn_release_routes_retired(
+            torii, catalog + f"\npub const {descriptor}: RouteDescriptor = retired();\n")
+
+
+@pytest.mark.parametrize("route", guard.RETIRED_TIMED_OVN_BALLOT_ROUTES)
+@pytest.mark.parametrize("target", ("torii", "catalog"))
+def test_reintroduced_release_route_path_is_rejected(route: str, target: str) -> None:
+    """No retired ballot route path may be served or catalogued again."""
+    torii, catalog = _torii_retirement_sources()
+    literal = f'\nconst RETIRED_ROUTE: &str = "{route}";\n'
+    if target == "torii":
+        torii, expected = torii + literal, TORII_RELEASE_LIB
+    else:
+        catalog, expected = catalog + literal, TORII_ROUTE_CATALOG
+    with pytest.raises(RuntimeError, match=re.escape(expected)):
+        guard.require_timed_ovn_release_routes_retired(torii, catalog)
+
+
+def test_retired_release_names_in_comments_are_not_items() -> None:
+    """Prose naming a retired handler or descriptor is not a live item."""
+    torii, catalog = _torii_retirement_sources()
+    guard.require_timed_ovn_release_routes_retired(
+        torii + "\n// handler_gov_parliament_tle_partial_release was retired.\n",
+        catalog + "\n/* GOV_PARLIAMENT_TLE_PARTIAL_RELEASE was retired. */\n",
+    )
+
+
+@pytest.mark.parametrize("relative,identifier", [
+    (relative, identifier)
+    for relative, identifiers in guard.RETIRED_TLE_BROKER_SURFACES
+    for identifier in identifiers
+])
+def test_reintroduced_daemon_tle_signer_item_fails_the_full_checker(
+    relative: str, identifier: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Unchanged function text is insufficient when module binding tokens change."""
-    sources = dict(torii_release_sources)
-    sources[path] = prefix + sources[path]
-    with pytest.raises(RuntimeError, match=re.escape(path)):
-        _check_torii_release_sources(sources, monkeypatch)
-
-
-def test_torii_release_accepts_code_comments_and_spacing(
-    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Literal-aware token pins tolerate harmless source presentation changes."""
-    sources = dict(torii_release_sources)
-    sources[TORII_RELEASE_SERVICE] = sources[TORII_RELEASE_SERVICE].replace(
-        "let _signer_admission = signer_admission;",
-        "let /* physical owner */ _signer_admission  =\n signer_admission ;", 1)
-    sources[TORII_RELEASE_LIB] = sources[TORII_RELEASE_LIB].replace(
-        '#![allow(unexpected_cfgs)]', '# ! [ allow ( unexpected_cfgs ) ] /* lint only */', 1)
-    _check_torii_release_sources(sources, monkeypatch)
-
-
-@pytest.mark.parametrize("implementation", (
-    "impl Drop for QueryAdmissionPermit",
-    "impl std::ops::Drop for QueryAdmissionPermit",
-    "impl ::core::ops::Drop for crate::QueryAdmissionPermit",
-    "impl core::ops::r#Drop for crate::r#QueryAdmissionPermit",
-    "impl Drop for (QueryAdmissionPermit)",
-    "#[cfg(any())] impl Drop for QueryAdmissionPermit",
-))
-def test_torii_release_rejects_custom_permit_drop(
-    implementation: str, torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Custom Drop cannot retire a field ahead of the pinned declaration order."""
-    sources = dict(torii_release_sources)
-    sources[TORII_RELEASE_LIB] += implementation + " { fn drop(&mut self) { drop(self._heavy.take()); } }"
-    with pytest.raises(RuntimeError, match="custom Drop implementation"):
-        _check_torii_release_sources(sources, monkeypatch)
-
-
-def test_torii_release_ignores_quoted_custom_drop_decoy(
-    torii_release_sources: dict[str, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A comment mentioning an absent custom Drop is not an implementation."""
-    sources = dict(torii_release_sources)
-    sources[TORII_RELEASE_LIB] += "\n/* impl Drop for QueryAdmissionPermit { fn drop(&mut self) {} } */"
-    _check_torii_release_sources(sources, monkeypatch)
+    """The retired broker, signer and wiring items stay absent through main()."""
+    original_read = guard.read
+    changed = original_read(relative) + f"\nfn {identifier}() {{}}\n"
+    monkeypatch.setattr(guard, "read", lambda path: changed if path == relative else original_read(path))
+    with pytest.raises(RuntimeError, match=re.escape(relative)):
+        guard.main()
 
 
 DAEMON_BOXED_ENTRY = "pub(crate) async fn start_with_runtime_deps("

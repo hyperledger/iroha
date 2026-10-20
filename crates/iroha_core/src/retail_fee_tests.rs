@@ -1454,7 +1454,12 @@ fn seed_due_native_renewals(
     policy.fund_splitter_account = collector;
     transaction.world.smart_contract_state.insert(
         crate::sns::policy_storage_key(DOMAIN_NAME_SUFFIX_ID),
-        norito::to_bytes(&policy).unwrap(),
+        norito::codec::Encode::encode(&policy),
+    );
+    assert_eq!(
+        crate::sns::policy_by_id(&transaction.world, DOMAIN_NAME_SUFFIX_ID).unwrap(),
+        Some(policy.clone()),
+        "SNS fixtures use the actual fixed-v1 bare policy storage owner"
     );
     **transaction
         .world
@@ -1487,7 +1492,12 @@ fn seed_due_native_renewals(
         );
         transaction.world.smart_contract_state.insert(
             crate::sns::record_storage_key(&selector),
-            norito::to_bytes(&record).unwrap(),
+            norito::codec::Encode::encode(&record),
+        );
+        assert_eq!(
+            crate::sns::get_name_record_by_selector(&transaction.world, &selector, now).unwrap(),
+            record,
+            "SNS fixtures must be readable by the original renewal record owner"
         );
         let target = AliasTargetV1::Domain(ResolvedDomainV1::new(
             domain,
@@ -1659,4 +1669,254 @@ fn original_time_sns_sweep_uses_only_capacity_left_by_exact_retail_prefix() {
             },
         );
     }
+}
+
+fn privacy_fee_test_owner() -> crate::privacy_state::PrivacyPublicReserveOwnerV1 {
+    use iroha_data_model::privacy::*;
+    crate::privacy_state::PrivacyPublicReserveOwnerV1::Orchard {
+        namespace: PrivacyNamespaceV1::new(
+            PrivacyProtocolIdV1::OrchardHalo2ActionsV1,
+            PrivacyNamespaceScopeV1::Pool(PrivacyPoolNamespaceV1 {
+                pool_id: PrivacyPoolIdV1::new([0xD1; 32]),
+            }),
+        ),
+        bootstrap_digest: PrivacyOrchardPoolBootstrapDigestV1::new([0xD2; 32]),
+    }
+}
+
+#[test]
+fn enrolled_privacy_reserve_maintenance_preserves_backing_and_ordinary_fee_collection() {
+    use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+    for protected in [false, true] {
+        fixture(START + 30 * 86_400_000, |stx, policy| {
+            let wallet = account(3);
+            seed(stx, &policy, &wallet, 1000, 0, START);
+            let id = AssetId::new(policy.ds_asset_id.clone(), wallet.clone());
+            let owner = privacy_fee_test_owner();
+            let key =
+                PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &id).unwrap();
+            if protected {
+                stx.world.privacy_commitments.insert(
+                    key.clone(),
+                    PrivacyStateItemRecordV1::PublicReserveCustody {
+                        reserve_asset_id: id.clone(),
+                        owner,
+                        funded_allowance: Quantity::from(10_u32),
+                    },
+                );
+            }
+            let original_custody = stx.world.privacy_commitments.get(&key).cloned();
+            let expected = Quantity::from(if protected { 10_u32 } else { 9_u32 });
+            assert_eq!(
+                projected_balance(&stx.world, &id, START + 30 * 86_400_000).unwrap(),
+                Some(expected.clone())
+            );
+            settle_balance(&mut stx.world, &id).unwrap();
+            finalize(stx).unwrap();
+            assert_eq!(stx.world.assets.get(&id).unwrap().as_ref(), &expected);
+            assert_eq!(
+                stx.world.privacy_commitments.get(&key),
+                original_custody.as_ref()
+            );
+            let receipt = receipts(&stx.world, &wallet, None, 10).unwrap().remove(0);
+            assert_eq!(receipt.collected_minor, if protected { 0 } else { 100 });
+            assert_eq!(
+                stx.retail_fee_transcripts_for_test().len(),
+                usize::from(!protected)
+            );
+        });
+    }
+}
+
+#[test]
+fn malformed_exact_reserve_custody_refuses_fees_but_unrelated_rows_do_not() {
+    use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+    fixture(START + 30 * 86_400_000, |stx, policy| {
+        let wallet = account(3);
+        seed(stx, &policy, &wallet, 1000, 0, START);
+        let id = AssetId::new(policy.ds_asset_id.clone(), wallet.clone());
+        let owner = privacy_fee_test_owner();
+        let key = PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &id).unwrap();
+        let wrong = AssetId::new(policy.ds_asset_id.clone(), account(4));
+        let malformed =
+            PrivacyStateItemRecordV1::public_reserve_custody(wrong.clone(), owner).unwrap();
+        stx.world
+            .privacy_commitments
+            .insert(key.clone(), malformed.clone());
+        let before = stx
+            .world
+            .smart_contract_state
+            .iter()
+            .map(|(path, bytes)| (path.clone(), bytes.clone()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert!(matches!(
+            projected_balance(&stx.world, &id, START + 30 * 86_400_000),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(_))
+        ));
+        assert!(settle_balance(&mut stx.world, &id).is_err());
+        assert_eq!(
+            stx.world
+                .smart_contract_state
+                .iter()
+                .map(|(path, bytes)| (path.clone(), bytes.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>(),
+            before
+        );
+        assert_eq!(
+            stx.world.assets.get(&id).unwrap().as_ref(),
+            &Quantity::from(10_u32)
+        );
+        assert_eq!(stx.world.privacy_commitments.get(&key), Some(&malformed));
+        assert!(stx.retail_fee_transcripts_for_test().is_empty());
+        stx.world.privacy_commitments.remove(key);
+        // Malformed under another exact identity: no global scan or fee exemption.
+        let unrelated_key =
+            PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &wrong).unwrap();
+        stx.world.privacy_commitments.insert(
+            unrelated_key,
+            PrivacyStateItemRecordV1::public_reserve_custody(id.clone(), owner).unwrap(),
+        );
+        settle_balance(&mut stx.world, &id).unwrap();
+        assert_eq!(
+            stx.world.assets.get(&id).unwrap().as_ref(),
+            &Quantity::from(9_u32)
+        );
+    });
+}
+
+#[test]
+fn payment_fee_rechecks_reserve_custody_installed_after_principal() {
+    use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+    for malformed in [false, true] {
+        fixture(START + 1000, |stx, policy| {
+            let wallet = account(3);
+            seed(stx, &policy, &wallet, 1000, 50, START);
+            let req = request(&policy, &wallet, 1);
+            let assessment = reviewed(stx, &req, 0xD3);
+            assert_eq!(assessment.fee_minor, 10);
+            pay(stx, &req);
+            // This accessor includes the already executed principal occurrence.
+            // A refused fee must preserve it exactly and queue no collection.
+            let principal_transcripts = stx.retail_fee_transcripts_for_test().to_vec();
+            assert_eq!(principal_transcripts.len(), 1);
+            assert_eq!(principal_transcripts[0].deltas.len(), 1);
+            assert_eq!(principal_transcripts[0].deltas[0].from_account, wallet);
+            assert_eq!(principal_transcripts[0].deltas[0].to_account, account(4));
+            assert_eq!(
+                principal_transcripts[0].deltas[0].amount,
+                Quantity::from(1_u32)
+            );
+            assert!(stx.world.retail_fee_pending_transcripts.is_empty());
+            let id = AssetId::new(policy.ds_asset_id.clone(), wallet.clone());
+            assert_eq!(
+                stx.world.assets.get(&id).unwrap().as_ref(),
+                &Quantity::from(9_u32)
+            );
+            let owner = privacy_fee_test_owner();
+            let key =
+                PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &id).unwrap();
+            let bound_id = if malformed {
+                AssetId::new(policy.ds_asset_id.clone(), account(4))
+            } else {
+                id.clone()
+            };
+            let custody =
+                PrivacyStateItemRecordV1::public_reserve_custody(bound_id, owner).unwrap();
+            stx.world
+                .privacy_commitments
+                .insert(key.clone(), custody.clone());
+            let treasury = AssetId::new(
+                policy.ds_asset_id.clone(),
+                policy.treasury_account_id.clone(),
+            );
+            let treasury_before = stx.world.assets.get(&treasury).cloned();
+            let before = stx
+                .world
+                .smart_contract_state
+                .iter()
+                .map(|(path, bytes)| (path.clone(), bytes.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let error = finalize(stx)
+                .expect_err("late custody must reject the complete payment, never waive its fee");
+            let TransactionRejectionReason::Validation(ValidationFail::NotPermitted(message)) =
+                error
+            else {
+                panic!("late custody must preserve its original typed refusal: {error:?}");
+            };
+            if malformed {
+                assert_eq!(
+                    message,
+                    format!("public-reserve custody digest collision or owner mismatch for {id}")
+                );
+            } else {
+                assert_eq!(
+                    message,
+                    "payment fee cannot debit governed privacy reserve custody"
+                );
+            }
+            assert_eq!(
+                stx.world.assets.get(&id).unwrap().as_ref(),
+                &Quantity::from(9_u32)
+            );
+            assert_eq!(stx.world.assets.get(&treasury), treasury_before.as_ref());
+            assert_eq!(stx.world.privacy_commitments.get(&key), Some(&custody));
+            assert_eq!(
+                stx.world
+                    .smart_contract_state
+                    .iter()
+                    .map(|(path, bytes)| (path.clone(), bytes.clone()))
+                    .collect::<std::collections::BTreeMap<_, _>>(),
+                before
+            );
+            assert_eq!(stx.retail_fee_transcripts_for_test(), principal_transcripts);
+            assert!(stx.world.retail_fee_pending_transcripts.is_empty());
+            // This failed disposable transaction is intentionally never applied.
+        });
+    }
+}
+
+#[test]
+fn native_idle_sweep_preserves_enrolled_privacy_reserve_and_fee_evidence() {
+    use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+    fixture_block(START + 30 * 86_400_000, |block, policy| {
+        let wallet = account(3);
+        let id = AssetId::new(policy.ds_asset_id.clone(), wallet.clone());
+        let owner = privacy_fee_test_owner();
+        let key = PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), &id).unwrap();
+        let custody = PrivacyStateItemRecordV1::PublicReserveCustody {
+            reserve_asset_id: id.clone(),
+            owner,
+            funded_allowance: Quantity::from(10_u32),
+        };
+        {
+            let mut setup = block.transaction();
+            seed(&mut setup, &policy, &wallet, 1000, 0, START);
+            setup
+                .world
+                .privacy_commitments
+                .insert(key.clone(), custody.clone());
+            setup.apply();
+        }
+        let native_before = block.native_maintenance_usage_for_testing();
+        process_idle_accounts(block).unwrap();
+        let rows = receipts(&block.world, &wallet, None, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].collected_minor, rows[0].waived_minor), (0, 100));
+        assert_eq!(
+            block.world.assets.get(&id).unwrap().as_ref(),
+            &Quantity::from(10_u32)
+        );
+        assert_eq!(block.world.privacy_commitments.get(&key), Some(&custody));
+        assert_eq!(
+            account_state(&block.world, &wallet)
+                .unwrap()
+                .unwrap()
+                .balance_minor,
+            1000
+        );
+        assert_eq!(block.native_maintenance_usage_for_testing(), native_before);
+        process_idle_accounts(block).unwrap();
+        assert_eq!(receipts(&block.world, &wallet, None, 10).unwrap(), rows);
+        assert_eq!(block.native_maintenance_usage_for_testing(), native_before);
+    });
 }

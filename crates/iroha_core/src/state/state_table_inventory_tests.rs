@@ -1042,6 +1042,33 @@ const ROOTS: &[Root] = &[
         ],
     },
     Root {
+        id: "local_slash_publication_seal",
+        class: RootClass::LocalBindingDigest,
+        carrier: "none: held in memory by the publication comparison surface of one block (FinalizedPublicationSurface.slash_observability), recaptured and compared before publication",
+        keyed: false,
+        scope: "the block's pending public-lane slash observability records in staging order: the lane, the slashed bonded and pending-unbond amounts and, with the telemetry feature, the validator status before and after the slash. They copy slash effects whose canonical results are world.public_lane_validators and world.public_lane_stake_shares; after publication they feed only node status counters and telemetry",
+        construction: "ordered hash fold of the per-record value hashes, seeded with the hash of the domain and finished with the record count",
+        witnesses: "none",
+        owner: "State publication owner",
+        disposition: "kept as a node-local binding digest: it is never persisted, certified or served and decides no transaction validity; a mismatch is a local publication failure",
+        defect: None,
+        domains: &[r"iroha:local-slash-publication:v1"],
+        evidence: &[
+            (
+                "crates/iroha_core/src/state/output_publication.rs",
+                "fn slash_observability_hash(",
+            ),
+            (
+                "crates/iroha_core/src/state/output_publication.rs",
+                "slash_observability: Hash,",
+            ),
+            (
+                "crates/iroha_core/src/state/publication.rs",
+                "for slash in pending_public_lane_slash_observability.iter() {",
+            ),
+        ],
+    },
+    Root {
         id: "lane_incarnation_lineage_digest",
         class: RootClass::LocalBindingDigest,
         carrier: "none outside the node: stored only in Kura's lane-geometry binding records, where it composes into the local geometry transition identity",
@@ -8083,7 +8110,20 @@ fn state_level_canonical_fields_have_no_accumulator_slot_and_no_witness_family()
             .all(|id| id.starts_with("state.") || id.starts_with("runtime."))
     );
     let configured = node_configuration_cells();
-    assert_eq!(configured.len(), 8);
+    assert_eq!(
+        configured.iter().map(String::as_str).collect::<Vec<_>>(),
+        [
+            "state.pipeline",
+            "state.oracle",
+            "state.crypto",
+            "state.nexus",
+            "state.zk",
+            "state.gov",
+            "state.content",
+            "state.settlement",
+        ],
+        "exactly the canonical policy owners installed from node configuration"
+    );
     for id in &configured {
         assert!(uncommitted.contains(&id.as_str()), "{id}");
     }
@@ -9212,6 +9252,165 @@ fn enrollment_expiry_domains_bind_records_without_state_authority() {
             .collect::<Vec<_>>(),
         [format!("{shadow} in {path}")],
         "the reviewed expiry-proof names cannot exempt another name under their prefix"
+    );
+}
+
+/// The anonymous-ballot frame tags of the data model hash supplied records and messages,
+/// and its corpus chain is recomputed from supplied entries. Their record classification
+/// rests on a premise that the literal scan cannot see: no node source computes them, as
+/// the Core integration of the ballot is a separate phase. When Core starts to call these
+/// digests the literals stay in the data model, so the premise is checked directly here.
+#[test]
+fn anonymous_ballot_tags_hash_records_that_no_node_source_computes() {
+    const MODULE: &str = "crates/iroha_data_model/src/governance/anonymous_ballot";
+    let record = DomainOwner::Other(Use::Record);
+    let test = DomainOwner::Other(Use::Test);
+    let tags: Vec<(&str, DomainOwner)> = domain_owners()
+        .into_iter()
+        .filter(|(literal, _)| literal.starts_with("PARL/"))
+        .collect();
+    assert_eq!(
+        tags,
+        [
+            ("PARL/AUTHORITY/v1", record),
+            ("PARL/CORPUS-APPEND/v1", record),
+            ("PARL/CORPUS-EMPTY/v1", record),
+            ("PARL/CORPUS-ENTRY/v1", record),
+            ("PARL/ENVELOPE/v1", record),
+            ("PARL/PROPOSAL/v1", record),
+            ("PARL/QUALIFICATION/v1", record),
+            ("PARL/REGMAP/v1", record),
+            ("PARL/RESULT/v1", record),
+            ("PARL/ROSTER/v1", record),
+            ("PARL/STAMP-PAYLOAD/v1", record),
+            ("PARL/STAMP-WORK/v1", record),
+            ("PARL/TEST/v1", test),
+            ("PARL/TEST/v2", test),
+        ]
+    );
+    let sources: Vec<(String, String)> = rust_sources(&[MODULE])
+        .into_iter()
+        .map(|path| {
+            let text = source(&path);
+            (path, text)
+        })
+        .collect();
+    let scan = scan_sources(
+        sources
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    assert!(scan.unlisted_domains.is_empty());
+    for (tag, _) in &tags {
+        assert!(
+            scan.literal_uses.contains_key(tag),
+            "{tag} is held by the anonymous-ballot module"
+        );
+    }
+    let path = format!("{MODULE}/digests.rs");
+    let text = source(&path);
+    let shadow = "PARL/SHADOW/v1";
+    let changed = format!("{text}\nconst SHADOW: &[u8] = b\"{shadow}\";\n");
+    assert_eq!(
+        scan_sources([(path.as_str(), changed.as_str())])
+            .unlisted_domains
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{shadow} in {path}")],
+        "the reviewed tags cannot exempt another tag under their prefix"
+    );
+    // The premise: no node source names the ballot module, and the node does not depend on
+    // the ballot crates that maintain the accepted corpus and compute the proof digests.
+    // The inventory's own sources (SELF_PATHS) only quote the module. A use in code is
+    // found; a comment or a string literal that mentions the module is not a use.
+    let names_module = |text: &str| split_source(text).1.contains("anonymous_ballot");
+    assert!(names_module(
+        "use iroha_data_model::governance::anonymous_ballot::digests;\n"
+    ));
+    assert!(!names_module(
+        "// anonymous_ballot\nconst PATH: &str = \"governance/anonymous_ballot\";\n"
+    ));
+    for path in rust_sources(&["crates/iroha_core/src"])
+        .into_iter()
+        .filter(|path| !SELF_PATHS.contains(&path.as_str()))
+    {
+        assert!(
+            !names_module(&source(&path)),
+            "{path} uses the anonymous ballot: classify every corpus, roster or result root \
+             that it persists or carries before reclassifying these tags"
+        );
+    }
+    assert!(
+        !source("crates/iroha_core/Cargo.toml").contains("iroha_parliament_ballot"),
+        "the node depends on a ballot crate: review the anonymous-ballot tag classification"
+    );
+}
+
+/// The expiry journal schema and filename digest retain exact local storage roles.
+#[test]
+fn enrollment_expiry_journal_domains_are_exact_local_storage_names() {
+    let path = "crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/expiry.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert!(scan.unlisted_domains.is_empty());
+    let owners = domain_owners();
+    for (literal, usage) in [
+        (
+            "iroha_core.kagemusha.enrollment.journal_expiry.v1",
+            Use::Name,
+        ),
+        (r"iroha:kagemusha:issuer-expiry-dispatch:v1\0", Use::Seed),
+    ] {
+        assert_eq!(owners.get(literal), Some(&DomainOwner::Other(usage)));
+        assert_eq!(
+            scan.literal_uses.get(literal),
+            Some(&BTreeMap::from([(path.to_owned(), 1)]))
+        );
+        let shadow = format!("{literal}:shadow");
+        let changed = format!("{text}\nconst SHADOW: &str = r\"{shadow}\";\n");
+        assert!(
+            scan_sources([(path, changed.as_str())])
+                .unlisted_domains
+                .contains(&format!("{shadow} in {path}")),
+            "classification must not exempt other literals under the same prefix"
+        );
+    }
+}
+
+/// The configured catalog record digest is nested in the existing policy fingerprint.
+#[test]
+fn configured_lane_catalog_domain_is_a_nested_policy_fingerprint() {
+    let path = "crates/iroha_core/src/state/authority_registry/nexus_policy.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    let literal = r"iroha:nexus:configured-lane-catalog:v1\0";
+    assert!(scan.unlisted_domains.is_empty());
+    assert_eq!(
+        domain_owners().get(literal),
+        Some(&DomainOwner::Other(Use::Record))
+    );
+    assert_eq!(
+        scan.literal_uses.get(literal),
+        Some(&BTreeMap::from([(path.to_owned(), 1)]))
+    );
+    let root = ROOTS
+        .iter()
+        .find(|root| root.id == "execution_policy_digest")
+        .unwrap();
+    assert_eq!(root.class, RootClass::ProtocolFingerprint);
+    assert_eq!(root.defect, Some("G1-D3"));
+    assert!(!root.keyed && !root.class.certified());
+    assert!(
+        !root.domains.contains(&literal),
+        "the nested catalog record must not acquire its enclosing policy root classification"
+    );
+    assert!(text.contains("Raw(&self.configured_lane_catalog_hash)"));
+    let shadow = r"iroha:nexus:configured-lane-catalog:shadow:v1\0";
+    let changed = format!("{text}\nconst SHADOW: &str = r\"{shadow}\";\n");
+    assert!(
+        scan_sources([(path, changed.as_str())])
+            .unlisted_domains
+            .contains(&format!("{shadow} in {path}"))
     );
 }
 

@@ -1203,7 +1203,24 @@ def classify_use(masked: str, offset: int, name: str) -> Optional[tuple[str, str
                     break
     called = after.startswith("(")
     if before.endswith("::"):
-        qualifier = _TRAILING_IDENTIFIER.search(before[:-2].rstrip())
+        prefix = before[:-2].rstrip()
+        # Preserve the explicit type in `Type::<Args>::method`. A trailing
+        # generic argument list is not an unknown receiver or a free-function
+        # reference. Nested type arguments and function arrows remain balanced;
+        # unsupported qualified-self syntax stays unresolved.
+        if prefix.endswith(">"):
+            depth = 0
+            for index in range(len(prefix) - 1, -1, -1):
+                if prefix[index] == ">" and (index == 0 or prefix[index - 1] != "-"):
+                    depth += 1
+                elif prefix[index] == "<":
+                    depth -= 1
+                    if depth == 0:
+                        base = prefix[:index].rstrip()
+                        if base.endswith("::"):
+                            prefix = base[:-2].rstrip()
+                        break
+        qualifier = _TRAILING_IDENTIFIER.search(prefix)
         return ("path", qualifier.group(0) if qualifier else "?")
     if before.endswith(".") and not before.endswith(".."):
         if not called:

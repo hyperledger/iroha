@@ -5,6 +5,9 @@
 //! These helpers neither select a consensus schedule nor mutate policy owners.
 //! The action count and aggregate byte budget are independent limits: admitting
 //! two actions does not promise that two individually maximal actions fit.
+//! One maximal privacy action does fit with its required transaction context: the
+//! permitted signers and the fixed transaction framing (see
+//! [`validate_privacy_action_context`]).
 
 use core::num::{NonZeroU32, NonZeroU64};
 
@@ -13,6 +16,28 @@ use crate::privacy::{
     PrivacyConsensusLimitsV1, PrivacyConsensusLimitsValidationError, PrivacyConsensusPolicyV1,
     PrivacyPolicyValidationErrorV1,
 };
+
+/// Canonical bytes one more signer can add to a signed transaction: its member key in the
+/// multisig authority and its multisig signature entry, with their framing and length-prefix
+/// growth, for the largest supported signature algorithm (ML-DSA).
+///
+/// Derived from actual signed transactions of every supported algorithm and pinned by
+/// `maximal_action_context_constants_are_the_measured_worst_case` in
+/// `tests/maximum_proof_transport_v1.rs`; a change to the signature or account encoding
+/// changes the measurement and must change this value.
+pub const MAX_TRANSACTION_SIGNER_BYTES: u64 = 14_470;
+
+/// Canonical bytes of a signed transaction carrying one privacy action, beyond the action
+/// envelope and [`MAX_TRANSACTION_SIGNER_BYTES`] per signer.
+///
+/// It covers the Submit instruction and executable framing, the security domain, creation
+/// time, lifetime and nonce, the authority fee intent with its Nexus and `PipelineGas` charge
+/// limits at their largest amounts and an executable gas bound, the `tx_sequence` and
+/// `expires_at_height` metadata that the governed `require_sequence` and `require_height_ttl`
+/// flags make mandatory (both at `u64::MAX`, so the relation holds whatever the flags say),
+/// no attachments, and the signature and authority framing, at the length prefixes of a
+/// transaction within the protocol transport limit. Derived and pinned by the same test.
+pub const MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES: u64 = 7_193;
 
 /// A concrete incompatibility between byte limits selected for the same height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -78,6 +103,30 @@ pub enum ResourceCoherenceError {
         /// Prospective block payload cap.
         max_block_bytes: u32,
     },
+    /// A maximal privacy action with its required transaction context exceeds the cap.
+    #[error(
+        "a maximal privacy action of {max_action_bytes} bytes with {max_signatures} signers requires {required_transaction_bytes} transaction bytes, exceeding transaction cap {max_transaction_bytes}"
+    )]
+    PrivacyActionContextExceedsTransaction {
+        /// Prospective canonical action cap.
+        max_action_bytes: u32,
+        /// Prospective signature cap of one transaction.
+        max_signatures: u64,
+        /// Exact transaction bytes the action and its required context need.
+        required_transaction_bytes: u64,
+        /// Prospective framed transaction cap.
+        max_transaction_bytes: u64,
+    },
+    /// The required context of a maximal privacy action cannot be represented.
+    #[error(
+        "required context of a {max_action_bytes}-byte privacy action with {max_signatures} signers overflows u64"
+    )]
+    PrivacyActionContextOverflow {
+        /// Prospective canonical action cap.
+        max_action_bytes: u32,
+        /// Prospective signature cap of one transaction.
+        max_signatures: u64,
+    },
 }
 
 /// Invalid resource policy at a specific committed or successor height.
@@ -116,12 +165,16 @@ pub enum SuccessorResourceCoherenceError {
 /// Later tightenings cannot increase any byte ceiling, so validating the current
 /// profile against the second successor also covers the intervening future.
 ///
+/// Each successor's privacy profile is also checked against the committed signature cap:
+/// one maximal action with its required context must fit the transaction cap.
+///
 /// # Errors
 /// Rejects invalid privacy policy/schedule, height overflow, and the first
 /// incoherent successor, preserving its exact height and typed numeric error.
 pub fn validate_successor_resource_limits(
     committed_height: u64,
     max_transaction_bytes: NonZeroU64,
+    max_signatures: NonZeroU64,
     next_max_block_bytes: NonZeroU32,
     after_next_max_block_bytes: NonZeroU32,
     privacy: &PrivacyConsensusPolicyV1,
@@ -149,12 +202,66 @@ pub fn validate_successor_resource_limits(
             .as_ref()
             .filter(|pending| pending.effective_at_height <= effective_height)
             .map_or(&privacy.current_limits, |pending| &pending.next_limits);
-        validate_privacy_chain_limits(max_transaction_bytes, cap, limits).map_err(|error| {
-            SuccessorResourceCoherenceError::AtHeight {
+        validate_privacy_chain_limits(max_transaction_bytes, cap, limits)
+            .and_then(|()| {
+                validate_privacy_action_context(max_transaction_bytes, max_signatures, limits)
+            })
+            .map_err(|error| SuccessorResourceCoherenceError::AtHeight {
                 effective_height,
                 error,
+            })?;
+    }
+    Ok(())
+}
+
+/// Transaction bytes one maximal privacy action needs with `max_signatures` signers.
+///
+/// The action envelope (at most `max_action_bytes`, which already holds the proof, the whole
+/// statement and the envelope metadata) plus the required context of its signed transaction:
+/// [`MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES`] and [`MAX_TRANSACTION_SIGNER_BYTES`] for each
+/// permitted signer. Larger multisig member sets and metadata beyond the two flag-required
+/// entries are not required context. `None` if the sum overflows `u64`.
+#[must_use]
+pub fn maximal_action_transaction_bytes(
+    max_action_bytes: u32,
+    max_signatures: NonZeroU64,
+) -> Option<u64> {
+    max_signatures
+        .get()
+        .checked_mul(MAX_TRANSACTION_SIGNER_BYTES)?
+        .checked_add(MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES)?
+        .checked_add(u64::from(max_action_bytes))
+}
+
+/// Check that one maximal privacy action and its required context fit the transaction cap.
+///
+/// Both caps must describe policy effective at the same height. Equality is accepted.
+///
+/// # Errors
+/// Returns the exact offending limits when the required bytes overflow or exceed the
+/// transaction cap.
+pub fn validate_privacy_action_context(
+    max_transaction_bytes: NonZeroU64,
+    max_signatures: NonZeroU64,
+    privacy: &PrivacyConsensusLimitsV1,
+) -> Result<(), ResourceCoherenceError> {
+    let max_action_bytes = privacy.max_action_bytes;
+    let required_transaction_bytes =
+        maximal_action_transaction_bytes(max_action_bytes, max_signatures).ok_or_else(|| {
+            ResourceCoherenceError::PrivacyActionContextOverflow {
+                max_action_bytes,
+                max_signatures: max_signatures.get(),
             }
         })?;
+    if required_transaction_bytes > max_transaction_bytes.get() {
+        return Err(
+            ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+                max_action_bytes,
+                max_signatures: max_signatures.get(),
+                required_transaction_bytes,
+                max_transaction_bytes: max_transaction_bytes.get(),
+            },
+        );
     }
     Ok(())
 }
@@ -202,7 +309,8 @@ pub fn validate_transaction_block_limits(
 /// Action count remains independently enforced alongside actual aggregate
 /// bytes. These necessary byte relationships do not promise that a maximum
 /// action fits arbitrary transaction metadata, or replace checks of the actual
-/// encoded transaction and block.
+/// encoded transaction and block. [`validate_privacy_action_context`] adds the
+/// required context of a maximal action under the committed signature cap.
 ///
 /// # Errors
 /// Returns the first invalid relationship in the order above, retaining the
@@ -258,6 +366,13 @@ mod tests {
 
     fn block(value: u32) -> NonZeroU32 {
         NonZeroU32::new(value).unwrap()
+    }
+
+    /// The committed first-release signature cap.
+    fn signatures() -> NonZeroU64 {
+        crate::parameter::Parameters::default()
+            .transaction()
+            .max_signatures()
     }
 
     fn privacy_limits(action: u32, transaction: u32, block: u32) -> PrivacyConsensusLimitsV1 {
@@ -500,6 +615,7 @@ mod tests {
             validate_successor_resource_limits(
                 1,
                 tx(3 * 1024 * 1024),
+                signatures(),
                 cap,
                 cap,
                 &genesis_tightening(2),
@@ -515,6 +631,7 @@ mod tests {
             validate_successor_resource_limits(
                 1,
                 tx(3 * 1024 * 1024),
+                signatures(),
                 cap,
                 cap,
                 &genesis_tightening(3),
@@ -539,6 +656,7 @@ mod tests {
             validate_successor_resource_limits(
                 5,
                 tx_cap,
+                signatures(),
                 next_cap,
                 cap,
                 &PrivacyConsensusPolicyV1::taira_default(),
@@ -556,15 +674,183 @@ mod tests {
             current_limits: privacy_limits(1, 1, 1),
             pending_tightening: None,
         };
-        let next_cap = block(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + 1024);
-        let after_cap = block(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + 1023);
-        let expected = validate_transaction_block_limits(tx(1024), after_cap).unwrap_err();
+        // The smallest transaction cap that holds one action with its required context.
+        let fitting = maximal_action_transaction_bytes(1, signatures()).unwrap();
+        let transaction = u32::try_from(fitting).unwrap();
+        let next_cap = block(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + transaction);
+        let after_cap = block(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + transaction - 1);
+        let expected = validate_transaction_block_limits(tx(fitting), after_cap).unwrap_err();
         assert_eq!(
-            validate_successor_resource_limits(5, tx(1024), next_cap, after_cap, &privacy),
+            validate_successor_resource_limits(
+                5,
+                tx(fitting),
+                signatures(),
+                next_cap,
+                after_cap,
+                &privacy
+            ),
             Err(SuccessorResourceCoherenceError::AtHeight {
                 effective_height: 7,
                 error: expected,
             })
+        );
+    }
+
+    #[test]
+    fn privacy_action_context_exact_and_one_over_transaction_cap_and_signatures() {
+        let limits = PrivacyConsensusLimitsV1::taira_default();
+        let defaults = crate::parameter::Parameters::default();
+        let transaction_cap = defaults.transaction().max_tx_bytes();
+        let required =
+            maximal_action_transaction_bytes(limits.max_action_bytes, signatures()).unwrap();
+        assert_eq!(
+            required,
+            u64::from(limits.max_action_bytes)
+                + MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES
+                + 16 * MAX_TRANSACTION_SIGNER_BYTES
+        );
+        assert_eq!(
+            validate_privacy_action_context(transaction_cap, signatures(), &limits),
+            Ok(())
+        );
+        // Exact and one byte below the required transaction cap.
+        assert_eq!(
+            validate_privacy_action_context(tx(required), signatures(), &limits),
+            Ok(())
+        );
+        assert_eq!(
+            validate_privacy_action_context(tx(required - 1), signatures(), &limits),
+            Err(
+                ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+                    max_action_bytes: limits.max_action_bytes,
+                    max_signatures: 16,
+                    required_transaction_bytes: required,
+                    max_transaction_bytes: required - 1,
+                }
+            )
+        );
+        // The largest signature cap the shipped transaction cap carries, and one more.
+        let spare = transaction_cap.get()
+            - u64::from(limits.max_action_bytes)
+            - MAXIMAL_ACTION_TRANSACTION_FRAMING_BYTES;
+        let largest = spare / MAX_TRANSACTION_SIGNER_BYTES;
+        assert_eq!(largest, 53);
+        let largest = NonZeroU64::new(largest).unwrap();
+        assert_eq!(
+            validate_privacy_action_context(transaction_cap, largest, &limits),
+            Ok(())
+        );
+        let one_more = largest.checked_add(1).unwrap();
+        assert_eq!(
+            validate_privacy_action_context(transaction_cap, one_more, &limits),
+            Err(
+                ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+                    max_action_bytes: limits.max_action_bytes,
+                    max_signatures: one_more.get(),
+                    required_transaction_bytes: maximal_action_transaction_bytes(
+                        limits.max_action_bytes,
+                        one_more
+                    )
+                    .unwrap(),
+                    max_transaction_bytes: transaction_cap.get(),
+                }
+            )
+        );
+        // A signature cap the context cannot represent is refused, never wrapped.
+        let unbounded = NonZeroU64::new(u64::MAX).unwrap();
+        assert_eq!(
+            validate_privacy_action_context(tx(u64::MAX), unbounded, &limits),
+            Err(ResourceCoherenceError::PrivacyActionContextOverflow {
+                max_action_bytes: limits.max_action_bytes,
+                max_signatures: u64::MAX,
+            })
+        );
+    }
+
+    #[test]
+    fn successor_heights_check_the_action_context_of_their_own_privacy_profile() {
+        // Lowering the transaction cap below the current action's context is incoherent at
+        // the next height unless a tightening already applies there.
+        let cap = block(16 * 1024 * 1024);
+        let current = PrivacyConsensusLimitsV1::taira_default();
+        let required =
+            maximal_action_transaction_bytes(current.max_action_bytes, signatures()).unwrap();
+        let untightened = PrivacyConsensusPolicyV1::taira_default();
+        assert_eq!(
+            validate_successor_resource_limits(
+                5,
+                tx(required),
+                signatures(),
+                cap,
+                cap,
+                &untightened
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_successor_resource_limits(
+                5,
+                tx(required - 1),
+                signatures(),
+                cap,
+                cap,
+                &untightened
+            ),
+            Err(SuccessorResourceCoherenceError::AtHeight {
+                effective_height: 6,
+                error: ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+                    max_action_bytes: current.max_action_bytes,
+                    max_signatures: 16,
+                    required_transaction_bytes: required,
+                    max_transaction_bytes: required - 1,
+                },
+            })
+        );
+        // A pending tightening effective at h + 2 = 7 already applies there: under a cap that
+        // holds only the tightened action with its context, h + 1 = 6 (still the current
+        // profile) is refused, and the successors 7 and 8 of h + 1 are coherent.
+        let tightened = privacy_limits(2 * 1024 * 1024, 2 * 1024 * 1024, 3 * 1024 * 1024);
+        assert!(
+            maximal_action_transaction_bytes(tightened.max_action_bytes, signatures()).unwrap()
+                < required
+        );
+        let pending = PrivacyConsensusPolicyV1 {
+            current_limits: current,
+            pending_tightening: Some(PrivacyConsensusPolicyTighteningV1 {
+                scheduled_at_height: 5,
+                effective_at_height: 7,
+                next_limits: tightened,
+            }),
+        };
+        assert_eq!(
+            validate_successor_resource_limits(
+                5,
+                tx(required - 1),
+                signatures(),
+                cap,
+                cap,
+                &pending
+            ),
+            Err(SuccessorResourceCoherenceError::AtHeight {
+                effective_height: 6,
+                error: ResourceCoherenceError::PrivacyActionContextExceedsTransaction {
+                    max_action_bytes: current.max_action_bytes,
+                    max_signatures: 16,
+                    required_transaction_bytes: required,
+                    max_transaction_bytes: required - 1,
+                },
+            })
+        );
+        assert_eq!(
+            validate_successor_resource_limits(
+                6,
+                tx(required - 1),
+                signatures(),
+                cap,
+                cap,
+                &pending
+            ),
+            Ok(())
         );
     }
 
@@ -576,6 +862,7 @@ mod tests {
                 validate_successor_resource_limits(
                     committed_height,
                     tx(10 * 1024 * 1024),
+                    signatures(),
                     cap,
                     cap,
                     &PrivacyConsensusPolicyV1::taira_default(),
@@ -591,7 +878,14 @@ mod tests {
         let privacy = genesis_tightening(2);
         let original = privacy.validate_at_committed_height(2).unwrap_err();
         assert_eq!(
-            validate_successor_resource_limits(2, tx(10 * 1024 * 1024), cap, cap, &privacy),
+            validate_successor_resource_limits(
+                2,
+                tx(10 * 1024 * 1024),
+                signatures(),
+                cap,
+                cap,
+                &privacy
+            ),
             Err(SuccessorResourceCoherenceError::InvalidPrivacyPolicy {
                 committed_height: 2,
                 error: original,

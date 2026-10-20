@@ -491,7 +491,7 @@ class Exact12(Base):
 
     def test_removed_dispatch_arm_fails(self) -> None:
         text = source(VERIFIER)
-        arm = "        PrivacyStatementV1::PqMaspStarkV1(statement) => {\n            verify_pq_masp_action_v1(statement, proof, envelope, &context)?\n        }\n"
+        arm = "        PrivacyStatementV1::PqMaspStarkV1(statement) => {\n            verify_pq_masp_action_v1(statement, proof, envelope, context)?\n        }\n"
         self.assertIn(arm, text)
         self.assert_fails(run("check_exact12", overrides={VERIFIER: text.replace(arm, "")}), "the dispatch of verify_privacy_envelope_after_compiled_activation_v1")
 

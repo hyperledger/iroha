@@ -116,8 +116,9 @@ Queue expiry, native AMX time deadlines and CT5 remain separate required control
 simulator's wall-stamped payloads alone do not establish final-payment restart progress.
 External customer credits use durable application inbox/outbox handling; their
 database effects are not claimed to be atomic with ledger settlement. The current
-resource contract's carrier/block inequality holds numerically; X.2 still needs
-actual maximum-proof network and recovery evidence, and F.4 owns committed policy
+resource contract's carrier/block inequality holds numerically and X.2's contract
+relations are closed; X.2 still needs four-validator exact/one-over,
+inconsistent-parameter and recovery evidence, and F.4 owns committed policy
 coherence. No compatibility aliases, dummy movements or relaxed fixed proof caps
 close these milestones.
 
@@ -210,8 +211,9 @@ The [ZK delivery plan](specs/zk_delivery_plan.md) and its
 authenticated-State and FHE outcomes: the rows here state the release outcome,
 and the graph holds the tasks, their status and their evidence. Three criteria
 come from the [resource contract](specs/zk_resource_contract.json). For C5, the
-maximum-proof transport (plan task X.2) closes the contract relations it owns,
-including `private_settlement_carrier_within_includable_transaction`. For N5,
+maximum-proof transport (plan task X.2) closes the contract relations it owns;
+`private_settlement_carrier_within_includable_transaction` belongs to F.4's
+committed policy. For N5,
 the canonical signed attachment occurrence and aggregate frame carry a
 ceiling-sized proof through every SDK and native admission path (I.1); the
 separate 8 MiB staging list is not a signed-transaction limit. For N4 and N8, the 10 remaining node-local validity bounds, all of the

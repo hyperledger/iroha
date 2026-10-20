@@ -1,0 +1,98 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "build_failure_returns_the_operation_to_prepared",
+  "category": "local_verification",
+  "rules": [
+    "local_verification_before_signing"
+  ],
+  "description": "Building fails after the proof verified locally. No payload exists, so the operation returns to prepared, and the next run proves and verifies again before it builds: a verified proof is never signed without its own verification in the same run.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "fail:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "build",
+          "resumable": true
+        },
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1"
+        ],
+        "status": "in_progress",
+        "state": "prepared"
+      }
+    },
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "finality_proofs": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1",
+          "sign:1",
+          "dispatch:1",
+          "status:1",
+          "finality:1"
+        ],
+        "status": "completed",
+        "state": "finalized",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1,
+          "evidence": "applied"
+        }
+      }
+    }
+  ]
+}

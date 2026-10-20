@@ -4087,7 +4087,7 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
         },
         privacy::PrivacyConsensusLimitsV1,
     };
-    const INCLUDABLE: u32 = 16 * 1024;
+    const INCLUDABLE: u32 = 32 * 1024;
     const MAX_BLOCK_BYTES: u32 = BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + INCLUDABLE;
     assert_eq!(
         PAYLOAD_OVERHEAD,
@@ -4100,13 +4100,23 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
         move || {
             let mut world = World::new();
             let mut limits = PrivacyConsensusLimitsV1::taira_default();
-            // This small ordinary-Log fixture needs one coherent committed policy:
-            // every contained privacy byte bound also fits its 16 KiB transaction cap.
-            limits.max_proof_bytes_per_action = INCLUDABLE;
-            limits.max_action_bytes = INCLUDABLE;
+            // This small ordinary-Log fixture needs one coherent committed policy: every
+            // contained privacy byte bound also fits its 32 KiB transaction cap, and one
+            // maximal privacy action fits with its required context (one signer).
+            let signatures = std::num::NonZeroU64::MIN;
+            let action = INCLUDABLE
+                - u32::try_from(
+                    iroha_data_model::parameter::system::resource_coherence::maximal_action_transaction_bytes(
+                        0, signatures,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            limits.max_proof_bytes_per_action = action;
+            limits.max_action_bytes = action;
             limits.max_privacy_bytes_per_transaction = INCLUDABLE;
             limits.max_privacy_bytes_per_block = INCLUDABLE;
-            limits.max_statement_and_encrypted_output_bytes_per_transaction = INCLUDABLE;
+            limits.max_statement_and_encrypted_output_bytes_per_transaction = action;
             limits
                 .validate()
                 .expect("coherent small fixture privacy limits");
@@ -4127,6 +4137,9 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
                 TransactionParameter::MaxTxBytes(
                     std::num::NonZeroU64::new(u64::from(INCLUDABLE)).unwrap(),
                 ),
+            ));
+            config.genesis_parameters.push(Parameter::Transaction(
+                TransactionParameter::MaxSignatures(signatures),
             ));
             let prepared = CertifiedTestChain::prepare(config).expect("prepared signed genesis");
             send_clock

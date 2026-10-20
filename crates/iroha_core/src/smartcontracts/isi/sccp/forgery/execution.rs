@@ -68,9 +68,9 @@ impl ForgeryExecutionError {
                 // The original local cause lives outside deterministic instruction errors.
                 // Its sticky owner rejects the carrier before receipts or apply; even a
                 // diagnostic allocation here could fail while reporting allocator refusal.
-                #[cfg(all(test, sumeragi_core_mutation = "HC424"))]
+                #[cfg(all(test, sumeragi_core_mutation = "HC435"))]
                 let message = local.to_string().into_boxed_str();
-                #[cfg(not(all(test, sumeragi_core_mutation = "HC424")))]
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC435")))]
                 let message = Box::<str>::default();
                 stx.arm_local_storage_refusal(local);
                 InstructionExecutionError::InvariantViolation(message)

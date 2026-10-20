@@ -43,6 +43,9 @@ INCLUDE = 'include!("asset/privacy_economic_invariant_tests.rs");'
 PGC_ARM = "VerifiedPrivacyLedgerEffectsV1::AnonymousPgcPayment(effect) => {"
 X509_ARM = "VerifiedPrivacyLedgerEffectsV1::ZkX509Certificate(effect) => {"
 CUSTODY_MISMATCH = '"verified privacy pool bridge does not match governed reserve custody"'
+# The funded-allowance owner repeats this refusal earlier in asset.rs; the cited bridge site is the
+# one occurrence followed by `.into()` inside `execute_verified_privacy_pool_public_balance_transfer`.
+BRIDGE_CUSTODY_MISMATCH = CUSTODY_MISMATCH + ".into()"
 
 
 def source(path: str) -> str:
@@ -510,14 +513,16 @@ class Effects(Base):
         self.assert_fails(run("check_effects", matrix), "a reachable effect names at least one ledger invariant")
 
     def test_removed_enforcement_site_fails(self) -> None:
-        overrides = replaced(ASSETS, CUSTODY_MISMATCH, '"bridge refused"')
+        assert source(ASSETS).count(BRIDGE_CUSTODY_MISMATCH) == 1
+        overrides = replaced(ASSETS, BRIDGE_CUSTODY_MISMATCH, '"bridge refused".into()')
         errors = run("check_effects", overrides=overrides)
         self.assert_fails(errors, "effect orchard.unshield: invariant 1 (asset_namespace_isolation): `" + CUSTODY_MISMATCH)
 
     def test_enforcement_site_must_stay_inside_its_scope(self) -> None:
         text = source(ASSETS)
         assert CUSTODY_MISMATCH in text
-        moved = text.replace(CUSTODY_MISMATCH, '"bridge refused"', 1) + f"\nfn elsewhere() -> &'static str {{ {CUSTODY_MISMATCH} }}\n"
+        assert text.count(BRIDGE_CUSTODY_MISMATCH) == 1
+        moved = text.replace(BRIDGE_CUSTODY_MISMATCH, '"bridge refused".into()', 1) + f"\nfn elsewhere() -> &'static str {{ {CUSTODY_MISMATCH} }}\n"
         errors = run("check_effects", overrides={ASSETS: moved})
         self.assert_fails(errors, "inside `pub(crate) fn execute_verified_privacy_pool_public_balance_transfer(`")
 
@@ -537,7 +542,7 @@ class Effects(Base):
         self.assert_fails(run("check_effects", matrix), "`fn gone(` opens no body")
 
     def test_invariant_that_is_not_enforced_needs_an_open_defect(self) -> None:
-        matrix = edited(lambda m: invariant(m, "orchard.unshield", "bounded_custody").pop("defects"))
+        matrix = edited(lambda m: invariant(m, "orchard.shield", "bounded_custody").pop("defects"))
         self.assert_fails(run("check_effects", matrix), "an invariant that is not enforced cites an open defect with its owner")
 
     def test_not_applicable_says_why_and_kinds_are_closed(self) -> None:

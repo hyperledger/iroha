@@ -140,7 +140,7 @@ def test_ledger_original_carriers_preserve_authentication_and_private_reads(gene
         ('validation_fee.retail.receipts', 'GET', '/v1/validation-fee/accounts/{account_id}/receipts', 'feature(app_api)', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
         ('validation_fee.retail.statement_head', 'GET', '/v1/validation-fee/accounts/{account_id}/statement/head', 'feature(app_api)', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
         ('validation_fee.retail.statement', 'POST', '/v1/validation-fee/accounts/{account_id}/statement', 'feature(app_api)', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
-        ('multisig.execution_evidence', 'GET', '/v1/multisig/execution-evidence/{multisig_account_id}/{entrypoint_hash}/{instructions_hash}', 'always', 'torii_default', 'public', 'true', 'false'),
+        ('multisig.execution_evidence', 'GET', '/v1/multisig/execution-evidence/{multisig_account_id}/{entrypoint_hash}/{proposal_id}/{instructions_hash}', 'always', 'torii_default', 'public', 'true', 'false'),
     ],
 )
 def test_current_original_reads_preserve_their_exact_route_policy(

@@ -1,11 +1,11 @@
 #![cfg(all(feature = "fastpq-gpu", target_os = "macos"))]
 //! Metal GPU bindings for FASTPQ.
 #[path = "metal_digest384.rs"]
-pub(crate) mod digest384;
+pub mod digest384;
 #[path = "metal_exact_root.rs"]
-pub(crate) mod exact_root;
+pub mod exact_root;
 #[path = "metal_keccak256.rs"]
-pub(crate) mod keccak256;
+pub mod keccak256;
 #[path = "metal_ticket_lifetime.rs"]
 mod ticket_lifetime;
 use ticket_lifetime::{Completion, DrainBudget, DrainScope};
@@ -126,7 +126,7 @@ const METAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 static BACKEND_QUARANTINED: AtomicBool = AtomicBool::new(false);
 
 /// Unknown completion can retain private storage; reuse needs a fresh process.
-pub(crate) fn backend_quarantined() -> bool {
+pub fn backend_quarantined() -> bool {
     #[cfg(test)]
     if let Some(value) = TEST_QUARANTINE.with(std::cell::Cell::get) {
         return value;
@@ -381,8 +381,7 @@ fn dispatch_bn254_fft_columns<'a>(
                 bn254_threadgroup_geometry(&context.bn254_fft, column_len_u64);
             let sample_request = selection.sample_for(1);
             let mut ticket = submit_compute_with_geometry(
-                queue,
-                queue_index,
+                (queue, queue_index),
                 &context.bn254_fft,
                 Some((threadgroups, threadgroup, column_len_u64)),
                 column_len_u64,
@@ -467,7 +466,7 @@ fn dispatch_bn254_lde_columns(
     let stage_twiddle_buffer = context.bn254_lde_twiddle_buffer(trace_log, blowup_log)?;
     let mut coeff_buffer = flatten_with_stats(coeffs, ColumnStagingPhase::Lde)?;
     let stats_enabled = LDE_STATS_ENABLED.load(Ordering::Acquire);
-    let zero_timer = stats_enabled.then(|| Instant::now());
+    let zero_timer = stats_enabled.then(Instant::now);
     let mut eval_buffer = PooledBuffer::sensitive_zeroed(eval_limbs)?;
     let host_stats = zero_timer.map(|start| LdeHostStats {
         zero_fill_bytes: eval_buffer.len().saturating_mul(mem::size_of::<u64>()),
@@ -517,8 +516,7 @@ fn dispatch_bn254_lde_columns(
             columns: 1,
         };
         let ticket = submit_compute_with_geometry(
-            queue,
-            queue_index,
+            (queue, queue_index),
             &context.bn254_lde,
             Some((threadgroups, threadgroup, eval_len_u64)),
             eval_len_u64,
@@ -543,18 +541,19 @@ fn dispatch_bn254_lde_columns(
         )?;
         tickets.push(ticket);
     }
-    Ok(PendingLde::new(
+    Ok(PendingLde {
         column_count,
         eval_len,
-        BN254_LIMBS,
-        coeff_buffer,
+        limbs_per_elem: BN254_LIMBS,
+        _coeff_buffer: coeff_buffer,
         eval_buffer,
-        coeff_metal,
-        eval_metal,
-        stage_twiddle_buffer,
+        _coeff_metal: coeff_metal,
+        _eval_metal: eval_metal,
+        _stage_twiddle_buffer: stage_twiddle_buffer,
         tickets,
         host_stats,
-    ))
+        completed: false,
+    })
 }
 #[cfg(all(test, feature = "fastpq-gpu", target_os = "macos"))]
 fn ensure_multi_queue_env() {
@@ -710,12 +709,11 @@ pub struct LdeHostStats {
 /// Enable or disable capture of [`LdeHostStats`] for subsequent `lde_columns` calls.
 pub fn enable_lde_host_stats(enabled: bool) {
     LDE_STATS_ENABLED.store(enabled, Ordering::Release);
-    if !enabled {
-        if let Some(store) = LDE_STATS.get() {
-            if let Ok(mut guard) = store.lock() {
-                guard.take();
-            }
-        }
+    if !enabled
+        && let Some(store) = LDE_STATS.get()
+        && let Ok(mut guard) = store.lock()
+    {
+        guard.take();
     }
 }
 /// Returns the most recent [`LdeHostStats`] sample recorded by `lde_columns`, clearing it.
@@ -743,12 +741,11 @@ pub struct TwiddleCacheStats {
 /// Enable or disable capture of [`TwiddleCacheStats`] for subsequent twiddle lookups.
 pub fn enable_twiddle_cache_stats(enabled: bool) {
     TWIDDLE_STATS_ENABLED.store(enabled, Ordering::Relaxed);
-    if !enabled {
-        if let Some(store) = TWIDDLE_STATS.get() {
-            if let Ok(mut guard) = store.lock() {
-                *guard = TwiddleCacheStats::default();
-            }
-        }
+    if !enabled
+        && let Some(store) = TWIDDLE_STATS.get()
+        && let Ok(mut guard) = store.lock()
+    {
+        *guard = TwiddleCacheStats::default();
     }
 }
 /// Returns the accumulated [`TwiddleCacheStats`], clearing the snapshot.
@@ -814,32 +811,32 @@ pub fn take_column_staging_stats() -> Option<ColumnStagingStats> {
 pub fn adaptive_schedule_snapshot() -> Option<AdaptiveScheduleSnapshot> {
     let scheduler = ADAPTIVE_SCHEDULER.get();
     let (mut fft_snapshot, mut lde_snapshot, poseidon_snapshot) =
-        scheduler.map_or((None, None, None), |sched| sched.snapshot());
-    if fft_snapshot.is_none() {
-        if let Some(value) = fft_batch_override() {
-            fft_snapshot = Some(BatchHeuristicSnapshot {
-                columns: value,
-                recommended: value,
-                max_columns: value,
-                target_ms: ADAPTIVE_TARGET_MS,
-                last_duration_ms: None,
-                samples: 0,
-                override_active: true,
-            });
-        }
+        scheduler.map_or((None, None, None), AdaptiveScheduler::snapshot);
+    if fft_snapshot.is_none()
+        && let Some(value) = fft_batch_override()
+    {
+        fft_snapshot = Some(BatchHeuristicSnapshot {
+            columns: value,
+            recommended: value,
+            max_columns: value,
+            target_ms: ADAPTIVE_TARGET_MS,
+            last_duration_ms: None,
+            samples: 0,
+            override_active: true,
+        });
     }
-    if lde_snapshot.is_none() {
-        if let Some(value) = lde_batch_override() {
-            lde_snapshot = Some(BatchHeuristicSnapshot {
-                columns: value,
-                recommended: value,
-                max_columns: value,
-                target_ms: ADAPTIVE_TARGET_MS,
-                last_duration_ms: None,
-                samples: 0,
-                override_active: true,
-            });
-        }
+    if lde_snapshot.is_none()
+        && let Some(value) = lde_batch_override()
+    {
+        lde_snapshot = Some(BatchHeuristicSnapshot {
+            columns: value,
+            recommended: value,
+            max_columns: value,
+            target_ms: ADAPTIVE_TARGET_MS,
+            last_duration_ms: None,
+            samples: 0,
+            override_active: true,
+        });
     }
     if fft_snapshot.is_none()
         && lde_snapshot.is_none()
@@ -1145,23 +1142,19 @@ pub struct CommandLimitSnapshot {
     pub override_limit: Option<u32>,
 }
 /// Origin of the automatically derived command buffer limit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CommandLimitSource {
     /// Resolved from the GPU core count reported by macOS.
     GpuCores,
     /// Resolved from CPU parallelism as a fallback.
     CpuParallelism,
     /// Fallback constant used when no system telemetry was available.
+    #[default]
     Fallback,
-}
-impl Default for CommandLimitSource {
-    fn default() -> Self {
-        Self::Fallback
-    }
 }
 impl CommandLimitSource {
     /// Returns a stable string identifier for serialization.
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::GpuCores => "gpu_cores",
             Self::CpuParallelism => "cpu_parallelism",
@@ -1351,7 +1344,7 @@ impl AdaptiveBatchState {
         } else if duration_ms > self.target_ms * ADAPTIVE_BACKOFF_RATIO
             && columns > self.min_columns
         {
-            let halved = (columns + 1) / 2;
+            let halved = columns.div_ceil(2);
             next = halved.max(self.min_columns).min(max_columns);
         }
         data.current_columns = next;
@@ -1396,6 +1389,7 @@ struct AdaptiveBatchData {
 }
 impl QueueDepthStats {
     /// Returns the delta between two queue depth snapshots, saturating at zero.
+    #[must_use]
     pub fn delta_since(&self, previous: &QueueDepthStats) -> QueueDepthStats {
         let queues = self
             .queues
@@ -1433,24 +1427,23 @@ impl QueueDepthStats {
                 .find(|candidate| candidate.index == lane.index)
             {
                 Some(existing) => existing.accumulate_delta(lane),
-                None => self.queues.push(lane.clone()),
+                None => self.queues.push(*lane),
             }
         }
     }
 }
 impl QueueLaneStats {
     fn delta_since(&self, previous: Option<&QueueLaneStats>) -> QueueLaneStats {
-        if let Some(prev) = previous {
-            QueueLaneStats {
+        previous.map_or_else(
+            || *self,
+            |prev| QueueLaneStats {
                 index: self.index,
                 dispatch_count: self.dispatch_count.saturating_sub(prev.dispatch_count),
                 max_in_flight: self.max_in_flight,
                 busy_ms: saturating_sub_ms(self.busy_ms, prev.busy_ms),
                 overlap_ms: saturating_sub_ms(self.overlap_ms, prev.overlap_ms),
-            }
-        } else {
-            self.clone()
-        }
+            },
+        )
     }
     fn accumulate_delta(&mut self, delta: &QueueLaneStats) {
         self.dispatch_count = self.dispatch_count.saturating_add(delta.dispatch_count);
@@ -1477,7 +1470,7 @@ pub enum KernelKind {
 }
 impl KernelKind {
     /// Returns a stable string identifier for this kernel category.
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             KernelKind::Fft => "fft",
             KernelKind::Ifft => "ifft",
@@ -1951,7 +1944,7 @@ impl PoseidonHashTicket {
 /// The guard keeps the shared buffers and command tickets alive until
 /// [`wait`](Self::wait) is invoked, allowing callers to defer completion while
 /// overlapping CPU work.
-pub(crate) struct PendingColumns<'a> {
+pub struct PendingColumns<'a> {
     columns: &'a mut [Vec<u64>],
     extent: usize,
     pending_batches: Vec<ColumnBatchTicket>,
@@ -2024,7 +2017,7 @@ impl Drop for PendingColumns<'_> {
     }
 }
 /// Pending Metal LDE kernel dispatch.
-pub(crate) struct PendingLde {
+pub struct PendingLde {
     column_count: usize,
     eval_len: usize,
     limbs_per_elem: usize,
@@ -2038,32 +2031,6 @@ pub(crate) struct PendingLde {
     completed: bool,
 }
 impl PendingLde {
-    fn new(
-        column_count: usize,
-        eval_len: usize,
-        limbs_per_elem: usize,
-        coeff_buffer: PooledBuffer,
-        eval_buffer: PooledBuffer,
-        coeff_metal: Buffer,
-        eval_metal: Buffer,
-        stage_twiddle_buffer: Buffer,
-        tickets: Vec<DispatchTicket>,
-        host_stats: Option<LdeHostStats>,
-    ) -> Self {
-        Self {
-            column_count,
-            eval_len,
-            limbs_per_elem,
-            _coeff_buffer: coeff_buffer,
-            eval_buffer,
-            _coeff_metal: coeff_metal,
-            _eval_metal: eval_metal,
-            _stage_twiddle_buffer: stage_twiddle_buffer,
-            tickets,
-            host_stats,
-            completed: false,
-        }
-    }
     /// Wait for the Metal LDE to finish and collect the evaluated columns.
     pub(crate) fn wait(mut self) -> MetalResult<Option<Vec<Vec<u64>>>> {
         if self.completed {
@@ -2531,18 +2498,25 @@ fn digest384_metal_context_v1() -> MetalResult<&'static Digest384MetalPipelinesV
     }
 }
 
-pub(crate) fn digest384_hash_frames_v1(
+pub fn digest384_hash_frames_v1(
     staged: &crate::digest384_gpu::StagedDigest384V1,
     output: &mut [u64],
 ) -> MetalResult<()> {
+    use crate::digest384_gpu::digest384_gpu_parameters_v1;
+
     let _drain_scope = DrainScope::enter(METAL_COMMAND_TIMEOUT);
     ensure_backend_available()?;
-    use crate::digest384_gpu::digest384_gpu_parameters_v1;
     if output.len() != staged.frame_count * 6 {
         return Err(GpuError::InvalidInput(
             "six-lane Metal output shape mismatch",
         ));
     }
+    let args = [
+        u32::try_from(staged.frame_count)
+            .map_err(|_| GpuError::InvalidInput("six-lane Metal frame count exceeds u32"))?,
+        u32::try_from(staged.words.len())
+            .map_err(|_| GpuError::InvalidInput("six-lane Metal word count exceeds u32"))?,
+    ];
     let context = digest384_metal_context_v1()?;
     let mut quarantine = context.quarantine.lock().map_err(|_| GpuError::Execution {
         backend: GpuBackend::Metal,
@@ -2572,11 +2546,9 @@ pub(crate) fn digest384_hash_frames_v1(
         let buffer = shared_pooled_buffer(&context.device, &mut pool)?;
         buffers.push((pool, buffer));
     }
-    let args = [staged.frame_count as u32, staged.words.len() as u32];
     let (queue, queue_index) = context.queues.select(args[0], 0);
     let ticket = submit_compute_with_geometry(
-        queue,
-        queue_index,
+        (queue, queue_index),
         &context.pipeline,
         None,
         (staged.frame_count * 6) as u64,
@@ -2651,8 +2623,7 @@ pub(crate) fn digest384_indexed_coordinates_v1(
     let args = [staged.start, staged.count as u64];
     let (queue, queue_index) = context.queues.select(staged.count as u32, 0);
     let ticket = submit_compute_with_geometry(
-        queue,
-        queue_index,
+        (queue, queue_index),
         &context.indexed_pipeline,
         None,
         staged.count as u64,
@@ -3138,12 +3109,15 @@ fn parse_queue_threshold_override(raw: &str) -> Result<u32, &'static str> {
 ///
 /// Overrides must be configured before the Metal context is initialised. Calling this
 /// routine more than once for a given value returns an error.
+///
+/// # Errors
+/// Rejects out-of-range values and overrides already configured.
 pub fn set_metal_queue_policy(
     fanout: Option<usize>,
     column_threshold: Option<u32>,
 ) -> Result<(), &'static str> {
     if let Some(value) = fanout {
-        if value < MIN_QUEUE_FANOUT || value > MAX_QUEUE_FANOUT {
+        if !(MIN_QUEUE_FANOUT..=MAX_QUEUE_FANOUT).contains(&value) {
             return Err("FASTPQ Metal queue fan-out must be between 1 and 4");
         }
         RUNTIME_QUEUE_FANOUT_OVERRIDE
@@ -3164,7 +3138,7 @@ fn default_queue_column_threshold(fanout: usize) -> u32 {
     if fanout <= 1 {
         return u32::MAX;
     }
-    let scaled = (fanout as u32).saturating_mul(8);
+    let scaled = u32::try_from(fanout).unwrap_or(u32::MAX).saturating_mul(8);
     DEFAULT_QUEUE_COLUMN_THRESHOLD.max(scaled)
 }
 #[cfg(test)]
@@ -3176,19 +3150,19 @@ pub fn fft_columns(columns: &mut [Vec<u64>], log_size: u32, root: u64) -> MetalR
     fft_columns_async(columns, log_size, root)?.wait()
 }
 /// Dispatches an FFT over the provided columns and returns a pending handle.
-pub(crate) fn fft_columns_async<'a>(
-    columns: &'a mut [Vec<u64>],
+pub fn fft_columns_async(
+    columns: &mut [Vec<u64>],
     log_size: u32,
     root: u64,
-) -> MetalResult<PendingColumns<'a>> {
+) -> MetalResult<PendingColumns<'_>> {
     dispatch_fft_columns(columns, log_size, root, false)
 }
-fn dispatch_fft_columns<'a>(
-    columns: &'a mut [Vec<u64>],
+fn dispatch_fft_columns(
+    columns: &mut [Vec<u64>],
     log_size: u32,
     root: u64,
     inverse: bool,
-) -> MetalResult<PendingColumns<'a>> {
+) -> MetalResult<PendingColumns<'_>> {
     let _drain_scope = DrainScope::enter(METAL_COMMAND_TIMEOUT);
     ensure_backend_available()?;
     let extent = goldilocks_domain_len(log_size)?;
@@ -3210,7 +3184,7 @@ fn dispatch_fft_columns<'a>(
         column_len,
         log_len: log_size,
         column_count: 0,
-        inverse: inverse as u32,
+        inverse: u32::from(inverse),
         local_stage_limit: tuning.tile_stage_limit,
         threadgroup_lanes: tuning.threadgroup_lanes,
         column_offset: 0,
@@ -3264,8 +3238,7 @@ fn dispatch_fft_columns<'a>(
             let mut tickets = SmallVec::<[DispatchTicket; 2]>::new();
             let sample_request = fft_selection.sample_for(batch_columns);
             let mut ticket = submit_compute_with_geometry(
-                queue,
-                queue_index,
+                (queue, queue_index),
                 &context.fft,
                 Some((threadgroups, threadgroup, logical_threads)),
                 logical_threads,
@@ -3298,8 +3271,7 @@ fn dispatch_fft_columns<'a>(
                 };
                 tickets.push(submit_post_tile_dispatch(
                     context,
-                    queue,
-                    queue_index,
+                    (queue, queue_index),
                     &metal_buffer,
                     &twiddle_buffer,
                     post_args,
@@ -3340,7 +3312,7 @@ fn poseidon_dispatch_geometry(
 ) -> (MTLSize, MTLSize, u64, u32) {
     let states_per_lane = tuning.states_per_lane.max(1);
     let default_lanes = tuning.threadgroup_lanes.max(1);
-    let override_width = threadgroup_override().unwrap_or(u64::from(default_lanes));
+    let override_width = threadgroup_override().unwrap_or_else(|| u64::from(default_lanes));
     let max_threads = u64::from(limits.max_threads.max(1));
     let lanes = override_width.min(max_threads).max(1);
     let states = u64::from(state_count);
@@ -3365,7 +3337,7 @@ fn bn254_poseidon_dispatch_geometry(
     let states = u64::from(batch_count);
     let logical_threads = states.div_ceil(u64::from(states_per_lane)).max(1);
     let default_lanes = tuning.threadgroup_lanes.max(1);
-    let override_width = threadgroup_override().unwrap_or(u64::from(default_lanes));
+    let override_width = threadgroup_override().unwrap_or_else(|| u64::from(default_lanes));
     let max_threads = u64::from(limits.max_threads.max(1));
     let threadgroup_width = override_width
         .min(max_threads)
@@ -3551,8 +3523,7 @@ fn post_tile_stage_start(total_log: u32, local_stage_limit: u32) -> Option<u32> 
 }
 fn submit_post_tile_dispatch(
     context: &MetalPipelines,
-    queue: &CommandQueue,
-    queue_index: usize,
+    (queue, queue_index): (&CommandQueue, usize),
     column_buffer: &Buffer,
     twiddle_buffer: &Buffer,
     args: PostTileArgs,
@@ -3562,8 +3533,7 @@ fn submit_post_tile_dispatch(
     let (threadgroups, threadgroup, logical_threads) =
         fft_dispatch_geometry(batch_columns, args.threadgroup_lanes);
     let ticket = submit_compute_with_geometry(
-        queue,
-        queue_index,
+        (queue, queue_index),
         &context.post_tile,
         Some((threadgroups, threadgroup, logical_threads)),
         logical_threads,
@@ -3591,14 +3561,17 @@ pub fn ifft_columns(columns: &mut [Vec<u64>], log_size: u32, root: u64) -> Metal
     ifft_columns_async(columns, log_size, root)?.wait()
 }
 /// Dispatches an inverse FFT and returns a pending handle for the caller to await.
-pub(crate) fn ifft_columns_async<'a>(
-    columns: &'a mut [Vec<u64>],
+pub fn ifft_columns_async(
+    columns: &mut [Vec<u64>],
     log_size: u32,
     root: u64,
-) -> MetalResult<PendingColumns<'a>> {
+) -> MetalResult<PendingColumns<'_>> {
     dispatch_fft_columns(columns, log_size, root, true)
 }
 /// Returns the resolved FFT tuning (threadgroup lanes/tile stages) for the current Metal device.
+///
+/// # Errors
+/// Rejects unsupported domains or an unavailable Metal backend.
 pub fn fft_tuning_snapshot(log_size: u32) -> MetalResult<metal_config::FftTuning> {
     let _ = goldilocks_domain_len(log_size)?;
     let context = metal_context()?;
@@ -3610,6 +3583,9 @@ pub fn fft_tuning_snapshot(log_size: u32) -> MetalResult<metal_config::FftTuning
     ))
 }
 /// Returns the resolved Poseidon tuning (threadgroup lanes/states per lane) for the current device.
+///
+/// # Errors
+/// Returns the original refusal if the Metal backend cannot be initialized.
 pub fn poseidon_tuning_snapshot() -> MetalResult<metal_config::PoseidonTuning> {
     let context = metal_context()?;
     let limits = pipeline_limits(&context.poseidon_permute);
@@ -3632,7 +3608,7 @@ pub fn lde_columns(
     lde_columns_async(coeffs, trace_log, blowup_log, lde_root, coset)?.wait()
 }
 /// Dispatches an LDE kernel and returns a pending handle so callers can wait later.
-pub(crate) fn lde_columns_async(
+pub fn lde_columns_async(
     coeffs: &[Vec<u64>],
     trace_log: u32,
     blowup_log: u32,
@@ -3672,7 +3648,7 @@ pub(crate) fn lde_columns_async(
     // Pre-zero the evaluation buffer so the Metal kernel can assume padded slots are zeroed.
     let stats_enabled = LDE_STATS_ENABLED.load(Ordering::Acquire);
     let queue_before = snapshot_queue_depth_stats();
-    let zero_timer = stats_enabled.then(|| Instant::now());
+    let zero_timer = stats_enabled.then(Instant::now);
     let mut eval_buffer = PooledBuffer::sensitive_zeroed(eval_elements)?;
     let queue_after = snapshot_queue_depth_stats();
     let queue_delta = match (queue_before, queue_after) {
@@ -3723,8 +3699,7 @@ pub(crate) fn lde_columns_async(
         };
         let sample_request = lde_selection.sample_for(batch_columns);
         let mut ticket = submit_compute_with_geometry(
-            queue,
-            queue_index,
+            (queue, queue_index),
             &context.lde,
             Some((threadgroups, threadgroup, logical_threads)),
             logical_threads,
@@ -3761,8 +3736,7 @@ pub(crate) fn lde_columns_async(
             };
             tickets.push(submit_post_tile_dispatch(
                 context,
-                queue,
-                queue_index,
+                (queue, queue_index),
                 &eval_metal,
                 &stage_twiddle_buffer,
                 post_args,
@@ -3771,18 +3745,19 @@ pub(crate) fn lde_columns_async(
             )?);
         }
     }
-    Ok(PendingLde::new(
-        coeffs.len(),
+    Ok(PendingLde {
+        column_count: coeffs.len(),
         eval_len,
-        1,
-        coeff_buffer,
+        limbs_per_elem: 1,
+        _coeff_buffer: coeff_buffer,
         eval_buffer,
-        coeff_metal,
-        eval_metal,
-        stage_twiddle_buffer,
+        _coeff_metal: coeff_metal,
+        _eval_metal: eval_metal,
+        _stage_twiddle_buffer: stage_twiddle_buffer,
         tickets,
         host_stats,
-    ))
+        completed: false,
+    })
 }
 pub fn poseidon_permute(states: &mut [u64]) -> MetalResult<()> {
     let _drain_scope = DrainScope::enter(METAL_COMMAND_TIMEOUT);
@@ -3849,8 +3824,7 @@ pub fn poseidon_permute(states: &mut [u64]) -> MetalResult<()> {
             let (queue, queue_index) = context.queues.select(state_count, batch_index);
             let sample_request = poseidon_selection.sample_for(count);
             let mut ticket = submit_compute_with_geometry(
-                queue,
-                queue_index,
+                (queue, queue_index),
                 &context.poseidon_permute,
                 Some((threadgroups, threadgroup, logical_threads)),
                 logical_threads,
@@ -3993,8 +3967,7 @@ pub fn poseidon_hash_columns(batch: &PoseidonColumnBatch) -> MetalResult<Vec<u64
         let (queue, queue_index) = context.queues.select(column_count, batch_index);
         let sample_request = selection.sample_for(count);
         let mut ticket = submit_compute_with_geometry(
-            queue,
-            queue_index,
+            (queue, queue_index),
             pipeline,
             Some((threadgroups, threadgroup, logical_threads)),
             logical_threads,
@@ -4114,8 +4087,7 @@ pub fn poseidon_hash_rows(columns: &[Vec<u64>]) -> MetalResult<Vec<u64>> {
         };
         let sample_request = selection.sample_for(count);
         let mut ticket = submit_compute_with_geometry(
-            queue,
-            queue_index,
+            (queue, queue_index),
             &context.poseidon_hash_rows,
             Some((threadgroups, threadgroup, logical_threads)),
             logical_threads,
@@ -4155,7 +4127,7 @@ pub fn bn254_poseidon_hash_words(
 ///
 /// The guard owns the staged Metal buffers until [`wait`](Self::wait), allowing
 /// callers to overlap command completion with independent host work.
-pub(crate) struct PendingBn254PoseidonWords {
+pub struct PendingBn254PoseidonWords {
     _word_chunk: PooledBuffer,
     _word_buffer: Buffer,
     _slice_chunk: Vec<Bn254PoseidonMetalSlice>,
@@ -4235,7 +4207,7 @@ impl Drop for PendingBn254PoseidonWords {
         }
     }
 }
-pub(crate) fn bn254_poseidon_hash_words_async(
+pub fn bn254_poseidon_hash_words_async(
     words: &[u64],
     slices: &[Bn254PoseidonBatchSlice],
 ) -> MetalResult<PendingBn254PoseidonWords> {
@@ -4326,8 +4298,7 @@ pub(crate) fn bn254_poseidon_hash_words_async(
         byte_estimate,
     };
     let ticket = submit_compute_with_geometry(
-        queue,
-        queue_index,
+        (queue, queue_index),
         &context.bn254_poseidon_hash,
         Some((threadgroups, threadgroup, logical_threads)),
         logical_threads,
@@ -4388,7 +4359,7 @@ fn validate_metal_buffer_byte_len(device: &Device, byte_len: u64) -> MetalResult
             "Metal buffers require at least one byte",
         ));
     }
-    let max_buffer_length = u64::try_from(device.max_buffer_length()).unwrap_or(u64::MAX);
+    let max_buffer_length = device.max_buffer_length();
     if byte_len > max_buffer_length {
         return Err(GpuError::InvalidInput(
             "Metal buffer exceeds the device max_buffer_length",
@@ -4517,8 +4488,7 @@ where
     F: FnOnce(&ComputeCommandEncoderRef),
 {
     submit_compute_with_geometry(
-        queue,
-        queue_index,
+        (queue, queue_index),
         pipeline,
         None,
         thread_count,
@@ -4528,8 +4498,7 @@ where
     )
 }
 fn submit_compute_with_geometry<F>(
-    queue: &CommandQueue,
-    queue_index: usize,
+    (queue, queue_index): (&CommandQueue, usize),
     pipeline: &ComputePipelineState,
     geometry: Option<(MTLSize, MTLSize, u64)>,
     logical_threads: u64,
@@ -4542,16 +4511,11 @@ where
 {
     debug_assert!(logical_threads > 0, "Metal dispatch requires threads > 0");
     let mut permit = CommandPermit::try_new(queue_index)?;
-    let (threadgroups, threadgroup, logical_threads) = match geometry {
-        Some((groups, group, logical)) => (groups, group, logical),
-        None => {
-            let (groups, group) = dispatch_sizes(pipeline, logical_threads);
-            (groups, group, logical_threads)
-        }
-    };
-    let trace_label = profile
-        .map(|params| params.kind.as_str())
-        .unwrap_or("metal");
+    let (threadgroups, threadgroup, logical_threads) = geometry.unwrap_or_else(|| {
+        let (groups, group) = dispatch_sizes(pipeline, logical_threads);
+        (groups, group, logical_threads)
+    });
+    let trace_label = profile.map_or("metal", |params| params.kind.as_str());
     let kernel_context = profile.map(|params| {
         let groups = threadgroups.width.max(1);
         let width = threadgroup.width.max(1);
@@ -4704,11 +4668,7 @@ fn bn254_poseidon_hash_bytes(
     )
 }
 fn clamp_u128_to_u64(value: u128) -> u64 {
-    if value > u128::from(u64::MAX) {
-        u64::MAX
-    } else {
-        value as u64
-    }
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 fn pending_ticket_window<T>() -> MetalResult<(Vec<T>, usize)> {
     let depth = command_semaphore()
@@ -4752,7 +4712,7 @@ fn wait_for_ticket_inner(ticket: &mut DispatchTicket, dropping: bool) -> MetalRe
     let duration = timing_start.map(|start| start.elapsed());
     if let Some(label) = trace_label {
         trace_dispatch_end_label(
-            Some(label),
+            Some(label.as_str()),
             duration.unwrap_or_default(),
             status == Completion::Completed,
         );
@@ -4777,7 +4737,7 @@ fn wait_for_ticket_inner(ticket: &mut DispatchTicket, dropping: bool) -> MetalRe
         ticket.permit.complete();
         Err(GpuError::Execution {
             backend: GpuBackend::Metal,
-            message: format!("command buffer finished with status {:?}", status),
+            message: format!("command buffer finished with status {status:?}"),
         })
     }
 }
@@ -4973,15 +4933,14 @@ impl BufferPool {
                 best_capacity = capacity;
             }
         }
-        match candidate {
-            Some(idx) => Ok(self.spare.swap_remove(idx)),
-            None => {
-                let mut buffer = Vec::new();
-                buffer.try_reserve_exact(min_pages).map_err(|_| {
-                    GpuError::InvalidInput("Metal pooled buffer pages exceed available host memory")
-                })?;
-                Ok(buffer)
-            }
+        if let Some(idx) = candidate {
+            Ok(self.spare.swap_remove(idx))
+        } else {
+            let mut buffer = Vec::new();
+            buffer.try_reserve_exact(min_pages).map_err(|_| {
+                GpuError::InvalidInput("Metal pooled buffer pages exceed available host memory")
+            })?;
+            Ok(buffer)
         }
     }
     fn recycle(&mut self, mut buffer: Vec<MetalBufferPage>) {
@@ -4990,7 +4949,7 @@ impl BufferPool {
         }
         buffer.clear();
         self.spare.push(buffer);
-        self.spare.sort_unstable_by_key(|buf| buf.capacity());
+        self.spare.sort_unstable_by_key(Vec::capacity);
         if self.spare.len() > MAX_BUFFER_POOL_BUFFERS {
             self.spare.truncate(MAX_BUFFER_POOL_BUFFERS);
         }
@@ -5291,14 +5250,17 @@ fn auto_in_flight_limit(queue_floor: usize) -> CommandLimitComputation {
             cpu_parallelism: None,
         };
     }
-    let (cpus, cpu_parallelism, source) = match thread::available_parallelism().map(|n| n.get()) {
-        Ok(value) => (value, Some(value), CommandLimitSource::CpuParallelism),
-        Err(_) => (
+    let (cpus, cpu_parallelism, source) = thread::available_parallelism().map_or(
+        (
             DEFAULT_MAX_COMMAND_BUFFERS,
             None,
             CommandLimitSource::Fallback,
         ),
-    };
+        |value| {
+            let cpus = value.get();
+            (cpus, Some(cpus), CommandLimitSource::CpuParallelism)
+        },
+    );
     let limit = default_in_flight_limit_for_parallelism(cpus).max(queue_floor);
     debug!(
         target: "fastpq::metal",
@@ -5316,7 +5278,7 @@ fn auto_in_flight_limit(queue_floor: usize) -> CommandLimitComputation {
 }
 fn limit_from_gpu_cores(cores: usize) -> usize {
     let safe = cores.max(1);
-    let half = (safe + 1) / 2;
+    let half = safe.div_ceil(2);
     half.clamp(2, 16)
 }
 fn gpu_core_count() -> Option<usize> {
@@ -5376,7 +5338,7 @@ fn value_to_usize(value: &Value) -> Option<usize> {
 }
 fn default_in_flight_limit_for_parallelism(cpus: usize) -> usize {
     let safe_cpus = cpus.max(1);
-    let half = (safe_cpus + 1) / 2;
+    let half = safe_cpus.div_ceil(2);
     half.clamp(2, 16)
 }
 struct CommandSemaphore {
@@ -5691,17 +5653,15 @@ fn dispatch_trace_enabled() -> bool {
         return enabled;
     }
     *DISPATCH_TRACE_ENV.get_or_init(|| {
-        debug_env_bool("FASTPQ_METAL_TRACE")
-            .map(|enabled| {
-                if enabled {
-                    debug!(
-                        target: "fastpq::metal",
-                        "FASTPQ_METAL_TRACE enabled; prefer fastpq.metal_trace for production runs"
-                    );
-                }
-                enabled
-            })
-            .unwrap_or(false)
+        debug_env_bool("FASTPQ_METAL_TRACE").is_some_and(|enabled| {
+            if enabled {
+                debug!(
+                    target: "fastpq::metal",
+                    "FASTPQ_METAL_TRACE enabled; prefer fastpq.metal_trace for production runs"
+                );
+            }
+            enabled
+        })
     })
 }
 fn trace_dispatch_start(
@@ -5727,7 +5687,7 @@ fn trace_dispatch_start(
         "dispatching Metal kernel"
     );
 }
-fn trace_dispatch_end_label(label: Option<String>, duration: Duration, success: bool) {
+fn trace_dispatch_end_label(label: Option<&str>, duration: Duration, success: bool) {
     if !dispatch_trace_enabled() {
         return;
     }

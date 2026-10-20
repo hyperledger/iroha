@@ -1,0 +1,76 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "cancel_before_dispatch_drops_the_signed_bytes",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_never_recalls"
+  ],
+  "description": "The operation is cancelled after its signed bytes are durable and before any dispatch. No dispatch can have been admitted, so it ends cancelled before submission, its bytes are dropped and nothing is ever sent.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ]
+      },
+      "interrupt_after": "signed",
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1",
+          "sign:1"
+        ],
+        "status": "in_progress",
+        "state": "signed"
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelled",
+        "state": "cancelled_before_submission"
+      }
+    },
+    {
+      "op": "execute",
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "resumable": false
+        },
+        "effects": [],
+        "status": "cancelled",
+        "state": "cancelled_before_submission"
+      }
+    }
+  ]
+}

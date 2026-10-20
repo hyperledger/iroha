@@ -906,7 +906,6 @@ def refresh_semantic_profiles(spec: dict[str, Any]) -> None:
     section = spec.get("semantic_profiles")
     if not isinstance(section, dict):
         return
-    primitives = {primitive["id"]: primitive for primitive in spec["digest_primitives"]}
     roles = {role["key"]: role for role in spec["digest_roles"]}
     dispositions = section.setdefault("role_dispositions", {})
     for key in [key for key in dispositions if key not in roles]:
@@ -929,7 +928,7 @@ def refresh_semantic_profiles(spec: dict[str, Any]) -> None:
             "status": "retained",
             "identity": None,
             "role": key,
-            "parameters": retained_parameters(role, primitives),
+            "parameters": retained_parameters(role),
         }
         try:
             profile["identity"] = profile_reference.identity_of(profile)
@@ -1451,16 +1450,11 @@ def check_poseidon(root: Path, spec: dict[str, Any], derived: dict[str, Any], re
         check_site(root, report, "BN254 Poseidon", site)
     defects = {defect["id"]: defect for defect in section.get("defects", [])}
     widths = fresh["widths"]
-    expectations = {
-        "BN254-POSEIDON-D1": fresh["published_width3"]["partial_rounds"]
-        != widths["3"]["repository_partial_rounds"],
-        "BN254-POSEIDON-D2": not widths["6"]["repository_meets_margin_rule"],
-    }
-    for identifier, present in expectations.items():
-        report.require(
-            (identifier in defects) == present,
-            f"BN254 Poseidon: defect {identifier} is {'missing' if present else 'recorded but no longer holds'}",
-        )
+    for identifier in REQUIRED_BN254_DEFECTS:
+        report.require(identifier in defects, f"BN254 Poseidon: defect {identifier} is missing")
+        report.require(defects.get(identifier, {}).get("disposition") == "corrected-source-qualification-pending", f"BN254 Poseidon: defect {identifier} lacks the explicit current qualification limit")
+    report.require(widths["3"]["repository_partial_rounds"] == 57 and widths["6"]["repository_partial_rounds"] == 60, "BN254 Poseidon: current round counts differ from H.2")
+    report.require(fresh["published_width3"]["mds_equal_to_repository"] and fresh["published_width3"]["round_constants_shared_with_repository"] == 195, "BN254 Poseidon: the selected width-three bank differs from the published permutation")
     # D3 is a property of the helper modes, anchored on their source.
     mode = defects.get("BN254-POSEIDON-D3", {})
     report.require(bool(mode), "BN254 Poseidon: defect BN254-POSEIDON-D3 is missing")
@@ -1680,8 +1674,16 @@ TEST_PATH = re.compile(r"backend::(?P<module>[a-z0-9_]+(?:::[a-z0-9_]+)*)::(?P<t
 TRANSCRIPT_ENGINE_DISPOSITIONS = ("frozen", "adopts-at-migration", "retired-at-migration", "conditional")
 
 
-def retained_parameters(role: dict[str, Any], primitives: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """The parameters of the identity derived from one retained role record."""
+def retained_parameters(role: dict[str, Any]) -> list[dict[str, Any]]:
+    """Derive a retained frame from its explicit role-owned semantic values.
+
+    Primitive-wide descriptive prose is not a semantic parameter owner. A
+    missing role algorithm is an error, including during regeneration; there
+    is no fallback to the primitive summary or to an earlier profile frame.
+    """
+    algorithm = role.get("algorithm")
+    if not isinstance(algorithm, str) or not algorithm.strip():
+        raise profile_reference.ProfileError("retained role algorithm is missing or empty")
 
     def parameter(key: str, kind: str, value: Any) -> dict[str, Any]:
         return {"key": key, "type": kind, "value": value}
@@ -1690,7 +1692,7 @@ def retained_parameters(role: dict[str, Any], primitives: dict[str, dict[str, An
         parameter("profile_version", "u64", 1),
         parameter("role", "text", role["key"]),
         parameter("primitive", "text", role["primitive"]),
-        parameter("algorithm", "text", primitives[role["primitive"]]["algorithm"]),
+        parameter("algorithm", "text", algorithm),
         parameter("output_bytes", "u64", role["output_bytes"]),
         parameter("domain_separation", "text", role["domain_separation"]),
     ]
@@ -1834,10 +1836,15 @@ def check_semantic_profiles(root: Path, spec: dict[str, Any], report: Report) ->
                     continue
                 report.require(name == "retained." + role["key"], f"{owner}: name does not derive from its role")
                 report.require(profile.get("kind") == PROFILE_KIND_OF_FAMILY.get(role["family"]), f"{owner}: kind does not follow the role family")
-                report.require(
-                    profile.get("parameters") == retained_parameters(role, primitives),
-                    f"{owner}: parameters differ from the role record; a changed role is a new identity",
-                )
+                try:
+                    expected_parameters = retained_parameters(role)
+                except profile_reference.ProfileError as error:
+                    report.error(f"{owner}: {error}")
+                else:
+                    report.require(
+                        profile.get("parameters") == expected_parameters,
+                        f"{owner}: parameters differ from the role record; a changed role is a new identity",
+                    )
 
     not_frozen = {entry.get("id"): entry for entry in section.get("not_frozen", [])}
     for identifier, entry in not_frozen.items():
@@ -1950,8 +1957,8 @@ def check_frozen_parameters(root: Path, spec: dict[str, Any], profiles: dict[str
             f"{owner}: width or round numbers differ from the frozen correction",
         )
         report.require(
-            values.get("partial_rounds") != poseidon_reference.REPOSITORY_PARTIAL_ROUNDS,
-            f"{owner}: the defective repository round count is frozen",
+            values.get("partial_rounds") == poseidon_reference.PARTIAL_ROUNDS_BY_WIDTH[width],
+            f"{owner}: selected profile and canonical owner round counts differ",
         )
         report.require(values.get("capacity") == 1 and values.get("rate") == width - 1, f"{owner}: the mode has no single capacity coordinate")
         constants, mds = generated_tables(width, partial)

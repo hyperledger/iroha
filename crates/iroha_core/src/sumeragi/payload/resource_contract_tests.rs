@@ -21,6 +21,7 @@ use iroha_data_model::{
         system::{
             BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, LANE_BATCH_FRAMING_RESERVE_BYTES,
             SumeragiParameter, SumeragiParameters, TransactionParameter,
+            resource_coherence::maximal_action_transaction_bytes,
         },
     },
     privacy::PrivacyConsensusLimitsV1,
@@ -33,18 +34,24 @@ use iroha_model_base::{peer::PeerId, topology::DataSpaceId};
 use std::sync::Arc;
 
 /// Transaction bytes the fixture chain's global proposer can select.
-const INCLUDABLE: u32 = 16 * 1024;
+const INCLUDABLE: u32 = 32 * 1024;
 /// The committed payload limit of the fixture chain.
 const MAX_BLOCK_BYTES: u32 = BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + INCLUDABLE;
 
 /// Small limits installed by the original signed genesis, including an actual governed
 /// privacy tightening at height two. No decoded World policy bypasses final coherence.
+/// One maximal privacy action with its required context (one signer) fits the cap; the
+/// transaction and block privacy budgets keep the cap itself.
 fn bounded_config(cap: u32) -> TestChainConfig {
+    let signatures = std::num::NonZeroU64::MIN;
+    let context = maximal_action_transaction_bytes(0, signatures).unwrap();
+    let action = u32::try_from(u64::from(cap) - context).unwrap();
     let mut config = TestChainConfig::new(World::new(), 1_000);
     config.genesis_parameters.extend([
         Parameter::Transaction(TransactionParameter::MaxTxBytes(
             std::num::NonZeroU64::new(u64::from(cap)).unwrap(),
         )),
+        Parameter::Transaction(TransactionParameter::MaxSignatures(signatures)),
         Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
             std::num::NonZeroU32::new(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + cap).unwrap(),
         )),
@@ -53,11 +60,11 @@ fn bounded_config(cap: u32) -> TestChainConfig {
         SchedulePrivacyConsensusPolicyTighteningV1::new(
             2,
             PrivacyConsensusLimitsV1 {
-                max_proof_bytes_per_action: cap,
-                max_action_bytes: cap,
+                max_proof_bytes_per_action: action,
+                max_action_bytes: action,
                 max_privacy_bytes_per_transaction: cap,
                 max_privacy_bytes_per_block: cap,
-                max_statement_and_encrypted_output_bytes_per_transaction: cap,
+                max_statement_and_encrypted_output_bytes_per_transaction: action,
                 ..PrivacyConsensusLimitsV1::taira_default()
             },
         )

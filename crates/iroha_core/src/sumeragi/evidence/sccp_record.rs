@@ -253,9 +253,9 @@ fn preflight_offender_object(parser: &mut Parser<'_>) -> Result<(), Error> {
         if key.as_str() == "offenders" {
             map.parse_value_with_parser_typed(|parser| {
                 let mut sequence = json::SeqVisitor::new(parser)?;
-                #[cfg(all(test, sumeragi_core_mutation = "HC422"))]
+                #[cfg(all(test, sumeragi_core_mutation = "HC436"))]
                 let excessive = false;
-                #[cfg(not(all(test, sumeragi_core_mutation = "HC422")))]
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC436")))]
                 let excessive = sequence.total_entries()
                     > iroha_data_model::block::consensus::MAX_VALIDATORS_PER_HEIGHT;
                 if excessive {

@@ -306,8 +306,13 @@ pub mod isi {
                 )
                 .into());
             }
-            if reserve_owner.is_some() {
-                // The public leg of a verified private-pool withdrawal still moves
+            if reserve_owner.is_some()
+                || matches!(
+                    source_policy,
+                    NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_)
+                )
+            {
+                // Either public leg of a verified private-pool operation moves
                 // exact transparent units. Rejoin its prepared delta to the live
                 // authoritative balances before either side is written.
                 let source_balance = self
@@ -320,6 +325,7 @@ pub mod isi {
                 };
                 if source_id == destination_id
                     || source_id.definition() != destination_id.definition()
+                    || source_id.scope() != destination_id.scope()
                     || &delta.from_account != source_id.account()
                     || &delta.to_account != destination_id.account()
                     || &delta.asset_definition != source_id.definition()
@@ -339,6 +345,12 @@ pub mod isi {
                     .into());
                 }
             }
+            let allowance_update = self.prepare_privacy_reserve_allowance_update(
+                source_id,
+                destination_id,
+                expected_amount,
+                source_policy,
+            )?;
             // Reservation-only instructions can change a source's available funds
             // without changing its balance. Recheck at consumption as well as preparation.
             let balance_after = if source_id == destination_id {
@@ -379,9 +391,92 @@ pub mod isi {
             if !delta.to_balance_after.is_zero() {
                 self.track_nonzero_asset_holder(destination_id);
             }
+            // The exact custody successor and both balances share this disposable
+            // transaction. Commit it before any fallible post-movement observation.
+            if let Some((key, record)) = allowance_update {
+                self.privacy_commitments.insert(key, record);
+            }
             crate::retail_fee::observe_balance(self, source_id)?;
             crate::retail_fee::observe_balance(self, destination_id)?;
             Ok(())
+        }
+        /// Derive the funded turnstile successor from this exact exclusive world view.
+        /// No reserve balance or hidden bootstrap amount can create withdrawal authority.
+        fn prepare_privacy_reserve_allowance_update(
+            &self,
+            source_id: &AssetId,
+            destination_id: &AssetId,
+            amount: &Quantity,
+            purpose: NumericAssetTransferSourcePolicy,
+        ) -> Result<
+            Option<(
+                crate::privacy_state::PrivacyCommitmentKeyV1,
+                crate::privacy_state::PrivacyStateItemRecordV1,
+            )>,
+            Error,
+        > {
+            use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+            let (id, owner, deposit) = match purpose {
+                NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner) => {
+                    (destination_id, owner, true)
+                }
+                NumericAssetTransferSourcePolicy::PrivacyPoolBridge(owner) => {
+                    (source_id, owner, false)
+                }
+                _ => return Ok(None),
+            };
+            let invalid = |message: &'static str| {
+                InstructionExecutionError::InvariantViolation(message.into())
+            };
+            if source_id == destination_id
+                || source_id.definition() != destination_id.definition()
+                || source_id.scope() != destination_id.scope()
+                || amount.is_zero()
+            {
+                return Err(invalid(
+                    "funded privacy allowance requires an exact nonzero public movement",
+                ));
+            }
+            let actual = privacy_public_reserve_owner_v1(&self.privacy_commitments, id)
+                .map_err(|message| InstructionExecutionError::InvariantViolation(message.into()))?;
+            if actual != Some(owner) {
+                return Err(invalid(
+                    "verified privacy pool bridge does not match governed reserve custody",
+                ));
+            }
+            let key = PrivacyCommitmentKeyV1::public_reserve_custody(owner.protocol_id(), id)
+                .map_err(|message| InstructionExecutionError::InvariantViolation(message.into()))?;
+            let original = self
+                .privacy_commitments
+                .get(&key)
+                .and_then(PrivacyStateItemRecordV1::public_reserve_funded_allowance)
+                .ok_or_else(|| invalid("privacy public reserve has no funded allowance"))?;
+            let backed = match self.assets.get(id) {
+                Some(balance) => original <= balance.as_ref(),
+                None => original.is_zero(),
+            };
+            if !backed {
+                return Err(invalid(
+                    "privacy public reserve funded allowance exceeds its exact balance",
+                ));
+            }
+            let funded_allowance = if deposit {
+                original
+                    .checked_add(amount)
+                    .map_err(|_| MathError::Overflow)?
+            } else {
+                original
+                    .checked_sub(amount)
+                    .map_err(|_| invalid("privacy public withdrawal exceeds funded allowance"))?
+            };
+            Ok(Some((
+                key,
+                PrivacyStateItemRecordV1::PublicReserveCustody {
+                    reserve_asset_id: id.clone(),
+                    owner,
+                    funded_allowance,
+                },
+            )))
         }
         /// Validate a numeric credit after canonicalizing the balance id for the current scope.
         ///
@@ -1728,6 +1823,7 @@ pub mod isi {
     pub(super) enum NumericAssetTransferSourcePolicy {
         User,
         RetailMonetary(RetailMonetaryPurposeV1),
+        PrivacyPoolDeposit(PrivacyPublicReserveOwnerV1),
         PrivacyPoolBridge(PrivacyPublicReserveOwnerV1),
         GameSessionFunding,
         FxEscrowDeposit,
@@ -2174,7 +2270,7 @@ pub mod isi {
         /// Move one exact transparent balance effect authorized by a native privacy proof.
         PrivacyPublicBridge(Vec<u8>),
         /// Deposit an exact native pool effect into its public reserve.
-        PrivacyPoolDeposit(Vec<u8>),
+        PrivacyPoolDeposit(PrivacyPublicReserveOwnerV1, Vec<u8>),
         /// Release an exact native pool effect from its governed public reserve.
         PrivacyPoolBridge(PrivacyPublicReserveOwnerV1, Vec<u8>),
         /// Release one exact SCCP inbound, refund or stranded amount from its route escrow.
@@ -2525,10 +2621,10 @@ pub mod isi {
                     NumericAssetTransferSourcePolicy::User,
                     NumericAssetTransferControlPolicy::Enforce,
                 ),
-                RetainedNumericAssetMovementPurpose::PrivacyPoolDeposit(binding) => (
+                RetainedNumericAssetMovementPurpose::PrivacyPoolDeposit(owner, binding) => (
                     "privacy-pool-deposit",
                     binding,
-                    NumericAssetTransferSourcePolicy::User,
+                    NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner),
                     NumericAssetTransferControlPolicy::Enforce,
                 ),
                 RetainedNumericAssetMovementPurpose::PrivacyPoolBridge(owner, binding) => (
@@ -2725,6 +2821,9 @@ pub mod isi {
                 NumericAssetTransferSourcePolicy::RetailMonetary(purpose) => {
                     ("RetailMonetary", SourceDetail::Retail(purpose))
                 }
+                NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner) => {
+                    ("PrivacyPoolDeposit", SourceDetail::Privacy(owner))
+                }
                 NumericAssetTransferSourcePolicy::PrivacyPoolBridge(owner) => {
                     ("PrivacyPoolBridge", SourceDetail::Privacy(owner))
                 }
@@ -2866,6 +2965,9 @@ pub mod isi {
                 }
                 NumericAssetTransferSourcePolicy::RetailMonetary(purpose) => {
                     ("RetailMonetary", norito::encode_canonical(&purpose).ok()?)
+                }
+                NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(owner) => {
+                    ("PrivacyPoolDeposit", norito::encode_canonical(&owner).ok()?)
                 }
                 NumericAssetTransferSourcePolicy::PrivacyPoolBridge(owner) => {
                     ("PrivacyPoolBridge", norito::encode_canonical(&owner).ok()?)
@@ -3385,6 +3487,7 @@ pub mod isi {
             }
             VerifiedPrivacyPublicBalancePurpose::PoolDeposit(owner) => {
                 RetainedNumericAssetMovementPurpose::PrivacyPoolDeposit(
+                    owner,
                     canonical_numeric_movement_binding(&(owner, exact_movement))?,
                 )
             }
@@ -6276,7 +6379,11 @@ pub mod isi {
                 normalized_scale,
                 normalized_amount,
                 prechecked_delta,
-                retail_payment: source_policy == NumericAssetTransferSourcePolicy::User,
+                retail_payment: matches!(
+                    source_policy,
+                    NumericAssetTransferSourcePolicy::User
+                        | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_)
+                ),
             })
         }
         fn apply(
@@ -7687,6 +7794,7 @@ pub mod isi {
         match source_policy {
             NumericAssetTransferSourcePolicy::User
             | NumericAssetTransferSourcePolicy::RetailMonetary(_)
+            | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_)
             | NumericAssetTransferSourcePolicy::PrivacyPoolBridge(_)
             | NumericAssetTransferSourcePolicy::GameSessionFunding => {
                 ensure_not_native_escrow_source(state_transaction, source_id)?;

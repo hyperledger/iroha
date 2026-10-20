@@ -1197,15 +1197,17 @@ pub mod network {
     // Maximum allowed encrypted frame size for peer messages (bytes).
     /// Maximum encrypted frame size for peer messages in bytes.
     ///
-    /// The cap was sized for a maximal certified-body response of 16,844,237 bytes
-    /// before the P2P relay/data wrapper and AEAD nonce/tag.
-    /// Rounding the cap up to 17 MiB leaves just under 1 MiB for those bounded
-    /// layers while keeping every retained frame allocation finite.
+    /// The plaintext ceiling is 17 MiB. Sumeragi proposals, manifests and sync entries carry
+    /// signed metadata and the availability table, never the payload, and payload rows are
+    /// at most 256 KiB, so the largest Sumeragi frame is a sync response. Startup keeps the
+    /// local `sync_max_bytes` within the chain frame limit (16 MiB of payload plus
+    /// `2 * FRAME_OVERHEAD`, 17,305,664 bytes) minus one allowance. The largest
+    /// transaction-gossip frame, a 10,485,760-byte signed transaction in its signed relay and
+    /// Data envelope, is 10,486,244 bytes. Both leave room within 17 MiB for the bounded P2P
+    /// wrappers while every retained frame allocation stays finite.
     /// The encrypted ceiling includes AEAD expansion in addition to the full
     /// 17 MiB plaintext topic cap; keeping these as distinct constants avoids
     /// making the default geometry invalid by exactly one nonce and tag.
-    // TODO(S4): re-derive the 16,844,237-byte sizing from the current Sumeragi full-body
-    // transport message; it was measured on the retired certified-body response.
     pub const MAX_FRAME_BYTES: NonZeroUsize =
         nonzero!(17 * 1024 * 1024_usize + DEFAULT_AEAD_FRAME_OVERHEAD_BYTES);
     // Per-topic caps describe complete canonical plaintext frames.
@@ -1217,9 +1219,11 @@ pub mod network {
     pub const MAX_FRAME_BYTES_CONSENSUS: NonZeroUsize = MAX_PLAINTEXT_FRAME_BYTES;
     /// Maximum frame size for control-plane messages.
     ///
-    /// Consensus-safety proposals and timeout certificates use this topic. A
-    /// 2 MiB cap carries the reviewed 1,106,267-byte maximal proposal ceiling
-    /// plus the bounded P2P envelope overhead.
+    /// Sumeragi votes, certificates, timeouts, status and requests use the consensus-safety
+    /// topic with this cap; proposals and manifests use the consensus-payload topic, which
+    /// shares the block-sync cap. At the generic core bounds (1,024 members, 128-byte keys) a
+    /// complete timeout certificate is 18,075 bytes and a status 19,303 bytes, far below 2 MiB
+    /// with the bounded P2P envelope overhead.
     pub const MAX_FRAME_BYTES_CONTROL: NonZeroUsize = nonzero!(2 * 1024 * 1024_usize);
     /// Maximum frame size for block sync / consensus payload traffic.
     pub const MAX_FRAME_BYTES_BLOCK_SYNC: NonZeroUsize = MAX_PLAINTEXT_FRAME_BYTES;
@@ -3717,7 +3721,7 @@ pub mod nexus {
                 fee_sink_account_id: AccountId::parse_encoded(FEE_SINK_ACCOUNT_ID)
                     .expect("canonical default fee sink"),
                 sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
-                successful_claim_fee_exempt_authorities: Default::default(),
+                successful_claim_fee_exempt_authorities: std::collections::BTreeSet::default(),
                 base_fee: base_fee(),
                 per_byte_fee: per_byte_fee(),
                 per_instruction_fee: per_instruction_fee(),

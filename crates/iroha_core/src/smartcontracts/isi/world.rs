@@ -1252,17 +1252,17 @@ pub mod isi {
     }
     const VOTING_BALLOT_CIRCUIT_ID: &str = crate::zk::GOVERNANCE_BALLOT_CIRCUIT_ID_V1;
     const VOTING_TALLY_CIRCUIT_ID: &str = crate::zk::GOVERNANCE_TALLY_CIRCUIT_ID_V1;
-    const STANDALONE_ZK_RELATION_UNQUALIFIED_V1: &str =
-        "standalone ZK ballot and tally relations are not qualified for production admission";
+    const STANDALONE_ZK_RELATION_UNSUPPORTED_V1: &str =
+        "standalone ZK ballots and tallies are unsupported: no ballot or tally relation exists";
     fn ensure_qualified_standalone_zk_relation_v1() -> Result<(), Error> {
-        // TODO: Replace this guard only after a reviewed ballot relation proves anonymous
-        // credential authorization, a confidential bond in frozen smallest asset units,
-        // immutable choice on conviction updates, and one sound, committee-free tally over the
-        // exact closed accepted corpus despite late dropouts and without secret reconstruction.
-        // The current commit/root ballot inputs and per-option tally inputs cannot establish
-        // those claims, even when a verifying key has the expected role.
+        // TODO: This unsupported-operation error stays until a reviewed standalone ballot and
+        // tally relation exists that proves anonymous credential authorization, a confidential
+        // bond in frozen smallest asset units, immutable choice on conviction updates, and one
+        // sound, committee-free tally over the exact closed accepted corpus despite late
+        // dropouts and without secret reconstruction. None exists: the commit/root ballot inputs
+        // and per-option tally inputs cannot establish those claims, even with role-valid keys.
         Err(InstructionExecutionError::InvariantViolation(
-            STANDALONE_ZK_RELATION_UNQUALIFIED_V1.into(),
+            STANDALONE_ZK_RELATION_UNSUPPORTED_V1.into(),
         )
         .into())
     }
@@ -28718,8 +28718,13 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .expect_err("a future role-valid key must still face the semantic guard");
             assert_contains!(
                 error.to_string(),
-                STANDALONE_ZK_RELATION_UNQUALIFIED_V1,
+                STANDALONE_ZK_RELATION_UNSUPPORTED_V1,
                 "unexpected standalone ZK admission result: {error}"
+            );
+            assert_contains!(
+                error.to_string(),
+                "unsupported: no ballot or tally relation exists",
+                "the refusal must name the missing relation: {error}"
             );
             assert_eq!(
                 norito::to_bytes(stx.world.elections.get(&election_id).unwrap())
@@ -33525,7 +33530,15 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let drift = current.max_clock_drift_ms();
             let cadence = current.block_cadence_ms.get();
             let minimum = 2 * drift + 4 * cadence;
-            for (lag, units) in [(minimum - 1, 64), (minimum, 0), (minimum, 4), (minimum, 9)] {
+            let floor = GovernanceClockParametersV1::MIN_BLOCK_START_WORK_UNITS;
+            for (lag, units) in [
+                (minimum - 1, 64),
+                (minimum, 0),
+                (minimum, 4),
+                (minimum, 9),
+                (minimum, 10),
+                (minimum, floor - 1),
+            ] {
                 let before = stx.world.parameters.get().clone();
                 let events = stx.world.internal_event_buf.len();
                 SetParameter(governance_clock_test_parameter(lag, units))
@@ -33534,7 +33547,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 assert_eq!(*stx.world.parameters.get(), before);
                 assert_eq!(stx.world.internal_event_buf.len(), events);
             }
-            SetParameter(governance_clock_test_parameter(minimum, 10))
+            SetParameter(governance_clock_test_parameter(minimum, floor))
                 .expect_execute(&ALICE_ID, &mut stx, "inclusive governance lag and work bounds");
             SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
                 .execute(&ALICE_ID, &mut stx)

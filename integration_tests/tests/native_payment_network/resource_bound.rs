@@ -73,6 +73,7 @@ fn request(
                 quantity: quantity.into(),
             }])
             .map_err(|error| eyre!(error))?,
+            AtomicSettlementEscrows::empty(),
             NonZeroU64::new(101).unwrap(),
             metadata,
         ),
@@ -194,7 +195,8 @@ fn native_payment_exact_fixed_frame_and_first_excess_byte_use_real_signed_terms(
             &iroha_config::parameters::actual::Crypto::default(),
         );
         if allowed {
-            ensure!(accepted?.encoded_len() == SIGNED_FRAME_CAP);
+            let accepted = accepted?;
+            ensure!(accepted.encoded_len() == SIGNED_FRAME_CAP);
         } else {
             ensure!(matches!(
                 accepted,
@@ -565,7 +567,7 @@ fn fixed_maximum_payment_and_rejection_survive_http_rs16_kura_and_receipt_recove
         ensure!(
             transport::processes(&network, &rt, deadline)?
                 .iter()
-                .zip(original_pids)
+                .zip(original_pids.iter().copied())
                 .all(|(now, old)| *now != old)
         );
         for peer in network.validators() {
@@ -605,8 +607,9 @@ fn fixed_maximum_payment_and_rejection_survive_http_rs16_kura_and_receipt_recove
             ensure!(recovery.receipt.is_none());
             ensure!(
                 rejected_payment::rejected_identity(
-                    &recovery
+                    recovery
                         .carrier
+                        .as_ref()
                         .ok_or_else(|| eyre!("rejected carrier missing"))?
                 )? == identity
             );

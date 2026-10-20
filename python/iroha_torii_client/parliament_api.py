@@ -1333,8 +1333,10 @@ def _parse_capabilities(value: Any, expected_network_id: str) -> GovernanceCapab
         record["standalone_plain_ballots_supported"],
         "standalone_plain_ballots_supported",
     )
-    if not _boolean(record["standalone_zk_ballots_supported"], "standalone_zk_ballots_supported"):
-        raise ValueError("standalone ZK governance must remain available")
+    if _boolean(record["standalone_zk_ballots_supported"], "standalone_zk_ballots_supported"):
+        raise ValueError(
+            "standalone ZK ballots have no supported relation and must not be advertised"
+        )
     for field in ("citizenship_asset_id", "voting_asset_id"):
         _asset_definition_id(record[field], field)
     for field in ("citizenship_escrow_account", "bond_escrow_account"):

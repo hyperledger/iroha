@@ -14922,7 +14922,7 @@
             "type": "boolean"
           },
           "standalone_zk_ballots_supported": {
-            "const": true,
+            "const": false,
             "type": "boolean"
           },
           "supported_proposal_kinds": {

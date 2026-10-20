@@ -843,16 +843,21 @@ acquire this reply deadline.
   at most 32 concatenated inner Norito objects; the receiver rejects object 33
   before measuring or decoding it while preserving the first 32 admitted objects.
 - Topic caps (post-decode enforcement, tightened defaults) apply to complete decrypted and authenticated P2P frame bytes:
-  - `[network].max_frame_bytes_consensus` (default 17 MiB; caps revision-4
-    recovery requests such as `CertifiedBodyRequest` and
-    `CommitCertificateRequest`)
-  - `[network].max_frame_bytes_control` (default 2 MiB; caps compact revision-4
-    `ConsensusSafety` messages such as `Proposal`, `Vote`,
-    `QuorumCertificate`, `TimeoutVote`, and `TimeoutCertificate`)
+  - `[network].max_frame_bytes_consensus` (default 17 MiB plaintext ceiling;
+    caps the `Consensus` topic, which no Sumeragi traffic class uses)
+  - `[network].max_frame_bytes_control` (default 2 MiB; caps the
+    `ConsensusSafety` topic, which carries the Sumeragi control class: votes,
+    certificates, timeout votes and certificates, status, requests and
+    application control; startup refuses a value below the complete P2P frame
+    of the longest control frame the core decodes, 19,735 bytes)
   - `[network].max_frame_bytes_block_sync` (default = 17 MiB plaintext ceiling;
-    caps revision-4 `PayloadChunk` and `CertifiedBodyResponse` frames plus
-    BlockSync responses; `PayloadManifest` is carried only inside `Proposal`)
-  - `[network].max_frame_bytes_tx_gossip` (default 256 KiB)
+    caps the `ConsensusPayload`, `ConsensusChunk` and `BlockSync` topics:
+    Sumeragi `Proposal` and `PayloadManifest` frames, which carry signed
+    metadata and the availability table but never the payload, `PayloadChunk`
+    rows of at most 256 KiB, and `SyncResponse` frames; startup refuses a value
+    below the complete P2P frame of the node's largest sync response)
+  - `[network].max_frame_bytes_tx_gossip` (default = 17 MiB plaintext ceiling;
+    carries the maximum committed transaction with its signed relay metadata)
   - `[network].max_frame_bytes_peer_gossip` (default 64 KiB)
   - `[network].max_frame_bytes_health` (default 32 KiB)
   - `[network].max_frame_bytes_other` (default 128 KiB)

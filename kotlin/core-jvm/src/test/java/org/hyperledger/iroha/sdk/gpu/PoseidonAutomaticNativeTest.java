@@ -25,26 +25,28 @@ final class PoseidonAutomaticNativeTest {
 
   @Test
   void poseidon2MatchesCpuGoldensInBatchesAndSingleItemBatches() {
-    // Exact CPU vectors from crates/ivm/tests/poseidon_simd.rs, POSEIDON2_VECTORS.
+    // Independent circomlib v0.1.7 tables with canonical arity-domain sponge/output1;
+    // mirrored by crates/ivm/tests/poseidon_simd.rs, POSEIDON2_VECTORS.
     // Negative Java longs retain the Rust u64 bit pattern.
     long[][] inputs = {{0, 0}, {1, 0}, {0, 1}, {1, 1}, {-1L, -1L}};
     long[] expected = {
-        0x541bc08e21ea84d9L, 0xf0e5b21608c24308L, 0x70c2d9e7d4787f50L,
-        0x6ce751f52456cdf3L, 0x2a3b041a8625f023L
+        0x291ef55ced504e95L, 0x7e84e4660f9c8602L, 0xbe233ae487cc493cL,
+        0xc129be072c4b4483L, 0xc389da81dbddae68L
     };
     assertPoseidonBatch(inputs, expected, accelerators::poseidon2);
   }
 
   @Test
   void poseidon6MatchesCpuGoldensInBatchesAndSingleItemBatches() {
-    // Exact CPU vectors from crates/ivm/tests/poseidon_simd.rs, POSEIDON6_VECTORS.
+    // Same independent profile, two additive rate-five blocks and output1;
+    // mirrored by crates/ivm/tests/poseidon_simd.rs, POSEIDON6_VECTORS.
     long[][] inputs = {
         {0, 0, 0, 0, 0, 0}, {1, 2, 3, 4, 5, 6}, {1, 0, 0, 0, 0, 0},
         {0, 1, 0, 0, 0, 0}, {-1L, -1L, -1L, -1L, -1L, -1L}
     };
     long[] expected = {
-        0x63006c10f267d188L, 0xe56f9ee6b038389aL, 0xd8c9b0fcf7499786L,
-        0x819b7cdd16319d0fL, 0xe4f413ec7ee962adL
+        0xb5284c49a2aa43ddL, 0xea5537703da851ecL, 0x44126d1870284f85L,
+        0x741cdca6d19888b3L, 0x732ec89a4e972a38L
     };
     assertPoseidonBatch(inputs, expected, accelerators::poseidon6);
   }

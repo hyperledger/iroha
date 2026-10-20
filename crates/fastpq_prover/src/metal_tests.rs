@@ -86,6 +86,7 @@ fn admitted_metal_inventory_requires_all_sixteen_shipping_pipelines() {
         assert!(REQUIRED_PIPELINES.contains(&name));
     }
 }
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 #[test]
 fn absent_admitted_bundle_refuses_before_device_and_preserves_original_columns() {
     struct Reset;
@@ -506,8 +507,7 @@ fn poseidon_multi_state_chunks_match_cpu_edge_vectors() {
                 };
                 let (queue, queue_index) = context.queues.select(state_count, 0);
                 let ticket = super::submit_compute_with_geometry(
-                    queue,
-                    queue_index,
+                    (queue, queue_index),
                     pipeline,
                     Some((groups, group, logical_threads)),
                     logical_threads,
@@ -1422,4 +1422,115 @@ fn abandoned_fft_ticket_drains_before_release_and_partial_error_restores_inputs(
     }
     assert_eq!(columns, before);
     assert!(!backend_quarantined());
+}
+
+/// Explicit hardware qualification: absence or any fallback is a test failure.
+/// Ordinary unit runs may ignore this control; the dedicated qualification lane
+/// must execute this exact name with `--ignored --exact --test-threads=1`.
+#[test]
+#[ignore = "requires independently reviewed compiled Metal bytes and a real Metal device"]
+fn required_admitted_metal_all_pipelines_and_bn254_word_parity_twice() {
+    let admitted = crate::metal_artifact::admitted_bundle()
+        .expect("hardware qualification requires an admitted original compiled bundle");
+    assert!(!admitted.bytes().is_empty());
+    let device = select_metal_device()
+        .expect("hardware qualification requires an actual supported Metal device");
+    let library = load_metal_library(&device)
+        .expect("the actual device must load the same admitted compiled bytes");
+    assert_eq!(crate::metal_artifact::ENTRY_POINTS.len(), 16);
+    let pipelines = crate::metal_artifact::ENTRY_POINTS
+        .iter()
+        .map(|name| {
+            load_pipeline(&device, &library, name)
+                .unwrap_or_else(|error| panic!("actual pipeline {name} failed: {error}"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(pipelines.len(), 16);
+    assert_eq!(
+        crate::backend::current_gpu_backend(),
+        Some(GpuBackend::Metal),
+        "CPU/CUDA/absent fallback cannot qualify Metal"
+    );
+
+    let lengths = [0_usize, 1, 2, 3, 5, 8, 13];
+    let input = [
+        0,
+        u64::MAX,
+        1,
+        u64::MAX - 1,
+        3,
+        5,
+        8,
+        13,
+        21,
+        34,
+        55,
+        89,
+        144,
+    ];
+    let mut words = Vec::new();
+    let mut slices = Vec::new();
+    let mut expected = Vec::new();
+    for len in lengths {
+        let offset = words.len();
+        words.extend_from_slice(&input[..len]);
+        slices.push(Bn254PoseidonBatchSlice::new(offset, len));
+        expected.push(iroha_zkp_halo2::poseidon::hash_u64_words_bytes(
+            &input[..len],
+        ));
+    }
+    assert_eq!(slices.len(), lengths.len());
+    assert!(
+        !slices.is_empty(),
+        "length zero must be an actual dispatch member"
+    );
+    assert_eq!(slices[0].len(), 0);
+    assert!(!words.is_empty());
+    for repetition in 0..2 {
+        let actual = crate::bn254_poseidon::try_hash_bn254_poseidon_word_batches(&words, &slices)
+            .expect("required real Metal submission and completion cannot be skipped or fall back");
+        assert_eq!(actual.len(), expected.len());
+        for (index, (got, wanted)) in actual.iter().zip(&expected).enumerate() {
+            assert_eq!(
+                got, wanted,
+                "full 32-byte word-mode parity: repetition {repetition}, length {}",
+                lengths[index]
+            );
+        }
+        assert_eq!(
+            crate::backend::current_gpu_backend(),
+            Some(GpuBackend::Metal)
+        );
+    }
+    // Keep every pipeline owner alive through both actual batch completions.
+    assert_eq!(pipelines.len(), crate::metal_artifact::ENTRY_POINTS.len());
+}
+
+#[test]
+fn integer_dispatch_limits_preserve_full_width_and_saturate() {
+    assert_eq!(clamp_u128_to_u64(0), 0);
+    assert_eq!(clamp_u128_to_u64(u128::from(u64::MAX)), u64::MAX);
+    assert_eq!(clamp_u128_to_u64(u128::from(u64::MAX) + 1), u64::MAX);
+    assert_eq!(clamp_u128_to_u64(u128::MAX), u64::MAX);
+    for fanout in [0, 1] {
+        assert_eq!(default_queue_column_threshold(fanout), u32::MAX);
+    }
+    for fanout in [2_u32, 3, 4] {
+        assert_eq!(
+            default_queue_column_threshold(usize::try_from(fanout).unwrap()),
+            DEFAULT_QUEUE_COLUMN_THRESHOLD.max(fanout * 8)
+        );
+    }
+    assert_eq!(default_queue_column_threshold(usize::MAX), u32::MAX);
+    assert_eq!(default_in_flight_limit_for_parallelism(usize::MAX), 16);
+    assert_eq!(limit_from_gpu_cores(usize::MAX), 16);
+}
+
+#[test]
+fn adaptive_backoff_preserves_ceiling_at_maximum_column_count() {
+    let state = AdaptiveBatchState::new(1, 1.0);
+    state.record_sample(u32::MAX, u32::MAX, 100.0);
+    let data = state.data.lock().expect("adaptive scheduler poisoned");
+    assert_eq!(data.current_columns, u32::MAX / 2 + 1);
+    assert_eq!(data.samples, 1);
 }

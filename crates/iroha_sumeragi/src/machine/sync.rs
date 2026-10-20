@@ -20,6 +20,14 @@ const SYNC_DONOR_RECORD_ALLOWANCE: usize = 512;
 const SYNC_DONOR_RESERVATION: usize = SYNC_DONOR_RECORD_ALLOWANCE
     + crate::message::MAX_BITMAP_BYTES
     + 2 * crate::types::MAX_PUBLIC_KEY_LEN;
+/// Architecture-independent allowance for a buffered entry's inline fields beyond its canonical
+/// bytes, including the full inline control-witness capacity held even for an empty witness.
+/// The native entry size is checked below. The buffer's byte bound is on these charges: the
+/// map's unused leaf slots and allocator rounding are not charged and grow only with the entry
+/// count, which `2·sync_batch` bounds.
+const SYNC_ENTRY_NATIVE_ALLOWANCE: usize = 1024 + crate::types::MAX_CONTROL_WITNESS_BYTES;
+/// Allowance for each skipped leader's native key record beyond its canonical key bytes.
+const SYNC_SKIPPED_LEADER_NATIVE_ALLOWANCE: usize = 64;
 
 /// One requested sync carrier and its exact authenticated transport responder.
 #[derive(Clone, Debug)]
@@ -27,6 +35,8 @@ pub(super) struct BufferedSyncEntry {
     entry: SyncEntry,
     responder: PublicKey,
     deferred: Option<DeferredSyncDonor>,
+    /// Buffer charge fixed at admission ([`entry_bytes`]); exactly this is refunded on removal.
+    charge: usize,
 }
 
 /// At most one alternative certificate/donor awaiting its authenticated height config.
@@ -115,27 +125,29 @@ impl SyncState {
     }
 }
 
-/// Approximate buffered size of an entry (payload plus a header allowance).
-// SPEC: §8.4 bounds the buffer by `2·sync_max_bytes` without fixing how an entry is measured; the
-// payload plus a fixed allowance per header and skipped leader is used (no re-encoding).
-// (Appendix E, E26)
-fn entry_bytes(buffered: &BufferedSyncEntry) -> usize {
-    let entry = &buffered.entry;
-    entry
+/// Buffer charge of an entry: its exact canonical encoding, the native allowances of its inline
+/// fields and skipped-leader key records, and the prepaid responder and alternate-donor slot.
+// SPEC: §8.4 bounds the buffer by `2·sync_max_bytes`, the canonical bytes a response is served
+// under (§6.9 rule 4). An entry is buffered before its certificate and skipped leaders are
+// checked, so it is charged at least what it actually holds: its exact canonical encoded
+// length plus fixed native allowances, not the table plus a per-header and per-leader
+// allowance (Appendix E, E26).
+fn entry_bytes(entry: &SyncEntry) -> usize {
+    let skipped = entry.manifest.header.skipped_leaders.len();
+    #[cfg(not(sumeragi_mutation = "ML35"))]
+    let held = norito::codec::Encode::encoded_len(entry)
+        .saturating_add(SYNC_ENTRY_NATIVE_ALLOWANCE)
+        .saturating_add(skipped.saturating_mul(SYNC_SKIPPED_LEADER_NATIVE_ALLOWANCE));
+    // ML35: the former allowance, the table plus 256 + 2048 bytes and 64 per skipped leader.
+    #[cfg(sumeragi_mutation = "ML35")]
+    let held = entry
         .manifest
         .availability
         .as_slice()
         .len()
         .saturating_add(256 + crate::types::MAX_CONTROL_WITNESS_BYTES)
-        .saturating_add(SYNC_DONOR_RESERVATION)
-        .saturating_add(
-            entry
-                .manifest
-                .header
-                .skipped_leaders
-                .len()
-                .saturating_mul(64),
-        )
+        .saturating_add(skipped.saturating_mul(64));
+    held.saturating_add(SYNC_DONOR_RESERVATION)
 }
 
 impl Core {
@@ -248,7 +260,7 @@ impl Core {
             .find_map(|((height, _), expected)| (*height != expected).then_some(*height));
         if let Some(cut) = cut {
             let dropped = self.sync.buffer.split_off(&cut);
-            let bytes: usize = dropped.values().map(entry_bytes).sum();
+            let bytes: usize = dropped.values().map(|buffered| buffered.charge).sum();
             self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_sub(bytes);
         }
     }
@@ -370,19 +382,22 @@ impl Core {
                 }
                 continue;
             }
-            let buffered = BufferedSyncEntry {
-                entry,
-                responder: from.clone(),
-                deferred: None,
-            };
-            let bytes = entry_bytes(&buffered);
+            let charge = entry_bytes(&entry);
             if self.sync.buffer.len() >= max_entries
-                || self.sync.buffer_bytes.saturating_add(bytes) > max_bytes
+                || self.sync.buffer_bytes.saturating_add(charge) > max_bytes
             {
                 break;
             }
-            self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_add(bytes);
-            self.sync.buffer.insert(height, buffered);
+            self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_add(charge);
+            self.sync.buffer.insert(
+                height,
+                BufferedSyncEntry {
+                    entry,
+                    responder: from.clone(),
+                    deferred: None,
+                    charge,
+                },
+            );
         }
         if useful {
             self.sync.add_source(from);
@@ -399,7 +414,7 @@ impl Core {
             let next = self.next_height();
             let pending = self.sync.buffer.split_off(&next);
             let stale = std::mem::replace(&mut self.sync.buffer, pending);
-            let bytes: usize = stale.values().map(entry_bytes).sum();
+            let bytes: usize = stale.values().map(|buffered| buffered.charge).sum();
             self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_sub(bytes);
             if self.awaiting || self.halted.is_some() || self.height != next {
                 return;
@@ -407,10 +422,7 @@ impl Core {
             let Some(mut buffered) = self.sync.buffer.remove(&next) else {
                 return;
             };
-            self.sync.buffer_bytes = self
-                .sync
-                .buffer_bytes
-                .saturating_sub(entry_bytes(&buffered));
+            self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_sub(buffered.charge);
             let entry = &buffered.entry;
             let header = &entry.manifest.header;
             let linked = cfg!(sumeragi_mutation = "MS22")
@@ -455,10 +467,7 @@ impl Core {
                     }
                 }
                 let responder = buffered.responder.clone();
-                self.sync.buffer_bytes = self
-                    .sync
-                    .buffer_bytes
-                    .saturating_add(entry_bytes(&buffered));
+                self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_add(buffered.charge);
                 self.sync.buffer.insert(next, buffered);
                 // A restart can retain a want whose original local body is absent and
                 // whose peer list is empty. The verified sync source must enrich that
@@ -708,7 +717,7 @@ impl Core {
                 .buffer
                 .remove(&height)
                 .expect("exact rejected entry");
-            self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_sub(entry_bytes(&removed));
+            self.sync.buffer_bytes = self.sync.buffer_bytes.saturating_sub(removed.charge);
             self.keep_buffer_contiguous(self.next_height());
             self.maybe_request_sync();
         }
@@ -770,26 +779,47 @@ mod tests {
             agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
         };
         assert_eq!(qc.signers.as_bytes().len(), MAX_BITMAP_BYTES);
-        let buffered = BufferedSyncEntry {
-            entry: SyncEntry {
-                manifest: PayloadManifest {
-                    header,
-                    availability,
-                },
-                commit_qc: qc.clone(),
+        let entry = SyncEntry {
+            manifest: PayloadManifest {
+                header,
+                availability,
             },
-            responder: PublicKey::new(vec![2]).unwrap(),
-            deferred: None,
+            commit_qc: qc.clone(),
         };
-        let prepaid = entry_bytes(&buffered);
+        let prepaid = entry_bytes(&entry);
         assert_eq!(SYNC_DONOR_RESERVATION, 896);
-        assert_eq!(prepaid, 199_908);
-        assert!(prepaid <= usize::try_from(crate::pacemaker::FRAME_OVERHEAD).unwrap());
-        // The existing local validator requires at least max_block_bytes + FRAME_OVERHEAD;
-        // even this maximum logical entry fits its minimum, before the buffer's factor two.
-        // This is an accounting fixture, not an authenticated certificate/body fixture.
+        // The inline entry (with its full witness capacity) and each key record fit their
+        // native allowances; heap bytes are part of the canonical encoding.
+        assert!(std::mem::size_of::<SyncEntry>() <= SYNC_ENTRY_NATIVE_ALLOWANCE);
+        assert!(std::mem::size_of::<PublicKey>() <= SYNC_SKIPPED_LEADER_NATIVE_ALLOWANCE);
+        let encoded = norito::codec::Encode::encoded_len(&entry);
+        assert_eq!(
+            encoded, 277_269,
+            "the generic maximum entry's canonical encoding"
+        );
+        assert_eq!(
+            prepaid,
+            encoded
+                + SYNC_ENTRY_NATIVE_ALLOWANCE
+                + MAX_COMMITTEE_SIZE * SYNC_SKIPPED_LEADER_NATIVE_ALLOWANCE
+                + SYNC_DONOR_RESERVATION
+        );
+        assert_eq!(prepaid, 346_773);
+        // The local validator requires `sync_max_bytes ≥ max_block_bytes + FRAME_OVERHEAD`, so
+        // the buffer's `2·sync_max_bytes` holds even this maximal entry by itself: the next
+        // height is never refused for its size. This is an accounting fixture, not an
+        // authenticated certificate/body fixture.
+        assert!(prepaid <= 2 * usize::try_from(crate::pacemaker::FRAME_OVERHEAD).unwrap());
         let mut state = SyncState {
-            buffer: BTreeMap::from([(1, buffered)]),
+            buffer: BTreeMap::from([(
+                1,
+                BufferedSyncEntry {
+                    entry,
+                    responder: PublicKey::new(vec![2]).unwrap(),
+                    deferred: None,
+                    charge: prepaid,
+                },
+            )]),
             buffer_bytes: prepaid,
             ..SyncState::default()
         };
@@ -800,24 +830,149 @@ mod tests {
             responder: key.clone(),
         });
         buffered.responder = key;
-        assert_eq!(entry_bytes(buffered), exact_limit);
+        assert_eq!(entry_bytes(&buffered.entry), exact_limit);
+        assert_eq!(buffered.charge, exact_limit);
         buffered.deferred = Some(DeferredSyncDonor {
             qc,
             responder: PublicKey::new(vec![3; MAX_PUBLIC_KEY_LEN]).unwrap(),
         });
-        assert_eq!(entry_bytes(buffered), exact_limit);
+        assert_eq!(entry_bytes(&buffered.entry), exact_limit);
+        assert_eq!(buffered.charge, exact_limit);
         buffered.deferred = None;
-        assert_eq!(entry_bytes(buffered), exact_limit);
+        assert_eq!(buffered.charge, exact_limit);
         assert_eq!(
-            state.buffer.values().map(entry_bytes).sum::<usize>(),
+            state
+                .buffer
+                .values()
+                .map(|buffered| buffered.charge)
+                .sum::<usize>(),
             state.buffer_bytes
         );
         let removed = state.buffer.remove(&1).unwrap();
-        state.buffer_bytes = state.buffer_bytes.saturating_sub(entry_bytes(&removed));
+        state.buffer_bytes = state.buffer_bytes.saturating_sub(removed.charge);
         assert!(state.buffer.is_empty());
         assert_eq!(
             state.buffer_bytes, 0,
             "removal refunds the complete original reservation"
         );
+    }
+
+    /// ML35 (§8.4, Appendix E E26): a Byzantine responder's well-formed entries, each with the
+    /// generic maximum of skipped leaders, keys, witness and table, wait in the buffer with
+    /// unverified certificates. Their exact canonical bytes stay within `2·sync_max_bytes`, the
+    /// buffer holds exactly their charges, and the response is cut at the first entry whose
+    /// charge no longer fits.
+    #[test]
+    fn det_l35_sync_buffer_charges_canonical_entry_bytes() {
+        use crate::{
+            api::LocalParams,
+            machine::tests::{G_HASH, G_RESULT, H, I, manifest, pick, result_of},
+            types::ChainParams,
+        };
+        use norito::codec::Encode as _;
+
+        let params = ChainParams {
+            max_block_bytes: 1024 * 1024,
+            ..ChainParams::default()
+        };
+        let local = LocalParams {
+            sync_max_bytes: params.max_block_bytes + crate::pacemaker::FRAME_OVERHEAD,
+            ..LocalParams::default()
+        };
+        let budget = 2 * usize::try_from(local.sync_max_bytes).unwrap();
+        let mut h = H::with(4, local, params, pick::set_a(0));
+        // Heights 1 and 2 are honest and commit; height 3 then waits for `C_3` (the apply of
+        // 1), so the forged entries from 3 on stay buffered with unchecked certificates.
+        h.auto_apply = false;
+        let mut entries = Vec::new();
+        let mut parent = (G_HASH, G_RESULT);
+        for height in 1..=2_u64 {
+            let block = h.block_at(height, parent, 0, &height.to_be_bytes());
+            parent = (h.bh(&block), result_of(&block));
+            entries.push(SyncEntry {
+                manifest: manifest(&block),
+                commit_qc: h.cqc_for(&block, 0),
+            });
+        }
+        let template = h.block_at(3, parent, 0, b"forged");
+        let mut frame = vec![0; MAX_AVAILABILITY_FRAME_BYTES];
+        frame[..4].copy_from_slice(&MAX_DA_CHUNK_COUNT.to_be_bytes());
+        let availability = AvailabilityFrame::from_untrusted(frame).unwrap();
+        let key = PublicKey::new(vec![7; MAX_PUBLIC_KEY_LEN]).unwrap();
+        for height in 3..=18_u64 {
+            let mut header = template.header().clone();
+            header.height = height;
+            header.skipped_leaders = vec![key.clone(); MAX_COMMITTEE_SIZE];
+            header.control_witness =
+                ControlWitness::try_from_slice(&[0; MAX_CONTROL_WITNESS_BYTES]).unwrap();
+            let manifest = PayloadManifest {
+                header,
+                availability: availability.clone(),
+            };
+            let commit_qc = Qc {
+                kind: VoteKind::Commit,
+                instance: I,
+                epoch: manifest.header.epoch,
+                height,
+                view: 0,
+                block_hash: manifest.hash(&h.v.crypto),
+                result: Hash32([0x35; 32]),
+                signers: Bitmap::new(MAX_COMMITTEE_SIZE),
+                agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
+            };
+            entries.push(SyncEntry {
+                manifest,
+                commit_qc,
+            });
+        }
+        let source = h.others(1, &[])[0];
+        // A member's CommitQC of height 18 is a hint (`C_18` is unknown): a request from 1.
+        let hint = entries.last().unwrap().commit_qc.clone();
+        let out = h.deliver(source, WireMessage::Qc(hint));
+        assert!(out.iter().any(|action| matches!(
+            action,
+            Action::Send { msg: WireMessage::SyncRequest(request), .. } if request.from_height == 1
+        )));
+        h.deliver(
+            source,
+            WireMessage::SyncResponse(SyncResponse {
+                instance: I,
+                blocks: entries.clone(),
+            }),
+        );
+        assert_eq!(h.core.tip.height, 2, "the honest prefix commits");
+        let charge = |entry: &SyncEntry| entry_bytes(entry);
+        let heights: Vec<u64> = h.core.sync.buffer.keys().copied().collect();
+        let forged = heights.len();
+        assert!(
+            forged >= 1,
+            "a maximal entry fits the smallest admissible budget"
+        );
+        assert_eq!(heights, (3..).take(forged).collect::<Vec<u64>>());
+        let canonical: usize = h
+            .core
+            .sync
+            .buffer
+            .values()
+            .map(|buffered| buffered.entry.encoded_len())
+            .sum();
+        assert!(
+            canonical <= budget,
+            "{canonical} canonical bytes buffered above 2·sync_max_bytes = {budget}"
+        );
+        assert_eq!(
+            h.core.sync.buffer_bytes,
+            h.core
+                .sync
+                .buffer
+                .values()
+                .map(|buffered| charge(&buffered.entry))
+                .sum::<usize>(),
+            "the buffer holds exactly the charges of its entries"
+        );
+        // Admission stopped at the first forged entry that did not fit beside the prefix.
+        let admitted: usize = entries[..2 + forged].iter().map(charge).sum();
+        assert!(admitted <= budget);
+        assert!(admitted + charge(&entries[2 + forged]) > budget);
     }
 }
