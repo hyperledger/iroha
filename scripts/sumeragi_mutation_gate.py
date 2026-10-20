@@ -629,6 +629,10 @@ MUTATIONS = [
 # Ids HC900-HC999 are reserved for the S8 original-pool custody controls of the SCCP
 # workstream; other Core owners continue from the highest id below HC900.
 CORE_MUTATIONS = [
+    m("HC487", "Parent service binds an expanded execution header instead of the original signed proposal",
+      ["sumeragi::lanes::merge::tests::parent_service_projection::parent_service_original_proposal_survives_actual_nonempty_lane_expansion"],
+      causes=(ExpectedFailure("parent service must retain the original signed proposal through nonempty lane expansion",
+          "crates/iroha_core/src/sumeragi/lanes/merge_tests/parent_service_projection.rs"),)),
     m("HC472", "Execution prefix physical refusal discards its original backing charge",
       ["sumeragi::certified_chain::execution_read::prefix_construction_tests::prefix_physical_refusal_retains_original_charge_and_retries_without_credit"],
       causes=(ExpectedFailure("prefix physical refusal must retain its exact original backing charge", "crates/iroha_core/src/sumeragi/certified_chain/execution_read/prefix_construction_tests.rs"),)),
