@@ -135,7 +135,7 @@ impl Storage {
     pub(super) fn recent_len(&self) -> usize {
         self.recent.as_slice().len()
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(super) fn clear(&mut self) {
         while self.sparse.pop().is_some() {}
         while self.recent.pop().is_some() {}

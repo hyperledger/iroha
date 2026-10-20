@@ -5,8 +5,13 @@
 //! rejected transaction with the same full result on every validator, and leaves every
 //! parameter unchanged. The exact coherent boundary is accepted in either instruction order. A
 //! signed transaction of exactly the 10,485,760-byte cap commits under the tightest coherent
-//! block limit and the first excess byte is refused by every validator before admission. All
-//! validators restart onto the same policy. A validator refuses to start with a local sync budget
+//! block limit and the first excess byte is refused by every validator before admission.
+//! Protocol byte caps remain unchanged. Signed genesis separately budgets the synthetic `Log` fixture's
+//! one-gas-per-message-byte execution, plus 1,024 gas for small accompanying fixture work;
+//! the ordinary 4,000,000-gas fallback would correctly reject a 10 MiB `Log`.
+//! Full transaction-details checks separately fund a finite 16 MiB HTTP query source
+//! phase; this changes neither default query policy nor any committed byte/gas cap.
+//! Validators restart onto the same policy. A validator refuses to start with a local sync budget
 //! below the committed payload plus `FRAME_OVERHEAD`, a block-sync topic cap below the P2P frame of
 //! its largest sync response, or a control topic cap below the longest consensus control frame
 //! (`specs/zk_resource_contract.json`).
@@ -30,7 +35,7 @@ use iroha::{
             privacy::SchedulePrivacyConsensusPolicyTighteningV1,
         },
         parameter::{
-            Parameter, Parameters, TransactionParameter,
+            CustomParameter, CustomParameterId, Parameter, Parameters, TransactionParameter,
             system::{BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, SumeragiParameter},
         },
         permission::Permission,
@@ -44,7 +49,7 @@ use iroha::{
 use iroha::{data_model::ValidationFail, query::QueryError};
 use iroha_config_base::toml::WriteExt as _;
 use iroha_executor_data_model::permission::governance::CanEnactGovernance;
-use iroha_primitives::numeric::Quantity;
+use iroha_primitives::{json::Json, numeric::Quantity};
 use iroha_sumeragi::pacemaker::FRAME_OVERHEAD;
 use iroha_test_network::{Network, NetworkBuilder, NetworkPeer};
 use iroha_test_samples::ALICE_ID;
@@ -52,8 +57,15 @@ use toml::Table;
 
 /// The fixed signed-transaction cap of the first release.
 const TRANSACTION_CAP: u64 = 10_485_760;
+/// Finite signed gas allowance for the byte-boundary `Log` and small fixture traffic.
+const FIXTURE_BLOCK_GAS: u64 = TRANSACTION_CAP + 1_024;
 /// The committed 16 MiB block payload default.
 const BLOCK_PAYLOAD_DEFAULT: u32 = 16_777_216;
+/// Complete local HTTP query reservation for a 16 MiB full-carrier source phase.
+const FIXTURE_QUERY_WORKING_SET_BYTES: u64 =
+    iroha_config::parameters::defaults::torii::QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1
+        + iroha_config::parameters::defaults::torii::QUERY_FANOUT_PREBODY_UNITS_V1
+            * BLOCK_PAYLOAD_DEFAULT as u64;
 /// The tightest coherent block payload for the fixed transaction cap.
 const TIGHT_BLOCK_PAYLOAD: u32 = 10_551_296;
 /// An intermediate coherent block payload for the first tightening.
@@ -94,6 +106,14 @@ fn builder() -> NetworkBuilder {
         .with_auto_populated_trusted_peers()
         .with_base_seed("x2-resource-policy-agreement-v1")
         .with_config_layer(|layer| {
+            // Header agreement uses full transaction details, whose carrier is larger
+            // than the default 2,562,555-byte query source phase. Fund that read
+            // explicitly; status still uses its bounded committed-outcome reader.
+            layer.write(
+                ["torii", "query_fanout_max_working_set_bytes"],
+                i64::try_from(FIXTURE_QUERY_WORKING_SET_BYTES)
+                    .expect("finite fixture query working set fits configuration"),
+            );
             layer.write(
                 ["nexus", "storage", "local_budget_bytes"],
                 1024_i64 * 1024 * 1024,
@@ -102,6 +122,10 @@ fn builder() -> NetworkBuilder {
         .with_genesis_instruction(SetParameter::new(Parameter::Custom(
             policy.into_custom_parameter().unwrap(),
         )))
+        .with_genesis_instruction(SetParameter::new(Parameter::Custom(CustomParameter::new(
+            "ivm_gas_limit_per_block".parse().unwrap(),
+            Json::new(FIXTURE_BLOCK_GAS),
+        ))))
         .with_genesis_instruction(Register::asset_definition(AssetDefinition::numeric(
             fee_asset(),
             "Resource policy fee asset",
@@ -562,6 +586,14 @@ fn four_validators_agree_on_resource_policy_bounds_and_coherence() -> Result<()>
 
         // Committed defaults, identical on every validator.
         let defaults = parameters_on_all(&clients)?;
+        let gas_parameter = defaults
+            .custom()
+            .get(&"ivm_gas_limit_per_block".parse::<CustomParameterId>()?)
+            .ok_or_else(|| eyre!("the signed fixture gas allowance is absent"))?;
+        ensure!(
+            gas_parameter.payload().try_into_any_norito::<u64>()? == FIXTURE_BLOCK_GAS,
+            "validators must execute the finite signed fixture gas allowance"
+        );
         ensure!(defaults.transaction().max_tx_bytes().get() == TRANSACTION_CAP);
         ensure!(defaults.sumeragi().max_block_bytes().get() == BLOCK_PAYLOAD_DEFAULT);
         let reserve = BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;

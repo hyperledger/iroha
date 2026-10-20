@@ -109,3 +109,43 @@ fn authenticated_policy_validates_the_original_dataspace_root() {
     authenticated_genesis(&invalid).expect("zero rate does not invalidate original signatures");
     assert!(signed_genesis_root_fee_policy(&invalid).is_err());
 }
+
+#[test]
+fn manifest_fee_policy_uses_declared_account_context_and_restores_caller() {
+    use iroha_data_model::account::address::{ChainDiscriminantGuard, chain_discriminant};
+    let _caller = ChainDiscriminantGuard::enter(753);
+    let manifest = {
+        let _author = ChainDiscriminantGuard::enter(369);
+        GenesisBuilder::new_without_executor(ChainId::from("declared-root-fee-context"), ".")
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+            .build_raw()
+            .expect("complete authored genesis")
+    };
+    assert_eq!(manifest.chain_discriminant(), 369);
+    let parameters = manifest.effective_parameters().unwrap();
+    assert!(RootFeePolicy::from_parameters(&parameters).is_err());
+    let original = manifest.encode();
+    manifest
+        .validate_mode_specific_consensus_parameters()
+        .unwrap();
+    assert_eq!(manifest.encode(), original);
+    assert_eq!(chain_discriminant(), 753);
+    manifest
+        .clone()
+        .normalize()
+        .expect("normalize using the declared fee context");
+    assert_eq!(chain_discriminant(), 753);
+
+    // Declaring the caller's network cannot reinterpret a different network's policy.
+    let wrong_context = manifest.with_chain_discriminant(753);
+    assert!(
+        wrong_context
+            .validate_mode_specific_consensus_parameters()
+            .is_err()
+    );
+    assert_eq!(
+        chain_discriminant(),
+        753,
+        "error paths restore the caller's account context"
+    );
+}

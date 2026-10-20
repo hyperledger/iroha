@@ -1388,7 +1388,10 @@ impl GenesisSourceTemplate {
 }
 
 impl RawGenesisTransaction {
-    /// Validate consensus-mode parameters.
+    /// Validate consensus-mode parameters using the manifest's declared account context.
+    ///
+    /// Custom policy payloads are decoded lazily. Their account literals belong to this
+    /// manifest even when its caller is authoring or inspecting a different network.
     ///
     /// # Errors
     ///
@@ -1396,6 +1399,9 @@ impl RawGenesisTransaction {
     /// epoch cannot contain the committed anchor and authenticated beacon pulse required before
     /// its boundary.
     pub fn validate_mode_specific_consensus_parameters(&self) -> Result<()> {
+        let _chain_discriminant = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+            self.chain_discriminant,
+        );
         let parameters = self.effective_parameters()?;
         let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(&parameters)?
             .ok_or_else(|| eyre!("genesis requires its explicit root_fees_v1 monetary policy"))?;
@@ -3739,12 +3745,14 @@ mod tests {
         std::fs::write(&executor_path, dummy_bytecode).unwrap();
         let sumeragi_context =
             norito::json::to_json(&SumeragiGenesisContextParameters::recommended())?;
+        let parameters = norito::json::to_json(&parameters_with_root_fees_for_test())?;
         let genesis = format!(
-            r#"{{"chain":"00000000-0000-0000-0000-000000000000","chain_discriminant":{},"executor":"{}","consensus_mode":"Permissioned","wire_protocol_version":{},"sumeragi_context":{},"transactions":[{{}}]}}"#,
+            r#"{{"chain":"00000000-0000-0000-0000-000000000000","chain_discriminant":{},"executor":"{}","consensus_mode":"Permissioned","wire_protocol_version":{},"sumeragi_context":{},"transactions":[{{"parameters":{}}}]}}"#,
             iroha_data_model::account::address::chain_discriminant(),
             executor_path.file_name().unwrap().to_str().unwrap(),
             iroha_data_model::sumeragi::PROTOCOL_VERSION,
             sumeragi_context,
+            parameters,
         );
         let genesis_path = tmp_dir.path().join("genesis.json");
         std::fs::write(&genesis_path, genesis).unwrap();

@@ -43005,8 +43005,7 @@ pub enum Error {
     HistoryReadExceedsBudget {
         /// Exhausted resource of the request's own finite read budget.
         resource: &'static str,
-        /// Quantity at which the deterministic read is refused: one item's exact size, or the
-        /// cumulative amount it reached. Every retry of the same request reaches the same.
+        /// Required target item quantity that exceeds the request's own limit.
         required: u64,
         /// The request's own finite limit for that resource.
         limit: u64,

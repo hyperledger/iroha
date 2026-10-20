@@ -26,8 +26,9 @@
 //!
 //! The certificate's binding of the core header to the proposal wire (`payload_hash`) is not
 //! recomputed: it would need every body byte, and no value this reader returns depends on those
-//! bytes. Each value it does return is bound by a hash to the journal or to `R`, so a corrupted
-//! or substituted frame yields a refusal, never a different outcome.
+//! bytes. Every returned outcome is bound by a hash to the journal or to `R`. This is a
+//! positive-membership reader: it refuses an unresolved identity instead of asserting absence,
+//! because the skipped non-reveal bodies and their variant tags do not authenticate absence.
 //!
 //! Every byte comes from one exact window of the durable slot (`NativeFrameRead::read_window`).
 //! A window is charged only to the caller's physical frame pool and released before the next,
@@ -129,6 +130,8 @@ enum EntrypointTag {
     External = 0,
     SealedCommitment = 1,
     SealedReveal = 2,
+    /// Signerless carrier; tag 3 is retired and remains invalid.
+    AnonymousBallot = 4,
 }
 
 impl EntrypointTag {
@@ -578,6 +581,9 @@ impl<'a> FrameWindows<'a> {
                 if version != BlockExecutionContextBundle::VERSION {
                     return Err(invalid("execution context has an unsupported version"));
                 }
+                // Admit the input-row work before decoding or inspecting those rows.
+                let (count, _) = self.sequence(external)?;
+                self.work.rows(count, 0)?;
                 let contexts: Vec<ExternalExecutionContext> = self.decode(external)?;
                 contexts
                     .into_iter()
@@ -629,6 +635,7 @@ impl<'a> FrameWindows<'a> {
             if tag != EntrypointTag::SealedReveal.wire() {
                 if tag != EntrypointTag::External.wire()
                     && tag != EntrypointTag::SealedCommitment.wire()
+                    && tag != EntrypointTag::AnonymousBallot.wire()
                 {
                     return Err(invalid("Network input has an unknown variant"));
                 }
@@ -859,11 +866,24 @@ fn read_outcome(
             )));
         }
         work.block()?;
-        let mut frame = FrameWindows::open(history, index, source_height, journal_hash, work)?;
-        let layout = frame.layout()?;
-        let header = frame.header(&layout)?;
-        let certificate = frame.certificate(&layout)?;
-        let (core, core_hash) = core_header(&certificate, source_height)?;
+        // A checkpoint can omit newer ancestry, but it never replaces the target's
+        // own frame or certificate. Preserve that distinction on the original refusal.
+        let source_refusal = |error| match error {
+            ExecutionAttemptError::Deferred(original) => {
+                ExecutionAttemptError::Deferred(if source_height == target {
+                    original.at_history_target()
+                } else {
+                    original.at_history_ancestry()
+                })
+            }
+            rejected => rejected,
+        };
+        let mut frame = FrameWindows::open(history, index, source_height, journal_hash, work)
+            .map_err(source_refusal)?;
+        let layout = frame.layout().map_err(source_refusal)?;
+        let header = frame.header(&layout).map_err(source_refusal)?;
+        let certificate = frame.certificate(&layout).map_err(source_refusal)?;
+        let (core, core_hash) = core_header(&certificate, source_height).map_err(source_refusal)?;
         let result = crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage())
             .ok_or_else(|| {
                 chain_error(&ChainReadError::ResultMismatch {
@@ -885,7 +905,8 @@ fn read_outcome(
         );
         if source_height == target {
             let results =
-                target_outcome(&mut frame, &layout, &header, &certificate, scope, identity)?;
+                target_outcome(&mut frame, &layout, &header, &certificate, scope, identity)
+                    .map_err(source_refusal)?;
             return Ok(CommittedNetworkOutcome { header, results });
         }
         expected_core = core.parent_hash;
@@ -946,6 +967,11 @@ fn target_outcome(
         identity,
         &mut matches,
     )?;
+    if matches.is_empty() {
+        return Err(invalid(
+            "committed Network identity has no authenticated outcome",
+        ));
+    }
     frame.matched_results(
         layout,
         inputs.len(),
@@ -959,17 +985,20 @@ impl crate::state::State {
     /// `height` for an off-chain reader, reading only bounded windows of the block's frame.
     ///
     /// `identity` is a committed membership identity: a Network input hash or the signed alias
-    /// of a sealed reveal. The capture and recheck of the State hash journal and native tip are
-    /// those of [`Self::read_executed_carrier_from_checkpoints`]; the walk starts at a verified
+    /// of a sealed reveal. A successful read establishes at least one authenticated match;
+    /// this reader cannot establish absence and refuses an unresolved identity. The capture
+    /// and recheck of the State hash journal and native tip are those of
+    /// [`Self::read_executed_carrier_from_checkpoints`]; the walk starts at a verified
     /// checkpoint at or above `height`, so its source work depends on node-local checkpoints and
     /// on-chain readers must not use it. `max_work` bounds walked frames plus the target's Network
     /// inputs and outputs; `max_bytes` bounds the bytes of all windows. Genesis outcomes require
     /// their actual H2 successor and are read by the full-prefix reader instead.
     ///
     /// # Errors
-    /// Rejects absent or replaced history, a substituted or malformed frame or certificate,
-    /// exceeded `max_work` or `max_bytes`, and genesis. A window or decoded piece the caller's
-    /// read budget cannot hold is a local refusal that keeps its original allocation cause.
+    /// Rejects an unresolved identity, absent or replaced history, a substituted or malformed
+    /// authenticated value, exceeded `max_work` or `max_bytes`, and genesis. A window or decoded
+    /// piece the caller's read budget cannot hold is a local refusal that keeps its original
+    /// allocation cause.
     pub fn read_committed_network_outcome(
         &self,
         height: NonZeroUsize,

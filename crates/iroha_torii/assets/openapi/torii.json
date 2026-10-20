@@ -91448,6 +91448,45 @@
             },
             "description": "Only HTTP404 with ErrorEnvelope code pipeline_transaction_status_not_found and details.pipeline_transaction_status_not_found containing the exact requested canonical hash and scope denotes pending absence. Global absence requires typed selector-bound absence from every authoritative shard; HTTP404 alone never establishes absence."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A required item from the requested block exceeds the request budget. ErrorEnvelope code history_read_exceeds_request_budget reports the resource in details.field, the required quantity in details.actual and the request limit in details.expected. This response has no Retry-After header."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Local history-read capacity prevented completion. Ancestry refusals, cumulative decoder exhaustion and refusals without proof that a required target item exceeds the budget remain retryable. Retry after the indicated delay; this response does not establish absence or a terminal transaction outcome.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying the same observation.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/json": {

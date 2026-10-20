@@ -51,6 +51,14 @@ impl Kura {
 }
 #[cfg(any(test, feature = "iroha-core-tests"))]
 impl Kura {
+    /// Forget optional authenticated history checkpoints before a cold-read regression.
+    ///
+    /// This changes no durable frame, committed membership, native tip, or capacity.
+    /// The next history read must authenticate its ancestry from that original tip.
+    pub fn clear_history_checkpoints_for_testing(&self) {
+        self.history_checkpoints.clear();
+    }
+
     /// Forget only a cached body whose exact inline frame remains durably stored.
     ///
     /// The next ordinary block read must take the cold-storage path. This hook does
