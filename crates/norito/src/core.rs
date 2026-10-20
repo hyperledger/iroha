@@ -3487,6 +3487,28 @@ pub fn archived_from_slice_unchecked<'a, T>(bytes: &'a [u8]) -> ArchivedRef<'a, 
     }
 }
 
+/// Reject a fixed-width archived primitive that starts inside the active payload
+/// context but does not fit in the bytes that remain.
+///
+/// Tuple, array and field decoders copy each element into a scratch buffer sized
+/// by the element's length header and point the payload context at it. Without
+/// this check a short (or zero) length header makes the primitive read past that
+/// buffer.
+#[inline]
+fn ensure_fixed_width_in_ctx<T>(archived: &Archived<T>) -> Result<(), Error> {
+    let Some((base, total)) = payload_ctx() else {
+        return Ok(());
+    };
+    let size = core::mem::size_of::<Archived<T>>();
+    let ptr_us = archived as *const Archived<T> as usize;
+    let end = base.checked_add(total).ok_or(Error::LengthMismatch)?;
+    let inside = (ptr_us >= base && ptr_us < end) || (total == 0 && ptr_us == base);
+    if inside && end - ptr_us < size {
+        return Err(Error::LengthMismatch);
+    }
+    Ok(())
+}
+
 impl NoritoSerialize for u8 {
     fn serialize<W: Write>(&self, mut writer: W) -> Result<(), Error> {
         writer.write_u8(*self)?;
@@ -3503,6 +3525,11 @@ impl NoritoSerialize for u8 {
 impl<'a> NoritoDeserialize<'a> for u8 {
     fn deserialize(archived: &'a Archived<u8>) -> Self {
         archived.0
+    }
+
+    fn try_deserialize(archived: &'a Archived<u8>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
     }
 }
 
@@ -3523,6 +3550,11 @@ impl<'a> NoritoDeserialize<'a> for i8 {
     fn deserialize(archived: &'a Archived<i8>) -> Self {
         archived.0
     }
+
+    fn try_deserialize(archived: &'a Archived<i8>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for u16 {
@@ -3542,6 +3574,11 @@ impl<'a> NoritoDeserialize<'a> for u16 {
     fn deserialize(archived: &'a Archived<u16>) -> Self {
         u16::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<u16>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for NonZeroU16 {
@@ -3559,7 +3596,7 @@ impl<'a> NoritoDeserialize<'a> for NonZeroU16 {
 
     fn try_deserialize(archived: &'a Archived<NonZeroU16>) -> Result<Self, Error> {
         let val_arch: &Archived<u16> = archived.cast();
-        let value = <u16 as NoritoDeserialize>::deserialize(val_arch);
+        let value = <u16 as NoritoDeserialize>::try_deserialize(val_arch)?;
         NonZeroU16::new(value).ok_or(Error::InvalidNonZero)
     }
 }
@@ -3581,6 +3618,11 @@ impl<'a> NoritoDeserialize<'a> for i16 {
     fn deserialize(archived: &'a Archived<i16>) -> Self {
         i16::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<i16>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for u32 {
@@ -3600,6 +3642,11 @@ impl<'a> NoritoDeserialize<'a> for u32 {
     fn deserialize(archived: &'a Archived<u32>) -> Self {
         u32::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<u32>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for NonZeroU32 {
@@ -3617,7 +3664,7 @@ impl<'a> NoritoDeserialize<'a> for NonZeroU32 {
 
     fn try_deserialize(archived: &'a Archived<NonZeroU32>) -> Result<Self, Error> {
         let val_arch: &Archived<u32> = archived.cast();
-        let value = <u32 as NoritoDeserialize>::deserialize(val_arch);
+        let value = <u32 as NoritoDeserialize>::try_deserialize(val_arch)?;
         NonZeroU32::new(value).ok_or(Error::InvalidNonZero)
     }
 }
@@ -3639,6 +3686,11 @@ impl<'a> NoritoDeserialize<'a> for bool {
     fn deserialize(archived: &'a Archived<bool>) -> Self {
         archived.0
     }
+
+    fn try_deserialize(archived: &'a Archived<bool>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for char {
@@ -3659,6 +3711,11 @@ impl<'a> NoritoDeserialize<'a> for char {
         // SAFETY-FREE: decode via integer path stored little-endian
         let v = u32::from_le(unsafe { *(archived as *const _ as *const u32) });
         char::from_u32(v).expect("invalid char")
+    }
+
+    fn try_deserialize(archived: &'a Archived<char>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
     }
 }
 
@@ -3715,6 +3772,11 @@ impl<'a> NoritoDeserialize<'a> for i32 {
     fn deserialize(archived: &'a Archived<i32>) -> Self {
         i32::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<i32>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for u64 {
@@ -3734,6 +3796,11 @@ impl<'a> NoritoDeserialize<'a> for u64 {
     fn deserialize(archived: &'a Archived<u64>) -> Self {
         u64::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<u64>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for NonZeroU64 {
@@ -3751,7 +3818,7 @@ impl<'a> NoritoDeserialize<'a> for NonZeroU64 {
 
     fn try_deserialize(archived: &'a Archived<NonZeroU64>) -> Result<Self, Error> {
         let val_arch: &Archived<u64> = archived.cast();
-        let value = <u64 as NoritoDeserialize>::deserialize(val_arch);
+        let value = <u64 as NoritoDeserialize>::try_deserialize(val_arch)?;
         NonZeroU64::new(value).ok_or(Error::InvalidNonZero)
     }
 }
@@ -3773,6 +3840,11 @@ impl<'a> NoritoDeserialize<'a> for i64 {
     fn deserialize(archived: &'a Archived<i64>) -> Self {
         i64::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<i64>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for usize {
@@ -3791,6 +3863,11 @@ impl NoritoSerialize for usize {
 impl<'a> NoritoDeserialize<'a> for usize {
     fn deserialize(archived: &'a Archived<usize>) -> Self {
         usize::from_le(archived.0)
+    }
+
+    fn try_deserialize(archived: &'a Archived<usize>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
     }
 }
 
@@ -3811,6 +3888,11 @@ impl<'a> NoritoDeserialize<'a> for isize {
     fn deserialize(archived: &'a Archived<isize>) -> Self {
         isize::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<isize>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for u128 {
@@ -3830,6 +3912,11 @@ impl<'a> NoritoDeserialize<'a> for u128 {
     fn deserialize(archived: &'a Archived<u128>) -> Self {
         u128::from_le(archived.0)
     }
+
+    fn try_deserialize(archived: &'a Archived<u128>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for i128 {
@@ -3848,6 +3935,11 @@ impl NoritoSerialize for i128 {
 impl<'a> NoritoDeserialize<'a> for i128 {
     fn deserialize(archived: &'a Archived<i128>) -> Self {
         i128::from_le(archived.0)
+    }
+
+    fn try_deserialize(archived: &'a Archived<i128>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
     }
 }
 
@@ -3917,6 +4009,11 @@ impl<'a> NoritoDeserialize<'a> for f32 {
         }
         f32::from_bits(u32::from_le_bytes(bytes))
     }
+
+    fn try_deserialize(archived: &'a Archived<f32>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
+    }
 }
 
 impl NoritoSerialize for f64 {
@@ -3976,6 +4073,11 @@ impl<'a> NoritoDeserialize<'a> for f64 {
             bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 8));
         }
         f64::from_bits(u64::from_le_bytes(bytes))
+    }
+
+    fn try_deserialize(archived: &'a Archived<f64>) -> Result<Self, Error> {
+        ensure_fixed_width_in_ctx(archived)?;
+        Ok(Self::deserialize(archived))
     }
 }
 
