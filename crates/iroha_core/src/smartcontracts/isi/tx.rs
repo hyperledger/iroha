@@ -641,9 +641,10 @@ impl FinalizedExecutionCarrier {
 /// windows of the carrier frame instead of decoding its transaction bodies. The header is the
 /// carrier's journal-authenticated Iroha header; the results belong to every Network input
 /// whose committed identity (its entrypoint hash or a sealed reveal's signed alias) equals the
-/// requested one, in input order. A unique match has exactly one result; none means the
-/// identity is absent from its carrier; more than one is an ambiguous carrier. This immutable
-/// read result carries no authority to mutate or publish State.
+/// requested one, in input order. Every successful read contains at least one authenticated
+/// match; a unique match has exactly one result and more than one is an ambiguous carrier.
+/// The bounded reader cannot authenticate absence and refuses an unresolved identity.
+/// This immutable read result carries no authority to mutate or publish State.
 #[derive(Debug, Clone)]
 pub struct CommittedNetworkOutcome {
     pub(crate) header: BlockHeader,
@@ -655,7 +656,7 @@ impl CommittedNetworkOutcome {
     pub fn header(&self) -> &BlockHeader {
         &self.header
     }
-    /// Results of the matched Network inputs, in input order.
+    /// Nonempty results of the authenticated Network inputs, in input order.
     pub fn matched_results(
         &self,
     ) -> &[Result<(), iroha_data_model::transaction::error::TransactionRejectionReason>] {

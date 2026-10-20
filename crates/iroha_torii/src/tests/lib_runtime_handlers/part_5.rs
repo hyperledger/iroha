@@ -2776,12 +2776,11 @@ async fn pipeline_status_handler_rejects_inconsistent_committed_membership() {
     else {
         panic!("inconsistent committed membership must fail closed");
     };
+    // The positive-membership reader refuses the unbound identity before status
+    // projection; it cannot authenticate absence from skipped transaction bodies.
     assert_eq!(
-        message,
-        format!(
-            "committed transaction status projection is inconsistent: transaction {bogus_hash} is absent from its finalized carrier"
-        ),
-        "authenticated output absence must not be confused with missing finality",
+        message, "committed Network identity has no authenticated outcome",
+        "inconsistent membership must remain an explicit authentication refusal",
     );
 }
 #[tokio::test]

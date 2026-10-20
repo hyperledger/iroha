@@ -221,21 +221,23 @@ containing no tokens reports `503 api_token_unavailable`. Every canonical
 finite `429` or `503` response includes both `Retry-After` and a matching typed
 retry hint.
 
-A committed-history read is refused permanently when the read itself needs more
-of a finite resource than the request's own budget holds: one window or
-allocation larger than its whole pool, or a decoder limit (one field, sequence
-or archive, or the read's cumulative decoded bytes, elements or nesting) that
-this deterministic read exceeds. Like the other too-large committed-history
-responses (`block_proof_capacity_exceeded`, `executed_block_wire_too_large`), it
+A bounded committed-history read is refused permanently when its original error
+identifies an item required from the requested target that exceeds the request's
+own budget: one window or allocation larger than its whole pool, or a per-item
+decoder limit (one field, sequence, archive or nesting). A checkpoint cannot
+replace the requested target's own frame and certificate. Like the other
+too-large committed-history responses (`block_proof_capacity_exceeded`,
+`executed_block_wire_too_large`), it
 answers `413` with code `history_read_exceeds_request_budget`; `details.field`
 names the resource (`bytes` for a window or allocation), `details.actual` the
-quantity at which the deterministic read is refused (one item's exact size, or
-the cumulative amount it reached) and `details.expected` the request's limit
-(`at most N <resource>`). The same
-request can never succeed, so the response carries neither `Retry-After` nor
-`retry_after_seconds`. Transient capacity (parallel-query slots, a pool that
-other owners occupy, allocator pressure, a busy State publication) remains a
-retryable `429`.
+quantity at which the read is refused and `details.expected` the request's limit
+(`at most N <resource>`). This response carries neither `Retry-After` nor
+`retry_after_seconds`. Cumulative decoded-byte and element exhaustion remains
+retryable: authenticated checkpoints recorded during an attempt can shorten the
+ancestry walked by an identical retry. Per-item refusals from ancestry, and
+refusals without explicit required-target provenance, also remain retryable.
+Transient capacity (parallel-query slots, a pool that other owners occupy,
+allocator pressure, a busy State publication) remains a retryable `429`.
 
 Connection-level pre-authentication capacity and rate gates run before
 credential validation.

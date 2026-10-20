@@ -1,6 +1,6 @@
 // G24: the public status route reads a committed outcome through bounded windows of its
-// carrier, so neither the block's size nor the transaction's size can turn a committed
-// transaction into permanent retryable backpressure.
+// carrier without decoding transaction bodies. These controls cover the recorded frame
+// shapes; the request's separate work, byte and decoder allowances still apply.
 
 fn bounded_status_chain() -> (
     iroha_core::sumeragi::test_chain::CertifiedTestChain,
@@ -66,6 +66,17 @@ fn status_working_set_for_frames(frames: usize) -> usize {
     crate::query_fanout_fixed_overhead_bytes().unwrap() + crate::QUERY_FANOUT_PREBODY_UNITS * frames
 }
 
+/// Apply the canonical HTTP error boundary, including its matching retry header and hint.
+fn history_read_error_response(error: Error) -> axum::response::Response {
+    let (parts, _) = error.status_code().into_response().into_parts();
+    crate::canonical_error_response(
+        parts,
+        error.into_envelope(),
+        crate::utils::ResponseFormat::Json,
+        false,
+    )
+}
+
 async fn committed_status(
     app: &SharedAppState,
     transaction: &SignedTransaction,
@@ -103,24 +114,37 @@ async fn pipeline_status_reports_applied_for_blocks_above_the_retired_frame_thre
         .collect();
     assert_eq!(chain.commit_at(20_000, batch.clone()), vec![true; 5]);
     let cap = sized_log_transaction(&chain, &key, 10_485_760, 6);
-    // The capped transaction is admitted and committed; the status route reports exactly the
-    // result its block carries, whether execution applied or rejected it.
+    let iroha_data_model::transaction::Executable::Instructions(instructions) = cap.instructions()
+    else {
+        panic!("the byte-boundary fixture must contain native instructions");
+    };
+    let log = instructions[0].as_any().downcast_ref::<Log>().unwrap();
+    let expected_reason =
+        iroha_data_model::transaction::error::TransactionRejectionReason::Validation(
+            ValidationFail::NotPermitted(format!(
+                "block gas limit exceeded: {} > 4000000",
+                8 + u64::try_from(log.msg.len()).unwrap()
+            )),
+        );
+    // Log costs eight gas plus its message length. The default four-million-gas
+    // block policy rejects this admitted byte-boundary transaction; any other
+    // rejection is a regression, not interchangeable evidence of status recovery.
     let cap_applied = chain.commit_at(30_000, vec![cap.clone()]);
-    let cap_kind = {
+    assert_eq!(cap_applied, vec![false]);
+    {
         let committed = chain.committed(4);
         let (_, output) = committed
             .block()
             .network_output_at(0)
             .expect("the capped transaction's committed output");
         match output.result.as_ref() {
-            Ok(_) => "Applied",
+            Ok(_) => panic!("the capped Log must exceed the default block gas allowance"),
             Err(reason) => {
-                println!("G24 capped 10,485,760-byte transaction committed as rejected: {reason}");
-                "Rejected"
+                assert_eq!(reason, &expected_reason);
+                println!("G24 capped transaction's exact rejection: {reason:?}");
             }
         }
-    };
-    assert_eq!(cap_applied, vec![cap_kind == "Applied"]);
+    }
     let frames: Vec<usize> = (2..=4)
         .map(|height| chain.committed(height).block().encode_wire().unwrap().len())
         .collect();
@@ -132,7 +156,7 @@ async fn pipeline_status_reports_applied_for_blocks_above_the_retired_frame_thre
             applied_status(&app, transaction, height).await;
         }
     }
-    committed_status(&app, &cap, 4, cap_kind).await;
+    committed_status(&app, &cap, 4, "Rejected").await;
     // The complete carrier, which genesis alone still uses, is refused for these blocks in the
     // same request geometry (the retired status path); the bounded read above answered them.
     for transaction in [&single, &cap] {
@@ -152,26 +176,37 @@ async fn pipeline_status_reports_applied_for_blocks_above_the_retired_frame_thre
             "the retired whole-carrier read must not fit"
         );
     }
-    // The capped frame alone is larger than the request's frame pool: a permanent refusal.
+    // Preserve the retired whole-carrier read's exact refusal evidence. Its generic reader
+    // does not classify target versus ancestry, so that error alone cannot prove permanence.
     let anchor = canonical_transaction_anchor(&app.state, &cap.hash())
         .unwrap()
         .unwrap();
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
     let frames = owner.cold_frames().limit_bytes();
     let wire = chain.committed(4).block().encode_wire().unwrap().len();
-    match owner.scope(|| read_pipeline_transaction_carrier(&app, anchor)) {
-        Err(Error::HistoryReadExceedsBudget {
-            resource,
-            required,
-            limit,
-        }) => assert_eq!(
-            (resource, required, limit),
-            (
-                "bytes",
-                u64::try_from(wire).unwrap(),
-                u64::try_from(frames).unwrap()
-            )
-        ),
+    let work = routing::app_query_limits().max_fetch_size;
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+    let budget = owner.canonical_history_budget();
+    match owner.scope(|| {
+        app.state
+            .read_executed_carrier_from_checkpoints(anchor.height, work, bytes, &budget)
+    }) {
+        Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(original)) => {
+            assert!(matches!(
+                original.allocation_refusal(),
+                Some(iroha_allocation::AllocationRefusal::ExceedsLimit {
+                    requested_bytes,
+                    limit_bytes,
+                }) if *requested_bytes == wire && *limit_bytes == frames
+            ));
+            assert_eq!(original.phase(), None);
+            assert_eq!(crate::canonical_history::permanent_refusal(&original), None);
+            let response =
+                history_read_error_response(crate::canonical_history::query_attempt_error(
+                    iroha_core::execution_attempt::ExecutionAttemptError::Deferred(original),
+                ));
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
         Err(other) => panic!("the capped frame can never fit the request's frame pool: {other:?}"),
         Ok(_) => panic!("the capped frame cannot be held whole by the request's frame pool"),
     }
@@ -231,9 +266,11 @@ async fn pipeline_status_old_whole_carrier_threshold_binding_term() {
                     owner.cold_frames().limit_bytes(),
                     crate::canonical_history::permanent_refusal(&deferred),
                 );
-                assert!(
-                    crate::canonical_history::permanent_refusal(&deferred).is_some(),
-                    "the old refusal depends only on this request's own budget"
+                assert_eq!(deferred.phase(), None);
+                assert_eq!(
+                    crate::canonical_history::permanent_refusal(&deferred),
+                    None,
+                    "an unclassified whole-carrier refusal does not prove a required target item"
                 );
                 refused.push(*size);
             }
@@ -308,11 +345,7 @@ async fn pipeline_status_item_above_the_request_frame_pool_is_a_typed_permanent_
         )
     );
     // The JSON client's response: 413, no Retry-After, both byte counts in the typed details.
-    let response = crate::utils::with_current_response_format(
-        crate::utils::ResponseFormat::Json,
-        async move { error.into_response() },
-    )
-    .await;
+    let response = history_read_error_response(error);
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     assert!(
         response
@@ -381,26 +414,32 @@ async fn pipeline_status_item_above_the_request_frame_pool_is_a_typed_permanent_
 fn history_read_refusals_separate_permanent_items_from_transient_capacity() {
     use iroha_core::execution_attempt::{ExecutionAttemptError, ExecutionDeferred};
     let pool = iroha_core::state::AllocationBudget::new(8);
-    // A demand above the whole pool can never fit: permanent, typed, with both byte counts.
+    // The original item cannot fit, but without its source provenance it could be ancestry
+    // that a closer authenticated checkpoint omits. Preserve the cause and allow retry.
     let exceeds = pool.try_reserve_bytes(9).unwrap_err();
     let deferred: ExecutionDeferred = exceeds.into();
-    assert_eq!(
-        crate::canonical_history::permanent_refusal(&deferred),
-        Some(("bytes", 9, 8))
-    );
+    assert_eq!(crate::canonical_history::permanent_refusal(&deferred), None);
+    assert!(matches!(
+        deferred.allocation_refusal(),
+        Some(iroha_allocation::AllocationRefusal::ExceedsLimit {
+            requested_bytes: 9,
+            limit_bytes: 8,
+        })
+    ));
     let error =
         crate::canonical_history::query_attempt_error(ExecutionAttemptError::Deferred(deferred));
     assert!(matches!(
         error,
-        Error::HistoryReadExceedsBudget {
-            resource: "bytes",
-            required: 9,
-            limit: 8
-        }
+        Error::Query(ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        ))
     ));
-    assert_eq!(
-        error.into_response().status(),
-        StatusCode::PAYLOAD_TOO_LARGE
+    let response = history_read_error_response(error);
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        response
+            .headers()
+            .contains_key(axum::http::header::RETRY_AFTER)
     );
     // A pool that other owners occupy is transient: retryable capacity, as before.
     let held = pool.try_reserve_bytes(8).unwrap();
@@ -413,7 +452,8 @@ fn history_read_refusals_separate_permanent_items_from_transient_capacity() {
         ))
     ));
     drop(held);
-    // A decoder limit of the request's own budget that this read exceeds is permanent too.
+    // Cumulative decoder exhaustion does not prove the same query can never fit:
+    // authenticated checkpoints can shorten the next attempt's ancestry.
     let (mut chain, key) = bounded_status_chain();
     let transaction = sized_log_transaction(&chain, &key, 100_000, 0);
     assert_eq!(
@@ -441,10 +481,219 @@ fn history_read_refusals_separate_permanent_items_from_transient_capacity() {
         Err(ExecutionAttemptError::Deferred(deferred)) => deferred,
         other => panic!("a cumulative decoder limit is a local refusal: {other:?}"),
     };
-    let Some(("decoded bytes", attempted, 64)) =
-        crate::canonical_history::permanent_refusal(&deferred)
-    else {
-        panic!("{deferred:?}");
-    };
-    assert!(attempted > 64);
+    assert!(matches!(
+        deferred
+            .decode_refusal()
+            .map(norito::core::DecodeLocalRefusal::resource_error),
+        Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted,
+            limit: 64,
+        }) if attempted > 64
+    ));
+    assert_eq!(crate::canonical_history::permanent_refusal(&deferred), None);
+    let response = history_read_error_response(crate::canonical_history::query_attempt_error(
+        ExecutionAttemptError::Deferred(deferred),
+    ));
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        response
+            .headers()
+            .contains_key(axum::http::header::RETRY_AFTER)
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_same_certificate_refusal_is_retryable_only_as_ancestry() {
+    let (mut chain, key) = bounded_status_chain();
+    let ancestor_target = sized_log_transaction(&chain, &key, 100_000, 0);
+    assert_eq!(
+        chain.commit_at(10_000, vec![ancestor_target.clone()]),
+        vec![true]
+    );
+    let tip_target = sized_log_transaction(&chain, &key, 100_000, 1);
+    assert_eq!(
+        chain.commit_at(20_000, vec![tip_target.clone()]),
+        vec![true]
+    );
+    let certificate_bytes =
+        norito::codec::encode_adaptive(chain.committed(3).block().commit_certificate().unwrap())
+            .len();
+    let app = bounded_status_app(
+        &chain,
+        Some(status_working_set_for_frames(certificate_bytes - 1)),
+    );
+    // H3 proposal assembly authenticates its parent and can warm H2's checkpoint.
+    // Clear only this optional cache before each request so both encounter the same
+    // original H3 certificate and frame allowance; only its role in the request differs.
+    for (transaction, target_height) in [(&ancestor_target, 2), (&tip_target, 3)] {
+        chain.kura().clear_history_checkpoints_for_testing();
+        let anchor = canonical_transaction_anchor(&app.state, &transaction.hash())
+            .unwrap()
+            .unwrap();
+        assert_eq!(anchor.height.get(), target_height);
+        let error = match read_pipeline_transaction_outcome(&app, &transaction.hash(), anchor) {
+            Err(error) => error,
+            Ok(_) => panic!("the original H3 certificate must exceed its window allowance"),
+        };
+        if target_height == 3 {
+            assert!(
+                matches!(
+                    &error,
+                    Error::HistoryReadExceedsBudget {
+                        resource: "bytes",
+                        required,
+                        limit,
+                    } if *required == u64::try_from(certificate_bytes).unwrap()
+                        && *limit == u64::try_from(certificate_bytes - 1).unwrap()
+                ),
+                "target refusal: {error:?}; certificate_bytes={certificate_bytes}"
+            );
+        } else {
+            assert!(
+                matches!(
+                    &error,
+                    Error::Query(ValidationFail::QueryFailed(
+                        iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+                    ))
+                ),
+                "ancestry refusal: {error:?}; certificate_bytes={certificate_bytes}"
+            );
+        }
+        let response = history_read_error_response(error);
+        if target_height == 2 {
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            let retry = response
+                .headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .expect("the canonical HTTP boundary must retain the retry contract")
+                .to_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            let payload = torii_json_body(response).await;
+            assert_eq!(
+                payload["details"]["retry_after_seconds"].as_u64(),
+                Some(retry)
+            );
+        } else {
+            assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+            assert!(
+                !response
+                    .headers()
+                    .contains_key(axum::http::header::RETRY_AFTER)
+            );
+            let payload = torii_json_body(response).await;
+            assert_eq!(
+                payload["code"].as_str(),
+                Some("history_read_exceeds_request_budget")
+            );
+            assert!(payload["details"]["retry_after_seconds"].is_null());
+        }
+    }
+}
+#[tokio::test]
+async fn transaction_details_full_carrier_respects_explicit_query_memory() {
+    // Details returns the full transaction, unlike bounded status projection. A larger
+    // caller-owned source corridor is legitimate, but a retry cannot widen the default.
+    let (mut chain, key) = bounded_status_chain();
+    let transaction = sized_log_transaction(&chain, &key, 3 * 1024 * 1024, 0);
+    assert_eq!(
+        chain.commit_at(10_000, vec![transaction.clone()]),
+        vec![true]
+    );
+    let height = NonZeroUsize::new(2).unwrap();
+    let entrypoint_hash = transaction.hash_as_entrypoint();
+    let authority = AccountId::new(key.public_key().clone());
+    let original = chain.committed(2);
+    let original_wire = original.block().encode_wire().unwrap();
+    let original_output = &original.block().network_output_at(0).unwrap().1.result;
+    let app = bounded_status_app(&chain, None);
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let frames = owner.cold_frames().limit_bytes();
+    assert!(original_wire.len() > frames);
+    let work = routing::app_query_limits().max_fetch_size;
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+    let budget = owner.canonical_history_budget();
+    match owner.scope(|| {
+        app.state
+            .read_executed_carrier_from_checkpoints(height, work, bytes, &budget)
+    }) {
+        Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(refusal)) => {
+            assert!(matches!(
+                refusal.allocation_refusal(),
+                Some(iroha_allocation::AllocationRefusal::ExceedsLimit {
+                    requested_bytes,
+                    limit_bytes,
+                }) if *requested_bytes == original_wire.len() && *limit_bytes == frames
+            ));
+            assert_eq!(refusal.phase(), None);
+            assert_eq!(crate::canonical_history::permanent_refusal(&refusal), None);
+        }
+        Err(other) => panic!("expected the exact full-frame allocation refusal: {other:?}"),
+        Ok(_) => panic!("a full carrier cannot fit the default cold-frame corridor"),
+    }
+    drop(owner);
+    let refused = pipeline_transaction_details_response(&app, &authority, entrypoint_hash)
+        .expect_err("full details cannot fit the unchanged default owner");
+    assert!(matches!(
+        &refused,
+        Error::Query(ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        ))
+    ));
+    let refusal = history_read_error_response(refused);
+    assert_eq!(refusal.status(), StatusCode::TOO_MANY_REQUESTS);
+    let retry_after: u64 = refusal
+        .headers()
+        .get(axum::http::header::RETRY_AFTER)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let refusal_bytes = torii_body_bytes(refusal, "full-details capacity refusal").await;
+    let envelope: iroha_torii_shared::ErrorEnvelope =
+        norito::json::from_slice(&refusal_bytes).unwrap();
+    assert_eq!(envelope.code(), "query_validation_failed");
+    assert_eq!(
+        envelope.details.as_ref().unwrap().retry_after_seconds,
+        Some(retry_after)
+    );
+    assert_eq!(original.block().encode_wire().unwrap(), original_wire);
+    assert_eq!(
+        app.state.committed_entrypoint_height(&entrypoint_hash),
+        Some(height),
+        "read capacity must not become transaction absence"
+    );
+
+    // This is the X2 fixture's explicit finite source phase, inside the unchanged
+    // aggregate pool. It admits the complete carrier and complete response.
+    let funded = bounded_status_app(
+        &chain,
+        Some(status_working_set_for_frames(16 * 1024 * 1024)),
+    );
+    let owner =
+        crate::history_producer::HistoryProducerOwner::authentication_read(&funded).unwrap();
+    assert_eq!(owner.cold_frames().limit_bytes(), 16 * 1024 * 1024);
+    let response = pipeline_transaction_details_http_response(
+        &funded,
+        &authority,
+        entrypoint_hash,
+        crate::utils::ResponseFormat::Norito,
+        &owner,
+    )
+    .expect("the explicitly funded details read");
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_bytes = torii_body_bytes(response, "funded full transaction details").await;
+    let details: iroha_torii_shared::PipelineTransactionDetailsResponse =
+        norito::decode_canonical(&response_bytes).unwrap();
+    assert_eq!(details.transaction.entrypoint_hash(), &entrypoint_hash);
+    assert_eq!(details.transaction.entrypoint().hash(), entrypoint_hash);
+    assert_eq!(details.transaction.block_hash(), &original.block().hash());
+    assert_eq!(details.transaction.result(), original_output);
+    assert_eq!(
+        details.transaction.output_hash(),
+        &HashOf::new(details.transaction.output())
+    );
+    assert_eq!(original.block().encode_wire().unwrap(), original_wire);
 }
