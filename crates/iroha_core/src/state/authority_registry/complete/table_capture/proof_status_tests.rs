@@ -155,6 +155,9 @@ fn actual_catalog_rejects_proof_status_corruption_after_state_construction() {
 
 #[test]
 fn actual_proof_catalog_keeps_original_pool_refusal_retry_and_final_owner() {
+    // The fixture publishes World cells before capture. Keep their retired
+    // generations fixed while checking the snapshot's synchronous refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let state = state("stark/fri");
     let original = state.ivm_execution_budget();
     let resident = original.reserved_bytes();

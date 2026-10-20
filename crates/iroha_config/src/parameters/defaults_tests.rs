@@ -95,3 +95,26 @@ fn oracle_custody_defaults_are_public_only_and_not_legacy_seeded() {
         AccountId::new(legacy_slash_receiver_keypair.public_key().clone())
     );
 }
+
+#[test]
+fn genesis_fee_defaults_do_not_consume_input_decode_quota() {
+    let chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+        super::common::chain_discriminant(),
+    );
+    let expected_fee_sink = AccountId::parse_encoded(fees::FEE_SINK_ACCOUNT_ID).unwrap();
+    let expected_sponsor =
+        AccountId::parse_encoded(fees::SPONSOR_VAULT_CUSTODY_ACCOUNT_ID).unwrap();
+    drop(chain);
+    let quota = norito::DecodeLimits::new(0, 0, 0, 0, 0);
+    let policy = norito::with_decode_limits_scope(quota, fees::genesis_policy);
+    assert_eq!(policy.fee_sink_account_id, expected_fee_sink);
+    assert_eq!(policy.sponsor_vault_custody_account_id, expected_sponsor);
+    // Runtime input parsing must still enforce the same caller-owned limit.
+    norito::with_decode_limits_scope(quota, || {
+        assert!(
+            AccountId::parse_encoded(fees::FEE_SINK_ACCOUNT_ID)
+                .unwrap_err()
+                .is_decode_resource_limit()
+        );
+    });
+}

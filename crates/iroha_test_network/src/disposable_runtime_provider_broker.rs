@@ -9,6 +9,10 @@ use std::{
 use tempfile::{NamedTempFile, TempDir};
 use zeroize::Zeroizing;
 
+mod shutdown;
+pub use shutdown::DisposableBrokerShutdownEvidence;
+pub(super) use shutdown::stop_disposable_broker;
+
 const PRIVATE_DIRECTORY_PREFIX: &str = ".iroha-b-";
 const PRIVATE_DIRECTORY_RANDOM_BYTES: usize = 6;
 const BROKER_SOCKET_BASENAME: &str = "runtime-provider-broker-v1.sock";
@@ -360,19 +364,6 @@ impl NetworkPeer {
     }
 }
 
-pub(super) async fn stop_disposable_broker(child: &mut Child) {
-    if let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) {
-        let _ = nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(pid),
-            nix::sys::signal::Signal::SIGTERM,
-        );
-    }
-    if !matches!(timeout(BROKER_STOP_TIMEOUT, child.wait()).await, Ok(Ok(_))) {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -633,6 +624,7 @@ mod tests {
             fatal_tx,
             pid: None,
             broker_child: None,
+            broker_shutdown: None,
         });
         assert!(
             peer.provision_disposable_runtime_provider_broker(

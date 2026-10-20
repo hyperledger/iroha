@@ -478,6 +478,15 @@ from independent trusted configuration, never from the prepared response. Both
 values are mandatory on prepare and submit, and the amount must be a canonical
 positive quantity string.
 
+Use `client.validate_prepared_account_faucet(prepared, ...)` with the same
+independent fee, asset, amount, authority and network pins to authenticate and
+copy a retained preparation without sending an HTTP request. Persist its exact
+signed wire and transaction hash before submitting. After a lost submit response,
+`allow_expired_for_recovery=True` permits authentication after the binding expires
+so the original transaction's status and committed record can be recovered. It
+does not refresh the preparation or authorize resubmission: submit always checks
+an active binding again. Never solve another puzzle to replace an uncertain claim.
+
 Compute the binding's `semantic_hash_hex` after solving PoW with
 `account_faucet_claim_hash_v1`, then pass that exact solved claim to
 `prepare_account_faucet`. The helper uses the same validated native claim and

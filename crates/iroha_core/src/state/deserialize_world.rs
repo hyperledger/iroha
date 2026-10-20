@@ -8893,9 +8893,6 @@ fn decode_world_fields(
     let nft_custody_records = take_optional(&mut map, "nft_custody_records")?.unwrap_or_default();
 
     let vpn_leases = take_required(&mut map, "vpn_leases")?;
-    let merge_hint_roots: Cell<Vec<Hash>> = take_required(&mut map, "merge_hint_roots")?;
-    let merge_global_state_root: Cell<Option<Hash>> =
-        take_required(&mut map, "merge_global_state_root")?;
     let consensus_evidence = map
         .remove("consensus_evidence")
         .ok_or_else(|| json::Error::missing_field("consensus_evidence"))?
@@ -9181,8 +9178,6 @@ fn decode_world_fields(
         global_beacon_latest_pulse,
         global_beacon_pulses,
         global_beacon_pulse_slots: Storage::default(),
-        merge_hint_roots,
-        merge_global_state_root,
         consensus_evidence,
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
@@ -10346,6 +10341,50 @@ pub(in crate::state) fn seeded_musubi_attested_publication_world_for_testing() -
 mod decode_tests {
     use super::*;
     include!("deserialize_world_musubi_live_tests.rs");
+
+    #[test]
+    fn world_snapshot_has_no_retired_merge_roots_and_rejects_their_reintroduction() {
+        let encoded = json::to_json(&World::default()).expect("encode current World schema");
+        let fields = SnapshotJsonMap::parse(&encoded, "world").expect("current World object");
+        let retired = ["merge_hint_roots", "merge_global_state_root"];
+        for field in retired {
+            assert!(
+                !fields.contains_key(field),
+                "retired field {field} survived"
+            );
+        }
+        let pool = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let decoded = parse_world(&pool, fields, &seed)
+            .expect("current World fields decode without retired merge roots");
+        assert_eq!(
+            json::to_json(&decoded).expect("reencode current World"),
+            encoded,
+            "removing writerless cells preserves every surviving field and schema order"
+        );
+        let prefix = encoded.strip_suffix('}').expect("World object ending");
+        for field in retired {
+            let injected = format!("{prefix},\"{field}\":null}}");
+            let error = parse_world(
+                &pool,
+                SnapshotJsonMap::parse(&injected, "world").expect("substituted World object"),
+                &seed,
+            )
+            .err()
+            .expect("retired fields cannot reenter a first-release snapshot");
+            assert!(
+                matches!(error, StateRestoreError::Serialization(json::Error::InvalidField {
+                    field: rejected, ref message,
+                }) if rejected == format!("world.{field}") && message.contains("unknown field"))
+            );
+        }
+    }
     use crate::query::store::LiveQueryStore;
     use iroha_crypto::SignatureOf;
     use iroha_data_model::account::AccountDetails;

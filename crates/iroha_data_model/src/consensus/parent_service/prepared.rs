@@ -1,5 +1,6 @@
 //! Exact original source, prepaid opaque parent-QC byte leaf and immutable control.
 use super::{NposParentServiceCommitQc, Storage};
+use crate::block::SharedSignedBlock;
 use iroha_allocation::{
     AllocationBudget, AllocationCharge, AllocationRefusal, ChargedBuffer,
     ChargedBufferFromChargeError, ChargedShared, ReservedChargedShared, SharedFromChargeError,
@@ -48,6 +49,9 @@ use ParentServiceCustodyError as Error;
 /// A refusal retains both exact prepaid charges and any completed allocation. The
 /// immutable result shares them without recopying. This owns opaque wire bytes only.
 pub struct PreparedParentServiceCommitQc {
+    // The actual native input is retained through its original paid block control.
+    // Its nested certificate bytes remain input; this does not admit their old allocation.
+    parent: Option<SharedSignedBlock>,
     address: usize,
     length: usize,
     hash: Hash,
@@ -83,6 +87,7 @@ impl PreparedParentServiceCommitQc {
             Ok(value.len())
         })?;
         Ok(Self {
+            parent: None,
             address: input.as_slice().as_ptr().addr(),
             length: input.as_slice().len(),
             hash: Hash::new(input.as_slice()),
@@ -97,7 +102,61 @@ impl PreparedParentServiceCommitQc {
             pool: pool.clone(),
         })
     }
+    /// Retain an original immutable native parent as initial copy input.
+    ///
+    /// This shares only its already paid block control, never a nested graph clone.
+    /// The certificate leaf is input only: its prior allocation is not relabelled as
+    /// admitted. The caller still authenticates the complete native receipt and authority.
+    /// Both producer and wire decoding use the same destination allocation kernel.
+    /// # Errors
+    /// Rejects another pool or an absent parent certificate before allocating a destination.
+    pub fn from_parent(parent: &SharedSignedBlock, pool: &AllocationBudget) -> Result<Self, Error> {
+        if !parent.belongs_to(pool) {
+            return Err(Error::ForeignPool);
+        }
+        let bytes = parent
+            .commit_certificate()
+            .ok_or(Error::SourceRange)?
+            .commit_qc();
+        Ok(Self {
+            parent: Some(parent.clone()),
+            address: bytes.as_ptr().addr(),
+            length: bytes.len(),
+            hash: Hash::new(bytes),
+            span: SequenceSpan {
+                start: 0,
+                end: bytes.len(),
+            },
+            byte_count: bytes.len(),
+            flags: 0,
+            value: None,
+            charges: [None, None],
+            shell: None,
+            admitted: false,
+            ready: false,
+            pool: pool.clone(),
+        })
+    }
+    fn check_parent(
+        &self,
+        parent: &SharedSignedBlock,
+        pool: &AllocationBudget,
+    ) -> Result<(), Error> {
+        if !self.pool.same_pool(pool) || !parent.belongs_to(pool) {
+            return Err(Error::ForeignPool);
+        }
+        let original = self.parent.as_ref().ok_or(Error::SourceChanged)?;
+        if !cfg!(all(test, sumeragi_model_mutation = "DM53"))
+            && !SharedSignedBlock::ptr_eq(original, parent)
+        {
+            return Err(Error::SourceChanged);
+        }
+        Ok(())
+    }
     fn check(&self, input: &ChargedBuffer<u8>) -> Result<(), Error> {
+        if self.parent.is_some() {
+            return Err(Error::SourceChanged);
+        }
         if !input.belongs_to(&self.pool) {
             return Err(Error::ForeignPool);
         }
@@ -126,6 +185,10 @@ impl PreparedParentServiceCommitQc {
     #[must_use]
     pub fn belongs_to(&self, pool: &AllocationBudget) -> bool {
         self.pool.same_pool(pool)
+            && self
+                .parent
+                .as_ref()
+                .is_none_or(|parent| parent.belongs_to(pool))
             && self.value.as_ref().is_none_or(|v| v.belongs_to(pool))
             && self.charges.iter().flatten().all(|c| c.belongs_to(pool))
             && self.shell.as_ref().is_none_or(|s| s.belongs_to(pool))
@@ -145,6 +208,66 @@ impl PreparedParentServiceCommitQc {
         if self.ready {
             return Ok(());
         }
+        self.prepare_storage()?;
+        let value = self.value.as_mut().expect("original byte backing");
+        let bytes = self
+            .span
+            .get(input.as_slice())
+            .map_err(|_| Error::SourceRange)?;
+        ncore::classify_decode_attempt(|| {
+            let (length, used) = ncore::decode_raw_byte_sequence_into(bytes, value.as_mut_slice())
+                .map_err(|error| match error {
+                    SequenceDestinationError::Codec(original) => original,
+                    SequenceDestinationError::Storage { .. } => norito::Error::LengthMismatch,
+                })?;
+            if length != value.as_slice().len() || used != bytes.len() {
+                return Err(norito::Error::LengthMismatch);
+            }
+            Ok(())
+        })?;
+        self.ready = true;
+        Ok(())
+    }
+    /// Borrow the initialized destination prefix for the unchanged original parent.
+    /// # Errors
+    /// Rejects replacement parent controls or pools; a prefix never grants authority.
+    pub fn initialized_parent<'a>(
+        &'a self,
+        parent: &SharedSignedBlock,
+        pool: &AllocationBudget,
+    ) -> Result<Option<&'a [u8]>, Error> {
+        self.check_parent(parent, pool)?;
+        Ok(self.value.as_ref().map(ChargedBuffer::as_slice))
+    }
+    /// Resume the same paid destination copy from the unchanged original parent.
+    /// # Errors
+    /// Keeps every original charge and completed allocation on actual refusal.
+    pub fn prepare_parent(
+        &mut self,
+        parent: &SharedSignedBlock,
+        pool: &AllocationBudget,
+    ) -> Result<(), Error> {
+        self.check_parent(parent, pool)?;
+        if self.ready {
+            return Ok(());
+        }
+        self.prepare_storage()?;
+        self.value
+            .as_mut()
+            .expect("original byte backing")
+            .as_mut_slice()
+            .copy_from_slice(
+                parent
+                    .commit_certificate()
+                    .expect("original certificate")
+                    .commit_qc(),
+            );
+        self.ready = true;
+        Ok(())
+    }
+    // One construction kernel for both canonical-field and native-parent input.
+    // No source is copied until both concrete destination allocations exist.
+    fn prepare_storage(&mut self) -> Result<(), Error> {
         if !self.admitted {
             let layouts = self.allocation_layouts()?;
             let mut reservation = self.pool.try_reserve_layouts(layouts)?;
@@ -184,22 +307,6 @@ impl PreparedParentServiceCommitQc {
         while value.as_slice().len() < value.capacity() {
             value.push_reserved(0);
         }
-        let bytes = self
-            .span
-            .get(input.as_slice())
-            .map_err(|_| Error::SourceRange)?;
-        ncore::classify_decode_attempt(|| {
-            let (length, used) = ncore::decode_raw_byte_sequence_into(bytes, value.as_mut_slice())
-                .map_err(|error| match error {
-                    SequenceDestinationError::Codec(original) => original,
-                    SequenceDestinationError::Storage { .. } => norito::Error::LengthMismatch,
-                })?;
-            if length != value.as_slice().len() || used != bytes.len() {
-                return Err(norito::Error::LengthMismatch);
-            }
-            Ok(())
-        })?;
-        self.ready = true;
         Ok(())
     }
     /// Transfer into the already allocated immutable control without copying bytes.
@@ -210,12 +317,36 @@ impl PreparedParentServiceCommitQc {
         reason = "refusal returns the unchanged original byte owner"
     )]
     pub fn finish(
-        mut self,
+        self,
         input: &ChargedBuffer<u8>,
     ) -> Result<NposParentServiceCommitQc, (Self, Error)> {
         if let Err(error) = self.check(input) {
             return Err((self, error));
         }
+        self.finish_checked()
+    }
+    /// Move the paid copy into its original immutable root after checking the parent again.
+    /// # Errors
+    /// Returns the unchanged partial owner on a source/pool change or incomplete construction.
+    #[expect(
+        clippy::result_large_err,
+        reason = "returns the original funded byte owner"
+    )]
+    pub fn finish_parent(
+        self,
+        parent: &SharedSignedBlock,
+        pool: &AllocationBudget,
+    ) -> Result<NposParentServiceCommitQc, (Self, Error)> {
+        if let Err(error) = self.check_parent(parent, pool) {
+            return Err((self, error));
+        }
+        self.finish_checked()
+    }
+    #[expect(
+        clippy::result_large_err,
+        reason = "returns the original funded byte owner"
+    )]
+    fn finish_checked(mut self) -> Result<NposParentServiceCommitQc, (Self, Error)> {
         if !self.ready || self.shell.is_none() {
             return Err((self, Error::Incomplete));
         }

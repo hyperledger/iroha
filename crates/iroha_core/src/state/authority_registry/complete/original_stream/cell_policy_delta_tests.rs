@@ -12,6 +12,9 @@ fn append_clock(block: &StateBlock<'_>, output: &mut Collector) -> Result<(), Ca
 
 #[test]
 fn untouched_cell_delta_keeps_original_identity_without_value_work_or_credit() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let state = state();
     let mut block = state.block(header(1));
     freeze(&mut block);
@@ -97,6 +100,9 @@ fn untouched_cell_delta_keeps_original_identity_without_value_work_or_credit() {
 
 #[test]
 fn touched_equal_and_changed_cell_deltas_recreate_cold_bytes_and_keep_refusal() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     for successor in [None, Some(17)] {
         let state = state();
         let mut block = state.block(header(1));
@@ -247,6 +253,9 @@ fn frozen_policy_block(
 
 #[test]
 fn unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (state, _) = crate::state::publication::musubi_materializer_test_support::fixture();
     let block = frozen_policy_block(&state, false, false, false);
     let fields = block.fields.as_ref().unwrap();

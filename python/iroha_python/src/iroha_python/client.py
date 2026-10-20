@@ -17853,6 +17853,76 @@ class ToriiClient(
             )
         return response
 
+    def validate_prepared_account_faucet(
+        self,
+        prepared: Mapping[str, Any],
+        *,
+        expected_fee_payment: Mapping[str, Any],
+        expected_asset_definition_id: str,
+        expected_amount: str,
+        expected_authority: str,
+        network_id: "NetworkId",
+        allow_expired_for_recovery: bool = False,
+    ) -> Dict[str, Any]:
+        """Authenticate and copy one prepared faucet transaction without dispatch.
+
+        All policy, fee, network, authority, signed-wire and server-signature
+        checks are identical to submission. Set ``allow_expired_for_recovery``
+        only to authenticate a retained original for status/committed-record
+        recovery; this method never submits or refreshes a claim. Submission
+        always validates an active binding again.
+        """
+
+        if type(allow_expired_for_recovery) is not bool:
+            raise TypeError("allow_expired_for_recovery must be a bool")
+
+        exact_asset_definition_id, exact_amount = _copy_expected_faucet_policy_v1(
+            expected_asset_definition_id,
+            expected_amount,
+            "validate_prepared_account_faucet.expected_policy",
+        )
+        exact_prepared = _copy_prepared_transaction(
+            prepared,
+            expected_operation="faucet",
+            context="validate_prepared_account_faucet.prepared",
+        )
+        _require_same_fee_payer_and_gas_bound_v1(
+            expected_fee_payment,
+            exact_prepared["fee_payment"],
+            "validate_prepared_account_faucet.prepared",
+        )
+        _copy_prepared_operation_binding(
+            exact_prepared["binding"],
+            expected_kind="faucet",
+            context="validate_prepared_account_faucet.prepared.binding",
+            require_active=not allow_expired_for_recovery,
+        )
+        _normalize_exact_i105_account_id(
+            exact_prepared["account_id"],
+            "validate_prepared_account_faucet.prepared.account_id",
+            expected_discriminant=self._chain_discriminant,
+        )
+        _require_prepared_faucet_policy_v1(
+            exact_prepared,
+            expected_asset_definition_id=exact_asset_definition_id,
+            expected_amount=exact_amount,
+            context="validate_prepared_account_faucet.prepared",
+        )
+        canonical_authority = self._exact_account_identity_pin(
+            expected_authority,
+            "validate_prepared_account_faucet.expected_authority",
+        )
+        expected_network_id = _normalize_network_id(
+            network_id, "validate_prepared_account_faucet.network_id"
+        )
+        _verify_prepared_transaction_authentication_v1(
+            exact_prepared,
+            expected_authority=canonical_authority,
+            network_id=expected_network_id,
+            context="validate_prepared_account_faucet.prepared",
+        )
+        return exact_prepared
+
     def submit_prepared_account_faucet(
         self,
         prepared: Mapping[str, Any],
@@ -17865,50 +17935,13 @@ class ToriiClient(
     ) -> requests.Response:
         """Submit one authenticated transaction matching an independent exact faucet policy."""
 
-        exact_asset_definition_id, exact_amount = _copy_expected_faucet_policy_v1(
-            expected_asset_definition_id,
-            expected_amount,
-            "submit_prepared_account_faucet.expected_policy",
-        )
-        exact_prepared = _copy_prepared_transaction(
+        exact_prepared = self.validate_prepared_account_faucet(
             prepared,
-            expected_operation="faucet",
-            context="submit_prepared_account_faucet.prepared",
-        )
-        _require_same_fee_payer_and_gas_bound_v1(
-            expected_fee_payment,
-            exact_prepared["fee_payment"],
-            "submit_prepared_account_faucet.prepared",
-        )
-        _copy_prepared_operation_binding(
-            exact_prepared["binding"],
-            expected_kind="faucet",
-            context="submit_prepared_account_faucet.prepared.binding",
-            require_active=True,
-        )
-        _normalize_exact_i105_account_id(
-            exact_prepared["account_id"],
-            "submit_prepared_account_faucet.prepared.account_id",
-            expected_discriminant=self._chain_discriminant,
-        )
-        _require_prepared_faucet_policy_v1(
-            exact_prepared,
-            expected_asset_definition_id=exact_asset_definition_id,
-            expected_amount=exact_amount,
-            context="submit_prepared_account_faucet.prepared",
-        )
-        canonical_authority = self._exact_account_identity_pin(
-            expected_authority,
-            "submit_prepared_account_faucet.expected_authority",
-        )
-        expected_network_id = _normalize_network_id(
-            network_id, "submit_prepared_account_faucet.network_id"
-        )
-        _verify_prepared_transaction_authentication_v1(
-            exact_prepared,
-            expected_authority=canonical_authority,
-            network_id=expected_network_id,
-            context="submit_prepared_account_faucet.prepared",
+            expected_fee_payment=expected_fee_payment,
+            expected_asset_definition_id=expected_asset_definition_id,
+            expected_amount=expected_amount,
+            expected_authority=expected_authority,
+            network_id=network_id,
         )
         response = self._request(
             "POST",

@@ -22,7 +22,7 @@ pub(crate) fn read_event_execution(
     chain_id: &ChainId,
     network: NetworkId,
     height: NonZeroUsize,
-    original_target: &crate::kura::NativeFrameRead<'_>,
+    original_target: &mut crate::kura::NativeFrameRead<'_>,
     max_work: u64,
     max_bytes: u64,
 ) -> Result<(AuthenticatedExecutionBlock, u64, u64), ExecutionAttemptError<QueryExecutionFail>> {

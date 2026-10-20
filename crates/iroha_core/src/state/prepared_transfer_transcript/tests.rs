@@ -430,10 +430,12 @@ fn incremental_preparation_limit_rejects_before_the_next_movement() {
 fn incremental_ignored_preparation_error_cannot_publish_a_partial_occurrence() {
     let _suppression = crate::exec_witness::suppress_recording_for_current_thread();
     let state = state();
-    let mut block = state.block(header());
     let hash = Hash::new(b"ignored incremental preparation error");
-    block.retain_fastpq_source_invocation(hash).unwrap();
     for limit in [0, 1] {
+        // Each refused occurrence poisons its original carrier. The next limit
+        // must acquire a fresh overlay rather than mutate that failed owner.
+        let mut block = state.block(header());
+        block.retain_fastpq_source_invocation(hash).unwrap();
         let mut tx = block.transaction();
         tx.tx_call_hash = Some(hash);
         let result =
@@ -455,6 +457,12 @@ fn incremental_ignored_preparation_error_cannot_publish_a_partial_occurrence() {
                 .unwrap()
                 .is_empty()
         );
+        drop(tx);
+        assert!(matches!(
+            block.execution_output_plan,
+            Some(crate::state::output_capacity::ExecutionOutputPlanState::Poisoned)
+        ));
+        assert!(block.fastpq_transcripts.is_empty());
     }
 }
 

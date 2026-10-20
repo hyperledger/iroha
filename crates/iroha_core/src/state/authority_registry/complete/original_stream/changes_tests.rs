@@ -159,6 +159,9 @@ fn change_intent_ignores_untouched_native_rows_and_replays_exact_original_change
 
 #[test]
 fn change_intent_matches_complete_stream_but_cannot_emit_a_snapshot() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (state, proposal) = crate::state::publication::musubi_materializer_test_support::fixture();
     let membership_before = committed_membership_bytes(&state);
     let block = validated_original(&state, proposal.header());
@@ -274,6 +277,9 @@ fn change_intent_matches_complete_stream_but_cannot_emit_a_snapshot() {
 
 #[test]
 fn change_capture_refusal_retains_original_partial_frame_through_retry_and_refund() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let state = state();
     let budget = state.ivm_execution_budget();
     let mut block = state.block(header(1));

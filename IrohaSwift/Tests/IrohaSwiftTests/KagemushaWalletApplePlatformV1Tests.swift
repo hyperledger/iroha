@@ -443,6 +443,53 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
       .resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
   }
 
+  /// Observe a failed flag check before teardown without changing the stored flag or preparing again.
+  private static func custodyBackupFailureDiagnostics(_ path: String, observed: Bool?) -> String {
+    func resourceObservation(_ label: String, clearCache: Bool) -> String {
+      var url = URL(fileURLWithPath: path, isDirectory: true)
+      if clearCache { url.removeAllCachedResourceValues() }
+      do {
+        let values = try url.resourceValues(forKeys: [
+          .isExcludedFromBackupKey, .isDirectoryKey, .isSymbolicLinkKey,
+          .fileSizeKey, .contentModificationDateKey,
+        ])
+        return "\(label): excluded=\(String(describing: values.isExcludedFromBackup)) "
+          + "directory=\(String(describing: values.isDirectory)) "
+          + "symlink=\(String(describing: values.isSymbolicLink)) "
+          + "size=\(String(describing: values.fileSize)) "
+          + "modified=\(String(describing: values.contentModificationDate?.timeIntervalSince1970))"
+      } catch {
+        let failure = error as NSError
+        return "\(label): errorDomain=\(failure.domain) code=\(failure.code)"
+      }
+    }
+    func metadataObservation(_ label: String, at item: String) -> String {
+      do {
+        let attributes = try FileManager.default.attributesOfItem(atPath: item)
+        func number(_ key: FileAttributeKey) -> String {
+          (attributes[key] as? NSNumber)?.stringValue ?? "nil"
+        }
+        let type = (attributes[.type] as? FileAttributeType)?.rawValue ?? "nil"
+        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970
+        return "\(label): type=\(type) mode=\(number(.posixPermissions)) "
+          + "device=\(number(.systemNumber)) inode=\(number(.systemFileNumber)) "
+          + "links=\(number(.referenceCount)) size=\(number(.size)) "
+          + "modified=\(String(describing: modified))"
+      } catch {
+        let failure = error as NSError
+        return "\(label): errorDomain=\(failure.domain) code=\(failure.code)"
+      }
+    }
+    return [
+      "custody backup flag failure: original=\(String(describing: observed))",
+      resourceObservation("fresh URL", clearCache: false),
+      resourceObservation("cache-invalidated URL", clearCache: true),
+      metadataObservation("root metadata", at: path),
+      metadataObservation("canary metadata", at: URL(fileURLWithPath: path)
+        .appendingPathComponent("canary").path),
+    ].joined(separator: "\n")
+  }
+
   // MARK: Configuration, slot and generation binding
 
   func testKeychainAccessGroupIsTheAppsOwnApplicationIdentifier() throws {
@@ -1421,12 +1468,69 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
     XCTAssertEqual(
       (try manager.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue, 0o700,
       "mode is re-applied on every preparation")
+    let backupExclusionAfterPreparation = Result { try Self.isExcludedFromBackup(path) }
+    if case let .success(observed) = backupExclusionAfterPreparation, observed != true {
+      print(Self.custodyBackupFailureDiagnostics(path, observed: observed))
+    }
     XCTAssertEqual(
-      try Self.isExcludedFromBackup(path), true, "backup exclusion is re-applied on every preparation")
+      try backupExclusionAfterPreparation.get(), true,
+      "backup exclusion is re-applied on every preparation")
     XCTAssertEqual(protection.reads, 2, "the canary class is verified on every preparation")
     XCTAssertEqual(
       try manager.attributesOfItem(atPath: canary)[.systemFileNumber] as? NSNumber, inode,
       "the canary is never rewritten")
+  }
+
+  func testCustodyBackupFailureDiagnosticsPreserveFalseFlagAndOriginalFiles() throws {
+    let root = try temporaryDirectory()
+    let manager = FileManager.default
+    let canary = root.appendingPathComponent("canary")
+    let bytes = Data([0x01, 0x03, 0x07])
+    try bytes.write(to: canary)
+    var reset = root
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = false
+    try reset.setResourceValues(values)
+    XCTAssertEqual(try Self.isExcludedFromBackup(root.path), false)
+    let rootBefore = try manager.attributesOfItem(atPath: root.path)
+    let canaryBefore = try manager.attributesOfItem(atPath: canary.path)
+
+    let diagnostics = Self.custodyBackupFailureDiagnostics(root.path, observed: false)
+
+    XCTAssertTrue(diagnostics.contains("original=Optional(false)"))
+    XCTAssertTrue(diagnostics.contains("fresh URL: excluded=Optional(false)"))
+    XCTAssertTrue(diagnostics.contains("cache-invalidated URL: excluded=Optional(false)"))
+    XCTAssertTrue(diagnostics.contains("root metadata: type="))
+    XCTAssertTrue(diagnostics.contains("canary metadata: type="))
+    XCTAssertFalse(diagnostics.contains(root.path))
+    XCTAssertFalse(diagnostics.contains(canary.path))
+    XCTAssertEqual(try Self.isExcludedFromBackup(root.path), false,
+      "collecting failure evidence must never repair the failed flag")
+    let rootAfter = try manager.attributesOfItem(atPath: root.path)
+    let canaryAfter = try manager.attributesOfItem(atPath: canary.path)
+    for key in [FileAttributeKey.systemNumber, .systemFileNumber, .posixPermissions, .size] {
+      XCTAssertEqual(rootAfter[key] as? NSNumber, rootBefore[key] as? NSNumber)
+      XCTAssertEqual(canaryAfter[key] as? NSNumber, canaryBefore[key] as? NSNumber)
+    }
+    XCTAssertEqual(rootAfter[.modificationDate] as? Date, rootBefore[.modificationDate] as? Date)
+    XCTAssertEqual(canaryAfter[.modificationDate] as? Date, canaryBefore[.modificationDate] as? Date)
+    XCTAssertEqual(try Data(contentsOf: canary), bytes)
+    XCTAssertEqual(try manager.contentsOfDirectory(atPath: root.path), ["canary"])
+  }
+
+  func testCustodyBackupFailureDiagnosticsMissingPathDoesNotLeakOrCreateFiles() throws {
+    let base = try temporaryDirectory()
+    let missing = base.appendingPathComponent("private-missing-root", isDirectory: true)
+    let diagnostics = Self.custodyBackupFailureDiagnostics(missing.path, observed: nil)
+    for label in ["fresh URL", "cache-invalidated URL", "root metadata", "canary metadata"] {
+      XCTAssertTrue(diagnostics.contains("\(label): errorDomain="))
+    }
+    XCTAssertTrue(diagnostics.contains("original=nil"))
+    XCTAssertFalse(diagnostics.contains(base.path))
+    XCTAssertFalse(diagnostics.contains(missing.path))
+    XCTAssertFalse(diagnostics.contains("private-missing-root"))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: base.path), [])
   }
 
   func testCanaryProtectionClassIsVerifiedAndNeverAcceptedUnverified() throws {

@@ -53,7 +53,7 @@ fn execute_action_role_sample(
     transaction: &mut StateTransaction<'_, '_>,
 ) -> Result<(), Error> {
     bind_submit_privacy_instruction(transaction, &instruction);
-    let submission = PreparedPrivacySubmissionV1::prepare(instruction, transaction)?;
+    let submission = PreparedPrivacySubmissionV1::prepare(instruction, &ALICE_ID, transaction)?;
     submission.execute_after_admission(&ALICE_ID, transaction, activation)
 }
 

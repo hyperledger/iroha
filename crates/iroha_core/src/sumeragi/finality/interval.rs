@@ -598,7 +598,7 @@ fn join_source(
     let mut parent = digest;
     for height in joined + 1..=limits.to {
         progress()?;
-        let current = get(height)?;
+        let mut current = get(height)?;
         if !first.same_journal_image(&current) {
             return Err(unavailable(height));
         }

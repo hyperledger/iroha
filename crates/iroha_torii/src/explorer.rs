@@ -2211,12 +2211,16 @@ mod tests {
         )
         .with_alias(Some(alias))
         .build(&ALICE_ID);
-        let world = World::with_assets(
+        let mut world = World::with_assets(
             [Domain::new(domain_id.clone()).build(&ALICE_ID)],
             [Account::new(ALICE_ID.clone()).build(&ALICE_ID)],
             [definition],
             [],
             [],
+        );
+        crate::test_utils::bind_fixture_root(
+            &mut world,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
         );
         let view = world.view();
         assert_eq!(
@@ -3006,12 +3010,34 @@ mod tests {
         let expected = old_scopes
             .iter()
             .all(|scope| *scope == DataSpaceId::UNIVERSAL);
+        // Authenticating the committed root decodes its metadata. The account
+        // directory lookup must add no charged allocation to that fixed cost.
+        let (root, root_usage) = norito::core::with_decode_limits_measured(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32),
+            || iroha_core::sumeragi::lanes::routing::committed_root_scope(&global),
+        );
+        assert_eq!(root, Some(SumeragiRootScope::Global));
+        assert!(root_usage.total_allocated_bytes() > 0);
         let (allowed, usage) = norito::core::with_decode_limits_measured(
-            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
+            norito::DecodeLimits::new(
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                root_usage.total_allocated_bytes(),
+                32,
+            ),
             || public.allows_account(&global, &ALICE_ID),
         );
         assert_eq!(allowed, expected);
-        assert_eq!(usage.total_allocated_bytes(), 0);
+        assert_eq!(
+            usage.total_allocated_bytes(),
+            root_usage.total_allocated_bytes()
+        );
+        let denied = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
+            || public.allows_account(&global, &ALICE_ID),
+        );
+        assert!(!denied, "root metadata refusal must fail closed");
         assert!(!DataspaceReadVisibility::default().allows_account(&global, &ALICE_ID));
         let exact = DataspaceReadVisibility::exact_account(
             std::collections::BTreeSet::from([DataSpaceId::UNIVERSAL]),

@@ -344,6 +344,7 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+mod privacy_transaction_intent;
 mod sccp_forgery_entrypoint;
 pub(crate) mod sccp_pause_entrypoint;
 /// Original local owners and completed errors from witness capture.
@@ -1425,8 +1426,6 @@ macro_rules! with_world_overlay_fields {
             global_beacon_latest_pulse,
             global_beacon_pulses,
             global_beacon_pulse_slots,
-            merge_hint_roots,
-            merge_global_state_root,
             sccp_parameters,
             sccp_reset_nonce,
             sccp_committee_generations,
@@ -1527,6 +1526,9 @@ use crate::smartcontracts::isi::sccp::{
     },
 };
 use block_field::{CellField, StorageField};
+#[cfg(test)]
+#[path = "state/initial_custody_test_support.rs"]
+mod initial_custody_test_support;
 #[cfg(test)]
 #[path = "state/lane_sample_owner_tests.rs"]
 mod lane_sample_owner_tests;
@@ -4387,10 +4389,6 @@ pub struct WorldData {
     /// Inverted index from ZK1 TLV tag to proof ids (sorted, unique) for efficient queries.
     #[norito(skip)]
     pub(crate) proofs_by_tag: Storage<([u8; 4], iroha_data_model::proof::ProofId), ()>,
-    /// Latest lane merge-hint roots observed via the merge ledger.
-    pub(crate) merge_hint_roots: Cell<Vec<Hash>>,
-    /// Latest reduced global state root advertised by the merge ledger.
-    pub(crate) merge_global_state_root: Cell<Option<Hash>>,
     /// Persisted consensus evidence records keyed by deterministic digest.
     pub(crate) consensus_evidence: Storage<Hash, RetainedEvidenceRecord>,
     /// Registry of contract manifests by exact dataspace artifact identity (on-chain).
@@ -5788,10 +5786,6 @@ pub struct WorldBlockFields<'world> {
     /// Derived unique pulse id keyed by the authoritative logical-beacon height slot.
     #[norito(skip)]
     pub(crate) global_beacon_pulse_slots: StorageField<'world, (BeaconSessionId, u64), [u8; 32]>,
-    /// Latest lane merge-hint roots observed via the merge ledger during this block.
-    pub(crate) merge_hint_roots: CellField<'world, Vec<Hash>>,
-    /// Latest reduced global state root observed via the merge ledger during this block.
-    pub(crate) merge_global_state_root: CellField<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4); persisted by the SCCP snapshot envelope.
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     #[norito(skip)]
@@ -6300,8 +6294,6 @@ impl WorldBlock<'_> {
             musubi_resolver_index_revision,
             musubi_replication_shortfall_releases,
             soracloud_sequence_watermark,
-            merge_hint_roots,
-            merge_global_state_root,
             sumeragi_lanes,
             sumeragi_amx,
             sumeragi_amx_participant,
@@ -7497,10 +7489,6 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     pub(crate) global_beacon_pulse_slots:
         StorageTransaction<'block, (BeaconSessionId, u64), [u8; 32]>,
-    /// Buffer of events pending publication to external subscribers.
-    pub(crate) merge_hint_roots: CellTransaction<'block, 'world, Vec<Hash>>,
-    /// Latest reduced global state root observed in this transaction scope.
-    pub(crate) merge_global_state_root: CellTransaction<'block, 'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     pub(crate) sccp_parameters:
@@ -9344,10 +9332,6 @@ pub struct WorldView<'world> {
     pub(crate) proof_tags: StorageView<'world, iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from TLV tag to proof ids.
     pub(crate) proofs_by_tag: StorageView<'world, ([u8; 4], iroha_data_model::proof::ProofId), ()>,
-    /// Latest lane merge-hint roots observed via the merge ledger.
-    pub(crate) merge_hint_roots: CellView<'world, Vec<Hash>>,
-    /// Latest reduced global state root advertised by the merge ledger.
-    pub(crate) merge_global_state_root: CellView<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     pub(crate) sccp_parameters:
@@ -13896,10 +13880,11 @@ impl<'state> StateBlock<'state> {
 /// [`StateTransaction::consume_privacy_transaction_intent_v1`], which makes the
 /// authorization one-shot and prevents contracts, triggers, or IVM overlays from
 /// replaying a signed direct submission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PrivacyTransactionIntentBindingV1 {
     digest: iroha_data_model::privacy::PrivacyTransactionIntentDigestV1,
     submission_hash: Hash,
+    source: Option<privacy_transaction_intent::PrivacyDirectSourceV1>,
     consumed: bool,
 }
 impl PrivacyTransactionIntentBindingV1 {
@@ -13911,6 +13896,7 @@ impl PrivacyTransactionIntentBindingV1 {
         Self {
             digest,
             submission_hash,
+            source: None,
             consumed: false,
         }
     }
@@ -13927,6 +13913,9 @@ pub(crate) enum PrivacyTransactionIntentConsumptionErrorV1 {
     /// The executing instruction is not the exact direct submission signed by the authority.
     #[error("privacy submission differs from the exact direct instruction in the signed payload")]
     SubmissionMismatch,
+    /// The instruction is not executing at its original authenticated direct occurrence.
+    #[error("privacy submission requires its exact signed direct occurrence")]
+    NotDirectOccurrence,
     /// The exact direct submission was already consumed in this state transaction.
     #[error("the signed privacy submission has already been consumed")]
     AlreadyConsumed,
@@ -14256,6 +14245,8 @@ pub struct StateTransaction<'block, 'state> {
     deferred_governance_ballot_penalties: Vec<DeferredGovernanceBallotPenaltyV1>,
     /// One-shot binding to the exact direct privacy submission in the signed payload.
     pub(crate) privacy_transaction_intent_binding: Option<PrivacyTransactionIntentBindingV1>,
+    /// Original signed privacy item ordinal, armed only around its direct native execution.
+    pub(crate) current_direct_privacy_instruction_index: Option<usize>,
     /// One-shot binding to the exact direct private-settlement carrier.
     pub(crate) private_settlement_carrier_binding: Option<PrivateSettlementCarrierBindingV1>,
     /// Original block entrypoint index for the current transaction, when known.
@@ -20991,10 +20982,6 @@ macro_rules! world_ro_accessors {
             storage runtime_upgrades:
                 iroha_data_model::runtime::RuntimeUpgradeId =>
                 iroha_data_model::runtime::RuntimeUpgradeRecord;
-            /// Latest lane merge-hint roots observed via the merge ledger.
-            cell_ref merge_hint_roots: Vec<Hash>;
-            /// Latest reduced global state root advertised by the merge ledger.
-            cell_ref merge_global_state_root: Option<Hash>;
             /// Persisted consensus evidence log (read-only).
             storage consensus_evidence: Hash => RetainedEvidenceRecord;
             /// Proof verification records (read-only).
@@ -24860,8 +24847,6 @@ impl WorldTransaction<'_, '_> {
             consensus_evidence: _,
             external_event_sink: _,
             external_event_buf: _,
-            merge_hint_roots: _,
-            merge_global_state_root: _,
             sccp_parameters: _,
             sccp_reset_nonce: _,
             sccp_committee_generations: _,
@@ -24951,8 +24936,6 @@ impl WorldTransaction<'_, '_> {
         self.proof_tags.apply();
         self.proofs_by_tag.apply();
         self.consensus_evidence.apply();
-        self.merge_global_state_root.apply();
-        self.merge_hint_roots.apply();
         self.contract_manifests.apply();
         self.contract_code.apply();
         self.contract_code_uploads.apply();
@@ -36791,6 +36774,12 @@ mod consensus_owned_parameter_tests {
                 "pipeline_validity_policy_v1" => Json::new(
                     crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default(),
                 ),
+                "zk_validity_policy_v1" => Json::new(
+                    iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default(),
+                ),
+                "root_fees_v1" => {
+                    Json::new(iroha_config::parameters::defaults::nexus::fees::genesis_policy())
+                }
                 _ => Json::new("committed"),
             };
             let committed = CustomParameter::new(id.clone(), payload);
@@ -36867,6 +36856,22 @@ mod consensus_owned_parameter_tests {
             let state = state_over(World::default());
             let mut block = state.block(second_header());
             let mut transaction = block.transaction();
+            // Fixture startup installs some protected policies, including root
+            // fees. Explicitly establish the absent case before reconciliation.
+            transaction
+                .world
+                .parameters
+                .get_mut()
+                .remove_custom_parameter(&id);
+            assert!(
+                transaction
+                    .world
+                    .parameters
+                    .get()
+                    .custom()
+                    .get(&id)
+                    .is_none()
+            );
             let mut declares = ExecutorDataModel::default();
             declares.parameters.insert(id.clone(), attacker);
             transaction.world.apply_executor_data_model(declares);
@@ -38745,6 +38750,7 @@ impl<'state> StateBlock<'state> {
             native_amx_leg_execution: None,
             deferred_governance_ballot_penalties: Vec::new(),
             privacy_transaction_intent_binding: None,
+            current_direct_privacy_instruction_index: None,
             private_settlement_carrier_binding: None,
             current_entrypoint_index: None,
             current_direct_stream_token_instruction_index: None,
@@ -41102,9 +41108,23 @@ mod fastpq_tx_set_hash_tests {
                     .expect("FASTPQ context");
                 assert!(witness.fastpq_batches.is_empty());
                 assert_eq!(context.tx_set_hash, Some(tx_set_hash));
-                // A second capture with no block-owned commitment must not synthesize
-                // one from the transcript's execution identity.
-                state_block.fastpq_tx_set_hash = None;
+                // A completed execution cannot lose or replace its original
+                // cached commitment through ordinary mutable field access.
+                let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    state_block.fastpq_tx_set_hash = None;
+                }))
+                .expect_err("sealed execution must retain its cached transaction set");
+                let reason = refused
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| refused.downcast_ref::<String>().map(String::as_str));
+                assert_eq!(
+                    reason,
+                    Some("completed execution retains immutable original State")
+                );
+                assert_eq!(state_block.fastpq_tx_set_hash, Some(tx_set_hash));
+                // Replaying transcript bytes on a new recorder cannot replace
+                // the original execution recorder either.
                 crate::exec_witness::start_block();
                 crate::exec_witness::record_fastpq_transcript(&transcript);
                 assert!(state_block.capture_exec_witness().is_err());
@@ -41116,6 +41136,36 @@ mod fastpq_tx_set_hash_tests {
                         .is_none()
                 );
                 let _ = crate::exec_witness::drain_exec_witness();
+            },
+        );
+    }
+    #[test]
+    fn capture_exec_witness_rejects_missing_tx_set_hash_before_sealing() {
+        crate::state::native_capture_fixture::with_native_capture_source(
+            true,
+            |_, mut state_block, _guard, source, _batch_hash| {
+                // The actual output producer has run, but its mutable carrier
+                // has not sealed an ordered transaction-wire commitment yet.
+                state_block.fastpq_tx_set_hash = None;
+                let transcripts = state_block.fastpq_transcripts.clone();
+                assert!(!transcripts.is_empty());
+                let error = state_block
+                    .finalize_fastpq_source_inventory(source.external_entrypoints_slice(), &[], &[])
+                    .unwrap_err();
+                assert!(
+                    error.contains("ordered transaction-wire commitment"),
+                    "{error}"
+                );
+                assert_eq!(state_block.fastpq_tx_set_hash, None);
+                assert_eq!(state_block.fastpq_transcripts, transcripts);
+                assert!(state_block.capture_exec_witness().is_err());
+                assert!(state_block.take_exec_witness().is_none());
+                assert!(state_block.take_fastpq_witness_context().is_none());
+                assert!(
+                    state_block
+                        .take_parliament_timed_ovn_casting_bindings()
+                        .is_none()
+                );
             },
         );
     }
@@ -41918,6 +41968,7 @@ impl StateTransaction<'_, '_> {
             Hash,
         )>,
     ) {
+        self.current_direct_privacy_instruction_index = None;
         self.privacy_transaction_intent_binding = binding.map(|(digest, submission_hash)| {
             PrivacyTransactionIntentBindingV1::new(digest, submission_hash)
         });
@@ -42007,9 +42058,11 @@ impl StateTransaction<'_, '_> {
     /// or already consumed.
     pub(crate) fn consume_privacy_transaction_intent_v1(
         &mut self,
+        authority: &AccountId,
         actual_digest: iroha_data_model::privacy::PrivacyTransactionIntentDigestV1,
         actual_submission_hash: Hash,
     ) -> Result<(), PrivacyTransactionIntentConsumptionErrorV1> {
+        let direct = self.privacy_direct_source_matches(authority);
         let binding = self
             .privacy_transaction_intent_binding
             .as_mut()
@@ -42023,7 +42076,11 @@ impl StateTransaction<'_, '_> {
         if binding.consumed {
             return Err(PrivacyTransactionIntentConsumptionErrorV1::AlreadyConsumed);
         }
+        if !direct {
+            return Err(PrivacyTransactionIntentConsumptionErrorV1::NotDirectOccurrence);
+        }
         binding.consumed = true;
+        self.current_direct_privacy_instruction_index = None;
         Ok(())
     }
     /// Check whether one canonical privacy action can be reserved without

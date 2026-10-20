@@ -1,7 +1,9 @@
 //! Immutable original parent-service QC bytes with the existing Vec<u8> payload layout.
 //!
 //! Custody of these opaque bytes is not QC verification or historical authority.
-//! TODO: fund the independently decoded QC graph and the producer's pre-assembly copy.
+//! Semantic QC preparation uses the Sumeragi owner over the immutable admitted source.
+//! Producer destination copying shares this same leaf/control construction kernel.
+//! TODO: funding the original native-body nested input graph remains separate.
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedShared};
 use iroha_schema::{IntoSchema, MetaMap, Metadata, TypeId, VecMeta};
 use norito::core as ncore;
@@ -41,6 +43,16 @@ impl NposParentServiceCommitQc {
         match &self.storage {
             Storage::Untrusted(bytes) => bytes,
             Storage::Admitted(owner) => owner.as_slice(),
+        }
+    }
+    /// Borrow only the original admitted immutable byte owner for a retaining decoder.
+    /// Untrusted transport has no admitted source. Cloning this handle retains its
+    /// existing leaf/control charges; it provides no mutable or extraction access.
+    #[must_use]
+    pub fn admitted_source(&self) -> Option<&ChargedShared<ChargedBuffer<u8>>> {
+        match &self.storage {
+            Storage::Untrusted(_) => None,
+            Storage::Admitted(owner) => Some(owner),
         }
     }
     /// Whether both the byte allocation and its immutable control retain this exact pool.

@@ -54,7 +54,7 @@ fn stat_device_identity_matches_native_metadata() {
 /// MIME used in Torii for Norito encoding
 // note: no elegant way to associate it with generic `NoritoBody<T>`
 pub const NORITO_MIME_TYPE: &str = "application/x-norito";
-const JSON_MIME_TYPE: &str = "application/json";
+pub(crate) const JSON_MIME_TYPE: &str = "application/json";
 pub const MAX_ERROR_MESSAGE_CHARACTERS: usize = 1024;
 pub const MAX_ERROR_DETAIL_CHARACTERS: usize = 1024;
 pub const MAX_REJECT_CODE_BYTES: usize = 128;

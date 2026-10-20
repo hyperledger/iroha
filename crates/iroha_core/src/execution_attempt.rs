@@ -463,7 +463,10 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
                 .expect("matched allocator failure")
                 .into(),
         ),
-        PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Control(
+        PreparedSignatureBlockError::ControlBacking(
+            original @ SharedFromChargeError::Allocator { .. },
+        )
+        | PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Control(
             original @ SharedFromChargeError::Allocator { .. },
         ))
         | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Control(
@@ -592,6 +595,13 @@ pub(crate) fn kura_read_attempt_error<E>(
             Error::CodecAttempt(error) => {
                 canonical_decode_attempt_error(error, |error| rejected(Error::CodecAttempt(error)))
             }
+            Error::NativeFrameConstruction(
+                original @ iroha_allocation::ChargedBufferFromChargeError::Allocator { .. },
+            ) => ExecutionAttemptError::Deferred(
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched original raw-frame constructor allocator failure")
+                    .into(),
+            ),
             Error::NativeFrameAllocation(error) => {
                 let original = match error {
                     iroha_allocation::ChargedBufferError::Admission(original) => original.into(),

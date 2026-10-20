@@ -182,6 +182,7 @@ fn run_ordinary_tail_independent_batches(
             TransactionEntrypoint::External(extra.clone()).execution_call_hash(),
             entry.execution_call_hash(),
         );
+        let extra_call = TransactionEntrypoint::External(extra.clone()).execution_call_hash();
         let mut other = fixture
             ._chain
             .proposal(Some(header.creation_time_ms), vec![extra]);
@@ -194,12 +195,46 @@ fn run_ordinary_tail_independent_batches(
             .expect("record the other exact source before its first effects");
         ValidBlock::execute_recorded_component_outputs(&mut other, &mut overlay, &recorder)
             .expect("other original source completes on this overlay");
+        let foreign_receipts = other
+            .output_results()
+            .next()
+            .expect("the other source has one actual result")
+            .batch_transfer_outcomes()
+            .to_vec();
+        assert_eq!(foreign_receipts.len(), 2);
+        drop(overlay);
+        drop(recorder);
+
+        // Seed genuine receipts under their foreign call owner before this
+        // carrier executes. Reusing the completed overlay would be rejected by
+        // the sealed-state mutation gate before reaching the receipt check.
+        let (mut overlay, recorder) = ValidBlock::start_component_execution(&carrier, state)
+            .expect("record the exact carrier before its first effects");
+        overlay
+            .batch_transfer_outcomes
+            .insert(extra_call, foreign_receipts);
         let before = carrier.encode_wire().unwrap();
+        let error =
+            ValidBlock::execute_recorded_component_outputs(&mut carrier, &mut overlay, &recorder)
+                .unwrap_err();
         assert!(
-            ValidBlock::execute_recorded_component_outputs(&mut carrier, &mut overlay, &recorder,)
-                .is_err()
+            error.to_string().contains("unowned business receipts"),
+            "{error}"
         );
         assert_eq!(carrier.encode_wire().unwrap(), before);
+        assert_eq!(
+            overlay.world.assets.get(&fixture.source).unwrap().as_ref(),
+            &Quantity::from(97u32)
+        );
+        assert_eq!(
+            overlay
+                .world
+                .assets
+                .get(&fixture.destination)
+                .unwrap()
+                .as_ref(),
+            &Quantity::from(3u32)
+        );
         drop(overlay);
         drop(recorder);
         assert_eq!(

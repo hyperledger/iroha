@@ -1865,6 +1865,24 @@ impl<'s> Worker<'s> {
                     .parent_service = Default::default();
             }
             prepared.map_err(parent_service_preparation_error)?;
+            let attempt = self
+                .signature_decode
+                .as_mut()
+                .expect("original signed proposal");
+            let proposal = attempt
+                .decoded
+                .as_ref()
+                .expect("original admitted proposal");
+            match attempt
+                .parent_service
+                .prepare_proposal_qc(&original_view, proposal)
+            {
+                Ok(()) => {}
+                Err(super::certified_chain::ParentServiceError::Invalid(reason)) => {
+                    return invalid_attempt(height, &reason);
+                }
+                Err(error) => return Err(parent_service_preparation_error(error)),
+            }
         }
         let due_work_max_lag_ms = original_view
             .world()
@@ -3544,6 +3562,12 @@ impl<'s> Worker<'s> {
                 self.assembly_parent_service = None;
             }
             prepared.map_err(parent_service_preparation_error)?;
+            self.assembly_parent_service
+                .as_mut()
+                .expect("prepared original assembly")
+                .1
+                .prepare_producer_copy(&current_view, &parent)
+                .map_err(parent_service_preparation_error)?;
         }
         let assembly = Assembly {
             parent: &parent,

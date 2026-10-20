@@ -3145,12 +3145,11 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
             b"cold receipt absent identity",
         ));
         assert!(
-            canonical_transaction_details_for_indexed_identity(app.as_ref(), height, &missing)
-                .is_err()
+            canonical_transaction_details_for_indexed_identity(&app, height, &missing).is_err()
         );
         assert!(
             canonical_transaction_details_for_indexed_identity(
-                app.as_ref(),
+                &app,
                 NonZeroUsize::new(1).unwrap(),
                 &entrypoint_hash
             )
@@ -3184,6 +3183,8 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
         );
     }
 }
+
+include!("part_5_transaction_details_checkpoint.rs");
 
 #[tokio::test]
 async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other_accounts() {
@@ -3837,7 +3838,7 @@ async fn pipeline_status_resolves_native_executed_sealed_reveal_and_signed_alias
     for identity in [reveal_hash, signed_alias] {
         assert_eq!(
             canonical_transaction_details_for_indexed_identity(
-                app.as_ref(),
+                &app,
                 NonZeroUsize::new(3).unwrap(),
                 &identity,
             )
@@ -3884,8 +3885,7 @@ async fn pipeline_status_rejects_uncertified_sealed_reveal_carrier_and_signed_al
     app.state.update_latest_block_header_cache_for_tests(header);
     for identity in [reveal_entry_hash, signed_entrypoint_alias] {
         assert!(
-            canonical_transaction_details_for_indexed_identity(app.as_ref(), height_nz, &identity)
-                .is_err(),
+            canonical_transaction_details_for_indexed_identity(&app, height_nz, &identity).is_err(),
             "an indexed synthetic reveal must not replace a native commit certificate"
         );
     }

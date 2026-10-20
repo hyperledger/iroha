@@ -3714,13 +3714,12 @@ pub mod nexus {
         /// Complete default to be encoded into the signed genesis parameter by an author.
         /// Runtime execution never substitutes this for an absent committed policy.
         pub fn genesis_policy() -> iroha_data_model::block::consensus::RootFeePolicy {
-            let _default_chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
-                super::super::common::chain_discriminant(),
-            );
             iroha_data_model::block::consensus::RootFeePolicy {
                 fee_asset_id: fee_asset_id().parse().expect("canonical default fee asset"),
-                fee_sink_account_id: AccountId::parse_encoded(FEE_SINK_ACCOUNT_ID)
-                    .expect("canonical default fee sink"),
+                // Known protocol identities are constructed from their public keys.
+                // Decoding an address here would consume the caller's input quota
+                // and could panic while constructing an otherwise fallible World.
+                fee_sink_account_id: super::super::governance::bond_escrow_account_id(),
                 sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
                 successful_claim_fee_exempt_authorities: std::collections::BTreeSet::default(),
                 base_fee: base_fee(),
@@ -3729,13 +3728,13 @@ pub mod nexus {
                 per_gas_unit_fee: per_gas_unit_fee(),
             }
         }
-        /// Sponsor vault custody account parsed under the default Sora chain discriminant.
+        /// Sponsor vault custody identity, independent of address-decoder quotas and chain context.
         pub fn sponsor_vault_custody_account_id() -> AccountId {
-            let _default_chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
-                super::super::common::chain_discriminant(),
-            );
-            AccountId::parse_encoded(SPONSOR_VAULT_CUSTODY_ACCOUNT_ID)
-                .expect("default sponsor vault custody account must be canonical I105")
+            AccountId::new(
+                "ed01204EF03FAD30428340344CC731852E08E4AC76ECE3AEE7D6BDCF4BB8784368A518"
+                    .parse()
+                    .expect("canonical sponsor vault custody public key"),
+            )
         }
         /// Fee asset definition identifier (string form).
         pub fn fee_asset_id() -> String {

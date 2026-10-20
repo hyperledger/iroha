@@ -148,7 +148,7 @@ fn payment_rejects_missing_stale_substituted_and_consumed_intent_before_effects(
         let submission_hash = crate::privacy::privacy_signed_submission_hash_v1(&payment)
             .expect("payment submission hash");
         transaction
-            .consume_privacy_transaction_intent_v1(digest, submission_hash)
+            .consume_privacy_transaction_intent_v1(&ALICE_ID, digest, submission_hash)
             .expect("simulate prior child consumption");
         let error = payment
             .execute(&ALICE_ID, &mut transaction)

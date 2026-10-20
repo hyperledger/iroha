@@ -1110,63 +1110,6 @@ state_test! { sync privacy_action_budget_is_transactional_contiguous_and_fail_cl
     assert_eq!(block.privacy_budget_in_block.actions(), 2);
     assert_eq!(block.privacy_budget_in_block.bytes(), 64);
 }
-state_test! { sync privacy_transaction_intent_binding_is_exact_one_shot_and_transaction_scoped
-    use iroha_data_model::privacy::PrivacyTransactionIntentDigestV1;
-    let state = blank_state();
-    let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
-    let mut block = state.block(header);
-    let digest_a = PrivacyTransactionIntentDigestV1::new([0xA1; 32]);
-    let digest_b = PrivacyTransactionIntentDigestV1::new([0xB2; 32]);
-    let submission_a = Hash::new(b"signed privacy submission A");
-    let submission_b = Hash::new(b"signed privacy submission B");
-    {
-        let mut transaction = block.transaction();
-        assert_eq!(
-            transaction
-                .consume_privacy_transaction_intent_v1(digest_a, submission_a)
-                .expect_err("ad-hoc or child execution has no signed direct binding"),
-            PrivacyTransactionIntentConsumptionErrorV1::MissingBinding
-        );
-        transaction.bind_privacy_transaction_intent_v1(Some((digest_a, submission_a)));
-        assert_eq!(
-            transaction
-                .consume_privacy_transaction_intent_v1(digest_b, submission_a)
-                .expect_err("stale digest"),
-            PrivacyTransactionIntentConsumptionErrorV1::DigestMismatch
-        );
-        assert_eq!(
-            transaction
-                .consume_privacy_transaction_intent_v1(digest_a, submission_b)
-                .expect_err("dynamic child substitution"),
-            PrivacyTransactionIntentConsumptionErrorV1::SubmissionMismatch
-        );
-        transaction
-            .consume_privacy_transaction_intent_v1(digest_a, submission_a)
-            .expect("the exact signed submission consumes once");
-        assert_eq!(
-            transaction
-                .consume_privacy_transaction_intent_v1(digest_a, submission_a)
-                .expect_err("child-overlay replay"),
-            PrivacyTransactionIntentConsumptionErrorV1::AlreadyConsumed
-        );
-        transaction.bind_privacy_transaction_intent_v1(Some((digest_b, submission_b)));
-        transaction
-            .consume_privacy_transaction_intent_v1(digest_b, submission_b)
-            .expect("a new signed payload reset clears the prior consumed bit");
-        // Dropping the overlay exercises rollback of the consumed bit.
-    }
-    let mut next_transaction = block.transaction();
-    assert_eq!(
-        next_transaction
-            .consume_privacy_transaction_intent_v1(digest_b, submission_b)
-            .expect_err("a new transaction never inherits a dropped binding"),
-        PrivacyTransactionIntentConsumptionErrorV1::MissingBinding
-    );
-    next_transaction.bind_privacy_transaction_intent_v1(Some((digest_a, submission_a)));
-    next_transaction
-        .consume_privacy_transaction_intent_v1(digest_a, submission_a)
-        .expect("rollback does not leak a consumed bit into the next transaction");
-}
 state_test! { sync privacy_action_budget_accepts_exact_byte_boundary_and_rejects_one_byte_over
     let state = blank_state();
     let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);

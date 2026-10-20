@@ -4483,11 +4483,13 @@ impl Kura {
     where
         F: FnOnce(),
     {
+        let mut original = None;
         Self::read_regular_sidecar_snapshot_into(
             store_root,
             path,
             expected_directory,
             byte_limit,
+            &mut original,
             after_admission,
             |expected_len| {
                 let mut bytes = Vec::new();
@@ -4509,6 +4511,7 @@ impl Kura {
         path: &Path,
         expected_directory: &Path,
         byte_limit: usize,
+        original: &mut Option<StableSidecarMetadata>,
         after_admission: F,
         allocate: A,
     ) -> Result<Option<StableSidecarRead<B>>>
@@ -4564,6 +4567,24 @@ impl Kura {
                 path.to_path_buf(),
             ));
         }
+        // The first admitted image moves into the actual operation before backing
+        // allocation. Retrying may reopen the same image, never substitute another.
+        if cfg!(all(test, sumeragi_core_mutation = "HC470")) {
+            *original = Some(metadata);
+        } else if let Some(captured) = original.as_ref() {
+            if !Self::stable_sidecar_file_binding_unchanged(captured, &metadata) {
+                return Err(Error::IO(
+                    std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        "sidecar differs from its original admitted image",
+                    ),
+                    path.to_path_buf(),
+                ));
+            }
+        } else {
+            *original = Some(metadata);
+        }
+        let metadata = original.as_ref().expect("original admitted sidecar image");
         let expected_len = usize::try_from(metadata.file.len())?;
         // The cumulative decode allowance and physical pool are separate obligations.
         norito::core::classify_decode_attempt(|| {

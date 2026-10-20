@@ -1556,7 +1556,7 @@ def test_account_faucet_is_explicit_prepare_then_exact_submit(
     assert all(call["allow_redirects"] is False for call in session.calls)
     assert authentication_contexts == [
         "prepare_account_faucet.response",
-        "submit_prepared_account_faucet.prepared",
+        "validate_prepared_account_faucet.prepared",
     ]
 
 

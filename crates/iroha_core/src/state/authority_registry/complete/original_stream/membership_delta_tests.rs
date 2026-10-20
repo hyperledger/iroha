@@ -153,6 +153,9 @@ fn change_membership_capture_uses_only_delta_sets_and_recreates_complete_pair() 
 
 #[test]
 fn membership_delta_base_refusal_precedes_every_change_and_retains_original_retry() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (state, proposal) = crate::state::publication::musubi_materializer_test_support::fixture();
     let before = committed_membership_bytes(&state);
     let block = validated_original(&state, proposal.header());
@@ -213,6 +216,9 @@ fn membership_delta_base_refusal_precedes_every_change_and_retains_original_retr
 
 #[test]
 fn membership_delta_capacity_refusal_keeps_original_key_base_cause_and_refund() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let state = state();
     commit_membership(&state, 1, &[key(1)]);
     let budget = state.ivm_execution_budget();

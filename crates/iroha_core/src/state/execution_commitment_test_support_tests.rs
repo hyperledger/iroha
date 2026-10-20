@@ -88,17 +88,24 @@ fn retained_execution_projection_requires_the_actual_cached_witness() {
     let prepared = fixture();
     let (valid, mut staged) = execute(&prepared);
     let before = staged.execution_commitment_for_testing(&valid).unwrap();
-    let witness = staged.exec_witness.take();
+    let witness = staged.take_exec_witness().expect("actual captured witness");
     assert_eq!(
         staged.execution_commitment_for_testing(&valid).unwrap_err(),
         "test projection requires a captured execution witness"
     );
     staged.verify_execution_output_seal(valid.as_ref()).unwrap();
-    staged.exec_witness = witness;
+    // The consuming witness owner may extract the cache after sealing; ordinary
+    // mutable field access cannot restore or replace completed execution state.
     assert_eq!(
-        staged.execution_commitment_for_testing(&valid).unwrap(),
+        commitment::execution_commitment(
+            &witness,
+            valid.as_ref(),
+            &staged.world_state_transition().unwrap(),
+        )
+        .unwrap(),
         before
     );
+    assert!(staged.take_exec_witness().is_none());
 }
 
 #[test]

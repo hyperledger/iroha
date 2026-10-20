@@ -13,6 +13,9 @@ enum Change {
 }
 
 fn capture_at_real_overflow(change: Change) {
+    // The fixture publishes World cells before capture. Keep their retired
+    // generations fixed while checking the snapshot's synchronous refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let state = state("stark/fri");
     let pool = state.ivm_execution_budget();
     let baseline = pool.reserved_bytes();

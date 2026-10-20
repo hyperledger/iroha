@@ -610,8 +610,7 @@ fn build_at(
         })?;
         effects
             .get_or_insert_with(Default::default)
-            .parent_service_commit_qc =
-            Some(iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(original));
+            .parent_service_commit_qc = Some(original);
     }
     proposal.set_npos_consensus_effects(effects);
     Ok(proposal)

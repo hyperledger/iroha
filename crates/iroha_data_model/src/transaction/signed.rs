@@ -1038,8 +1038,6 @@ pub enum PrivacyTransactionIntentUnsupportedPathV1 {
     Ivm,
     /// A proved IVM overlay is not a direct signed native-instruction list.
     IvmProved,
-    /// A mixed batch contains a deployed contract call.
-    BatchContractCall,
     /// A custom instruction is interpreted by an executor rather than this closed projection.
     CustomInstruction,
     /// A by-call trigger can execute instructions outside the signed payload.
@@ -1152,11 +1150,10 @@ fn scan_privacy_transaction_intent_v1(executable: &Executable) -> PrivacyTransac
                     ExecutableBatchItem::Instruction(instruction) => {
                         scan.inspect_direct_instruction(instruction);
                     }
-                    ExecutableBatchItem::ContractCall(_) => {
-                        scan.unsupported_path.get_or_insert(
-                            PrivacyTransactionIntentUnsupportedPathV1::BatchContractCall,
-                        );
-                    }
+                    // The call itself remains in the signed intent. Runtime admission binds
+                    // privacy authority only to the original direct native occurrence; a
+                    // contract-emitted copy cannot consume that authority.
+                    ExecutableBatchItem::ContractCall(_) => {}
                 }
             }
         }
@@ -1341,8 +1338,11 @@ impl TransactionPayload {
     ///
     /// V1 accepts exactly one direct typed [`SubmitPrivacyProofV1`] in either
     /// [`Executable::Instructions`] or the native-instruction members of
-    /// [`Executable::Batch`]. The canonical projection clones the complete
-    /// unsigned payload and changes exactly three universally derived values:
+    /// [`Executable::Batch`], including batches with contract calls. Calls and their
+    /// order remain signed; runtime execution must bind privacy authority to the
+    /// original direct native occurrence, never a contract-emitted instruction.
+    /// The canonical projection clones the complete unsigned payload and changes
+    /// exactly three universally derived values:
     ///
     /// - the typed proof byte vector becomes empty;
     /// - `statement.context.transaction_intent_digest` becomes 32 zero bytes;
