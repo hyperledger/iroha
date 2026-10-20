@@ -175,6 +175,9 @@ impl Drop for ReplacedNamespace {
 
 #[test]
 fn owned_issuer_retains_first_refused_archive_descriptor_after_original_view_drop() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, archive) = committed_source(1);
     let original_file = fs::read(&archive).unwrap();
     let view = chain.state().view();
@@ -294,6 +297,9 @@ fn owned_issuer_retains_first_refused_archive_descriptor_after_original_view_dro
 
 #[test]
 fn owned_issuer_preserves_partial_frame_and_same_pool_without_an_extra_poll() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let count = 4096 / iroha_data_model::sumeragi_amx::AMX_RECORD_WITNESS_KEY_BYTES + 1;
     let (chain, tx, archive) = committed_source(count);
     let original_file = fs::read(&archive).unwrap();
@@ -404,6 +410,9 @@ fn owned_issuer_keeps_missing_uncertified_and_armed_probe_sources_in_borrower() 
 
 #[test]
 fn owned_issuer_carries_final_namespace_refusal_without_rebuilding_completed_graph() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, _) = committed_source(1);
     let replacement = ReplacedNamespace::new(&chain);
     let view = chain.state().view();
@@ -466,6 +475,9 @@ fn owned_issuer_carries_final_namespace_refusal_without_rebuilding_completed_gra
 
 #[test]
 fn owned_issuer_retains_original_decoder_refusal_and_rejects_substituted_carrier_fields() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, archive) = committed_source(1);
     let original_file = fs::read(&archive).unwrap();
     let mut changed: NativeExecutionProjectionV1 =
@@ -513,6 +525,9 @@ fn owned_issuer_retains_original_decoder_refusal_and_rejects_substituted_carrier
 
 #[test]
 fn public_amx_initial_shell_refusal_retains_original_genesis_frame_without_reread() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, _) = committed_source(1);
     let view = chain.state().view();
     let budget = view.execution_budget();
@@ -596,6 +611,9 @@ fn public_amx_initial_shell_refusal_retains_original_genesis_frame_without_rerea
 
 #[test]
 fn public_amx_initial_acquired_genesis_refuses_relocated_pinned_slot_without_reread() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, _) = committed_source(1);
     let view = chain.state().view();
     let budget = view.execution_budget();
@@ -705,6 +723,9 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
     };
     use norito::core::{DecodeBudgetContext, with_decode_limits_scope};
 
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures source admission, refusal and owner refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx, _) = committed_source_with_npos(1, Some(SumeragiNposParameters::default()));
     let view = chain.state().view();
     let budget = view.execution_budget();
