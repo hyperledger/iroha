@@ -9230,6 +9230,63 @@ mod evidence_http_tests {
         );
     }
     #[test]
+    fn post_multisig_spec_preserves_typed_http_errors() {
+        let request = MultisigSpecRequest {
+            multisig_account_id: Some(AccountId::new(
+                checked_random_keypair().public_key().clone(),
+            )),
+            multisig_account_alias: None,
+        };
+        for (status, code) in [
+            (StatusCode::BAD_REQUEST, "multisig_selector_invalid"),
+            (StatusCode::UNAUTHORIZED, "signature_required"),
+            (StatusCode::NOT_FOUND, "multisig_account_not_found"),
+            (StatusCode::CONFLICT, "multisig_account_not_authority"),
+            (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+            (StatusCode::SERVICE_UNAVAILABLE, "route_unavailable"),
+        ] {
+            let body = norito::json::to_json(&norito::json!({
+                "code": code,
+                "message": "multisig authority read did not complete"
+            }))
+            .expect("encode failure response");
+            let (result, _) = capture_request(json_response(status, &body), |transport| {
+                client_with_base_url(base_url())
+                    .with_test_http_transport(transport)
+                    .post_multisig_spec(&request)
+            });
+            let error = result.expect_err("HTTP rejection must remain an error");
+            let typed = error
+                .downcast_ref::<crate::Error>()
+                .expect("preserve typed SDK HTTP failure");
+            assert_eq!(typed.http_status(), Some(status.as_u16()));
+            let api = typed
+                .api_error()
+                .expect("preserve canonical error envelope");
+            assert_eq!(api.code(), code);
+        }
+        let response = Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .header("Content-Type", "text/html")
+            .body(b"upstream unavailable".to_vec())
+            .expect("build raw proxy response");
+        let (result, _) = capture_request(response, |transport| {
+            client_with_base_url(base_url())
+                .with_test_http_transport(transport)
+                .post_multisig_spec(&request)
+        });
+        let error = result.expect_err("proxy rejection must remain an error");
+        assert!(matches!(
+            error.downcast_ref::<crate::Error>(),
+            Some(crate::Error::Http {
+                operation: "multisig.spec",
+                status: 502,
+                body,
+                ..
+            }) if body == b"upstream unavailable"
+        ));
+    }
+    #[test]
     fn post_multisig_proposals_query_builds_request() {
         let client = client_with_base_url(base_url());
         let snapshots: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
@@ -9422,6 +9479,67 @@ mod evidence_http_tests {
         let body: Value = norito::json::from_slice(&snapshot.body).expect("decode request body");
         assert_eq!(body["proposal_id"].as_str(), Some(proposal_id.as_str()));
         assert!(body["instructions_hash"].is_null());
+    }
+    #[test]
+    fn post_multisig_proposals_resolve_preserves_typed_http_errors() {
+        let account_id = AccountId::new(checked_random_keypair().public_key().clone());
+        let (proposal_id, _) = multisig_read_fixture(&account_id);
+        let request = MultisigProposalsResolveRequest {
+            multisig_account_id: Some(account_id),
+            multisig_account_alias: None,
+            proposal_id,
+        };
+        for (status, code) in [
+            (StatusCode::BAD_REQUEST, "multisig_selector_invalid"),
+            (StatusCode::UNAUTHORIZED, "signature_required"),
+            (StatusCode::NOT_FOUND, "query_validation_failed"),
+            (StatusCode::NOT_FOUND, "route_not_found"),
+            (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+            (StatusCode::SERVICE_UNAVAILABLE, "route_unavailable"),
+        ] {
+            let body = norito::json::to_json(&norito::json!({
+                "code": code,
+                "message": "multisig discovery did not complete"
+            }))
+            .expect("encode failure response");
+            let (result, snapshots) = capture_requests(json_response(status, &body), |transport| {
+                client_with_base_url(base_url())
+                    .with_test_http_transport(transport)
+                    .post_multisig_proposals_resolve(&request)
+            });
+            let error = result.expect_err("HTTP rejection must remain an error");
+            let typed = error
+                .downcast_ref::<crate::error::Error>()
+                .expect("preserve typed SDK HTTP failure");
+            assert_eq!(typed.http_status(), Some(status.as_u16()));
+            let api = typed
+                .api_error()
+                .expect("preserve canonical error envelope");
+            assert_eq!(api.code(), code);
+            assert_eq!(api.message(), "multisig discovery did not complete");
+            assert_eq!(snapshots.len(), 1);
+        }
+        let response = Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .header("Content-Type", "text/html")
+            .body(b"upstream unavailable".to_vec())
+            .expect("build raw proxy response");
+        let (result, snapshots) = capture_requests(response, |transport| {
+            client_with_base_url(base_url())
+                .with_test_http_transport(transport)
+                .post_multisig_proposals_resolve(&request)
+        });
+        let error = result.expect_err("proxy rejection must remain an error");
+        assert!(matches!(
+            error.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Http {
+                operation: "multisig.proposals.resolve",
+                status: 502,
+                body,
+                ..
+            }) if body == b"upstream unavailable"
+        ));
+        assert_eq!(snapshots.len(), 1);
     }
     fn retail_assessment_fixture(
         account_id: AccountId,
@@ -18035,7 +18153,8 @@ impl Client {
     ///
     /// # Errors
     /// Returns an error if request signing, construction, JSON serialization, the HTTP call,
-    /// or closed-schema response decoding fails.
+    /// or closed-schema response decoding fails. HTTP rejections retain [`crate::Error`]
+    /// so callers can distinguish temporary service failures from missing authority.
     pub fn post_multisig_spec(
         &self,
         request: &MultisigSpecRequest,
@@ -18051,12 +18170,9 @@ impl Client {
                 .header("Content-Type", APPLICATION_JSON)
                 .header("Accept", APPLICATION_JSON),
         )?;
-        Self::ensure_response_status(
-            &resp,
-            StatusCode::OK,
-            "Failed to read multisig spec with HTTP status",
-            ". ",
-        )?;
+        if resp.status() != StatusCode::OK {
+            return Err(crate::error::http_error("multisig.spec", resp).into());
+        }
         let decoded: MultisigSpecResponse = norito::json::from_slice(resp.body())
             .map_err(|err| eyre!("failed to decode closed multisig spec response: {err}"))?;
         if request
@@ -18129,7 +18245,8 @@ impl Client {
     /// # Errors
     /// Returns an error if the authority or proposal selector is not exact, request
     /// construction or JSON serialization fails, the HTTP call fails, or the response
-    /// cannot be decoded.
+    /// cannot be decoded. HTTP rejections retain [`crate::Error`] so callers
+    /// can distinguish transport availability from selector and authority failures.
     pub fn post_multisig_proposals_resolve(
         &self,
         request: &MultisigProposalsResolveRequest,
@@ -18146,12 +18263,9 @@ impl Client {
                 .header("Content-Type", APPLICATION_JSON)
                 .header("Accept", APPLICATION_JSON),
         )?;
-        Self::ensure_response_status(
-            &resp,
-            StatusCode::OK,
-            "Failed to resolve multisig proposal with HTTP status",
-            ". ",
-        )?;
+        if resp.status() != StatusCode::OK {
+            return Err(crate::error::http_error("multisig.proposals.resolve", resp).into());
+        }
         let decoded: MultisigProposalResolveResponse = norito::json::from_slice(resp.body())
             .map_err(|err| {
                 eyre!("failed to decode closed multisig proposal resolve response: {err}")
@@ -20898,6 +21012,9 @@ impl Client {
     ///
     /// The response bytes are intentionally left raw so callers can decode a
     /// closed schema and bind every deployment CAS input to one ledger view.
+    /// Explicit Torii query-admission backpressure repeats only this read, with fresh
+    /// authentication, within the shorter configured HTTP timeout or inherited deadline.
+    /// An unbounded context makes one request; other refusals remain raw responses.
     ///
     /// # Errors
     /// Returns an error if the HTTP request fails or the request cannot be serialized.
@@ -20910,11 +21027,82 @@ impl Client {
             "authority": (self.account.to_string()),
             "contract_alias": contract_alias
         }))?;
-        self.send_builder(
-            self.account_signed_request(HttpMethod::POST, url, payload)?
-                .header("Content-Type", APPLICATION_JSON)
-                .header("Accept", APPLICATION_JSON),
-        )
+        // This endpoint is a read even though its authenticated selector uses POST.
+        // Retry only Torii's explicit admission response, with fresh HTTP signing;
+        // never repeat a deployment, a contract call, or a signed transaction.
+        let configured = if self.torii_request_timeout.is_zero() {
+            None
+        } else {
+            Some(
+                std::time::Instant::now()
+                    .checked_add(self.torii_request_timeout)
+                    .ok_or_else(|| eyre!("deployment-state timeout exceeds the monotonic clock"))?,
+            )
+        };
+        let deadline = match (self.http_transport.deadline(), configured) {
+            (Some(inherited), Some(configured)) => Some(inherited.min(configured)),
+            (inherited, configured) => inherited.or(configured),
+        };
+        let client = deadline.map_or_else(
+            || self.clone(),
+            |deadline| self.with_request_deadline(deadline),
+        );
+        loop {
+            if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                return Err(crate::http_default::request_deadline_elapsed());
+            }
+            let response = client.send_builder(
+                client
+                    .account_signed_request(HttpMethod::POST, url.clone(), payload.clone())?
+                    .header("Content-Type", APPLICATION_JSON)
+                    .header("Accept", APPLICATION_JSON),
+            )?;
+            if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                return Err(crate::http_default::request_deadline_elapsed());
+            }
+            if let Some(deadline) = deadline
+                && let Some(delay) = Self::deployment_state_retry_delay(&response)?
+            {
+                let retry_at = std::time::Instant::now()
+                    .checked_add(delay)
+                    .filter(|retry_at| *retry_at < deadline)
+                    .ok_or_else(crate::http_default::request_deadline_elapsed)?;
+                std::thread::sleep(retry_at.saturating_duration_since(std::time::Instant::now()));
+                continue;
+            }
+            return Ok(response);
+        }
+    }
+
+    fn deployment_state_retry_delay(response: &Response<Vec<u8>>) -> Result<Option<Duration>> {
+        if response.status() != StatusCode::TOO_MANY_REQUESTS || response.body().len() > 64 * 1024 {
+            return Ok(None);
+        }
+        let content_type = exact_single_response_header_bytes(response, "content-type")?;
+        if !Self::is_exact_json_content_type_bytes(content_type) {
+            return Ok(None);
+        }
+        let Ok(envelope) = norito::json::from_slice::<ErrorEnvelope>(response.body()) else {
+            return Ok(None);
+        };
+        if envelope.code() != "query_validation_failed" {
+            return Ok(None);
+        }
+        let Some(delay) = transaction_wait::retry_after_delay(response)? else {
+            return Ok(None);
+        };
+        if delay.is_zero()
+            || envelope
+                .details
+                .as_ref()
+                .and_then(|details| details.retry_after_seconds)
+                != Some(delay.as_secs())
+        {
+            return Err(eyre!(
+                "deployment-state Retry-After must be positive and match error details"
+            ));
+        }
+        Ok(Some(delay))
     }
     /// Read one current asset registration through the configured Torii and canonical account signature.
     /// The returned projection is service evidence, not an issuer certificate or native capability.
@@ -29159,6 +29347,150 @@ mod tests {
             })
         );
         assert_canonical_account_signed_json_request(&client, snapshot);
+    }
+    #[test]
+    fn contract_deployment_state_retries_only_the_read_with_fresh_authentication() {
+        let client = client_with_base_url(base_url());
+        let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&store);
+        let transport = DefaultHttpTransport::mock(Arc::new(move |request| {
+            let mut requests = captured.lock().expect("requests");
+            requests.push(request);
+            Ok(match requests.len() {
+                1 => fee_quote_backpressure_response("1"),
+                2 => json_response(StatusCode::OK, "{\"bound_snapshot\":true}"),
+                _ => panic!("read retry must stop after success"),
+            })
+        }));
+        let client = client.with_test_http_transport(transport);
+        let alias = "router::universal".parse().unwrap();
+        let started = std::time::Instant::now();
+        let response = client
+            .post_contract_deployment_state(&alias)
+            .expect("read retry");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), br#"{"bound_snapshot":true}"#);
+        assert!(started.elapsed() >= Duration::from_secs(1));
+        let requests = store.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            assert_eq!(request.method, HttpMethod::POST);
+            assert_eq!(request.url.path(), "/v1/contracts/deployment-state");
+            assert_eq!(request.body, requests[0].body);
+            assert_canonical_account_signed_json_request(&client, request);
+        }
+        let nonce = |request: &RequestSnapshot| {
+            request
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(HEADER_NONCE))
+                .unwrap()
+                .1
+                .clone()
+        };
+        assert_ne!(nonce(&requests[0]), nonce(&requests[1]));
+        assert!(requests[1].timeout < requests[0].timeout);
+    }
+
+    #[test]
+    fn contract_deployment_state_backpressure_preserves_deadlines_and_one_shot_contexts() {
+        let client = client_with_base_url(base_url());
+        let alias = "router::universal".parse().unwrap();
+        for (configured, inherited) in [
+            (Duration::from_millis(20), Duration::from_secs(3)),
+            (Duration::from_secs(3), Duration::from_millis(20)),
+            (Duration::ZERO, Duration::from_millis(20)),
+        ] {
+            let mut bounded = client.clone();
+            bounded.torii_request_timeout = configured;
+            bounded = bounded.with_request_deadline(std::time::Instant::now() + inherited);
+            let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let transport = DefaultHttpTransport::mock(Arc::new(respond_with(
+                &store,
+                fee_quote_backpressure_response("1"),
+            )));
+            let error = bounded
+                .with_test_http_transport(transport)
+                .post_contract_deployment_state(&alias)
+                .expect_err("no shortened Retry-After");
+            assert!(error.to_string().contains("deadline elapsed"));
+            assert_eq!(store.lock().unwrap().len(), 1);
+        }
+        let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let mut unbounded = client.clone();
+        unbounded.torii_request_timeout = Duration::ZERO;
+        let transport = DefaultHttpTransport::mock(Arc::new(respond_with(
+            &store,
+            fee_quote_backpressure_response("1"),
+        )));
+        let response = unbounded
+            .with_test_http_transport(transport)
+            .post_contract_deployment_state(&alias)
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(store.lock().unwrap().len(), 1);
+        let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let transport = DefaultHttpTransport::mock(Arc::new(respond_with(
+            &store,
+            json_response(StatusCode::OK, "{}"),
+        )));
+        client
+            .with_request_deadline(std::time::Instant::now())
+            .with_test_http_transport(transport)
+            .post_contract_deployment_state(&alias)
+            .expect_err("elapsed context cannot dispatch");
+        assert!(store.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn contract_deployment_state_never_retries_other_or_malformed_refusals() {
+        let client = client_with_base_url(base_url());
+        let alias = "router::universal".parse().unwrap();
+        let mut cases = Vec::new();
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            let mut response = fee_quote_backpressure_response("1");
+            *response.status_mut() = status;
+            cases.push(response);
+        }
+        for body in [
+            r#"{"code":"other","message":"busy","details":{"retry_after_seconds":1}}"#,
+            r#"{"code":"query_validation_failed","message":"busy"}"#,
+            r#"{"code":"query_validation_failed","message":"busy","details":{"retry_after_seconds":1},"extra":true}"#,
+            r#"{"code":"query_validation_failed","code":"query_validation_failed","message":"busy","details":{"retry_after_seconds":1}}"#,
+            "malformed",
+        ] {
+            let mut response = fee_quote_backpressure_response("1");
+            *response.body_mut() = body.as_bytes().to_vec();
+            cases.push(response);
+        }
+        for delay in ["0", "-1", "1,2", "2"] {
+            cases.push(fee_quote_backpressure_response(delay));
+        }
+        let mut duplicate = fee_quote_backpressure_response("1");
+        duplicate
+            .headers_mut()
+            .append(http::header::RETRY_AFTER, "1".parse().unwrap());
+        cases.push(duplicate);
+        let mut missing = fee_quote_backpressure_response("1");
+        missing.headers_mut().remove(http::header::RETRY_AFTER);
+        cases.push(missing);
+        for response in cases {
+            let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let transport = DefaultHttpTransport::mock(Arc::new(respond_with(&store, response)));
+            let _ = client
+                .clone()
+                .with_test_http_transport(transport)
+                .post_contract_deployment_state(&alias);
+            assert_eq!(
+                store.lock().unwrap().len(),
+                1,
+                "no refusal may dispatch a transaction"
+            );
+        }
     }
     #[test]
     fn governed_contract_read_sends_canonical_account_signed_request() {

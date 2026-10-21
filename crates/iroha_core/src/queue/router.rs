@@ -3995,6 +3995,58 @@ fn native_amx_participant_dataspace_target(instruction: &dyn Instruction) -> Opt
         })
 }
 
+fn fee_sponsor_enrollment_program(
+    instruction: &dyn Instruction,
+) -> Option<&iroha_data_model::nexus::FeeSponsorProgramId> {
+    let any = instruction.as_any();
+    any.downcast_ref::<iroha_data_model::isi::nexus::EnrollFeeSponsorBeneficiary>()
+        .map(|value| &value.program_id)
+        .or_else(|| {
+            any.downcast_ref::<iroha_data_model::isi::nexus::UnenrollFeeSponsorBeneficiary>()
+                .map(|value| &value.program_id)
+        })
+}
+
+// Enrollment changes the program owner's eligibility registry, not the
+// beneficiary's application state. A beneficiary may not exist yet. Resolve
+// the owner's actual scope, preserving private roots and original read refusals.
+fn fee_sponsor_enrollment_dataspace_target<W: WorldReadOnly>(
+    instruction: &dyn Instruction,
+    world: Option<&W>,
+    ledger_time_ms: Option<u64>,
+) -> Result<Option<DataSpaceId>, RoutingResolveError> {
+    let Some(program) = fee_sponsor_enrollment_program(instruction) else {
+        return Ok(None);
+    };
+    let unavailable = |reason: &str| RoutingResolveError::OrdinaryRouteUnavailable {
+        reason: reason.to_owned(),
+    };
+    let world = world.ok_or_else(|| unavailable("fee enrollment requires original World state"))?;
+    if world.accounts().get(&program.sponsor).is_none() {
+        return Err(unavailable(
+            "fee enrollment program owner account is absent",
+        ));
+    }
+    if world
+        .account_scope_directory()
+        .get(&program.sponsor)
+        .is_some()
+    {
+        let hierarchy = world
+            .account_scope_hierarchy(&program.sponsor)
+            .map_err(|_| unavailable("fee enrollment program owner scope is invalid"))?;
+        if hierarchy.is_empty() {
+            return Err(unavailable("fee enrollment program owner scope is empty"));
+        }
+    }
+    // For a known existing owner with valid scope material, None is the ordinary
+    // Universal placement. Make it concrete so issuer placement cannot relocate it.
+    Ok(Some(
+        account_dataspace_target(Some(world), &program.sponsor, ledger_time_ms)?
+            .unwrap_or(DataSpaceId::UNIVERSAL),
+    ))
+}
+
 fn kagemusha_dataspace_with_world(
     world: &impl WorldReadOnly,
     instruction: &iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1,
@@ -4011,6 +4063,13 @@ fn instruction_transaction_dataspace_target(
     dataspace_catalog: Option<&DataSpaceCatalog>,
     state_view: Option<&StateView<'_>>,
 ) -> Result<Option<DataSpaceId>, RoutingResolveError> {
+    if let Some(target) = fee_sponsor_enrollment_dataspace_target(
+        instruction,
+        state_view.map(StateView::world),
+        state_view.map(state_view_ledger_time_ms),
+    )? {
+        return Ok(Some(target));
+    }
     if let Some(register) = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::RegisterDataspaceAssetDefinition>(
@@ -4439,6 +4498,11 @@ fn instruction_transaction_dataspace_target_with_world_and_fx_overlay<W: WorldRe
     ledger_time_ms: Option<u64>,
     fx_overlay: &FxCorridorRoutingOverlay,
 ) -> Result<Option<DataSpaceId>, RoutingResolveError> {
+    if let Some(target) =
+        fee_sponsor_enrollment_dataspace_target(instruction, Some(world), ledger_time_ms)?
+    {
+        return Ok(Some(target));
+    }
     if let Some(register) = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::RegisterDataspaceAssetDefinition>(
@@ -4895,6 +4959,12 @@ fn proposal_instructions_hash(
 fn multisig_instruction(
     instruction: &dyn Instruction,
 ) -> Result<Option<MultisigInstructionBox>, RoutingResolveError> {
+    multisig_instruction_with_original_decode(instruction).map_err(RoutingResolveError::Deferred)
+}
+
+fn multisig_instruction_with_original_decode(
+    instruction: &dyn Instruction,
+) -> Result<Option<MultisigInstructionBox>, ExecutionDeferred> {
     let any = instruction.as_any();
     if let Some(multisig) = any.downcast_ref::<MultisigInstructionBox>() {
         return Ok(Some(multisig.clone()));
@@ -4917,9 +4987,7 @@ fn multisig_instruction(
         Ok(multisig) => Ok(Some(multisig)),
         Err(error) => {
             match crate::execution_attempt::canonical_decode_attempt_error(error, |_| ()) {
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                    Err(RoutingResolveError::Deferred(reason))
-                }
+                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => Err(reason),
                 crate::execution_attempt::ExecutionAttemptError::Rejected(()) => Ok(None),
             }
         }
@@ -6390,6 +6458,13 @@ fn instruction_transaction_target_requires_universal_coordinator(
     dataspace_catalog: Option<&DataSpaceCatalog>,
     state_view: Option<&StateView<'_>>,
 ) -> Result<bool, RoutingResolveError> {
+    if let Some(target) = fee_sponsor_enrollment_dataspace_target(
+        instruction,
+        state_view.map(StateView::world),
+        state_view.map(state_view_ledger_time_ms),
+    )? {
+        return Ok(target == DataSpaceId::UNIVERSAL);
+    }
     if let Some(operation) = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1>(
@@ -6562,6 +6637,11 @@ fn instruction_transaction_target_requires_universal_coordinator_with_world<W: W
     world: &W,
     ledger_time_ms: Option<u64>,
 ) -> Result<bool, RoutingResolveError> {
+    if let Some(target) =
+        fee_sponsor_enrollment_dataspace_target(instruction, Some(world), ledger_time_ms)?
+    {
+        return Ok(target == DataSpaceId::UNIVERSAL);
+    }
     let any = instruction.as_any();
     if let Some(batch) = any.downcast_ref::<TransferAssetBatch>() {
         let targets =
@@ -7021,6 +7101,9 @@ fn authority_dataspace_target_with_world<W: WorldReadOnly>(
     tx: &dyn TransactionRoutingView,
     ledger_time_ms: Option<u64>,
 ) -> Result<Option<DataSpaceId>, ExecutionDeferred> {
+    if transaction_registers_only_unlabeled_accounts(tx)? {
+        return Ok(None);
+    }
     match tx.authority_opt() {
         Some(authority) => account_dataspace_target(world, authority, ledger_time_ms),
         None => Ok(None),
@@ -7277,6 +7360,9 @@ fn trigger_executable_transaction_target_needs_state(executable: &Executable) ->
     }
 }
 fn instruction_transaction_dataspace_target_needs_state(instruction: &dyn Instruction) -> bool {
+    if fee_sponsor_enrollment_program(instruction).is_some() {
+        return true;
+    }
     let any = instruction.as_any();
     if any.is::<iroha_data_model::isi::retail_daily_limit::RetailMonetaryMovementV1>() {
         return true;
@@ -8978,6 +9064,13 @@ fn rule_matches(
     tx: &dyn TransactionRoutingView,
     state_view: Option<&StateView<'_>>,
 ) -> Result<bool, ExecutionDeferred> {
+    if !account_placement_applies_to_body(
+        rule.matcher.account.as_deref(),
+        rule.matcher.instruction.as_deref(),
+        tx,
+    )? {
+        return Ok(false);
+    }
     if let Some(account) = rule.matcher.account.as_deref() {
         let Some(authority) = tx.authority_opt() else {
             return Ok(false);
@@ -9012,6 +9105,8 @@ fn rule_matches_with_world<W: WorldReadOnly>(
 /// Whether `tx` satisfies every present matcher: its authority matches `account` (an account
 /// id, an encoded account id or an alias resolved in `world`) and one of its instructions
 /// matches `instruction`.
+/// Pure unlabeled identity registrations do not use account-only application
+/// placement; an explicit instruction matcher still applies.
 ///
 /// Local refusal retains the original reader reason; it is not a completed mismatch.
 pub(crate) fn matchers_match_with_world<W: WorldReadOnly>(
@@ -9022,6 +9117,9 @@ pub(crate) fn matchers_match_with_world<W: WorldReadOnly>(
     world: &W,
     ledger_time_ms: Option<u64>,
 ) -> Result<bool, ExecutionDeferred> {
+    if !account_placement_applies_to_body(account, instruction, tx)? {
+        return Ok(false);
+    }
     if let Some(account) = account {
         let Some(authority) = tx.authority_opt() else {
             return Ok(false);
@@ -9168,6 +9266,68 @@ fn original_account_alias_matches<W: WorldReadOnly>(
         Err(_) => Ok(false),
     }
 }
+// An unlabeled identity registration defaults to the current ledger root, not
+// the registrar's application aliases. Keep the configured root/default profile
+// for a pure registration body on both Global and private roots. Explicit typed
+// instruction policies, labeled/home-domain targets and mixed application bodies
+// still apply. Native multisig registration is the same identity birth operation.
+fn account_placement_applies_to_body(
+    account: Option<&str>,
+    instruction: Option<&str>,
+    tx: &dyn TransactionRoutingView,
+) -> Result<bool, ExecutionDeferred> {
+    Ok(account.is_none()
+        || instruction.is_some()
+        || !transaction_registers_only_unlabeled_accounts(tx)?)
+}
+
+fn transaction_registers_only_unlabeled_accounts(
+    tx: &dyn TransactionRoutingView,
+) -> Result<bool, ExecutionDeferred> {
+    let is_unlabeled_registration =
+        |instruction: &dyn Instruction| -> Result<bool, ExecutionDeferred> {
+            if matches!(
+                instruction.as_any().downcast_ref::<RegisterBox>(),
+                Some(RegisterBox::Account(register)) if register.object.label.is_none()
+            ) {
+                return Ok(true);
+            }
+            Ok(matches!(
+                multisig_instruction_with_original_decode(instruction)?,
+                Some(MultisigInstructionBox::Register(register)) if register.home_domain.is_none()
+            ))
+        };
+    match transaction_executable(tx) {
+        Some(Executable::Instructions(instructions)) => {
+            if instructions.is_empty() {
+                return Ok(false);
+            }
+            for instruction in instructions {
+                if !is_unlabeled_registration(&**instruction)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        Some(Executable::Batch(items)) => {
+            if items.is_empty() {
+                return Ok(false);
+            }
+            for item in items {
+                match item {
+                    ExecutableBatchItem::Instruction(instruction)
+                        if is_unlabeled_registration(&**instruction)? => {}
+                    _ => {
+                        return Ok(false);
+                    }
+                }
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 fn account_matches_alias_scope(
     scope: &str,
     account_id: &AccountId,
@@ -18876,6 +19036,7 @@ mod tests {
     include!("router_opaque_asset_scope_tests.rs");
     include!("router_cross_dataspace_plan_tests.rs"); // Preserve stable `queue::router::tests` paths.
     include!("router_multisig_scope_tests.rs");
+    include!("router_account_identity_birth_tests.rs");
     include!("router_resolved_asset_scope_tests.rs");
     include!("router_private_pool_routing_tests.rs");
     include!("router_confined_home_tests.rs");
