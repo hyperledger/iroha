@@ -202,6 +202,39 @@ fn check_lifecycle(
     Ok(registrations)
 }
 
+/// The certified model distinguishes a real execution failure from a healthy
+/// body rolled back only because its complete output exceeded capacity. Only
+/// real failures apply native retry policy, even when their diagnostic is omitted.
+fn scheduled_disposition(output: &ExecutionOutputV1) -> PyResult<&'static str> {
+    use iroha_data_model::block::execution_output::TriggerFailureRootV1;
+    let ExecutionOutputV1::Time(row) = output else {
+        return Err(refusal("scheduled disposition requires a Time output"));
+    };
+    if row.result.is_ok() {
+        if row.failure_root.is_some() {
+            return Err(refusal("successful Time output retained a failure root"));
+        }
+        return Ok("applied");
+    }
+    match &row.failure_root {
+        Some(TriggerFailureRootV1::OmittedByOutputLimit) => {
+            if !output.is_output_limit_rejection() {
+                return Err(refusal("invalid native Time output-capacity terminal"));
+            }
+            Ok("output_limit")
+        }
+        Some(TriggerFailureRootV1::OmittedAfterRejection) => {
+            if !output.is_internal_rejection_diagnostic_omitted() {
+                return Err(refusal("invalid omitted native Time rejection diagnostic"));
+            }
+            Ok("rejected")
+        }
+        Some(TriggerFailureRootV1::ReturnedBeforeRollback(_))
+        | Some(TriggerFailureRootV1::DeclaredInstructionProjection(_)) => Ok("rejected"),
+        None => Err(refusal("rejected Time output has no native disposition root")),
+    }
+}
+
 fn frame<T: norito::NoritoSerialize>(value: &T, writer: &mut dyn Write) -> io::Result<()> {
     norito::core::write_canonical_to_writer(value, writer)
         .map_err(|error| io::Error::other(error.to_string()))
@@ -366,6 +399,7 @@ pub(super) fn authenticate(
                     return Err(refusal("Time retry precedes its authenticated eligibility"));
                 }
             }
+            let disposition = scheduled_disposition(output)?;
             let result_ok = row.result.is_ok();
             let reason = row.result.0.as_ref().err();
             outcomes.push(norito::json!({
@@ -375,15 +409,16 @@ pub(super) fn authenticate(
                 "output_hash": (hex_encode(HashOf::new(output).as_ref())),
                 "execution_call_hash": (hex_encode(row.invocation.execution_call_hash(block.hash()).map_err(refusal)?.as_ref())),
                 "result_ok": result_ok,
+                "disposition": disposition,
                 "rejection_code": (reason.map(transaction_rejection_code)),
                 "rejection_message": (reason.map(ToString::to_string)),
                 "contract_rejection": (reason.and_then(transaction_contract_rejection_json)),
                 "ivm_fault": (reason.and_then(transaction_ivm_fault_json)),
                 "output": (json::to_value(output).map_err(refusal)?),
             }));
-            if result_ok {
+            if disposition == "applied" {
                 terminal = "applied";
-            } else {
+            } else if disposition == "rejected" {
                 let used = retry.map_or(0_u32, |(used, _)| used).saturating_add(1);
                 if used > policy.max_retries.get() {
                     terminal = "exhausted";

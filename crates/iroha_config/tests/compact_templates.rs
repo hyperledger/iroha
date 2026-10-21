@@ -124,15 +124,11 @@ fn taira_time_crypto_and_torii_defaults_keep_their_values() {
     assert_eq!(torii.query_queue_timeout_ms.get().as_millis(), 30_000);
 }
 
-const NEXUS_DEFAULTS: &str = r#"
-    [fees]
-    base_fee = "0"
-    per_byte_fee = "0"
-    per_instruction_fee = "0.001"
-    per_gas_unit_fee = "0.00005"
+// Fee rates belong to the committed `root_fees_v1` genesis policy, not node configuration.
+const NEXUS_DEFAULTS: &str = r"
     [commit]
     window_slots = 2
-"#;
+";
 
 #[test]
 fn compact_nexus_policy_preserves_topology_routing_and_effective_defaults() {
