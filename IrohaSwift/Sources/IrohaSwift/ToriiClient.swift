@@ -9978,6 +9978,7 @@ public struct ToriiEntrypointValueTypeV1: Codable, Sendable, Equatable {
         "DomainView",
         "NftView",
         "QueryPage",
+        "AssetUidHoldingQuote",
         "AxtDescriptor",
         "AxtAnchoredSpendV1",
         "ProofBlob",
@@ -10115,7 +10116,7 @@ public struct ToriiEntrypointValueTypeV1: Codable, Sendable, Equatable {
         let parts = value.components(separatedBy: "::")
         if parts.count == 2 {
             if parts[0] == "kotodama" {
-                return coreQueryViewNames.contains(value) || value == "kotodama::QueryPage" || value == "kotodama::StatePage"
+                return coreQueryViewNames.contains(value) || value == "kotodama::QueryPage" || value == "kotodama::StatePage" || value == "kotodama::AssetUidHoldingQuote"
             }
             return parts.allSatisfy(isCanonicalTypeDeclarationIdentifier)
         }
@@ -10455,7 +10456,15 @@ public struct ToriiEntrypointValueTypeV1: Codable, Sendable, Equatable {
         return descriptor.fields == expected.0 && childTypeNames == expected.1
     }
 
+    private static func isExactUidHoldingQuote(_ fields: [String], types: [String]) -> Bool {
+        fields == ["asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow"]
+            && types == ["AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity"]
+    }
+
     private static func exactDurableBuiltinProduct(_ name: String, fields: [String], types: [String]) -> Bool {
+        if name == "kotodama::AssetUidHoldingQuote" {
+            return isExactUidHoldingQuote(fields, types: types)
+        }
         if coreQueryViewNames.contains(name) {
             return isExactCoreQueryView(.init(name: name, fields: fields), childTypeNames: types)
         }
@@ -10653,6 +10662,12 @@ public struct ToriiEntrypointValueTypeV1: Codable, Sendable, Equatable {
                         coreQueryViewName: nil,
                         listCapacity: nil,
                         listElementCoreQueryViewName: nil
+                    )
+                } else if descriptor.name == "kotodama::AssetUidHoldingQuote" {
+                    guard Self.isExactUidHoldingQuote(descriptor.fields, types: childTypeNames) else { return nil }
+                    result = RenderedType(
+                        canonicalTypeName: "AssetUidHoldingQuote",
+                        coreQueryViewName: nil, listCapacity: nil, listElementCoreQueryViewName: nil
                     )
                 } else if Self.coreQueryViewNames.contains(descriptor.name) {
                     guard Self.isExactCoreQueryView(

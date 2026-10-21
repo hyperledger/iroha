@@ -459,7 +459,7 @@ impl Fixture {
             // The selected action is unchanged. Make its final Unregister succeed
             // for one attempt by adding an unrelated, far-future trigger.
             let temporary = TriggerAction::new(
-                vec![Log::new(iroha_data_model::Level::INFO, "unused".into()).into()],
+                vec![InstructionBox::from(Log::new(iroha_data_model::Level::INFO, "unused".into()))],
                 Repeats::Exactly(1),
                 original.authority().clone(),
                 TimeEventFilter::new(ExecutionTime::Schedule(

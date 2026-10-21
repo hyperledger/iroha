@@ -48,7 +48,7 @@ pub(super) fn reject_generic_mutation(
     Ok(())
 }
 
-fn authenticate<'a>(
+pub(super) fn authenticate<'a>(
     world: &impl WorldReadOnly,
     authority: &AccountId,
     context: Option<&'a ContractRuntimeExecutionContext>,
@@ -67,7 +67,7 @@ fn authenticate<'a>(
     Ok(context)
 }
 
-fn existing_control(
+pub(super) fn existing_control(
     world: &impl WorldReadOnly,
     id: &EscrowId,
 ) -> Result<AssetLockControlV1, Error> {
@@ -166,7 +166,8 @@ pub(crate) fn execute_instruction(
                     "controlled asset lock claim window has ended",
                 ));
             }
-            execute_drawdown_asset_lock(draw.drawdown.clone(), authority, tx, true)
+            let frame = authenticate(tx.world(), authority, context, &terms)?;
+            execute_drawdown_asset_lock(draw.drawdown.clone(), authority, tx, true, draw.waterfall.as_ref().map(|pins| (pins, frame)))
         })());
     }
     if let Some(cancel) = instruction
@@ -181,7 +182,8 @@ pub(crate) fn execute_instruction(
                     "controlled asset lock cancellation window has not begun",
                 ));
             }
-            execute_cancel_asset_lock(cancel.cancel.clone(), authority, tx, true)
+            let frame = authenticate(tx.world(), authority, context, &terms)?;
+            execute_cancel_asset_lock(cancel.cancel.clone(), authority, tx, true, cancel.waterfall.as_ref().map(|pins| (pins, frame)))
         })());
     }
     if let Some(expiry) = instruction
@@ -196,7 +198,8 @@ pub(crate) fn execute_instruction(
                     "controlled asset lock refund window has not begun",
                 ));
             }
-            execute_expire_asset_lock(expiry.expiry.clone(), authority, tx, true)
+            let frame = authenticate(tx.world(), authority, context, &terms)?;
+            execute_expire_asset_lock(expiry.expiry.clone(), authority, tx, true, expiry.waterfall.as_ref().map(|pins| (pins, frame)))
         })());
     }
     None

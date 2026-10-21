@@ -74,6 +74,24 @@ fn print_uid_and_controlled_lock_record_fixture_rows() {
     lock.release_authority = Some(controller.subject_id());
     lock.expires_at_ms = Some(604_800_000);
     let rows = vec![
+        row(crate::isi::asset_uid::SetAssetUidPolicyReaderV1 {
+            asset_definition_id: asset.clone(), controller: controller.clone(), revision: 1, enabled: true,
+        }),
+        row(crate::isi::asset_uid_enrollment::ActivateAssetUidEnrollmentV1 { asset_definition_id: asset.clone() }),
+        row(crate::isi::asset_uid_enrollment::SetAssetUidSystemAccountV1 {
+            account: crate::asset::uid_enrollment::AssetUidSystemAccountV1 { asset_definition_id: asset.clone(), account_id: source.clone(), revision: 1, enabled: true },
+        }),
+        row(crate::isi::asset_fi::SetAssetFiV1 {
+            fi: crate::asset::fi_link::AssetFiV1 { asset_definition_id: asset.clone(), fi_account_id: source.clone(), revision: 1, enabled: true },
+        }),
+        row(crate::isi::asset_fi::SetAssetFiLinkAttestationV1 {
+            attestation: crate::asset::fi_link::AssetFiLinkAttestationV1 { asset_definition_id: asset.clone(), account_id: source.clone(), fi_account_id: account(93), reference_digest: [18;32], revision: 1, enabled: true },
+        }),
+        row(crate::isi::asset_fi::SetAssetFiLinkV1 {
+            link: crate::asset::fi_link::AssetFiLinkV1 { asset_definition_id: asset.clone(), account_id: source.clone(), fi_account_id: account(93), reference_digest: [18;32], fi_revision: 1, attestation_revision: 1, revision: 1, enabled: true, controller: None, waterfall: false, reverse_waterfall: false },
+            expected_policy_revision: 1,
+        }),
+        row(crate::isi::asset_fi::TransferToLinkedFiV1 { asset_definition_id: asset.clone(), account_id: source.clone(), amount: 5_u32.into(), expected_link_revision: 1, expected_policy_revision: 1 }),
         row(SetAssetUidPolicyV1 {
             policy: AssetUidPolicyV1 {
                 asset_definition_id: asset,
@@ -82,7 +100,8 @@ fn print_uid_and_controlled_lock_record_fixture_rows() {
                 accounts: BTreeSet::from([source.clone()]),
                 holding_limit: Some(50_u32.into()),
                 daily_window: AssetUidDailyWindowV1::JerusalemDay,
-                daily_limit: Some(100_u32.into()),
+                daily_spend_limit: Some(100_u32.into()),
+                daily_outgoing_limit: None,
             },
         }),
         row(OpenControlledAssetLockV1 {
@@ -101,15 +120,18 @@ fn print_uid_and_controlled_lock_record_fixture_rows() {
                 amount: 10_u32.into(),
                 expected_remaining_amount: 30_u32.into(),
             },
+            waterfall: None,
         }),
         row(CancelControlledAssetLockV1 {
             cancel: CancelAssetLock {
                 escrow_id,
                 expected_remaining_amount: 20_u32.into(),
             },
+            waterfall: None,
         }),
         row(ExpireControlledAssetLockV1 {
             expiry: ExpireAssetLock { escrow_id },
+            waterfall: None,
         }),
     ];
     println!(

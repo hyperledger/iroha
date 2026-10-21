@@ -262,6 +262,14 @@ impl_direct_instruction_box!(crate::isi::asset_transfer_control::SetAssetTransfe
 impl_direct_instruction_box!(crate::isi::asset_transfer_control::SetAssetHoldingLimit);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::ActivateRetailDailyLimitV1);
 impl_direct_instruction_box!(crate::isi::asset_uid::SetAssetUidPolicyV1);
+impl_direct_instruction_box!(crate::isi::asset_uid::SetAssetUidPolicyReaderV1);
+impl_direct_instruction_box!(crate::isi::asset_uid_enrollment::ActivateAssetUidEnrollmentV1);
+impl_direct_instruction_box!(crate::isi::asset_uid_enrollment::SetAssetUidSystemAccountV1);
+impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiV1);
+impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiLinkAttestationV1);
+impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiLinkV1);
+impl_direct_instruction_box!(crate::isi::asset_fi::TransferToLinkedFiV1);
+
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::BindRetailIdentityV1);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::RetailMonetaryMovementV1);
 impl_direct_instruction_box!(
@@ -2029,6 +2037,8 @@ pub mod repo;
 pub mod retail_daily_limit;
 /// Additive identity-wide asset holding and activity policy.
 pub mod asset_uid;
+pub mod asset_uid_enrollment;
+pub mod asset_fi;
 /// Runtime upgrade instructions and payloads.
 pub mod runtime_upgrade;
 /// Real-world asset lot instructions.
@@ -2898,7 +2908,9 @@ pub mod prelude {
         retail_daily_limit::{
             ActivateRetailDailyLimitV1, BindRetailIdentityV1, RetailMonetaryMovementV1,
         },
-        asset_uid::SetAssetUidPolicyV1,
+        asset_uid::{SetAssetUidPolicyV1, SetAssetUidPolicyReaderV1},
+        asset_uid_enrollment::{ActivateAssetUidEnrollmentV1, SetAssetUidSystemAccountV1},
+        asset_fi::{SetAssetFiV1, SetAssetFiLinkAttestationV1, SetAssetFiLinkV1, TransferToLinkedFiV1},
         rwa::{
             ForceTransferRwa, FreezeRwa, HoldRwa, MergeRwas, RedeemRwa, RegisterRwa, ReleaseRwa,
             RwaInstructionBox, SetRwaControls, TransferRwa, UnfreezeRwa,

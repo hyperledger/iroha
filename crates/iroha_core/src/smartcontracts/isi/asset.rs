@@ -201,6 +201,7 @@ pub mod isi {
             // Custody, usage, privacy, and scope admission are separate gates.
             let (enforce_debit_controls, enforce_credit_controls) = match control_policy {
                 NumericAssetTransferControlPolicy::Enforce => (true, true),
+                NumericAssetTransferControlPolicy::RetainedPayerReturn => (true, false),
                 NumericAssetTransferControlPolicy::OraclePenalty
                 | NumericAssetTransferControlPolicy::OracleDisputeResolution
                 | NumericAssetTransferControlPolicy::StakingUnbond
@@ -351,6 +352,7 @@ pub mod isi {
                 expected_amount,
                 source_policy,
             )?;
+            ensure_uid_enrollment_movement(self, source_id, destination_id, source_policy)?;
             // The complete live UID balance/usage view is checked again at
             // consumption, including sibling wallets and retained escrow.
             let uid_writes = asset_uid::prepare_movements(
@@ -359,7 +361,7 @@ pub mod isi {
                     source: source_id,
                     destination: destination_id,
                     amount: expected_amount,
-                    charge_activity: source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                    activity: source_policy.uid_activity(),
                 }],
                 self.retail_fee_now_ms,
             )?;
@@ -898,7 +900,10 @@ pub mod isi {
             return Ok(());
         }
         for definition in asset_definition_ids {
-            if asset_uid::retained(state_transaction.world(), Some(definition), None)? {
+            if asset_uid::retained(state_transaction.world(), Some(definition), None)?
+                || crate::state::asset_fi::retained(state_transaction.world(), Some(definition), None)?
+                || crate::state::asset_uid_enrollment::retained(state_transaction.world(), Some(definition), None)?
+                || crate::state::asset_uid_reader::retained(state_transaction.world(), Some(definition), None)? {
                 return Err(InstructionExecutionError::InvariantViolation(
                     format!("cannot {removal_target}: asset definition {definition} retains UID policy").into(),
                 ));
@@ -958,7 +963,10 @@ pub mod isi {
         state_transaction: &StateTransaction<'_, '_>,
         account_id: &AccountId,
     ) -> Result<(), Error> {
-        if asset_uid::retained(state_transaction.world(), None, Some(account_id))? {
+        if asset_uid::retained(state_transaction.world(), None, Some(account_id))?
+            || crate::state::asset_fi::retained(state_transaction.world(), None, Some(account_id))?
+            || crate::state::asset_uid_enrollment::retained(state_transaction.world(), None, Some(account_id))?
+            || crate::state::asset_uid_reader::retained(state_transaction.world(), None, Some(account_id))? {
             return Err(InstructionExecutionError::InvariantViolation(
                 "cannot unregister an account retained by UID membership".into(),
             ));
@@ -1850,6 +1858,9 @@ pub mod isi {
         Ok(hint.or(route_dataspace))
     }
     include!("asset/public_balance_scope.rs");
+    include!("asset/linked_fi.rs");
+    include!("asset/controlled_waterfall.rs");
+    include!("asset/uid_enrollment_movement.rs");
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum NumericAssetTransferSourcePolicy {
         User,
@@ -1859,6 +1870,14 @@ pub mod isi {
         GameSessionFunding,
         FxEscrowDeposit,
         NativeEscrowCustody,
+        /// Exact new escrow address authenticated by its funding capability.
+        NativeEscrowFunding,
+        /// Exact derived child address authenticated by retained parent custody.
+        NativeEscrowPartition,
+        /// Existing beneficial ownership returned to the retained exact payer.
+        NativeEscrowReturn,
+        /// FI-attested and owner-consented off-ramp only.
+        LinkedFi,
         SorafsReserveCustody,
         KagemushaReserveCustody,
         FxEscrowRelease,
@@ -1882,6 +1901,14 @@ pub mod isi {
         BondVaultCustody,
     }
     impl NumericAssetTransferSourcePolicy {
+        const fn uid_activity(self) -> asset_uid::MovementActivity {
+            match self {
+                Self::NativeEscrowCustody | Self::NativeEscrowPartition | Self::NativeEscrowReturn => asset_uid::MovementActivity::RetainedCustody,
+                Self::LinkedFi => asset_uid::MovementActivity::LinkedFi,
+                _ => asset_uid::MovementActivity::Payment,
+            }
+        }
+
         const fn is_moderation_challenge_settlement(self) -> bool {
             matches!(
                 self,
@@ -1911,6 +1938,8 @@ pub mod isi {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum NumericAssetTransferControlPolicy {
         Enforce,
+        /// Exact retained-payer return ignores only ordinary receiver closure/cap.
+        RetainedPayerReturn,
         OraclePenalty,
         OracleDisputeResolution,
         StakingUnbond,
@@ -2777,6 +2806,11 @@ pub mod isi {
             }
             let (source, detail) = match self.source_policy {
                 NumericAssetTransferSourcePolicy::User => ("User", SourceDetail::Empty),
+                NumericAssetTransferSourcePolicy::LinkedFi => ("LinkedFi", SourceDetail::Empty),
+                NumericAssetTransferSourcePolicy::NativeEscrowFunding => ("NativeEscrowFunding", SourceDetail::Empty),
+                NumericAssetTransferSourcePolicy::NativeEscrowPartition => ("NativeEscrowPartition", SourceDetail::Empty),
+                NumericAssetTransferSourcePolicy::NativeEscrowReturn => ("NativeEscrowReturn", SourceDetail::Empty),
+
                 NumericAssetTransferSourcePolicy::GameSessionFunding => {
                     ("GameSessionFunding", SourceDetail::Empty)
                 }
@@ -2861,6 +2895,7 @@ pub mod isi {
             };
             let control = match self.control_policy {
                 NumericAssetTransferControlPolicy::Enforce => "Enforce",
+                NumericAssetTransferControlPolicy::RetainedPayerReturn => "RetainedPayerReturn",
                 NumericAssetTransferControlPolicy::OraclePenalty => "OraclePenalty",
                 NumericAssetTransferControlPolicy::OracleDisputeResolution => {
                     "OracleDisputeResolution"
@@ -2936,6 +2971,11 @@ pub mod isi {
             }
             let (source, detail) = match self.source_policy {
                 NumericAssetTransferSourcePolicy::User => ("User", Vec::new()),
+                NumericAssetTransferSourcePolicy::LinkedFi => ("LinkedFi", Vec::new()),
+                NumericAssetTransferSourcePolicy::NativeEscrowFunding => ("NativeEscrowFunding", Vec::new()),
+                NumericAssetTransferSourcePolicy::NativeEscrowPartition => ("NativeEscrowPartition", Vec::new()),
+                NumericAssetTransferSourcePolicy::NativeEscrowReturn => ("NativeEscrowReturn", Vec::new()),
+
                 NumericAssetTransferSourcePolicy::GameSessionFunding => {
                     ("GameSessionFunding", Vec::new())
                 }
@@ -3006,6 +3046,7 @@ pub mod isi {
             };
             let control = match self.control_policy {
                 NumericAssetTransferControlPolicy::Enforce => "Enforce",
+                NumericAssetTransferControlPolicy::RetainedPayerReturn => "RetainedPayerReturn",
                 NumericAssetTransferControlPolicy::OraclePenalty => "OraclePenalty",
                 NumericAssetTransferControlPolicy::OracleDisputeResolution => {
                     "OracleDisputeResolution"
@@ -5364,10 +5405,12 @@ pub mod isi {
                     destination_id.clone(),
                     amount.clone(),
                 ))?;
-                NumericAssetMovementAuthorization::embedded_user(
+                let mut selected = NumericAssetMovementAuthorization::embedded_user(
                     &authority,
                     EmbeddedNumericAssetMovementPurpose::NativeEscrow(binding),
-                )
+                );
+                selected.source_policy = NumericAssetTransferSourcePolicy::NativeEscrowFunding;
+                selected
             }
             VerifiedNativeEscrowPurpose::Retained { escrow_id } => {
                 let record = state_transaction
@@ -5404,10 +5447,15 @@ pub mod isi {
                     record.remaining_amount.clone(),
                     record.status,
                 ))?;
-                NumericAssetMovementAuthorization::retained(
+                let mut selected = NumericAssetMovementAuthorization::retained(
                     &record.seller,
                     RetainedNumericAssetMovementPurpose::NativeEscrow(binding),
-                )
+                );
+                if destination_id.account() == &record.seller {
+                    selected.source_policy = NumericAssetTransferSourcePolicy::NativeEscrowReturn;
+                    selected.control_policy = NumericAssetTransferControlPolicy::RetainedPayerReturn;
+                }
+                selected
             }
             VerifiedNativeEscrowPurpose::CustodyPartition {
                 parent_id,
@@ -5453,10 +5501,12 @@ pub mod isi {
                     amount.clone(),
                     parent.remaining_amount.clone(),
                 ))?;
-                NumericAssetMovementAuthorization::retained(
+                let mut selected = NumericAssetMovementAuthorization::retained(
                     &parent.seller,
                     RetainedNumericAssetMovementPurpose::NativeEscrow(binding),
-                )
+                );
+                selected.source_policy = NumericAssetTransferSourcePolicy::NativeEscrowPartition;
+                selected
             }
         };
         execute_numeric_asset_movement(
@@ -6173,6 +6223,8 @@ pub mod isi {
         source_id: AssetId,
         destination_id: AssetId,
         source_policy: NumericAssetTransferSourcePolicy,
+        // Preserve the sealed return exception when sibling legs are aggregated.
+        control_policy: NumericAssetTransferControlPolicy,
         event_source_id: AssetId,
         event_destination_id: AssetId,
         amount: Quantity,
@@ -6259,7 +6311,7 @@ pub mod isi {
                 state_transaction,
                 &event_source_id,
                 &event_destination_id,
-                source_policy == NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                matches!(source_policy, NumericAssetTransferSourcePolicy::NativeEscrowCustody | NumericAssetTransferSourcePolicy::NativeEscrowPartition | NumericAssetTransferSourcePolicy::NativeEscrowReturn),
             )?;
             if scope_policy == NumericAssetTransferScopePolicy::Ambient {
                 ensure_global_asset_write_on_authoritative_route(
@@ -6301,7 +6353,7 @@ pub mod isi {
                 source_policy,
             )?;
             let (control_before, control_update) = match control_policy {
-                NumericAssetTransferControlPolicy::Enforce => (
+                NumericAssetTransferControlPolicy::Enforce | NumericAssetTransferControlPolicy::RetainedPayerReturn => (
                     PreparedTransferControl::Required(active_control_record(
                         state_transaction,
                         event_source_id.account(),
@@ -6390,7 +6442,7 @@ pub mod isi {
                     source: &source_id,
                     destination: &destination_id,
                     amount: &amount,
-                    charge_activity: source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                    activity: source_policy.uid_activity(),
                 }],
                 state_transaction.block_unix_timestamp_ms(),
             )?;
@@ -6410,6 +6462,7 @@ pub mod isi {
                 source_id,
                 destination_id,
                 source_policy,
+                control_policy,
                 event_source_id,
                 event_destination_id,
                 amount,
@@ -6665,7 +6718,7 @@ pub mod isi {
                     source: &plan.source_id,
                     destination: &plan.destination_id,
                     amount: &plan.amount,
-                    charge_activity: plan.source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                    activity: plan.source_policy.uid_activity(),
                 }).collect::<Vec<_>>(),
                 state_transaction.block_unix_timestamp_ms(),
             )?;
@@ -6708,9 +6761,23 @@ pub mod isi {
                 assert_numeric_spec_with(source_after.as_numeric(), plan.numeric_spec)?;
                 assert_numeric_spec_with(destination_before.as_numeric(), plan.numeric_spec)?;
                 assert_numeric_spec_with(destination_after.as_numeric(), plan.numeric_spec)?;
-                state_transaction
-                    .world
-                    .ensure_numeric_asset_holding_limit(&plan.destination_id, &destination_after)?;
+                // Only sealed native capabilities select this exact pair after
+                // checking retained custody and the original payer. Returning
+                // that ownership keeps its preparation-time receiver exception;
+                // FI credits and every other beneficiary still obey this cap.
+                // Identity-wide beneficial holding checks remain independent.
+                if !matches!(
+                    (plan.source_policy, plan.control_policy),
+                    (
+                        NumericAssetTransferSourcePolicy::NativeEscrowReturn,
+                        NumericAssetTransferControlPolicy::RetainedPayerReturn
+                    )
+                ) {
+                    state_transaction.world.ensure_numeric_asset_holding_limit(
+                        &plan.destination_id,
+                        &destination_after,
+                    )?;
+                }
                 if plan.source_id != plan.destination_id {
                     virtual_balances.insert(plan.source_id.clone(), source_after.clone());
                     virtual_balances.insert(plan.destination_id.clone(), destination_after.clone());
@@ -6907,7 +6974,7 @@ pub mod isi {
                     source: &plan.source_id,
                     destination: &plan.destination_id,
                     amount: &plan.amount,
-                    charge_activity: plan.source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                    activity: plan.source_policy.uid_activity(),
                 }).collect::<Vec<_>>(),
                 state_transaction.block_unix_timestamp_ms(),
             )?;
@@ -7049,12 +7116,17 @@ pub mod isi {
             plans.push(plan);
         }
         for (source, custody, amount) in escrow_fundings {
-            let plan = PreparedNumericTransferPlan::prepare_explicit_bilateral(
+            let plan = PreparedNumericTransferPlan::prepare(
                 state_transaction,
                 &authority,
                 source.clone(),
                 custody.clone(),
                 amount,
+                NumericAssetTransferScopePolicy::ExplicitBilateral,
+                NumericAssetTransferAuthorityPolicy::ProtocolAuthorized,
+                NumericAssetTransferSourcePolicy::NativeEscrowFunding,
+                NumericAssetTransferControlPolicy::Enforce,
+                NumericAssetDestinationAdmissionPolicy::ExistingAccount,
             )?;
             if plan.source_id != source || plan.destination_id != custody {
                 return Err(InstructionExecutionError::InvariantViolation(
@@ -7762,6 +7834,7 @@ pub mod isi {
                 .into(),
             ));
         }
+        ensure_uid_enrollment_movement(state_transaction.world(), source_id, destination_id, source_policy)?;
         ensure_privacy_public_reserve_source_policy(state_transaction, source_id, source_policy)?;
         if state_transaction
             .world
@@ -7854,6 +7927,8 @@ pub mod isi {
         }
         match source_policy {
             NumericAssetTransferSourcePolicy::User
+            | NumericAssetTransferSourcePolicy::LinkedFi
+            | NumericAssetTransferSourcePolicy::NativeEscrowFunding
             | NumericAssetTransferSourcePolicy::RetailMonetary(_)
             | NumericAssetTransferSourcePolicy::PrivacyPoolDeposit(_)
             | NumericAssetTransferSourcePolicy::PrivacyPoolBridge(_)
@@ -7899,7 +7974,9 @@ pub mod isi {
                     ));
                 }
             }
-            NumericAssetTransferSourcePolicy::NativeEscrowCustody => {
+            NumericAssetTransferSourcePolicy::NativeEscrowCustody
+            | NumericAssetTransferSourcePolicy::NativeEscrowPartition
+            | NumericAssetTransferSourcePolicy::NativeEscrowReturn => {
                 if !crate::smartcontracts::isi::escrow::is_native_escrow_custody_asset(
                     state_transaction,
                     source_id,

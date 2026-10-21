@@ -1086,6 +1086,9 @@ pub const fn registered_host_syscall_gas_formula(number: u32) -> Option<HostSysc
             | syscalls::SYSCALL_QUERY_GET_CONTRACT_MANIFEST
             | syscalls::SYSCALL_QUERY_GET_CONTRACT_INSTANCE
             | syscalls::SYSCALL_GET_ACCOUNT_BALANCE
+            | syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE
+            | syscalls::SYSCALL_ASSET_FI_LINK_REVISION
+            | syscalls::SYSCALL_ASSET_SAME_UID
             | syscalls::SYSCALL_RESOLVE_ACCOUNT_ALIAS
     ) {
         return Some(HostSyscallGasFormula::LedgerQueryV1);
@@ -1185,6 +1188,10 @@ pub const fn registered_host_syscall_gas_formula(number: u32) -> Option<HostSysc
             | syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN
             | syscalls::SYSCALL_ASSET_LOCK_CANCEL
             | syscalls::SYSCALL_ASSET_LOCK_EXPIRE
+            | syscalls::SYSCALL_TRANSFER_TO_LINKED_FI
+            | syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL
+            | syscalls::SYSCALL_ASSET_LOCK_CANCEL_WATERFALL
+            | syscalls::SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL
     ) {
         return Some(HostSyscallGasFormula::ConservativeEnvelope);
     }

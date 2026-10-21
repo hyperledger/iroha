@@ -86,3 +86,20 @@ impl Execute for ActivateAssetUidEnrollmentV1 {
         Ok(())
     }
 }
+
+
+impl crate::smartcontracts::ValidQuery for iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1 {
+    fn execute(
+        self,
+        filter: iroha_data_model::query::dsl::CompoundPredicate<iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1>,
+        state: &impl crate::state::StateReadOnly,
+    ) -> Result<impl Iterator<Item = iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1>, iroha_data_model::query::error::QueryExecutionFail> {
+        use iroha_data_model::query::{dsl::EvaluatePredicate, error::QueryExecutionFail};
+        let ledger_time_ms = state.authenticated_query_ledger_time_ms().ok_or_else(|| QueryExecutionFail::Conversion("enrollment query requires authenticated ledger time".into()))?;
+        let as_of_height = u64::try_from(state.height()).map_err(|_| QueryExecutionFail::CapacityLimit)?;
+        state.world().asset_definition(&self.asset_definition_id).map_err(|error| QueryExecutionFail::Conversion(error.to_string()))?;
+        let enrollment = asset_uid_enrollment::enrollment(state.world(), &self.asset_definition_id).map_err(|error| QueryExecutionFail::Conversion(error.to_string()))?;
+        let row = iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1 { asset_definition_id: self.asset_definition_id, enrollment, ledger_time_ms, as_of_height };
+        Ok(core::iter::once(row).filter(move |row| filter.applies(row)))
+    }
+}

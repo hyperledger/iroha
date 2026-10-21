@@ -40,6 +40,7 @@ pub const V1_SOURCE_TYPE_NAMES: &[&str] = &[
     "DomainView",
     "NftView",
     "QueryPage",
+    "AssetUidHoldingQuote",
 ];
 /// Compiler-owned non-keyword names forbidden for source declarations.
 pub const V1_DECLARATION_RESERVED_EXTRA_NAMES: &[&str] = &[

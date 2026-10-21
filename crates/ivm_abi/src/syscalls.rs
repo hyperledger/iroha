@@ -547,6 +547,8 @@ pub const SYSCALL_ACCOUNT_RECOVERY_FINALIZE: u32 = 0x01_0213;
 /// Words: &Blob(key), &AccountId(source), &AccountId(destination), &AssetDefinitionId,
 /// &Quantity(amount), release_until_ms:u64, cancel_not_before_ms:u64, expires_at_ms:u64.
 /// Zero timestamps mean absent; the authenticated active contract supplies the controller.
+/// Returns r10=&AccountId of the exact protocol custody derived from the admitted network,
+/// controller-scoped lock ID, and asset. Gas includes the full encoded AccountId TLV bytes.
 pub const SYSCALL_ASSET_LOCK_OPEN: u32 = 0x01_0220;
 /// Draw a controlled lock: r10=&Blob(key), r11=&Quantity(amount), r12=&Quantity(expected_remaining).
 pub const SYSCALL_ASSET_LOCK_DRAWDOWN: u32 = 0x01_0221;
@@ -554,6 +556,33 @@ pub const SYSCALL_ASSET_LOCK_DRAWDOWN: u32 = 0x01_0221;
 pub const SYSCALL_ASSET_LOCK_CANCEL: u32 = 0x01_0222;
 /// Expire a controlled lock: r10=&Blob(key).
 pub const SYSCALL_ASSET_LOCK_EXPIRE: u32 = 0x01_0223;
+/// Read a controller-authorized beneficial-holdings projection.
+/// Args: r10=&AssetDefinitionId, r11=&AccountId, r12=&Quantity(incoming).
+/// Returns r10=&AssetUidHoldingQuote, the exact six-word product in the ABI spec.
+pub const SYSCALL_ASSET_UID_HOLDING_QUOTE: u32 = 0x01_0224;
+/// Transfer approved beneficial excess to the current owner-linked financial institution.
+/// Args: r10=&AssetDefinitionId, r11=&AccountId, r12=&Quantity(amount),
+/// r13=policy_revision:u64, r14=link_revision:u64; destination is native-derived.
+pub const SYSCALL_TRANSFER_TO_LINKED_FI: u32 = 0x01_0225;
+/// Draw a controlled lock and settle approved overflow in the same native batch.
+/// Args: r10=&Blob(key), r11=&Quantity(amount), r12=&Quantity(expected_remaining),
+/// r13=policy_revision:u64, r14=link_revision:u64.
+pub const SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL: u32 = 0x01_0226;
+/// Cancel a controlled lock and settle approved existing excess in the same native batch.
+/// Args: r10=&Blob(key), r11=&Quantity(expected_remaining),
+/// r12=policy_revision:u64, r13=link_revision:u64.
+pub const SYSCALL_ASSET_LOCK_CANCEL_WATERFALL: u32 = 0x01_0227;
+/// Expire a controlled lock and settle approved existing excess in the same native batch.
+/// Args: r10=&Blob(key), r11=policy_revision:u64, r12=link_revision:u64.
+pub const SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL: u32 = 0x01_0228;
+/// Read the current owner-approved FI link after asserting the expected FI.
+/// Args: r10=&AssetDefinitionId, r11=&AccountId, r12=&AccountId(expected_fi).
+/// Returns r10=&Int(exact u64 revision); requires the link's active controller.
+pub const SYSCALL_ASSET_FI_LINK_REVISION: u32 = 0x01_0229;
+/// Compare two exact native retail memberships under the asset-owner reader grant.
+/// Args: r10=&AssetDefinitionId, r11=&AccountId(source), r12=&AccountId(destination).
+/// Returns r10=0|1; unknown or institutional operands fail, no UID/roster returned.
+pub const SYSCALL_ASSET_SAME_UID: u32 = 0x01_022A;
 // Kotodama V1 exact numeric families. These numbers are deliberately grouped
 // by value domain so admission, host dispatch, and generated SDK tables can
 // classify them without depending on source-language spellings.
@@ -833,6 +862,13 @@ pub const GENERIC_PROGRAM_DENIED_SYSCALLS_V1: &[u32] = &[
     SYSCALL_ASSET_LOCK_DRAWDOWN,
     SYSCALL_ASSET_LOCK_CANCEL,
     SYSCALL_ASSET_LOCK_EXPIRE,
+    SYSCALL_ASSET_UID_HOLDING_QUOTE,
+    SYSCALL_TRANSFER_TO_LINKED_FI,
+    SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL,
+    SYSCALL_ASSET_LOCK_CANCEL_WATERFALL,
+    SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL,
+    SYSCALL_ASSET_FI_LINK_REVISION,
+    SYSCALL_ASSET_SAME_UID,
 ];
 /// Return whether an ABI syscall is available to a contract-less program.
 ///
@@ -914,6 +950,9 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
             | SYSCALL_QUERY_GET_CONTRACT_MANIFEST
             | SYSCALL_QUERY_GET_CONTRACT_INSTANCE
             | SYSCALL_GET_ACCOUNT_BALANCE
+            | SYSCALL_ASSET_UID_HOLDING_QUOTE
+            | SYSCALL_ASSET_FI_LINK_REVISION
+            | SYSCALL_ASSET_SAME_UID
             | SYSCALL_RESOLVE_ACCOUNT_ALIAS
             | SYSCALL_VRF_EPOCH_SEED
             | SYSCALL_ZK_ROOTS_GET
@@ -998,6 +1037,10 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
             | SYSCALL_ASSET_LOCK_DRAWDOWN
             | SYSCALL_ASSET_LOCK_CANCEL
             | SYSCALL_ASSET_LOCK_EXPIRE
+            | SYSCALL_TRANSFER_TO_LINKED_FI
+            | SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL
+            | SYSCALL_ASSET_LOCK_CANCEL_WATERFALL
+            | SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL
     ) {
         return Some(SyscallAccess::LedgerWrite);
     }
@@ -1421,6 +1464,13 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_ASSET_LOCK_DRAWDOWN, "ASSET_LOCK_DRAWDOWN"),
     (SYSCALL_ASSET_LOCK_CANCEL, "ASSET_LOCK_CANCEL"),
     (SYSCALL_ASSET_LOCK_EXPIRE, "ASSET_LOCK_EXPIRE"),
+    (SYSCALL_ASSET_UID_HOLDING_QUOTE, "ASSET_UID_HOLDING_QUOTE"),
+    (SYSCALL_TRANSFER_TO_LINKED_FI, "TRANSFER_TO_LINKED_FI"),
+    (SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL, "ASSET_LOCK_DRAWDOWN_WATERFALL"),
+    (SYSCALL_ASSET_LOCK_CANCEL_WATERFALL, "ASSET_LOCK_CANCEL_WATERFALL"),
+    (SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL, "ASSET_LOCK_EXPIRE_WATERFALL"),
+    (SYSCALL_ASSET_FI_LINK_REVISION, "ASSET_FI_LINK_REVISION"),
+    (SYSCALL_ASSET_SAME_UID, "ASSET_SAME_UID"),
 ];
 const ABI_V1_SYSCALL_COUNT: usize = ABI_V1_SYSCALL_METADATA.len();
 const fn abi_v1_syscall_numbers() -> [u32; ABI_V1_SYSCALL_COUNT] {
@@ -3297,6 +3347,13 @@ mod tests {
                 SYSCALL_ASSET_LOCK_DRAWDOWN,
                 SYSCALL_ASSET_LOCK_CANCEL,
                 SYSCALL_ASSET_LOCK_EXPIRE,
+                SYSCALL_ASSET_UID_HOLDING_QUOTE,
+                SYSCALL_TRANSFER_TO_LINKED_FI,
+                SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL,
+                SYSCALL_ASSET_LOCK_CANCEL_WATERFALL,
+                SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL,
+    SYSCALL_ASSET_FI_LINK_REVISION,
+    SYSCALL_ASSET_SAME_UID,
             ]
         );
         for &syscall in GENERIC_PROGRAM_DENIED_SYSCALLS_V1 {

@@ -37,7 +37,9 @@ use std::{
 mod authorization;
 pub mod call;
 pub use authorization::DeploymentAuthorization;
+mod expiry;
 mod journal;
+pub use expiry::DeploymentValidityWindowElapsed;
 mod lifecycle;
 pub use lifecycle::{DeploymentLifecycleGuidance, LifecycleHook, LifecycleParameter};
 mod manifest_encoding;
@@ -157,6 +159,8 @@ pub enum JournalDisposition {
     Completed(Box<DeploymentReceipt>),
     /// A fully unattempted exact plan was durably abandoned locally.
     Cancelled(DeploymentCancellation),
+    /// Certified complete Global history proves all original signed validity windows elapsed absent.
+    ValidityWindowElapsed(DeploymentValidityWindowElapsed),
 }
 /// Durable local cancellation of exact signed transactions that were never attempted.
 #[derive(
@@ -1237,6 +1241,9 @@ fn inspect_read_record<T: DeploymentTransport>(
     transport: &T,
 ) -> DeploymentResult<JournalDisposition> {
     validate_read_plan(record, context)?;
+    if let Some(evidence) = expiry::retained(record, journal)? {
+        return Ok(JournalDisposition::ValidityWindowElapsed(evidence));
+    }
     if let Some(cancellation) = retained_cancellation(record, journal)? {
         return Ok(JournalDisposition::Cancelled(cancellation));
     }
@@ -1271,6 +1278,11 @@ fn retained_cancellation(
 }
 
 fn reject_cancelled(record: &PlanRecord, journal: &Journal) -> DeploymentResult<()> {
+    if expiry::retained(record, journal)?.is_some() {
+        return Err(DeploymentError::InvalidRequest(
+            "this deployment was retired by certified validity-window absence; prepare a successor plan".into(),
+        ));
+    }
     if retained_cancellation(record, journal)?.is_some() {
         return Err(DeploymentError::InvalidRequest(
             "this unattempted deployment was cancelled locally; prepare a new plan to deploy"

@@ -1,7 +1,10 @@
-//! Additive native UID state in the existing consensus state map.
+//! Native UID state in the existing consensus state map.
 //!
-//! No `World` field or pre-existing wire layout changes. Policy and membership
-//! are owner-written; generic contract state access cannot write these roots.
+//! The existing `World` map is reused, but the persisted UID policy and usage
+//! payload layouts change with purpose-aware counters. Retained-history replay
+//! and snapshot restoration require qualification against the current layout;
+//! no retired-layout decoder is provided. Policy and membership are owner-written;
+//! generic contract state access cannot write these roots.
 use super::*;
 use iroha_data_model::{
     asset::{
@@ -11,6 +14,8 @@ use iroha_data_model::{
     isi::error::{AssetTransferAdmissionError, InstructionExecutionError, MathError},
 };
 use iroha_primitives::numeric::Quantity;
+
+pub(crate) mod wallet_holdings;
 
 pub(crate) const POLICY_ROOT: &str = "asset_uid_policy_v1/";
 pub(crate) const BINDING_ROOT: &str = "asset_uid_binding_v1/";
@@ -108,7 +113,7 @@ pub(crate) fn binding(
     Ok(Some(value))
 }
 
-fn member_policy(
+pub(crate) fn member_policy(
     world: &impl WorldReadOnly,
     definition: &AssetDefinitionId,
     account: &AccountId,
@@ -219,6 +224,7 @@ pub(crate) fn check_credit(
     id: &AssetId,
     candidate: &Quantity,
 ) -> Result<(), Error> {
+    super::asset_uid_enrollment::require_active_beneficial(world, id)?;
     if let Some(policy) = beneficial_policy(world, id)? {
         if id.scope() != &AssetBalanceScope::Global {
             return Err(reject("asset UID policy requires exact Global balances"));
@@ -247,11 +253,13 @@ fn usage(
             uid: policy.uid,
             daily_window: policy.daily_window,
             day_start_ms: day,
-            amount: Quantity::zero(),
+            spend_amount: Quantity::zero(),
+            outgoing_amount: Quantity::zero(),
         });
     };
     let value: AssetUidUsageV1 = decode(bytes)?;
-    if value.asset_definition_id != policy.asset_definition_id
+    if value.spend_amount > value.outgoing_amount
+        || value.asset_definition_id != policy.asset_definition_id
         || value.uid != policy.uid
         || value.daily_window != policy.daily_window
         || value.day_start_ms != day
@@ -261,13 +269,16 @@ fn usage(
     Ok(value)
 }
 
-/// One exact movement and whether its source consumes new activity.
-/// Only sealed retained native custody releases may set `charge_activity=false`.
+#[path = "asset_uid_activity.rs"]
+mod activity;
+pub(crate) use activity::MovementActivity;
+
+/// Exact purpose provenance supplied only by the sealed native movement kernel.
 pub(crate) struct Movement<'a> {
     pub(crate) source: &'a AssetId,
     pub(crate) destination: &'a AssetId,
     pub(crate) amount: &'a Quantity,
-    pub(crate) charge_activity: bool,
+    pub(crate) activity: MovementActivity,
 }
 
 /// Validate a complete ordered occurrence against one exclusive World view.
@@ -324,37 +335,7 @@ pub(crate) fn prepare_movements(
                 ));
             }
         }
-        if movement.charge_activity {
-            // Only an actual wallet debit consumes activity. A conditional
-            // custody source remains payer-owned but was charged when funded.
-            if let Some(value) = member_policy(
-                world,
-                movement.source.definition(),
-                movement.source.account(),
-            )? {
-                let day = value.daily_window.day_start_ms(now_ms).map_err(reject)?;
-                let key = usage_key(&value.asset_definition_id, &value.uid, day);
-                if !activities.contains_key(&key) {
-                    activities.insert(key.clone(), usage(world, &value, day)?);
-                }
-                let current = activities.get_mut(&key).expect("activity inserted above");
-                current.amount = current
-                    .amount
-                    .checked_add(movement.amount)
-                    .map_err(|_| MathError::Overflow)?;
-                if value
-                    .daily_limit
-                    .as_ref()
-                    .is_some_and(|limit| current.amount > *limit)
-                {
-                    return Err(Error::AssetTransferAdmission(
-                        AssetTransferAdmissionError::PolicyRejected(
-                            "identity-wide asset calendar daily activity limit exceeded".into(),
-                        ),
-                    ));
-                }
-            }
-        }
+        activity::charge_activity(world, movement, now_ms, &mut activities)?;
     }
     activities
         .into_iter()
@@ -441,12 +422,14 @@ pub(crate) fn views(
                 .day_start_ms(ledger_time_ms)
                 .map_err(reject)?;
             let beneficial_holdings = holdings(world, &policy, &BTreeMap::new())?;
-            let daily_usage = usage(world, &policy, day_start_ms)?.amount;
+            let usage = usage(world, &policy, day_start_ms)?;
             Ok(iroha_data_model::asset::uid::AssetUidPolicyViewV1 {
                 policy,
                 beneficial_holdings,
+                wallet_holdings: None,
                 day_start_ms,
-                daily_usage,
+                daily_spend_usage: usage.spend_amount,
+                daily_outgoing_usage: usage.outgoing_amount,
                 ledger_time_ms,
                 as_of_height,
             })
@@ -513,7 +496,8 @@ pub(crate) fn validate_persistence(world: &impl WorldReadOnly) -> Result<(), Err
             }
         } else if in_root(key, USAGE_ROOT) {
             let value: AssetUidUsageV1 = decode(bytes)?;
-            if value
+            if value.spend_amount > value.outgoing_amount
+                || value
                 .daily_window
                 .day_start_ms(value.day_start_ms)
                 .map_err(reject)?

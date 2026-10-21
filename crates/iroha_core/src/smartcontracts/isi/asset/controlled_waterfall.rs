@@ -28,6 +28,7 @@ pub(in crate::smartcontracts::isi) fn execute_verified_controlled_waterfall_batc
             "controlled waterfall differs from its exact retained lock".into(),
         ));
     }
+    let is_retained_return = beneficiary == record.seller;
     let custody = AssetId::new(record.asset_definition.clone(), record.custody.clone());
     let beneficiary = AssetId::new(record.asset_definition.clone(), beneficiary);
     let fi = AssetId::new(record.asset_definition, fi);
@@ -48,7 +49,7 @@ pub(in crate::smartcontracts::isi) fn execute_verified_controlled_waterfall_batc
             &custody,
             &beneficiary,
             custody_to_beneficiary,
-            NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+            if is_retained_return { NumericAssetTransferSourcePolicy::NativeEscrowReturn } else { NumericAssetTransferSourcePolicy::NativeEscrowCustody },
         ),
     ];
     // Both sources must cover their entire debit before any incoming credit.
@@ -83,7 +84,7 @@ pub(in crate::smartcontracts::isi) fn execute_verified_controlled_waterfall_batc
             NumericAssetTransferScopePolicy::Ambient,
             NumericAssetTransferAuthorityPolicy::ProtocolAuthorized,
             source_policy,
-            NumericAssetTransferControlPolicy::Enforce,
+            if source_policy == NumericAssetTransferSourcePolicy::NativeEscrowReturn { NumericAssetTransferControlPolicy::RetainedPayerReturn } else { NumericAssetTransferControlPolicy::Enforce },
             NumericAssetDestinationAdmissionPolicy::ExistingAccount,
         )?);
     }

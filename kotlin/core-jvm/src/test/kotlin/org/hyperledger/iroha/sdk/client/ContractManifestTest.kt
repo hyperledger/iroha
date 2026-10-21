@@ -924,6 +924,37 @@ class ContractManifestTest {
         }
     }
 
+    @Test
+    fun uidHoldingQuoteHasExactShapeAndCannotBecomeQueryPageItem() {
+        val name = "kotodama::AssetUidHoldingQuote"
+        val fields = listOf("asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow")
+        val types = listOf("AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity")
+        val valid = listOf(structNode(name, *fields.toTypedArray()), leafNode("AssetDefinitionId"), leafNode("AccountId"),
+            leafNode("Int"), leafNode("Quantity"), optionNode, leafNode("Quantity"), leafNode("Quantity"))
+        val parsed = parseBoundarySchema(valid.joinToString(","), "AssetUidHoldingQuote")
+        assertEquals(6, parsed.wordCount)
+        assertEquals("AssetUidHoldingQuote", parsed.canonicalTypeName)
+        assertEquals("Option<AssetUidHoldingQuote>", parseBoundarySchema((listOf(optionNode) + valid).joinToString(","), "Option<AssetUidHoldingQuote>").canonicalTypeName)
+        for (index in fields.indices) {
+            val changed = fields.toMutableList().also { it[index] = "forged_$index" }
+            assertCanonicalSchemaFailure("AssetUidHoldingQuote", listOf(structNode(name, *changed.toTypedArray())) + valid.drop(1))
+        }
+        for (index in listOf(1, 2, 3, 4, 6, 7)) {
+            assertCanonicalSchemaFailure("AssetUidHoldingQuote", valid.mapIndexed { i, node -> if (i == index) leafNode("Bool") else node })
+        }
+        assertCanonicalSchemaFailure("AssetUidHoldingQuote", valid.filterIndexed { index, _ -> index != 5 })
+        assertCanonicalSchemaFailure("AssetUidHoldingQuote", valid.toMutableList().also { val first = it[1]; it[1] = it[2]; it[2] = first })
+        assertCanonicalSchemaFailure("QueryPage<AssetUidHoldingQuote>", queryPageNodes(valid))
+        fun durable(names: List<String>, children: List<String>) = name + "{" + names.zip(children).joinToString(", ") { "${it.first}: ${it.second}" } + "}"
+        fun parseState(type: String) = parseManifestFixture(("""{"manifest":{"events":[],"enum_types":[],"permissions":[],"states":[{"name":"stored","type_name":"$type"}]}}""").toByteArray(StandardCharsets.UTF_8))
+        parseState(durable(fields, types))
+        for (index in fields.indices) {
+            assertFailsWith<IllegalStateException> { parseState(durable(fields.mapIndexed { i, value -> if (i == index) "forged_$i" else value }, types)) }
+            assertFailsWith<IllegalStateException> { parseState(durable(fields, types.mapIndexed { i, value -> if (i == index) "bool" else value })) }
+        }
+        assertFailsWith<IllegalStateException> { parseState("kotodama::QueryPage{items: List<${durable(fields, types)}, 64>, next_offset: Option<int>}") }
+    }
+
     private class ManifestExecutor(private val payload: ByteArray) : HttpTransportExecutor {
         lateinit var lastRequest: TransportRequest
         var requestCount = 0

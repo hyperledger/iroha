@@ -578,9 +578,58 @@ asset definition, quantity, inclusive claim deadline, inclusive earliest
 cancellation time, and native expiry. Zero times mean absent. An application
 whose refunds require strictly later time passes `business_expiry + 1`, checked
 for overflow, as native expiry. Claim and cancellation windows are independent.
-Drawing and cancellation retain the native exact-remainder precondition.
+Opening returns the exact native protocol custody `AccountId`, derived from the
+admitted network, controller-scoped lock ID, and asset definition. Contracts can
+retain that identity for per-lock books and movement events. It does not grant
+debit authority or prove settlement before the queued instruction commits. The
+host refuses a missing network and prepares the typed return, full instruction
+plus return-byte gas, whole return allocation, and retained-effect capacity
+before publishing the effect or result. Drawing and cancellation retain the
+native exact-remainder precondition.
 These additions change the IVM ABI hash; compiler, host and contract manifests
 must match. They do not change the privacy bridge ABI version.
+
+The owner-granted `ledger::asset::uid_holding_quote` reader (`0x010224`) returns
+only the asset, requested account, current policy revision, beneficial holdings,
+optional cap and required overflow. Its six-word nominal product retains the
+full unsigned 64-bit revision as an exact Kotodama `int`; the optional quantity
+uses the standard sum handle. The quote never exposes a UID or account roster
+and never grants transfer authority. Every inspected member and escrow row is
+metered, including retained terminal rows, before any result is published.
+
+`ledger::fi::transfer_linked` (`0x010225`) and controlled lock
+`{drawdown,cancel,expire}_with_waterfall` (`0x010226`–`0x010228`) retain full
+policy and approved-link revision pins. The native executor derives the payout
+owner and approved FI and checks current consent, gross funding and UID limits.
+The controlled settlement prepares all custody and existing-wallet overflow
+legs before one escrow decrement; a preceding quote cannot bypass those checks.
+Plain lock settlement keeps its existing behavior without an FI opt-in. All
+five helpers require an authenticated contract frame and are unavailable to
+generic programs. The quote is a ledger read; the four settlements are ledger
+writes. The canonical spec binds exact argument and return layouts into the ABI.
+
+`ledger::fi::link_revision` (`0x010229`) is a separate metered ledger read:
+`(asset_definition: AssetDefinitionId, account: AccountId, expected_fi: AccountId)
+-> int`. The current owner-approved link must name the exact active controller
+and match the asserted FI. Current FI eligibility and attestation revisions
+are checked under the shared query budget. The returned exact unsigned 64-bit
+revision is only a CAS hint; no FI identity or bank reference is disclosed, and
+the assertion never selects a settlement destination. Generic programs cannot
+use the reader. It allocates the typed integer only after whole gas/allocation
+preflight and cannot queue any effect.
+
+`ledger::asset::same_uid` (`0x01022A`) returns only a boolean for two exact
+native retail memberships in one Global asset. Both accounts and current
+policies must exist, and the active contract needs the current enabled
+asset-owner UID reader grant. A false value means valid retail UIDs differ;
+missing, unbound, institutional, corrupt or ungranted inputs are errors. Equal
+account addresses still undergo all checks. A retained FI/system classification
+precludes retail use, including revoked institutional records. It is not a
+universal institutional comparison or exemption. UID membership is append-only;
+closed-wallet transfer restrictions do not erase retained ownership. The helper
+is a metered ledger read with no UID/roster output or queued effect, unavailable
+to generic programs. Source/response gas is checked before publishing the public
+0/1 word; the native settlement kernel independently derives and validates ownership.
 
 Native asset escrow
 - 0xB8 ESCROW_OPEN_OFFER — Args: `r10=&Name(escrow)`, `r11=&AssetDefinitionId`, `r12=&Quantity`, `r13=&NoritoBytes(Vec<Hash>)` or `0` → 0. Gas: G_escrow + bytes. Queues `OpenAssetEscrow`; the seller authority locks funds into the deterministic protocol custody account.

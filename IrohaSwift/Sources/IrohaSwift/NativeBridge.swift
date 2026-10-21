@@ -1,5 +1,13 @@
 import Foundation
 import CryptoKit
+#if IROHASWIFT_DEVICE_DEMO_ARTIFACT
+#if !os(iOS) || targetEnvironment(simulator)
+#error("A physical-device demo NoritoBridge is restricted to physical iOS devices.")
+#endif
+#if !IROHASWIFT_DEVICE_DEMO_DEBUG
+#error("A physical-device demo NoritoBridge cannot enter a Release build.")
+#endif
+#endif
 #if IROHASWIFT_LOCAL_UNIT_ARTIFACT
 #if !os(macOS)
 #error("A local-unit NoritoBridge artifact is restricted to macOS Swift tests.")

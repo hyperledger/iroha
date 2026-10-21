@@ -1,6 +1,10 @@
 //! Native FI relationships retained separately from participant-held bank details.
 
 use super::*;
+mod reader;
+pub(crate) use reader::{AssetFiLinkRevisionError, link_revision_for_contract};
+#[cfg(test)]
+pub(crate) use reader::tests::Fixture as FiLinkReaderFixture;
 use iroha_data_model::{
     asset::fi_link::{AssetFiLinkAttestationV1, AssetFiLinkV1, AssetFiV1},
     isi::error::InstructionExecutionError,

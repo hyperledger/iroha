@@ -1319,6 +1319,9 @@ mod tests {
             crate::syscalls::SYSCALL_QUERY_GET_CONTRACT_MANIFEST,
             crate::syscalls::SYSCALL_QUERY_GET_CONTRACT_INSTANCE,
             crate::syscalls::SYSCALL_GET_ACCOUNT_BALANCE,
+            crate::syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE,
+            crate::syscalls::SYSCALL_ASSET_FI_LINK_REVISION,
+            crate::syscalls::SYSCALL_ASSET_SAME_UID,
             crate::syscalls::SYSCALL_RESOLVE_ACCOUNT_ALIAS,
         ] {
             let matches = canonical

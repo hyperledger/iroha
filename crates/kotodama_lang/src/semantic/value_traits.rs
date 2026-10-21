@@ -1605,6 +1605,11 @@ pub(crate) fn type_name(ty: &Type) -> String {
                 type_name(value)
             )
         }
+        Type::Struct { name, .. }
+            if name == "kotodama::AssetUidHoldingQuote" && ty == &asset_uid_holding_quote_type() =>
+        {
+            "AssetUidHoldingQuote".into()
+        }
         Type::Struct { name, .. } => query_page_view_type(ty)
             .and_then(core_query_view_name)
             .map_or_else(
@@ -1718,6 +1723,10 @@ pub(super) fn render_source_type_name(ty: &Type) -> String {
                     }
                 }
                 Type::Struct { name, .. } => {
+                    if name == "kotodama::AssetUidHoldingQuote" && ty == &asset_uid_holding_quote_type() {
+                        rendered.push_str("AssetUidHoldingQuote");
+                        continue;
+                    }
                     if let Some((key, value, capacity)) = state_page_components(ty) {
                         rendered.push_str("StatePage<");
                         pending.push(Pending::Owned(format!(", {capacity}>")));

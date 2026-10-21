@@ -4968,7 +4968,32 @@ fn lower_surface_builtin_call(
         | Builtin::AssetLockDrawdown
         | Builtin::AssetLockCancel
         | Builtin::AssetLockExpire
+        | Builtin::AssetUidHoldingQuote
+        | Builtin::FiLinkRevision
+        | Builtin::AssetSameUid
         | Builtin::ContractSubject => lower_direct_helper_call(ctx, builtin, args, vars),
+        Builtin::TransferToLinkedFi
+        | Builtin::AssetLockDrawdownWaterfall
+        | Builtin::AssetLockCancelWaterfall
+        | Builtin::AssetLockExpireWaterfall => {
+            // The native boundary takes two full u64 revisions, not Int handles.
+            // Evaluate in source order once, then retain each checked scalar.
+            let revision_start = args.len() - 2;
+            let lowered = args.iter().enumerate().map(|(index, argument)| {
+                if index >= revision_start {
+                    lower_expr_as_u64(ctx, argument, vars)
+                } else {
+                    lower_expr(ctx, argument, vars)
+                }
+            }).collect();
+            let dest = ctx.new_temp();
+            ctx.current_instr(Instr::DirectHelperSyscall {
+                dest,
+                syscall: direct_builtin_syscall(builtin),
+                args: lowered,
+            });
+            dest
+        }
         Builtin::AssetLockOpen => {
             // Evaluate each source argument once before allocating the fixed public table.
             // Times are checked u64 values; zero denotes an absent native deadline.

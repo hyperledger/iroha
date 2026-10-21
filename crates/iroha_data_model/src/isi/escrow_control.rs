@@ -7,7 +7,7 @@
 use super::*;
 use crate::{
     account::AccountId,
-    escrow::control::AssetLockControlV1,
+    escrow::control::{AssetLockControlV1, AssetLockWaterfallSettlementV1},
     isi::escrow::{CancelAssetLock, DrawdownAssetLock, ExpireAssetLock, OpenAssetLock},
 };
 
@@ -39,6 +39,9 @@ isi! {
     pub struct DrawdownControlledAssetLockV1 {
         /// Native lock drawdown, including exact expected remainder.
         pub drawdown: DrawdownAssetLock,
+        /// Explicit owner-consented native overflow settlement with exact revision pins.
+        /// Absence preserves ordinary controlled-lock settlement.
+        pub waterfall: Option<AssetLockWaterfallSettlementV1>,
     }
 }
 
@@ -49,6 +52,9 @@ isi! {
     pub struct CancelControlledAssetLockV1 {
         /// Native lock cancellation, including exact expected remainder.
         pub cancel: CancelAssetLock,
+        /// Explicit owner-consented native overflow settlement with exact revision pins.
+        /// Absence preserves ordinary controlled-lock settlement.
+        pub waterfall: Option<AssetLockWaterfallSettlementV1>,
     }
 }
 
@@ -59,6 +65,9 @@ isi! {
     pub struct ExpireControlledAssetLockV1 {
         /// Native lock expiry; the retained record determines owner and remainder.
         pub expiry: ExpireAssetLock,
+        /// Explicit owner-consented native overflow settlement with exact revision pins.
+        /// Absence preserves ordinary controlled-lock settlement.
+        pub waterfall: Option<AssetLockWaterfallSettlementV1>,
     }
 }
 
@@ -95,15 +104,15 @@ controlled_lock_instruction!(
 );
 controlled_lock_instruction!(
     DrawdownControlledAssetLockV1, "iroha.asset.lock.controlled.drawdown.v1",
-    { drawdown: DrawdownAssetLock }
+    { drawdown: DrawdownAssetLock, waterfall: Option<AssetLockWaterfallSettlementV1> }
 );
 controlled_lock_instruction!(
     CancelControlledAssetLockV1, "iroha.asset.lock.controlled.cancel.v1",
-    { cancel: CancelAssetLock }
+    { cancel: CancelAssetLock, waterfall: Option<AssetLockWaterfallSettlementV1> }
 );
 controlled_lock_instruction!(
     ExpireControlledAssetLockV1, "iroha.asset.lock.controlled.expire.v1",
-    { expiry: ExpireAssetLock }
+    { expiry: ExpireAssetLock, waterfall: Option<AssetLockWaterfallSettlementV1> }
 );
 
 #[cfg(test)]
@@ -168,18 +177,21 @@ mod tests {
             (
                 InstructionBox::from(DrawdownControlledAssetLockV1 {
                     drawdown: DrawdownAssetLock::new(escrow_id, 20_u32, 100_u32),
+                    waterfall: None,
                 }),
                 DrawdownControlledAssetLockV1::WIRE_ID,
             ),
             (
                 InstructionBox::from(CancelControlledAssetLockV1 {
                     cancel: CancelAssetLock::new(escrow_id, 80_u32),
+                    waterfall: None,
                 }),
                 CancelControlledAssetLockV1::WIRE_ID,
             ),
             (
                 InstructionBox::from(ExpireControlledAssetLockV1 {
                     expiry: ExpireAssetLock::new(escrow_id),
+                    waterfall: None,
                 }),
                 ExpireControlledAssetLockV1::WIRE_ID,
             ),
@@ -192,6 +204,58 @@ mod tests {
                 .expect("decode registry payload")
                 .expect("registered instruction");
             assert_eq!(decoded, instruction);
+        }
+    }
+
+    #[test]
+    fn controlled_settlement_modes_roundtrip_without_losing_revision_pins() {
+        let id = crate::escrow::EscrowId::new(Hash::new("controlled-waterfall-wire"));
+        let registry = crate::isi::registry::default();
+        macro_rules! roundtrip {
+            ($value:expr, $ty:ty) => {{
+                let value: $ty = $value;
+                let binary = norito::encode_canonical(&value).unwrap();
+                assert_eq!(norito::decode_canonical::<$ty>(&binary).unwrap(), value);
+                let json = norito::json::to_json(&value).unwrap();
+                assert_eq!(norito::json::from_str::<$ty>(&json).unwrap(), value);
+                let instruction = InstructionBox::from(value);
+                let (wire, payload) =
+                    super::super::encoded_instruction_pair_payload(&instruction).unwrap();
+                let decoded = registry
+                    .decode(wire, &payload)
+                    .expect("registered controlled settlement instruction")
+                    .expect("decode controlled settlement instruction");
+                assert_eq!(decoded, instruction);
+            }};
+        }
+        for waterfall in [
+            None,
+            Some(AssetLockWaterfallSettlementV1 {
+                expected_policy_revision: u64::MAX,
+                expected_link_revision: u64::MAX - 1,
+            }),
+        ] {
+            roundtrip!(
+                DrawdownControlledAssetLockV1 {
+                    drawdown: DrawdownAssetLock::new(id, 5_u32, 13_u32),
+                    waterfall,
+                },
+                DrawdownControlledAssetLockV1
+            );
+            roundtrip!(
+                CancelControlledAssetLockV1 {
+                    cancel: CancelAssetLock::new(id, 13_u32),
+                    waterfall,
+                },
+                CancelControlledAssetLockV1
+            );
+            roundtrip!(
+                ExpireControlledAssetLockV1 {
+                    expiry: ExpireAssetLock::new(id),
+                    waterfall,
+                },
+                ExpireControlledAssetLockV1
+            );
         }
     }
 }

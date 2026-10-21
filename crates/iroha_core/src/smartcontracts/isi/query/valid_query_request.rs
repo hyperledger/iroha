@@ -631,6 +631,26 @@ impl ValidQueryRequest {
                         params,
                         stored_cursor_budget
                     ),
+                    QueryItemKind::AssetUidEnrollmentViewV1 => run_query!(
+                        iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1,
+                        iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
+                    QueryItemKind::AssetFiRelationshipViewV1 => run_query!(
+                        iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1,
+                        iroha_data_model::query::asset_fi::FindAssetFiLinkV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,
                         iroha_data_model::query::oracle::prelude::FindOracleFeeds,
@@ -1198,6 +1218,24 @@ impl ValidQueryRequest {
                     QueryItemKind::AssetUidPolicyViewV1 => run_query!(
                         iroha_data_model::asset::uid::AssetUidPolicyViewV1,
                         iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::AssetUidEnrollmentViewV1 => run_query!(
+                        iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1,
+                        iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::AssetFiRelationshipViewV1 => run_query!(
+                        iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1,
+                        iroha_data_model::query::asset_fi::FindAssetFiLinkV1,
                         decoder,
                         predicate_bytes,
                         selector_bytes,

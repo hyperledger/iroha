@@ -267,3 +267,21 @@ sixty-second authorization; `--resume JOURNAL` reconciles those exact hashes wit
 rebuilding, quoting or signing replacements. `DeploymentRuntime::current_deployment`
 provides the verified current artifact and receipt for native alias-selected view/call
 adapters and never creates a missing slot or repairs its records.
+
+For a first single-chunk upload that expired before observation, an operator may run
+`musubi --manifest-path Musubi.toml deploy --network NAME --reconcile-expiry JOURNAL
+--expiry-root ROOT.json --expiry-genesis certified-genesis.norito --expiry-max-height H`
+(as one command). `H` must be an already committed height on the selected Global
+chain and bounds the scan; it is not a claim of finality. The closed root JSON contains
+independently authenticated `chain_id`, `network_id`, `genesis_hash`,
+`signed_genesis_sha256`, `genesis_public_key`, ordered public-key `roster`, and `mode`
+(`permissioned` or `npos`). Preserve the exact original certified public genesis;
+never strip its certificate or derive replacement pins from endpoint responses.
+This opt-in operation performs native reads and appends local evidence only. It
+requires complete certified history from genesis, all original hashes absent, and
+strict expiry of all original signed validity windows, plus global status absence
+before and after. It retains a distinct `validity_window_elapsed` disposition;
+no transaction failure or successful deployment receipt is invented. Repeat the
+original `deploy --prepare` only after this succeeds. Historical originals remain
+intact and their old resume is refused. Focused recovery validation is
+`cargo test -p iroha_contract_deploy --lib expiry`.

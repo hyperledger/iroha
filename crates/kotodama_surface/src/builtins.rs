@@ -504,6 +504,20 @@ pub enum Builtin {
     AssetLockCancel,
     /// Refund an expired controlled native lock.
     AssetLockExpire,
+    /// Read controller-authorized beneficial holdings and required incoming overflow.
+    AssetUidHoldingQuote,
+    /// Transfer to the owner-approved linked FI under exact policy and link revisions.
+    TransferToLinkedFi,
+    /// Draw a controlled lock with owner-consented native overflow settlement.
+    AssetLockDrawdownWaterfall,
+    /// Cancel a controlled lock with owner-consented native overflow settlement.
+    AssetLockCancelWaterfall,
+    /// Expire a controlled lock with owner-consented native overflow settlement.
+    AssetLockExpireWaterfall,
+    /// Read the current owner-approved FI-link revision after exact FI equality.
+    FiLinkRevision,
+    /// Compare two native retail memberships without revealing their UID.
+    AssetSameUid,
     /// Open an escrow offer with an asset quantity and optional evidence.
     EscrowOpenOffer,
     /// Accept a named escrow offer.
@@ -932,6 +946,13 @@ impl Builtin {
             "asset_lock_drawdown" => Self::AssetLockDrawdown,
             "asset_lock_cancel" => Self::AssetLockCancel,
             "asset_lock_expire" => Self::AssetLockExpire,
+            "asset_uid_holding_quote" => Self::AssetUidHoldingQuote,
+            "fi_transfer_linked" => Self::TransferToLinkedFi,
+            "asset_lock_drawdown_waterfall" => Self::AssetLockDrawdownWaterfall,
+            "asset_lock_cancel_waterfall" => Self::AssetLockCancelWaterfall,
+            "asset_lock_expire_waterfall" => Self::AssetLockExpireWaterfall,
+            "fi_link_revision" => Self::FiLinkRevision,
+            "asset_same_uid" => Self::AssetSameUid,
             "escrow_open_offer" => Self::EscrowOpenOffer,
             "escrow_accept" => Self::EscrowAccept,
             "escrow_mark_payment_sent" => Self::EscrowMarkPaymentSent,
@@ -1183,6 +1204,13 @@ impl Builtin {
             Self::AssetLockDrawdown => "asset_lock_drawdown",
             Self::AssetLockCancel => "asset_lock_cancel",
             Self::AssetLockExpire => "asset_lock_expire",
+            Self::AssetUidHoldingQuote => "asset_uid_holding_quote",
+            Self::TransferToLinkedFi => "fi_transfer_linked",
+            Self::AssetLockDrawdownWaterfall => "asset_lock_drawdown_waterfall",
+            Self::AssetLockCancelWaterfall => "asset_lock_cancel_waterfall",
+            Self::AssetLockExpireWaterfall => "asset_lock_expire_waterfall",
+            Self::FiLinkRevision => "fi_link_revision",
+            Self::AssetSameUid => "asset_same_uid",
             Self::EscrowOpenOffer => "escrow_open_offer",
             Self::EscrowAccept => "escrow_accept",
             Self::EscrowMarkPaymentSent => "escrow_mark_payment_sent",
@@ -1517,6 +1545,13 @@ impl Builtin {
             Self::AssetLockDrawdown => "ledger::asset_lock::drawdown",
             Self::AssetLockCancel => "ledger::asset_lock::cancel",
             Self::AssetLockExpire => "ledger::asset_lock::expire",
+            Self::AssetUidHoldingQuote => "ledger::asset::uid_holding_quote",
+            Self::TransferToLinkedFi => "ledger::fi::transfer_linked",
+            Self::AssetLockDrawdownWaterfall => "ledger::asset_lock::drawdown_with_waterfall",
+            Self::AssetLockCancelWaterfall => "ledger::asset_lock::cancel_with_waterfall",
+            Self::AssetLockExpireWaterfall => "ledger::asset_lock::expire_with_waterfall",
+            Self::FiLinkRevision => "ledger::fi::link_revision",
+            Self::AssetSameUid => "ledger::asset::same_uid",
             Self::EscrowOpenOffer => "ledger::escrow::open_offer",
             Self::EscrowAccept => "ledger::escrow::accept",
             Self::EscrowMarkPaymentSent => "ledger::escrow::mark_payment_sent",
@@ -1713,6 +1748,10 @@ impl Builtin {
             | Self::AssetLockDrawdown
             | Self::AssetLockCancel
             | Self::AssetLockExpire
+            | Self::TransferToLinkedFi
+            | Self::AssetLockDrawdownWaterfall
+            | Self::AssetLockCancelWaterfall
+            | Self::AssetLockExpireWaterfall
             | Self::EscrowOpenOffer
             | Self::EscrowAccept
             | Self::EscrowMarkPaymentSent
@@ -1763,6 +1802,9 @@ impl Builtin {
             }
             Self::PointerConstructor(PointerConstructor::AccountId)
             | Self::QueryExecuteNorito
+            | Self::AssetUidHoldingQuote
+            | Self::FiLinkRevision
+            | Self::AssetSameUid
             | Self::QueryGetAccount
             | Self::QueryGetAsset
             | Self::QueryGetAssetDefinition
@@ -2085,6 +2127,13 @@ impl Builtin {
             Self::AssetLockDrawdown => &[s::SYSCALL_ASSET_LOCK_DRAWDOWN],
             Self::AssetLockCancel => &[s::SYSCALL_ASSET_LOCK_CANCEL],
             Self::AssetLockExpire => &[s::SYSCALL_ASSET_LOCK_EXPIRE],
+            Self::AssetUidHoldingQuote => &[s::SYSCALL_ASSET_UID_HOLDING_QUOTE],
+            Self::TransferToLinkedFi => &[s::SYSCALL_TRANSFER_TO_LINKED_FI],
+            Self::AssetLockDrawdownWaterfall => &[s::SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL],
+            Self::AssetLockCancelWaterfall => &[s::SYSCALL_ASSET_LOCK_CANCEL_WATERFALL],
+            Self::AssetLockExpireWaterfall => &[s::SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL],
+            Self::FiLinkRevision => &[s::SYSCALL_ASSET_FI_LINK_REVISION],
+            Self::AssetSameUid => &[s::SYSCALL_ASSET_SAME_UID],
             Self::EscrowOpenOffer => &[s::SYSCALL_ESCROW_OPEN_OFFER],
             Self::EscrowAccept => &[s::SYSCALL_ESCROW_ACCEPT],
             Self::EscrowMarkPaymentSent => &[s::SYSCALL_ESCROW_MARK_PAYMENT_SENT],
@@ -2489,11 +2538,18 @@ impl Builtin {
             }
             Self::AssetLockOpen => S::new(
                 &["bytes", "AccountId", "AccountId", "AssetDefinitionId", "quantity", "int", "int", "int"],
-                "()",
+                "AccountId",
             ),
             Self::AssetLockDrawdown => S::new(&["bytes", "quantity", "quantity"], "()"),
             Self::AssetLockCancel => S::new(&["bytes", "quantity"], "()"),
             Self::AssetLockExpire => S::new(&["bytes"], "()"),
+            Self::AssetUidHoldingQuote => S::new(&["AssetDefinitionId", "AccountId", "quantity"], "AssetUidHoldingQuote"),
+            Self::TransferToLinkedFi => S::new(&["AssetDefinitionId", "AccountId", "quantity", "int", "int"], "()"),
+            Self::AssetLockDrawdownWaterfall => S::new(&["bytes", "quantity", "quantity", "int", "int"], "()"),
+            Self::AssetLockCancelWaterfall => S::new(&["bytes", "quantity", "int", "int"], "()"),
+            Self::AssetLockExpireWaterfall => S::new(&["bytes", "int", "int"], "()"),
+            Self::FiLinkRevision => S::new(&["AssetDefinitionId", "AccountId", "AccountId"], "int"),
+            Self::AssetSameUid => S::new(&["AssetDefinitionId", "AccountId", "AccountId"], "bool"),
             Self::EscrowOpenOffer => {
                 S::new(&["Name", "AssetDefinitionId", "quantity", "bytes?"], "()")
             }
@@ -2750,6 +2806,13 @@ impl Builtin {
             Self::AssetLockDrawdown => signature.with_names(&["key", "amount", "expected_remaining"]),
             Self::AssetLockCancel => signature.with_names(&["key", "expected_remaining"]),
             Self::AssetLockExpire => signature.with_names(&["key"]),
+            Self::AssetUidHoldingQuote => signature.with_names(&["asset_definition", "account", "incoming"]),
+            Self::TransferToLinkedFi => signature.with_names(&["asset_definition", "account", "amount", "policy_revision", "link_revision"]),
+            Self::AssetLockDrawdownWaterfall => signature.with_names(&["key", "amount", "expected_remaining", "policy_revision", "link_revision"]),
+            Self::AssetLockCancelWaterfall => signature.with_names(&["key", "expected_remaining", "policy_revision", "link_revision"]),
+            Self::AssetLockExpireWaterfall => signature.with_names(&["key", "policy_revision", "link_revision"]),
+            Self::FiLinkRevision => signature.with_names(&["asset_definition", "account", "expected_fi"]),
+            Self::AssetSameUid => signature.with_names(&["asset_definition", "source", "destination"]),
             Self::EscrowOpenOffer => {
                 signature.with_names(&["offer", "asset_definition", "amount", "evidence"])
             }
@@ -3452,19 +3515,51 @@ mod tests {
         }
     }
     #[test]
+    fn uid_holding_quote_is_a_typed_controller_only_read() {
+        let builtin = Builtin::AssetUidHoldingQuote;
+        let spec = builtin.spec();
+        assert_eq!(Builtin::from_source_name(spec.name), Some(builtin));
+        assert_eq!(Builtin::from_source_name(builtin.name()), None);
+        assert_eq!(
+            spec.signature.parameters,
+            &["AssetDefinitionId", "AccountId", "quantity"]
+        );
+        assert_eq!(
+            spec.signature.parameter_names,
+            &["asset_definition", "account", "incoming"]
+        );
+        assert_eq!(spec.signature.return_type, "AssetUidHoldingQuote");
+        assert_eq!(
+            spec.syscall,
+            Some(ivm_abi::syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE)
+        );
+        assert_eq!(spec.effects, BuiltinEffects::NONE);
+        assert_eq!(spec.access, BuiltinAccess::LedgerRead);
+        assert!(!ivm_abi::syscalls::is_generic_program_syscall_allowed(
+            ivm_abi::SyscallPolicy::AbiV1,
+            ivm_abi::syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE
+        ));
+    }
+
+    #[test]
     fn controlled_lock_registry_is_typed_namespaced_and_effectful() {
         for (builtin, syscall, count) in [
             (Builtin::AssetLockOpen, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_OPEN, 8),
             (Builtin::AssetLockDrawdown, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN, 3),
             (Builtin::AssetLockCancel, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_CANCEL, 2),
             (Builtin::AssetLockExpire, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_EXPIRE, 1),
+            (Builtin::TransferToLinkedFi, ivm_abi::syscalls::SYSCALL_TRANSFER_TO_LINKED_FI, 5),
+            (Builtin::AssetLockDrawdownWaterfall, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL, 5),
+            (Builtin::AssetLockCancelWaterfall, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_CANCEL_WATERFALL, 4),
+            (Builtin::AssetLockExpireWaterfall, ivm_abi::syscalls::SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL, 3),
         ] {
             let spec = builtin.spec();
             assert_eq!(Builtin::from_source_name(spec.name), Some(builtin));
             assert_eq!(Builtin::from_source_name(builtin.name()), None);
             assert_eq!(spec.signature.parameters.len(), count);
             assert_eq!(spec.signature.parameter_names.len(), count);
-            assert_eq!(spec.signature.return_type, "()");
+            assert_eq!(spec.signature.return_type,
+                if builtin == Builtin::AssetLockOpen { "AccountId" } else { "()" });
             assert_eq!(spec.syscall, Some(syscall));
             assert_eq!(spec.effects, BuiltinEffects::HOST);
             assert_eq!(spec.access, BuiltinAccess::LedgerWrite);
@@ -4173,4 +4268,34 @@ mod tests {
             assert_eq!(Builtin::from_source_name(name), None, "{name}");
         }
     }
+    #[test]
+    fn fi_link_revision_is_an_exact_scalar_controller_read() {
+        let builtin = Builtin::FiLinkRevision;
+        let spec = builtin.spec();
+        assert_eq!(spec.name, "ledger::fi::link_revision");
+        assert_eq!(Builtin::from_source_name(spec.name), Some(builtin));
+        assert_eq!(Builtin::from_source_name(builtin.name()), None);
+        assert_eq!(spec.signature.parameters, &["AssetDefinitionId", "AccountId", "AccountId"]);
+        assert_eq!(spec.signature.parameter_names, &["asset_definition", "account", "expected_fi"]);
+        assert_eq!(spec.signature.return_type, "int");
+        assert_eq!(spec.effects, BuiltinEffects::NONE);
+        assert_eq!(spec.access, BuiltinAccess::LedgerRead);
+        assert_eq!(spec.syscall, Some(ivm_abi::syscalls::SYSCALL_ASSET_FI_LINK_REVISION));
+        assert!(!ivm_abi::syscalls::is_generic_program_syscall_allowed(ivm_abi::SyscallPolicy::AbiV1, ivm_abi::syscalls::SYSCALL_ASSET_FI_LINK_REVISION));
+    }
+
+    #[test]
+    fn same_uid_is_exact_reader_granted_boolean_ledger_read() {
+        let builtin=Builtin::AssetSameUid;let spec=builtin.spec();
+        assert_eq!(spec.name,"ledger::asset::same_uid");
+        assert_eq!(Builtin::from_source_name(spec.name),Some(builtin));
+        assert_eq!(Builtin::from_source_name(builtin.name()),None);
+        assert_eq!(spec.signature.parameters,&["AssetDefinitionId","AccountId","AccountId"]);
+        assert_eq!(spec.signature.parameter_names,&["asset_definition","source","destination"]);
+        assert_eq!(spec.signature.return_type,"bool");
+        assert_eq!(spec.effects,BuiltinEffects::NONE);assert_eq!(spec.access,BuiltinAccess::LedgerRead);
+        assert_eq!(spec.syscall,Some(ivm_abi::syscalls::SYSCALL_ASSET_SAME_UID));
+        assert!(!ivm_abi::syscalls::is_generic_program_syscall_allowed(ivm_abi::SyscallPolicy::AbiV1,ivm_abi::syscalls::SYSCALL_ASSET_SAME_UID));
+    }
+
 }

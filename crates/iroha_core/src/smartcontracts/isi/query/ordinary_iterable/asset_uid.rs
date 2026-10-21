@@ -16,7 +16,10 @@ fn own_row(
     query: &FindAssetUidPoliciesV1,
     key: &StatePath,
     bytes: &[u8],
-    state: &impl StateReadOnly,
+    world: &impl WorldReadOnly,
+    network: &iroha_data_model::NetworkId,
+    now: u64,
+    as_of_height: u64,
     maximum: usize,
     allocated: usize,
     stats: &mut QueryExecutionStats,
@@ -42,15 +45,10 @@ fn own_row(
         policy
             .validate_shape()
             .map_err(|message| Error::Conversion(message.into()))?;
-        let now = state.authenticated_query_ledger_time_ms().ok_or_else(|| {
-            Error::Conversion("UID policy query requires authenticated ledger time".into())
-        })?;
         let day_start_ms = policy
             .daily_window
             .day_start_ms(now)
             .map_err(|message| Error::Conversion(message.into()))?;
-        let as_of_height = u64::try_from(state.height()).map_err(|_| Error::CapacityLimit)?;
-        let world = state.world();
         let work = limits.max_source_item_bytes();
         let budget = Some(limits.execution_budget());
         let mut beneficial_holdings = Quantity::zero();
@@ -93,7 +91,7 @@ fn own_row(
         }
         let usage_key =
             asset_uid::usage_key(&policy.asset_definition_id, &policy.uid, day_start_ms);
-        let daily_usage = if let Some(bytes) = world.smart_contract_state().get(&usage_key) {
+        let (daily_spend_usage, daily_outgoing_usage) = if let Some(bytes) = world.smart_contract_state().get(&usage_key) {
             if bytes.len() > maximum {
                 return Err(Error::CapacityLimit);
             }
@@ -109,15 +107,23 @@ fn own_row(
                     "UID usage differs from exact source key".into(),
                 ));
             }
-            value.amount
+            (value.spend_amount, value.outgoing_amount)
         } else {
-            Quantity::zero()
+            (Quantity::zero(), Quantity::zero())
         };
+        let wallet_holdings = query.wallet_account_id.as_ref().map(|account| {
+            asset_uid::wallet_holdings::collect(
+                world, network, &policy, account, now, maximum, decode_limits,
+                || stats.record_preflighted_item(work.checked_mul(3).ok_or(Error::CapacityLimit)?, budget),
+            )
+        }).transpose()?;
         Ok(AssetUidPolicyViewV1 {
             policy,
             beneficial_holdings,
+            wallet_holdings,
             day_start_ms,
-            daily_usage,
+            daily_spend_usage,
+            daily_outgoing_usage,
             ledger_time_ms: now,
             as_of_height,
         })
@@ -133,15 +139,19 @@ pub(super) fn collect_asset_uid_policies(
     limits: OrdinaryQueryExecutionLimits,
     state: &impl StateReadOnly,
 ) -> Result<(ExactOwnedRows<AssetUidPolicyViewV1>, QueryExecutionStats), Error> {
-    if state.authenticated_query_ledger_time_ms().is_none() {
-        return Err(Error::Conversion(
-            "UID policy query requires authenticated ledger time".into(),
-        ));
+    if query.wallet_account_id.is_some() && query.uid.is_none() {
+        return Err(Error::Conversion("wallet holdings require one exact selected UID".into()));
     }
+    let now = state.authenticated_query_ledger_time_ms().ok_or_else(|| {
+        Error::Conversion("UID policy query requires authenticated ledger time".into())
+    })?;
+    let as_of_height = u64::try_from(state.height()).map_err(|_| Error::CapacityLimit)?;
+    let world = state.world();
+    let network = state.network_id();
     let (maximum_rows, maximum, work) = trigger_source_limits(params, mode, limits)?;
     let start = asset_uid::policy_key(&query.asset_definition_id, &query.uid.unwrap_or([0; 32]));
     let end = asset_uid::policy_key(&query.asset_definition_id, &query.uid.unwrap_or([255; 32]));
-    let source = state.world().smart_contract_state();
+    let source = world.smart_contract_state();
     let mut stats = QueryExecutionStats::default();
     let mut selected = 0;
     let single_graph = maximum
@@ -153,7 +163,10 @@ pub(super) fn collect_asset_uid_policies(
             query,
             key,
             bytes,
-            state,
+            world,
+            network,
+            now,
+            as_of_height,
             maximum,
             single_graph,
             &mut stats,
@@ -161,6 +174,9 @@ pub(super) fn collect_asset_uid_policies(
         )?;
         drop(encode_bounded_frame(&row, maximum)?);
         selected += 1;
+    }
+    if query.wallet_account_id.is_some() && selected != 1 {
+        return Err(Error::Conversion("requested wallet UID policy is unavailable".into()));
     }
     let (mut graph, slot_bytes) = RetainedDecodeBudget::new::<AssetUidPolicyViewV1>(
         selected,
@@ -173,7 +189,10 @@ pub(super) fn collect_asset_uid_policies(
             query,
             key,
             bytes,
-            state,
+            world,
+            network,
+            now,
+            as_of_height,
             maximum,
             graph.next_limit()?,
             &mut stats,
@@ -185,3 +204,6 @@ pub(super) fn collect_asset_uid_policies(
     }
     Ok((rows.finish()?, stats))
 }
+
+#[cfg(test)]
+mod wallet_tests;

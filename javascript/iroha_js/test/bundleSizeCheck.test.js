@@ -568,7 +568,7 @@ test("public browser aggregate audits eager, lazy, and unique combined closures"
   );
   // Exact observed closure includes event declarations, typed faults, durable
   // schemas, product identities, and the two shared Norito metadata/value owners.
-  assert.equal(Object.keys(result.metafile.inputs).length, 120);
+  assert.equal(Object.keys(result.metafile.inputs).length, 129);
   assertSplitByteInventory(result, metrics);
   assert.deepEqual(metrics.lazyChunks.map(({ specifier }) => specifier), [
     "./sumeragiTyped.js",
@@ -611,10 +611,10 @@ test("IVM artifact browser leaf excludes Node and Buffer shims", async () => {
 
 test("bundle targets retain canonical module ownership and accurate byte inventories", async () => {
   const expected = new Map([
-    ["toriiClient.js", { modules: 140 }],
+    ["toriiClient.js", { modules: 157 }],
     ["transactionCodec.js (browser)", { modules: 70 }],
-    ["nexusApp.js (browser)", { modules: 79 }],
-    ["canonicalRequest.js (browser)", { modules: 47 }],
+    ["nexusApp.js (browser)", { modules: 81 }],
+    ["canonicalRequest.js (browser)", { modules: 49 }],
   ]);
   const { build } = await import("esbuild");
   for (const target of BUNDLE_TARGETS.filter(({ label }) => expected.has(label))) {

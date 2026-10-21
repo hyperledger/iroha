@@ -140,13 +140,13 @@ def test_signed_pipeline_details_is_exact_network_bound_and_one_shot(
 
     details = client.get_pipeline_transaction_details(
         transaction_hash,
-        authority="alice@wonderland",
+        authority=account_address(0x51),
         private_key=bytes([0x51]) * 32,
     )
 
     assert details["hash"] == transaction_hash
     assert captured == {
-        "authority": "alice@wonderland",
+        "authority": account_address(0x51),
         "private_key": bytes([0x51]) * 32,
         "network_id": NETWORK_ID,
         "entrypoint_hash": transaction_hash,
@@ -183,7 +183,7 @@ def test_signed_pipeline_details_never_replays_redirects(
     with pytest.raises(RuntimeError, match=f"unexpected status {redirect_status}"):
         client.get_pipeline_transaction_details(
             "cd" * 32,
-            authority="alice@wonderland",
+            authority=account_address(0x51),
             private_key=bytes([0x51]) * 32,
         )
 
@@ -4043,7 +4043,7 @@ def test_mint_assets_quantity_and_wait_batches_records_in_one_transaction() -> N
     client._submit_transaction_draft_result = fake_submit  # type: ignore[method-assign]
 
     result = client.mint_assets_quantity_and_wait(
-        authority="authority@is",
+        authority=account_address(0x11),
         fee_payment=FEE_PAYMENT,
         private_key_hex="11" * 32,
         mints=[
@@ -4101,7 +4101,7 @@ def test_transfer_assets_quantity_and_wait_batches_records_in_one_transaction() 
     client._submit_transaction_draft_result = fake_submit  # type: ignore[method-assign]
 
     result = client.transfer_assets_quantity_and_wait(
-        authority="source@is",
+        authority=account_address(0x22),
         fee_payment=FEE_PAYMENT,
         private_key_hex="22" * 32,
         transfers=[
@@ -4122,7 +4122,7 @@ def test_transfer_assets_quantity_and_wait_batches_records_in_one_transaction() 
     draft = captured["draft"]
     assert result == {"hash": "transfer-batch"}
     assert len(draft) == 2
-    assert draft.config.authority == "source@is"
+    assert draft.config.authority == account_address(0x22)
     assert captured["kwargs"]["private_key_hex"] == "22" * 32
     assert captured["kwargs"]["wait"] is True
 
@@ -4139,7 +4139,7 @@ def test_permission_grant_and_revoke_helpers_build_one_instruction() -> None:
     client._submit_transaction_draft_result = fake_submit  # type: ignore[method-assign]
 
     grant = client.grant_account_permission_and_wait(
-        authority="authority@is",
+        authority=account_address(0x11),
         fee_payment=FEE_PAYMENT,
         private_key_hex="11" * 32,
         account_id=account,
@@ -4149,7 +4149,7 @@ def test_permission_grant_and_revoke_helpers_build_one_instruction() -> None:
         wait=False,
     )
     revoke = client.revoke_account_permission_and_wait(
-        authority="authority@is",
+        authority=account_address(0x11),
         fee_payment=FEE_PAYMENT,
         private_key_hex="22" * 32,
         account_id=account,
@@ -4428,7 +4428,7 @@ def test_zk_client_helpers_build_transaction_drafts() -> None:
     client._submit_transaction_draft_result = fake_submit  # type: ignore[method-assign]
 
     assert client.register_zk_asset_and_wait(
-        authority="authority@is",
+        authority=account_address(0x11),
         fee_payment=FEE_PAYMENT,
         private_key_hex="11" * 32,
         asset_definition_id=asset_definition_id,
@@ -4545,7 +4545,7 @@ def test_batch_helpers_reject_invalid_records(
 
     with pytest.raises(error_type, match=match):
         method(
-            authority="authority@is",
+            authority=account_address(0x11),
             fee_payment=FEE_PAYMENT,
             private_key_hex="11" * 32,
             **kwargs,
@@ -4587,7 +4587,7 @@ def test_permission_helpers_reject_invalid_inputs(
 
     with pytest.raises(ValueError, match=match):
         client.grant_account_permission_and_wait(
-            authority="authority@is",
+            authority=account_address(0x11),
             fee_payment=FEE_PAYMENT,
             private_key_hex="11" * 32,
             **kwargs,
