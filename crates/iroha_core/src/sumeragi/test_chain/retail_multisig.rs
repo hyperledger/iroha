@@ -16,6 +16,7 @@ use iroha_data_model::{
         GovernanceCertificateId, ProposalKind, ValidationFeePayoutLifecycleProposal,
         ValidationFeePolicyProposal,
     },
+    parameter::system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameter},
     prelude::*,
     transaction::{Executable, SignedTransaction, executable::ContractInvocation},
     trigger::{
@@ -153,10 +154,7 @@ fn treasury_payout_binding(
             .expect("payout entrypoint"),
         treasury_account_id: treasury,
         ds_asset_id: "7ZepsJTHCVLKsrFFNZGSRGZgvBhv".parse().unwrap(),
-        xor_asset_id: AssetDefinitionId::derive_from_components(
-            DomainId::try_new("fees", "paynet").unwrap(),
-            "xor".parse().unwrap(),
-        ),
+        xor_asset_id: SumeragiNposParameters::default().xor_asset_definition_id,
         pool_vault_account_id: pool_contract_address.subject_id(),
         pool_contract_address,
         pool_code_hash: [2; 32],
@@ -511,8 +509,16 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
     let destination = account(0x84);
     let domain = DomainId::try_new("fees", "paynet").unwrap();
     let asset: AssetDefinitionId = "7ZepsJTHCVLKsrFFNZGSRGZgvBhv".parse().unwrap();
-    let xor = AssetDefinitionId::derive_from_components(domain.clone(), "xor".parse().unwrap());
+    let npos = SumeragiNposParameters::default();
+    let xor = npos.xor_asset_definition_id.clone();
     let mut config = TestChainConfig::new(World::new(), START);
+    // Reward custody authenticates the currency from committed NPoS policy.
+    // Author it in signed genesis, with the exact matching consensus mode.
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    config.genesis_parameters = vec![
+        Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(npos.epoch_length_blocks)),
+        Parameter::Custom(npos.into_custom_parameter()),
+    ];
     let genesis_key = config.genesis_key.clone();
     config.genesis_instructions = vec![
         Register::domain(Domain::new(domain.clone())).into(),
@@ -531,7 +537,7 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
         Register::asset_definition(AssetDefinition::new(
             xor,
             "XOR".to_owned(),
-            NumericSpec::fractional(2),
+            NumericSpec::fractional(9),
             AssetBalancePolicy::Global,
             None,
         ))
@@ -691,5 +697,36 @@ pub fn native_retail_multisig_transfer_fixture() -> NativeRetailMultisigTransfer
         approval_height,
         approval_time_ms,
         keys,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::StateReadOnly as _;
+    use iroha_data_model::account::address::ChainDiscriminantGuard;
+
+    #[test]
+    fn retail_multisig_fixture_executes_with_genesis_pinned_network_xor() {
+        let _prefix = ChainDiscriminantGuard::enter(753);
+        let fixture = native_retail_multisig_transfer_fixture();
+        let view = fixture.chain.state().view();
+        let parameters = view.world().sumeragi_npos_parameters().unwrap().unwrap();
+        let binding = crate::validation_fee::active_payout_binding_in_world_at_height(
+            view.world(),
+            fixture.chain.height(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(binding.xor_asset_id, parameters.xor_asset_definition_id);
+        let definition = view.world().asset_definition(&binding.xor_asset_id).unwrap();
+        assert_eq!(definition.spec().scale(), Some(9));
+        assert_eq!(definition.balance_scope_policy(), AssetBalancePolicy::Global);
+        assert!(fixture.assessment.retail_enrolled);
+        assert_ne!(fixture.assessment.state_commitment, [0; 32]);
+        drop(view);
+        // The fixture already checks actual balances; retain its genuine outcome
+        // and terminal records too, without supplying an execution result.
+        fixture.execution_records();
     }
 }

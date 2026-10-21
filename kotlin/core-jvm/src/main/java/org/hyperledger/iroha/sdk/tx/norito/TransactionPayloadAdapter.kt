@@ -53,6 +53,11 @@ internal class TransactionPayloadAdapter private constructor(
     private val chainDiscriminant: Int,
 ) : TypeAdapter<TransactionPayload> {
 
+    /** Complete canonical Norito archive using the transaction's sole fee-field adapter. */
+    fun encodeFeePaymentIntent(value: FeePaymentIntent): ByteArray = withChainContext(chainDiscriminant) {
+        NoritoCodec.encode(value, "iroha_data_model::transaction::signed::model::FeePaymentIntent", FEE_PAYMENT_ADAPTER)
+    }
+
     override fun encode(encoder: NoritoEncoder, value: TransactionPayload) = encodePayload(encoder, value, false)
 
     private fun encodePayload(encoder: NoritoEncoder, value: TransactionPayload, normalized: Boolean) {

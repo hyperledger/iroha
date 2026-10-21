@@ -2200,17 +2200,16 @@ export class ToriiBrowserClient {
   async getBond(bondId, options = {}) {
     const bond = normalizeAssetDefinitionId(bondId, "getBond.bondId");
     const opts = signalOnlyOptions(options, "getBond options");
-    let payload;
-    try {
-      payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}`, {
-        signal: signalFrom(opts),
-        maximumBodyBytes: BOND_RECORD_MAX_BYTES,
-        jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond response"),
-      });
-    } catch (error) {
-      if (error instanceof ToriiHttpError && error.status === 404) return null;
-      throw error;
-    }
+    let missing = false;
+    const payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}`, {
+      signal: signalFrom(opts),
+      maximumBodyBytes: BOND_RECORD_MAX_BYTES,
+      successStatuses: [200, 404],
+      nullStatuses: [404],
+      responseObserver: (response) => { missing = responseStatus(response) === 404; },
+      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond response"),
+    });
+    if (missing) return null;
     const record = normalizeBondRecord(payload, "bond response");
     if (record.id !== bond) {
       rejectType(`bond response describes ${record.id}, not the requested bond ${bond}`);
@@ -2233,18 +2232,17 @@ export class ToriiBrowserClient {
     const holder = opts.holder === undefined
       ? undefined
       : normalizeAccountId(opts.holder, "getBondEntitlements.holder");
-    let payload;
-    try {
-      payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}/entitlements`, {
-        signal: signalFrom(opts),
-        params: bondEntitlementPageParams({ ...opts, holder }, "getBondEntitlements"),
-        maximumBodyBytes: BOND_ENTITLEMENT_PAGE_MAX_BYTES,
-        jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond entitlement page response"),
-      });
-    } catch (error) {
-      if (error instanceof ToriiHttpError && error.status === 404) return null;
-      throw error;
-    }
+    let missing = false;
+    const payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}/entitlements`, {
+      signal: signalFrom(opts),
+      params: bondEntitlementPageParams({ ...opts, holder }, "getBondEntitlements"),
+      maximumBodyBytes: BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+      successStatuses: [200, 404],
+      nullStatuses: [404],
+      responseObserver: (response) => { missing = responseStatus(response) === 404; },
+      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond entitlement page response"),
+    });
+    if (missing) return null;
     return normalizeBondEntitlementPage(payload, "bond entitlement page response", bond);
   }
 

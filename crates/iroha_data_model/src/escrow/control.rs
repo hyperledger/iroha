@@ -5,6 +5,9 @@
 //! beneficial owner. These terms do not grant transfer permission or authenticate
 //! an invocation; the native executor must establish both independently.
 
+mod waterfall;
+pub use waterfall::AssetLockWaterfallSettlementV1;
+
 use core::num::NonZeroU64;
 
 use iroha_schema::IntoSchema;

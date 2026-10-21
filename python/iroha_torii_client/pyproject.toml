@@ -40,6 +40,9 @@ include-package-data = true
 packages = ["iroha_torii_client"]
 package-dir = {"iroha_torii_client" = "."}
 
+[tool.setuptools.exclude-package-data]
+"*" = ["*.pyc", "*.pyo", "__pycache__/*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py39"

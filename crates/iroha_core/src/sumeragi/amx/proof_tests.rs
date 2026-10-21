@@ -253,6 +253,9 @@ fn persisted_amx_proof_rejects_missing_corrupt_and_substituted_archives() {
 
 #[test]
 fn persisted_amx_proof_refuses_original_pool_exhaustion_and_unverified_certificates() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain();
     let budget = chain.state().ivm_execution_budget();
     let limit = budget.limit_bytes();
@@ -272,6 +275,7 @@ fn persisted_amx_proof_refuses_original_pool_exhaustion_and_unverified_certifica
             .is_some()
     );
     assert_eq!(budget.reserved_bytes(), reserved);
+    drop(retirement_pin);
     chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
     assert!(
         amx_record_proof(&chain.state().view(), 2, AmxRecordKind::Begin, tx)
@@ -284,6 +288,9 @@ fn persisted_amx_proof_refuses_original_pool_exhaustion_and_unverified_certifica
 fn persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_decode_refusal() {
     use crate::query::native_receipts::{NativeAmxRecordProofErrorV1, NativeAmxRecordProofPollV1};
     use iroha_allocation::AllocationRefusal;
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain();
     let view = chain.state().view();
     let budget = chain.state().ivm_execution_budget();
@@ -464,6 +471,9 @@ fn persisted_amx_completed_proof_retains_exact_graph_through_final_namespace_ref
     use iroha_allocation::AllocationRefusal;
     use std::cell::Cell;
 
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain();
     let replacement = ReplacedAmxArchiveNamespace::new(&chain);
     #[cfg(unix)]
@@ -576,6 +586,9 @@ fn persisted_amx_authenticated_absence_retains_final_guard_and_one_shot_delivery
     };
     use std::cell::Cell;
 
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain();
     let replacement = ReplacedAmxArchiveNamespace::new(&chain);
     let view = chain.state().view();
@@ -627,6 +640,9 @@ fn persisted_amx_detached_source_keeps_original_frame_pool_and_retry_after_view_
     use crate::query::native_receipts::{NativeAmxRecordProofErrorV1, NativeAmxRecordProofPollV1};
     use iroha_allocation::AllocationRefusal;
 
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain();
     let view = chain.state().view();
     let budget = chain.state().ivm_execution_budget();
@@ -718,6 +734,9 @@ fn persisted_amx_detach_pins_partial_inode_and_continues_without_original_view()
     use crate::query::native_receipts::NativeAmxRecordProofPollV1;
     // The real keys alone exceed one acquisition prefix, irrespective of record-value size.
     let count = 4096 / iroha_data_model::sumeragi_amx::AMX_RECORD_WITNESS_KEY_BYTES + 1;
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain_with_begins(count);
     let archive = path(&chain);
     let original_file = fs::read(&archive).unwrap();
@@ -745,6 +764,7 @@ fn persisted_amx_detach_pins_partial_inode_and_continues_without_original_view()
         assert_eq!(budget.reserved_bytes(), reserved);
     }
     assert_eq!(owned.acquired_frame().unwrap(), original_file);
+    drop(retirement_pin);
     let proof = owned.complete().unwrap().unwrap();
     assert!(proof.belongs_to(&budget));
     let tracker = AmxForeignInstanceV1::new(
@@ -793,6 +813,9 @@ fn persisted_amx_detach_namespace_refusal_preserves_original_reader_for_retry() 
 fn persisted_amx_detach_after_final_guard_refusal_moves_completed_graph_without_work() {
     use crate::query::native_receipts::NativeAmxRecordProofErrorV1;
     use std::cell::Cell;
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (chain, tx) = chain();
     let view = chain.state().view();
     let budget = chain.state().ivm_execution_budget();

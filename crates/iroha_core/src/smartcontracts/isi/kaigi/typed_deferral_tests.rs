@@ -67,6 +67,9 @@ fn unlimited_decode_limits() -> norito::DecodeLimits {
 
 #[test]
 fn stored_record_refusal_is_sticky_and_retries_original_json_without_publication() {
+    // Keep committed fixture generations in the exact pool baseline; unrelated
+    // epoch reclamation must not look like a refund of the decoder's own backing.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (record, host, participant) = super::tests::new_record(KaigiPrivacyMode::Transparent);
     let state = seeded_state(&record, &host, &participant);
     let pool = state.ivm_execution_budget();

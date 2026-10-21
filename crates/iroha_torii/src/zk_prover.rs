@@ -775,8 +775,8 @@ fn remove_report_summary(id: &str) {
 fn scan_elapsed(start: std::time::Instant) -> Duration {
     #[cfg(test)]
     {
-        // The serialized scanner fixture advances this clock only after the
-        // actual immutable snapshot has loaded. Other scans retain wall time.
+        // Serialized scanner fixtures hold this clock steady or advance it
+        // after an actual immutable snapshot loads. Other scans retain wall time.
         let elapsed = TEST_SCAN_ELAPSED_MS.load(AtomicOrdering::SeqCst);
         if elapsed != u64::MAX {
             return Duration::from_millis(elapsed);

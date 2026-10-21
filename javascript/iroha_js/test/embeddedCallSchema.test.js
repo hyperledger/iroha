@@ -91,3 +91,23 @@ test("nominal error tapes retain the complete declared identity and variant cata
   assert.throws(() => check([encode(1)]), /catalog/u);
   assert.throws(() => check([encode(0)], [unit()], 0, [descriptor]), /nonzero/u);
 });
+
+test("UID holding quote callable tapes bind exact fields and leaves without QueryPage status", () => {
+  const names = ["asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow"];
+  const quote = () => [product("kotodama::AssetUidHoldingQuote", names), leaf(8), leaf(7), leaf(0), leaf(2), tag(2), leaf(2), leaf(2)];
+  check(quote(), quote());
+  check([tag(2), ...quote()], [list(2), ...quote()]);
+  for (let index = 0; index < names.length; index += 1) {
+    const fields = [...names]; fields[index] = `forged_${index}`;
+    assert.throws(() => check([product("kotodama::AssetUidHoldingQuote", fields), ...quote().slice(1)]), /forged UID holding quote/u);
+  }
+  for (const index of [1, 2, 3, 4, 6, 7]) {
+    const nodes = quote(); nodes[index] = leaf(3);
+    assert.throws(() => check(nodes), /forged UID holding quote/u);
+  }
+  const required = quote(); required.splice(5, 1);
+  assert.throws(() => check(required), /forged UID holding quote/u);
+  const reordered = quote(); [reordered[1], reordered[2]] = [reordered[2], reordered[1]];
+  assert.throws(() => check(reordered), /forged UID holding quote/u);
+  assert.throws(() => check([product("kotodama::QueryPage", ["items", "next_offset"]), list(64), ...quote(), tag(2), leaf(0)]), /QueryPage/u);
+});

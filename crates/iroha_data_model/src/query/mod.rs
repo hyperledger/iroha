@@ -796,6 +796,10 @@ define_builtin_query_registry! {
         => "iroha.query.v1::iterable::bond::BondRecord",
     ErasedIterQuery<crate::asset::uid::AssetUidPolicyViewV1>
         => "iroha.query.v1::iterable::asset::AssetUidPolicyViewV1",
+    ErasedIterQuery<crate::asset::fi_link::AssetFiRelationshipViewV1>
+        => "iroha.query.v1::iterable::asset::AssetFiRelationshipViewV1",
+    ErasedIterQuery<crate::asset::uid_enrollment::AssetUidEnrollmentViewV1>
+        => "iroha.query.v1::iterable::asset::AssetUidEnrollmentViewV1",
 }
 /// Set the global query registry used to decode queries by stable wire identifier.
 ///
@@ -1197,6 +1201,10 @@ mod model {
         BondRecord(Vec<crate::bond::BondRecord>),
         /// Owner-scoped native UID policy, holdings and activity views.
         AssetUidPolicyViewV1(Vec<crate::asset::uid::AssetUidPolicyViewV1>),
+        /// Private exact native relationship observation.
+        AssetFiRelationshipViewV1(Vec<crate::asset::fi_link::AssetFiRelationshipViewV1>),
+        /// Private exact native relationship observation.
+        AssetUidEnrollmentViewV1(Vec<crate::asset::uid_enrollment::AssetUidEnrollmentViewV1>),
     }
     #[derive(Debug, Clone, PartialEq, Eq, Encode, IntoSchema, crate :: DeriveJsonSerialize)]
     /// Helper tuple to materialise batches into Norito collections.
@@ -1800,6 +1808,8 @@ mod model {
             try_build!(crate::escrow::AssetEscrowRecord, AssetEscrowRecord);
             try_build!(crate::bond::BondRecord, BondRecord);
             try_build!(crate::asset::uid::AssetUidPolicyViewV1, AssetUidPolicyViewV1);
+            try_build!(crate::asset::fi_link::AssetFiRelationshipViewV1, AssetFiRelationshipViewV1);
+            try_build!(crate::asset::uid_enrollment::AssetUidEnrollmentViewV1, AssetUidEnrollmentViewV1);
             Err(QueryWithParamsError::unsupported(query.type_name_key()))
         }
         /// Access the canonical iterable-query payload components.
@@ -1900,6 +1910,10 @@ mod model {
         BondRecord,
         /// Owner-scoped native UID policy views (wire tag 32).
         AssetUidPolicyViewV1,
+        /// Private exact native relationship view (wire tag 33).
+        AssetFiRelationshipViewV1,
+        /// Private exact native relationship view (wire tag 34).
+        AssetUidEnrollmentViewV1,
     }
     /// Trait mapping item types to a `QueryItemKind` marker.
     ///
@@ -2050,6 +2064,12 @@ mod model {
     }
     impl ItemKindTag for crate::asset::uid::AssetUidPolicyViewV1 {
         fn kind() -> QueryItemKind { QueryItemKind::AssetUidPolicyViewV1 }
+    }
+    impl ItemKindTag for crate::asset::fi_link::AssetFiRelationshipViewV1 {
+        fn kind() -> QueryItemKind { QueryItemKind::AssetFiRelationshipViewV1 }
+    }
+    impl ItemKindTag for crate::asset::uid_enrollment::AssetUidEnrollmentViewV1 {
+        fn kind() -> QueryItemKind { QueryItemKind::AssetUidEnrollmentViewV1 }
     }
     impl ItemKindTag for crate::bond::BondRecord {
         fn kind() -> QueryItemKind {
@@ -2853,6 +2873,8 @@ impl QueryOutputBatchBox {
             (Self::FeeSponsorProgramId(v1), Self::FeeSponsorProgramId(v2)) => v1.extend(v2),
             (Self::BondRecord(v1), Self::BondRecord(v2)) => v1.extend(v2),
             (Self::AssetUidPolicyViewV1(v1), Self::AssetUidPolicyViewV1(v2)) => v1.extend(v2),
+            (Self::AssetFiRelationshipViewV1(v1), Self::AssetFiRelationshipViewV1(v2)) => v1.extend(v2),
+            (Self::AssetUidEnrollmentViewV1(v1), Self::AssetUidEnrollmentViewV1(v2)) => v1.extend(v2),
             _ => return Err(QueryOutputBatchBoxTypeMismatch),
         }
         Ok(())
@@ -2909,6 +2931,8 @@ impl QueryOutputBatchBox {
             Self::FeeSponsorProgramId(v) => v.len(),
             Self::BondRecord(v) => v.len(),
             Self::AssetUidPolicyViewV1(v) => v.len(),
+            Self::AssetFiRelationshipViewV1(v) => v.len(),
+            Self::AssetUidEnrollmentViewV1(v) => v.len(),
         }
     }
     /// Returns `true` if this batch column contains no rows.
@@ -4067,6 +4091,8 @@ mod json_roundtrip_tests {
             QueryItemKind::AssetEscrowsByStatus,
             QueryItemKind::BondRecord,
             QueryItemKind::AssetUidPolicyViewV1,
+            QueryItemKind::AssetFiRelationshipViewV1,
+            QueryItemKind::AssetUidEnrollmentViewV1,
         ];
         for (index, kind) in kinds.into_iter().enumerate() {
             let expected = u32::try_from(index)
@@ -4319,6 +4345,8 @@ impl_iter_queries! {
     nexus::prelude::FindFeeSponsorProgramIds => crate::nexus::FeeSponsorProgramId,
     bond::FindBonds => crate::bond::BondRecord,
     asset_uid::FindAssetUidPoliciesV1 => crate::asset::uid::AssetUidPolicyViewV1,
+    asset_fi::FindAssetFiLinkV1 => crate::asset::fi_link::AssetFiRelationshipViewV1,
+    asset_uid_enrollment::FindAssetUidEnrollmentV1 => crate::asset::uid_enrollment::AssetUidEnrollmentViewV1,
     nexus::prelude::FindFeeSponsorProgramsBySponsor => crate::nexus::FeeSponsorProgram,
     FindTransactions => CommittedTransaction,
     FindAccountsWithAsset => crate::account::Account,
@@ -4617,6 +4645,8 @@ macro_rules! queries {
 include!("domain_queries.rs");
 /// Owner-scoped native UID policy views.
 pub mod asset_uid;
+pub mod asset_fi;
+pub mod asset_uid_enrollment;
 pub mod sns {
     //! SNS-related query definitions.
     //!

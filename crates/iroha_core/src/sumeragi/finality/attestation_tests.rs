@@ -167,6 +167,9 @@ fn challenged_boundary_attestation_checks_exact_target_and_genesis_successor_quo
 
 #[test]
 fn attestation_resource_refusal_retries_the_same_original_source_without_retained_cache() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     with_chain_at(2, check_resource_retry);
 }
 
@@ -293,6 +296,9 @@ fn capture_original_tail(
 
 #[test]
 fn attestation_tail_keeps_real_boundary_proofs_status_order_and_active_charges() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     // Use the ordinary test thread and real NPoS boundary, without a stack override.
     with_chain_at(10, check_original_tail);
 }
@@ -390,6 +396,9 @@ fn check_original_tail(chain: &CertifiedTestChain) {
 #[cfg(unix)]
 #[test]
 fn attestation_tail_refuses_changed_native_genesis_before_status_and_retries_original_inode() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     with_chain_at(2, check_tail_source_retry);
 }
 

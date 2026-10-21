@@ -6,6 +6,7 @@
 //! rows through its query-specific bounded adapter.
 #![allow(unsafe_code)]
 mod asset_uid;
+mod asset_relationship;
 use asset_uid::collect_asset_uid_policies;
 use super::{
     OrdinaryQueryExecutionLimits, QueryAttemptError, QueryExecutionStats,
@@ -41,7 +42,7 @@ use std::{
 };
 /// The world-state producer count admitted through a source-specific adapter.
 #[cfg(test)]
-pub(super) const ADMITTED_WORLD_PRODUCERS: usize = 5;
+pub(super) const ADMITTED_WORLD_PRODUCERS: usize = 7;
 /// The world-state producer count still awaiting source-specific bounded
 /// ownership and exact predicate parity.
 #[cfg(test)]
@@ -81,6 +82,28 @@ where
             return Ok((OrdinaryIterable::Owned(cast_owned_exact::<
                 ExactOwnedRows<iroha_data_model::asset::uid::AssetUidPolicyViewV1>, ExactOwnedRows<T>,
             >(rows)?), stats));
+        }
+        if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_fi::FindAssetFiLinkV1>()
+            && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1>()
+            && params.pagination.offset_value() == 0
+            && params.sorting.sort_by_metadata_key.is_none()
+            && predicate.is_pass()
+        {
+            drop(predicate);
+            let query = cast_owned_exact::<Q, iroha_data_model::query::asset_fi::FindAssetFiLinkV1>(query)?;
+            let (rows, stats) = asset_relationship::collect_asset_fi(&query, params, mode, limits, state)?;
+            return Ok((OrdinaryIterable::Owned(cast_owned_exact::<ExactOwnedRows<iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1>, ExactOwnedRows<T>>(rows)?), stats));
+        }
+        if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1>()
+            && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1>()
+            && params.pagination.offset_value() == 0
+            && params.sorting.sort_by_metadata_key.is_none()
+            && predicate.is_pass()
+        {
+            drop(predicate);
+            let query = cast_owned_exact::<Q, iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1>(query)?;
+            let (rows, stats) = asset_relationship::collect_asset_uid_enrollment(&query, params, mode, limits, state)?;
+            return Ok((OrdinaryIterable::Owned(cast_owned_exact::<ExactOwnedRows<iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1>, ExactOwnedRows<T>>(rows)?), stats));
         }
         if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::peer::prelude::FindPeers>()
             && TypeId::of::<T>() == TypeId::of::<PeerId>()
@@ -966,12 +989,12 @@ mod tests {
     use super::*;
     #[test]
     fn residual_inventory_is_explicit_and_exhaustive() {
-        assert_eq!(ADMITTED_WORLD_PRODUCERS, 5);
+        assert_eq!(ADMITTED_WORLD_PRODUCERS, 7);
         assert_eq!(WORLD_PRODUCER_RESIDUALS, 33);
         assert_eq!(KURA_PRODUCER_RESIDUALS, 3);
         assert_eq!(
             ADMITTED_WORLD_PRODUCERS + WORLD_PRODUCER_RESIDUALS + KURA_PRODUCER_RESIDUALS,
-            41
+            43
         );
     }
     fn trigger_test_limits(source_bytes: u64) -> OrdinaryQueryExecutionLimits {
@@ -1088,6 +1111,49 @@ mod tests {
         )
     }
     #[test]
+    fn bounded_native_relationship_queries_preserve_missing_state_and_refuse_bad_rows() {
+        use crate::{kura::Kura, query::store::LiveQueryStore, state::{State, World}};
+        use iroha_data_model::{asset::{AssetBalancePolicy, fi_link::AssetFiV1}, prelude::*, query::{asset_fi::FindAssetFiLinkV1, asset_uid_enrollment::FindAssetUidEnrollmentV1, parameters::FetchSize}};
+        use std::num::NonZeroU64;
+        let owner=iroha_test_samples::ALICE_ID.clone();
+        let wallet=iroha_test_samples::BOB_ID.clone();
+        let definition=AssetDefinitionId::from_uuid_bytes([0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0x48,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8]).unwrap();
+        let world=World::with([], [Account::new(owner.clone()).build(&owner), Account::new(wallet.clone()).build(&owner)], [AssetDefinition::numeric(definition.clone(), "DS", AssetBalancePolicy::Global, None).build(&owner)]);
+        let state=State::new_for_testing(world,Kura::blank_kura_for_testing(),LiveQueryStore::start_test());
+        let query=FindAssetFiLinkV1{asset_definition_id:definition.clone(), account_id:wallet,fi_account_id:owner.clone(),reference_digest:[19;32]};
+        let enrollment=FindAssetUidEnrollmentV1{asset_definition_id:definition.clone()};
+        let limits=trigger_test_limits(4_096);
+        let params=QueryParams{fetch_size:FetchSize::new(NonZeroU64::new(1)),..QueryParams::default()};
+        assert!(asset_relationship::collect_asset_fi(&query,&params,OrdinaryCursorMode::Stored,limits,&state.view()).is_err());
+        let header=BlockHeader::new(NonZeroU64::new(1).unwrap(),None,None,1_000,0);
+        state.block(header.clone()).commit_empty_block_for_testing().unwrap();
+        state.update_latest_block_header_cache_for_tests(header);
+        let (mut rows,stats)=asset_relationship::collect_asset_fi(&query,&params,OrdinaryCursorMode::Stored,limits,&state.view()).unwrap();
+        let row=rows.next().unwrap();
+        assert!(row.fi.is_none() && row.attestation.is_none() && row.link.is_none());
+        assert_eq!((row.ledger_time_ms,row.as_of_height),(1_000,1));
+        assert_eq!(stats.processed_items(),3,"even absent point lookups consume bounded work");
+        assert!(rows.next().is_none());
+        let (mut rows,_)=asset_relationship::collect_asset_uid_enrollment(&enrollment,&params,OrdinaryCursorMode::Stored,limits,&state.view()).unwrap();
+        let row=rows.next().unwrap();
+        assert_eq!(row.asset_definition_id,definition);
+        assert!(row.enrollment.is_none(),"not activated is explicit, never an empty page");
+        let key=crate::state::asset_fi::fi_key(&definition,&owner);
+        {
+            let mut world=state.world.block();
+            world.smart_contract_state.insert(key.clone(),vec![0;4_097]);
+            world.commit();
+        }
+        assert!(asset_relationship::collect_asset_fi(&query,&params,OrdinaryCursorMode::Stored,limits,&state.view()).is_err(),"oversized source must refuse before decoding");
+        {
+            let mut world=state.world.block();
+            let invalid=AssetFiV1{asset_definition_id:definition,fi_account_id:owner,revision:0,enabled:true};
+            world.smart_contract_state.insert(key,norito::encode_canonical(&invalid).unwrap());
+            world.commit();
+        }
+        assert!(asset_relationship::collect_asset_fi(&query,&params,OrdinaryCursorMode::Stored,limits,&state.view()).is_err(),"canonical bytes with invalid native revision must not be reported as eligibility");
+    }
+    #[test]
     fn bounded_uid_roster_source_is_exact_and_preserves_stored_cursor() {
         use crate::{
             kura::Kura,
@@ -1131,6 +1197,7 @@ mod tests {
         let query = FindAssetUidPoliciesV1 {
             asset_definition_id: definition.clone(),
             uid: None,
+            wallet_account_id: None,
         };
         let limits = trigger_test_limits(4_096);
         let params = QueryParams {
@@ -1167,7 +1234,8 @@ mod tests {
                         accounts: BTreeSet::from([account]),
                         holding_limit: Some(50_u32.into()),
                         daily_window: AssetUidDailyWindowV1::UtcDay,
-                        daily_limit: Some(50_u32.into()),
+                        daily_spend_limit: Some(50_u32.into()),
+                        daily_outgoing_limit: None,
                     },
                 }
                 .execute(&owner, &mut tx)

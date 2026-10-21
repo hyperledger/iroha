@@ -45,6 +45,7 @@ const KOTODAMA_V1_RESERVED_TYPE_DECLARATIONS: &[&str] = &[
     "DomainView",
     "NftView",
     "QueryPage",
+    "AssetUidHoldingQuote",
     "AxtDescriptor",
     "AxtAnchoredSpendV1",
     "ProofBlob",
@@ -710,6 +711,8 @@ impl EntrypointValueTypeV1 {
                     } else if node.name == "kotodama::QueryPage" {
                         let view_name = children.first()?.list_element_core_view.clone()?;
                         (format!("QueryPage<{view_name}>"), None)
+                    } else if node.name == "kotodama::AssetUidHoldingQuote" {
+                        ("AssetUidHoldingQuote".to_owned(), None)
                     } else if is_core_query_view_name(&node.name) {
                         let name = node.name.strip_prefix("kotodama::")?.to_owned();
                         (name.clone(), Some(name))
@@ -1269,7 +1272,7 @@ pub fn is_canonical_kotodama_struct_name(value: &str) -> bool {
         return false;
     }
     if is_core_query_view_name(value)
-        || matches!(value, "kotodama::QueryPage" | "kotodama::StatePage")
+        || matches!(value, "kotodama::QueryPage" | "kotodama::StatePage" | "kotodama::AssetUidHoldingQuote")
     {
         return true;
     }
@@ -2335,6 +2338,108 @@ mod tests {
                 }
             )) if depth == norito::json::MAX_JSON_VALUE_NESTING_DEPTH + 1
         ));
+    }
+    fn uid_holding_quote_schema() -> EntrypointValueTypeV1 {
+        use EntrypointValueKindV1 as Kind;
+        use EntrypointValueTypeNodeV1 as Node;
+        EntrypointValueTypeV1 {
+            nodes: vec![
+                Node::Struct(EntrypointStructTypeNodeV1 {
+                    name: "kotodama::AssetUidHoldingQuote".into(),
+                    fields: [
+                        "asset_definition_id",
+                        "account_id",
+                        "policy_revision",
+                        "beneficial_holdings",
+                        "holding_limit",
+                        "required_overflow",
+                    ]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                }),
+                Node::Leaf(Kind::AssetDefinitionId),
+                Node::Leaf(Kind::AccountId),
+                Node::Leaf(Kind::Int),
+                Node::Leaf(Kind::Quantity),
+                Node::Option,
+                Node::Leaf(Kind::Quantity),
+                Node::Leaf(Kind::Quantity),
+            ],
+        }
+    }
+    #[test]
+    fn uid_holding_quote_is_exact_nominal_product_not_query_page_item() {
+        use EntrypointValueKindV1 as Kind;
+        use EntrypointValueTypeNodeV1 as Node;
+        let quote = uid_holding_quote_schema();
+        assert!(quote.validate());
+        assert_eq!(quote.word_count(), Some(6));
+        assert_eq!(
+            quote.canonical_type_name().as_deref(),
+            Some("AssetUidHoldingQuote")
+        );
+        assert!(is_canonical_kotodama_struct_name(
+            "kotodama::AssetUidHoldingQuote"
+        ));
+        assert!(!is_canonical_kotodama_struct_name(
+            "Other::AssetUidHoldingQuote"
+        ));
+        assert!(
+            !query_page_schema(&quote).validate(),
+            "quote is not an enumerable query row"
+        );
+        let mut pair = vec![Node::Tuple(2)];
+        pair.extend(quote.nodes.clone());
+        pair.extend(quote.nodes.clone());
+        assert!(EntrypointValueTypeV1 { nodes: pair }.validate());
+        let mut optional = vec![Node::Option];
+        optional.extend(quote.nodes.clone());
+        let optional = EntrypointValueTypeV1 { nodes: optional };
+        assert_eq!(
+            optional.canonical_type_name().as_deref(),
+            Some("Option<AssetUidHoldingQuote>")
+        );
+        for schema in [quote.clone(), optional] {
+            let bytes = norito::to_bytes(&schema).unwrap();
+            assert_eq!(
+                norito::decode_from_bytes::<EntrypointValueTypeV1>(&bytes).unwrap(),
+                schema
+            );
+            let json = norito::json::to_string(&schema).unwrap();
+            assert_eq!(
+                norito::json::from_str::<EntrypointValueTypeV1>(&json).unwrap(),
+                schema
+            );
+        }
+        let reject = |malformed: EntrypointValueTypeV1| {
+            assert!(!malformed.validate());
+            assert_eq!(malformed.canonical_type_name(), None);
+            let json = norito::json::to_string(&malformed).unwrap();
+            assert!(norito::json::from_str::<EntrypointValueTypeV1>(&json).is_err());
+        };
+        for index in 0..6 {
+            let mut bad = quote.clone();
+            let Node::Struct(root) = &mut bad.nodes[0] else {
+                unreachable!()
+            };
+            root.fields[index] = format!("forged_{index}");
+            reject(bad);
+        }
+        for index in 1..quote.nodes.len() {
+            let mut bad = quote.clone();
+            bad.nodes[index] = Node::Leaf(Kind::Bool);
+            reject(bad);
+        }
+        let mut reordered = quote.clone();
+        reordered.nodes.swap(1, 2);
+        reject(reordered);
+        let mut renamed = quote.clone();
+        let Node::Struct(root) = &mut renamed.nodes[0] else {
+            unreachable!()
+        };
+        root.name = "kotodama::ForgedQuote".into();
+        reject(renamed);
     }
     #[test]
     fn asset_definition_precision_schema_roundtrips_and_rejects_old_or_forged_shapes() {

@@ -4,6 +4,9 @@ use super::*;
 
 #[test]
 fn native_amx_returned_global_context_keeps_every_original_graph_charge_until_retirement() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let config = global_config();
     let chain_id = config.chain_id.clone();
     let key = config.genesis_key.clone();
@@ -142,6 +145,9 @@ fn native_amx_returned_global_context_keeps_every_original_graph_charge_until_re
 
 #[test]
 fn native_amx_returned_context_final_registration_refusal_keeps_original_graph_and_retry_pool() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let config = global_config();
     let chain_id = config.chain_id.clone();
     let key = config.genesis_key.clone();

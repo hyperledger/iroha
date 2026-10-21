@@ -1,5 +1,6 @@
 //! Native asset escrow instruction handlers.
 pub(crate) mod controlled;
+pub(crate) mod controlled_waterfall;
 use super::{Error, Execute, asset::isi::assert_numeric_spec_with};
 use crate::smartcontracts::isi::helpers::ensure_custody_account;
 use crate::smartcontracts::isi::query::json_predicate::intersect_candidate_ids;
@@ -1751,7 +1752,7 @@ impl Execute for DrawdownAssetLock {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_drawdown_asset_lock(self, authority, state_transaction, false)
+        execute_drawdown_asset_lock(self, authority, state_transaction, false, None)
     }
 }
 fn execute_drawdown_asset_lock(
@@ -1759,6 +1760,7 @@ fn execute_drawdown_asset_lock(
     authority: &AccountId,
     state_transaction: &mut StateTransaction<'_, '_>,
     controlled: bool,
+    waterfall: Option<(&iroha_data_model::escrow::control::AssetLockWaterfallSettlementV1, &crate::executor::ContractRuntimeExecutionContext)>,
 ) -> Result<(), Error> {
     if !controlled {
         controlled::reject_generic_mutation(state_transaction.world(), &instruction.escrow_id)?;
@@ -1805,17 +1807,21 @@ fn execute_drawdown_asset_lock(
         .buyer
         .clone()
         .ok_or_else(|| validation_err("lock destination missing"))?;
-    let custody_asset = custody_asset(&record);
-    let destination_asset = party_asset(&record, &destination);
-    transfer_numeric_asset_for_escrow(
-        state_transaction,
-        VerifiedNativeEscrowMovement::retained(
-            record.id.clone(),
-            custody_asset,
-            destination_asset,
-            instruction.amount.clone(),
-        ),
-    )?;
+    if let Some((pins, context)) = waterfall {
+        controlled_waterfall::transfer(state_transaction, &record, &destination, &instruction.amount, pins, context)?;
+    } else {
+        let custody_asset = custody_asset(&record);
+        let destination_asset = party_asset(&record, &destination);
+        transfer_numeric_asset_for_escrow(
+            state_transaction,
+            VerifiedNativeEscrowMovement::retained(
+                record.id.clone(),
+                custody_asset,
+                destination_asset,
+                instruction.amount.clone(),
+            ),
+        )?;
+    }
     record.remaining_amount = record
         .remaining_amount
         .checked_sub(&instruction.amount)
@@ -1838,7 +1844,7 @@ impl Execute for CancelAssetLock {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_cancel_asset_lock(self, authority, state_transaction, false)
+        execute_cancel_asset_lock(self, authority, state_transaction, false, None)
     }
 }
 fn execute_cancel_asset_lock(
@@ -1846,6 +1852,7 @@ fn execute_cancel_asset_lock(
     authority: &AccountId,
     state_transaction: &mut StateTransaction<'_, '_>,
     controlled: bool,
+    waterfall: Option<(&iroha_data_model::escrow::control::AssetLockWaterfallSettlementV1, &crate::executor::ContractRuntimeExecutionContext)>,
 ) -> Result<(), Error> {
     if !controlled {
         controlled::reject_generic_mutation(state_transaction.world(), &instruction.escrow_id)?;
@@ -1880,17 +1887,21 @@ fn execute_cancel_asset_lock(
             "asset lock remaining amount changed since the cancellation was prepared",
         ));
     }
-    let custody_asset = custody_asset(&record);
-    let seller_asset = party_asset(&record, &record.seller);
-    transfer_numeric_asset_for_escrow(
-        state_transaction,
-        VerifiedNativeEscrowMovement::retained(
-            record.id.clone(),
-            custody_asset,
-            seller_asset,
-            record.remaining_amount.clone(),
-        ),
-    )?;
+    if let Some((pins, context)) = waterfall {
+        controlled_waterfall::transfer(state_transaction, &record, &record.seller, &record.remaining_amount, pins, context)?;
+    } else {
+        let custody_asset = custody_asset(&record);
+        let seller_asset = party_asset(&record, &record.seller);
+        transfer_numeric_asset_for_escrow(
+            state_transaction,
+            VerifiedNativeEscrowMovement::retained(
+                record.id.clone(),
+                custody_asset,
+                seller_asset,
+                record.remaining_amount.clone(),
+            ),
+        )?;
+    }
     record.status = AssetEscrowStatus::Cancelled;
     record.remaining_amount = Quantity::zero();
     record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
@@ -1908,7 +1919,7 @@ impl Execute for ExpireAssetLock {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_expire_asset_lock(self, authority, state_transaction, false)
+        execute_expire_asset_lock(self, authority, state_transaction, false, None)
     }
 }
 fn execute_expire_asset_lock(
@@ -1916,6 +1927,7 @@ fn execute_expire_asset_lock(
     _authority: &AccountId,
     state_transaction: &mut StateTransaction<'_, '_>,
     controlled: bool,
+    waterfall: Option<(&iroha_data_model::escrow::control::AssetLockWaterfallSettlementV1, &crate::executor::ContractRuntimeExecutionContext)>,
 ) -> Result<(), Error> {
     if !controlled {
         controlled::reject_generic_mutation(state_transaction.world(), &instruction.escrow_id)?;
@@ -1939,17 +1951,21 @@ fn execute_expire_asset_lock(
     if state_transaction.block_unix_timestamp_ms() < expires_at_ms {
         return Err(validation_err("asset lock expiry has not been reached"));
     }
-    let custody_asset = custody_asset(&record);
-    let seller_asset = party_asset(&record, &record.seller);
-    transfer_numeric_asset_for_escrow(
-        state_transaction,
-        VerifiedNativeEscrowMovement::retained(
-            record.id.clone(),
-            custody_asset,
-            seller_asset,
-            record.remaining_amount.clone(),
-        ),
-    )?;
+    if let Some((pins, context)) = waterfall {
+        controlled_waterfall::transfer(state_transaction, &record, &record.seller, &record.remaining_amount, pins, context)?;
+    } else {
+        let custody_asset = custody_asset(&record);
+        let seller_asset = party_asset(&record, &record.seller);
+        transfer_numeric_asset_for_escrow(
+            state_transaction,
+            VerifiedNativeEscrowMovement::retained(
+                record.id.clone(),
+                custody_asset,
+                seller_asset,
+                record.remaining_amount.clone(),
+            ),
+        )?;
+    }
     record.status = AssetEscrowStatus::Expired;
     record.remaining_amount = Quantity::zero();
     record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());

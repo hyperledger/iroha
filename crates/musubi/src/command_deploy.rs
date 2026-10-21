@@ -29,16 +29,29 @@ pub(super) struct DeployArgs {
     #[arg(long)]
     contract: Option<String>,
     /// Prepare and persist the exact signed plan without submitting it.
-    #[arg(long, conflicts_with_all = ["resume", "cancel"])]
+    #[arg(long, conflicts_with_all = ["resume", "cancel", "reconcile_expiry"])]
     prepare: bool,
     /// Resume this exact deployment journal, without rebuilding or re-signing its transactions.
-    #[arg(long, value_name = "JOURNAL", conflicts_with_all = ["cancel", "contract", "locked", "workspace", "packages", "exclude"])]
+    #[arg(long, value_name = "JOURNAL", conflicts_with_all = ["cancel", "reconcile_expiry", "contract", "locked", "workspace", "packages", "exclude"])]
     resume: Option<PathBuf>,
     /// Cancel an unattempted local plan; attempted transactions still require exact-hash recovery.
-    #[arg(long, value_name = "JOURNAL", conflicts_with_all = ["contract", "locked", "workspace", "packages", "exclude"])]
+    #[arg(long, value_name = "JOURNAL", conflicts_with_all = ["reconcile_expiry", "contract", "locked", "workspace", "packages", "exclude"])]
     cancel: Option<PathBuf>,
+    /// Reconcile certified-history absence after all original signed validity windows expire.
+    /// This sends reads only and retains the original plan and a distinct retirement record.
+    #[arg(long, value_name = "JOURNAL", requires_all = ["expiry_root", "expiry_genesis", "expiry_max_height"], conflicts_with_all = ["prepare", "resume", "cancel", "contract", "locked", "workspace", "packages", "exclude", "artifact", "activate"])]
+    reconcile_expiry: Option<PathBuf>,
+    /// Independent public genesis pins from the authenticated operator release (closed JSON).
+    #[arg(long, value_name = "PATH", requires = "reconcile_expiry")]
+    expiry_root: Option<PathBuf>,
+    /// Original framed signed genesis paired with --expiry-root.
+    #[arg(long, value_name = "PATH", requires = "reconcile_expiry")]
+    expiry_genesis: Option<PathBuf>,
+    /// Inclusive finite scan ceiling; must already exist on the selected Global chain.
+    #[arg(long, requires = "reconcile_expiry", value_parser = clap::value_parser!(u64).range(2..=100_000))]
+    expiry_max_height: Option<u64>,
     /// Deploy this prebuilt `.to` after verifying that the locked package source reproduces it.
-    #[arg(long, value_name = "PATH", requires = "artifact_manifest", conflicts_with_all = ["resume", "cancel"])]
+    #[arg(long, value_name = "PATH", requires = "artifact_manifest", conflicts_with_all = ["resume", "cancel", "reconcile_expiry"])]
     artifact: Option<PathBuf>,
     /// Compiler manifest written beside the prebuilt artifact (`<name>.manifest.json`).
     #[arg(long, value_name = "PATH", requires = "artifact")]
@@ -98,14 +111,21 @@ pub(super) fn run_deploy(
     args: &DeployArgs,
     progress: &mut dyn FnMut(&str),
 ) -> CommandResult {
-    progress(if args.cancel.is_some() {
+    progress(if args.reconcile_expiry.is_some() {
+        "Verifying complete certified history for original signed validity-window absence..."
+    } else if args.cancel.is_some() {
         "Validating unattempted deployment cancellation..."
     } else if args.resume.is_some() {
         "Recovering the exact retained deployment plan..."
     } else {
         "Preparing the contract, network binding, permissions, and exact fee quotes..."
     });
-    if let Some(journal) = args.resume.as_ref().or(args.cancel.as_ref()) {
+    if let Some(journal) = args
+        .resume
+        .as_ref()
+        .or(args.cancel.as_ref())
+        .or(args.reconcile_expiry.as_ref())
+    {
         return recover_deployment(manifest, args, journal, progress);
     }
     let activation_payload = if args.args.is_some() || args.args_file.is_some() {
@@ -397,6 +417,34 @@ fn recover_deployment(
         })?;
     let session = DeploymentSlot::open_package_read(slot, alias.clone())
         .map_err(|error| runtime_diagnostic(&error))?;
+    if args.reconcile_expiry.is_some() {
+        let evidence = session
+            .reconcile_expiry(
+                &service,
+                &journal,
+                args.expiry_root
+                    .as_deref()
+                    .ok_or_else(|| Diagnostic::new(ErrorCode::Usage, "expiry root is required"))?,
+                args.expiry_genesis.as_deref().ok_or_else(|| {
+                    Diagnostic::new(ErrorCode::Usage, "expiry genesis is required")
+                })?,
+                args.expiry_max_height.ok_or_else(|| {
+                    Diagnostic::new(ErrorCode::Usage, "expiry scan ceiling is required")
+                })?,
+            )
+            .map_err(|error| runtime_diagnostic(&error))?;
+        return Ok(Success {
+            message: format!(
+                "Retired original deployment by certified validity-window absence: {}",
+                journal.display()
+            ),
+            data: object([
+                ("status", Value::from("validity_window_elapsed")),
+                ("journal", Value::from(journal.display().to_string())),
+                ("evidence", deployment_json(&evidence)?),
+            ]),
+        });
+    }
     if args.cancel.is_some() {
         let cancellation = session
             .cancel(&service, &journal)

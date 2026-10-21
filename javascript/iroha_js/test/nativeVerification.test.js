@@ -220,7 +220,7 @@ variantTest("getNativeBinding rejects a checksum-valid dirty-source artifact", a
       assert.throws(
         () => getNativeBinding(),
         (error) => {
-          assert.match(error.message, /dirty source tree/u);
+          assert.match(error.message, /source verification (?:failed|timed out)/u);
           assert.equal(error.code, "ERR_IROHA_NATIVE_BINDING");
           assert.equal(error.nativeStatus, "source_provenance_error");
           return true;
@@ -244,9 +244,28 @@ variantTest("getNativeBinding rejects a checksum-valid dirty-source artifact", a
 });
 
 for (const scenario of [
-  { name: "Electron", electron: true, timeout: false },
-  { name: "Electron timeout", electron: true, timeout: true },
-  { name: "Node", electron: false, timeout: false },
+  { name: "Electron", electron: true },
+  {
+    name: "Electron timeout", electron: true,
+    failure: { code: "ETIMEDOUT", status: null, signal: "SIGTERM" },
+    diagnostic: { kind: "timeout", code: "ETIMEDOUT", status: null, signal: "SIGTERM" },
+  },
+  { name: "Node", electron: false },
+  {
+    name: "Node verifier nonzero exit", electron: false,
+    failure: { status: 2, signal: null },
+    diagnostic: { kind: "verifier_failure", code: null, status: 2, signal: null },
+  },
+  {
+    name: "Node spawn error", electron: false,
+    failure: { code: "ENOENT", status: null, signal: null },
+    diagnostic: { kind: "verifier_failure", code: "ENOENT", status: null, signal: null },
+  },
+  {
+    name: "Node unsafe diagnostic fields", electron: false,
+    failure: { code: "PRIVATE\nargv", status: "PRIVATE", signal: "PRIVATE\noutput" },
+    diagnostic: { kind: "verifier_failure", code: null, status: null, signal: null },
+  },
 ]) {
   variantTest(`dirty-source verification uses a bounded subprocess (${scenario.name})`, async (t) => {
     __resetNativeStateForTests();
@@ -255,10 +274,18 @@ for (const scenario of [
     const previousRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
     const previousElectron = Object.getOwnPropertyDescriptor(process.versions, "electron");
     const verifier = t.mock.method(childProcess, "execFileSync", () => {
-      if (scenario.timeout) {
-        throw Object.assign(new Error("verification timed out"), { code: "ETIMEDOUT" });
+      if (scenario.failure) {
+        throw Object.assign(new Error("PRIVATE verifier message and argv"), {
+          ...scenario.failure,
+          stdout: Buffer.from("PRIVATE stdout"),
+          stderr: Buffer.from("PRIVATE stderr"),
+          spawnargs: ["PRIVATE argv"],
+        });
       }
       return Buffer.alloc(0);
+    });
+    const nativeLoad = t.mock.method(process, "dlopen", () => {
+      throw new Error("mock native load reached");
     });
     syncBuiltinESMExports();
     try {
@@ -293,14 +320,32 @@ for (const scenario of [
             assert.equal(error.code, "ERR_IROHA_NATIVE_BINDING");
             assert.equal(
               error.nativeStatus,
-              scenario.timeout ? "source_provenance_error" : "load_error",
+              scenario.failure ? "source_provenance_error" : "load_error",
               "only successful provenance verification may reach native loading",
             );
+            if (scenario.failure) {
+              assert.deepEqual(error.sourceVerification, {
+                ...scenario.diagnostic, timeoutMs: 60_000,
+              });
+              assert.ok(Object.isFrozen(error.sourceVerification));
+              assert.match(error.message, scenario.diagnostic.kind === "timeout"
+                ? /source verification timed out after 60000 ms/u
+                : /source verification failed/u);
+              assert.doesNotMatch(error.message, /does not match/u);
+              assert.doesNotMatch(error.message + JSON.stringify(error), /PRIVATE/u);
+              for (const key of ["cause", "stdout", "stderr", "spawnargs"]) {
+                assert.equal(Object.hasOwn(error, key), false);
+              }
+            } else {
+              assert.match(error.message, /mock native load reached/u);
+              assert.equal(Object.hasOwn(error, "sourceVerification"), false);
+            }
             return true;
           },
         );
 
         assert.equal(verifier.mock.callCount(), 1);
+        assert.equal(nativeLoad.mock.callCount(), scenario.failure ? 0 : 1);
         const [executable, args, options] = verifier.mock.calls[0].arguments;
         const sdkRoot = fileURLToPath(new URL("../", import.meta.url));
         assert.equal(executable, process.execPath);
@@ -315,7 +360,7 @@ for (const scenario of [
             sourceTreeSha256: SOURCE_PROVENANCE.source_tree_sha256,
           }),
         ]);
-        assert.equal(options.timeout, 15_000);
+        assert.equal(options.timeout, 60_000);
         assert.equal(options.maxBuffer, 16 * 1024);
         assert.equal(options.env.IROHA_JS_NATIVE_DIR, dir);
         assert.equal(options.env.NODE_OPTIONS, "");
@@ -325,6 +370,7 @@ for (const scenario of [
       });
     } finally {
       verifier.mock.restore();
+      nativeLoad.mock.restore();
       syncBuiltinESMExports();
       for (const [key, value] of [
         ["IROHA_JS_NATIVE_DIR", previousNativeDir],

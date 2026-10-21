@@ -55,6 +55,61 @@ pub(super) struct OtherDomains {
 /// Every discovered domain literal that no commitment and no application accumulator owns.
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
+        usage: Use::Name,
+        reason: "Native FI relationship, asset UID policy/enrollment/reader and controlled-lock storage-key prefixes in world.smart_contract_state. They name canonical record paths; these literals compute no digest or independent State root",
+        literals: &[
+            r"asset_fi_link_attestation_v1/",
+            r"asset_fi_link_v1/",
+            r"asset_fi_v1/",
+            r"asset_lock_control_v1/",
+            r"asset_uid_binding_v1/",
+            r"asset_uid_enrollment_v1/",
+            r"asset_uid_policy_v1/",
+            r"asset_uid_reader_v1/",
+            r"asset_uid_system_v1/",
+            r"asset_uid_usage_v1/",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Exact first-release instruction wire identities for native FI relationships, asset UID policy/enrollment/reader grants and controlled locks. They select instruction layouts in the model and dispatch registry and compute no digest",
+        literals: &[
+            r"iroha.asset.fi.link.attestation.set.v1",
+            r"iroha.asset.fi.link.set.v1",
+            r"iroha.asset.fi.link.transfer.v1",
+            r"iroha.asset.fi.set.v1",
+            r"iroha.asset.lock.controlled.cancel.v1",
+            r"iroha.asset.lock.controlled.drawdown.v1",
+            r"iroha.asset.lock.controlled.expire.v1",
+            r"iroha.asset.lock.controlled.open.v1",
+            r"iroha.asset.uid.enrollment.activate.v1",
+            r"iroha.asset.uid.policy.reader.set.v1",
+            r"iroha.asset.uid.policy.set.v1",
+            r"iroha.asset.uid.system.set.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Snapshot validation error field labels for native controlled-lock and asset UID records in world.smart_contract_state; these diagnostics name the failing record family and compute no digest",
+        literals: &[
+            r"world.smart_contract_state.asset_lock_control_v1",
+            r"world.smart_contract_state.asset_uid_v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Typed numeric-movement purpose labels for an authenticated owner-linked FI transfer and a controlled-lock owner waterfall. They bind one authorized movement transcript, including supplied lock, policy and owner-link records; they do not authenticate a State table or replace keyed State witnesses",
+        literals: &[
+            r"controlled-lock-owner-waterfall-v1",
+            r"owner-linked-fi-transfer-v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Seed,
+        reason: "Contract-scoped controlled-lock identifier derived from the canonical controller address and opaque application key, with a reserved namespace prefix. It addresses one lock and grants no authority independently of native admission",
+        literals: &[r"iroha:controlled-asset-lock:v1\0"],
+    },
+    OtherDomains {
         usage: Use::Record,
         reason: "Anonymous Parliament ballot model digests bind one canonical account authority, proposal, envelope, sealed registration mapping, roster preimage or closure record. Current Core has no anonymous-ballot State integration; these supplied-record identities authenticate no State table or general State read",
         literals: &[

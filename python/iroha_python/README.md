@@ -14,6 +14,46 @@ key algorithms and complete weighted multisig policies. `AccountId` is always
 domainless. Missing native validation fails explicitly, and canonical parsers
 reject surrounding whitespace.
 
+## Local contract argument verification
+
+`iroha_python.encode_contract_arguments_v1` is the exact callable from the
+required `iroha_native._crypto` extension. It encodes an entrypoint payload
+from the caller's exact admitted contract artifact. Supply immutable artifact
+bytes, an entrypoint name, canonical JSON text (or `None` when arguments are
+absent), both expected code/ABI hash pins, and the chain discriminant. The helper
+verifies the artifact and its embedded argument schema before returning immutable
+canonical argument bytes. A no-argument entrypoint returns `None`; supplied JSON
+`null` is not absence. Missing exports require a matching rebuilt native wheel.
+
+Capture this result from the independently selected artifact and logical request
+before contacting a preparation service. Compare it byte-for-byte with every
+returned creation and callback record before signing, and reconstruct the same
+expectation during recovery. This local encoding step sends no transaction and
+does not prove a public execution route or execution outcome.
+
+After building and installing the matching SDK wheels in the admitted private
+Python environment, run the public boundary controls in installed-package mode:
+
+```bash
+IROHA_PYTHON_TEST_INSTALLED_PACKAGE=1 python -m pytest -q python/iroha_python/tests/contract_argument_encoder_test.py
+```
+
+The completed native suite's existing test executable can emit a fresh compiler
+artifact and independent native ABI records without another Cargo invocation.
+Set `SDK_TEST_BINARY` to that same hash-verified executable and `SDK_FIXTURE_LOG`
+to a new evidence log path, then run:
+
+```bash
+"$SDK_TEST_BINARY" --exact contract_arguments::tests::contract_argument_encoder_is_registered_on_the_native_module --nocapture > "$SDK_FIXTURE_LOG"
+python scripts/check_python_contract_argument_encoder.py --native-fixture-log "$SDK_FIXTURE_LOG"
+```
+
+The smoke check compares both payment payloads, preserves absent arguments and
+rejects substituted pins, context, payload presence and artifact bytes. Its
+report includes the fixture/log digests and actual package origins. The runner
+must independently retain source, executable and installed-wheel custody; this
+component check sends no transaction and does not qualify a live execution.
+
 ## Quickstart
 
 Build and install the package from the same Iroha source revision as the node

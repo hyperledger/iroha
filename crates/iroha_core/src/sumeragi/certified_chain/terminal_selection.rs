@@ -125,7 +125,7 @@ impl<'kura> TerminalSelection<'kura> {
     fn certify<V: StateReadOnly + ?Sized>(
         &mut self,
         prefix: &mut VerifiedPrefix,
-        context: PrefixVerifierContext,
+        context: &PrefixVerifierContext,
         view: &'kura V,
         budget: &AllocationBudget,
         #[cfg(test)] probe: &parking_lot::Mutex<Option<TerminalProbe<'kura>>>,
@@ -293,7 +293,7 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
             .expect("original terminal selection")
             .certify(
                 prefix,
-                context,
+                &context,
                 view,
                 budget,
                 #[cfg(test)]

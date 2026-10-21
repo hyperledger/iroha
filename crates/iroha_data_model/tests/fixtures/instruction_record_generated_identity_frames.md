@@ -1,12 +1,17 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 341
-type rows preserve 384 populated values and 1,536 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 353
+type rows preserve 396 populated values and 1,584 complete root, vector, option
 and map frames.
 
-The fixture SHA-256 is
-`52370ddede6c0eeb654dbf2bf18b465e61e7cd43cef0ecb9ddb9f9955c24f33e`.
+The current fixture SHA-256 is
+`1e9a7ca2168893938c067a67d5111e4a3ace06083c3b791026ef9f2f0abcbda8`.
+The 2026-10-21 native UID/controlled-lock capture adds seven instruction rows and
+refreshes the current UID policy and controlled settlement layouts from populated
+typed values. All other rows remain exact. The capture validates all four frame
+forms; it does not qualify native ledger execution or deployed contracts.
+
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native

@@ -1910,6 +1910,9 @@ version = providers.gradleProperty("irohaSdkVersion")
 val mobileSdkRepoDir = providers.gradleProperty("irohaSdkRepoDir")
     .orElse(rootProject.layout.buildDirectory.dir("mobile-sdk-maven").map { it.asFile.absolutePath })
 
+val deviceDemoArtifactInput = providers.environmentVariable("MOBILE_SDK_ANDROID_DEVICE_DEMO_ARTIFACT_DIR")
+val deviceDemoSelected = deviceDemoArtifactInput.isPresent
+
 android {
     namespace = "org.hyperledger.iroha.sdk.android"
     compileSdk = 35
@@ -1936,9 +1939,11 @@ android {
         }
     }
 
-    publishing {
-        singleVariant("release") {
-            withSourcesJar()
+    if (!deviceDemoSelected) {
+        publishing {
+            singleVariant("release") {
+                withSourcesJar()
+            }
         }
     }
 
@@ -2606,16 +2611,77 @@ tasks.matching { it.name == "mergeDebugAndroidTestJniLibFolders" }.configureEach
     dependsOn(stripNativeLibs)
 }
 
-// Every app variant uses the same authenticated native build and provenance.
-// Ordinary JVM unit-test compilation does not launch Cargo or the Android NDK.
+// Explicitly typed physical ARM64 demo intake. It cannot create a release artifact
+// or start a second native producer; normal builds retain the all-ABI owner above.
+@DisableCachingByDefault(because = "Every device demo consumption re-admits original bytes and physical evidence")
+abstract class AdmitNativeDeviceDemoTask : DefaultTask() {
+    @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val artifactDirectory: DirectoryProperty
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE)
+    abstract val admissionScript: RegularFileProperty
+    @get:Internal abstract val irohaDirectory: DirectoryProperty
+    @get:Internal abstract val androidNdkDirectory: DirectoryProperty
+    @get:OutputDirectory abstract val jniOutputDirectory: DirectoryProperty
+    @get:OutputDirectory abstract val assetsOutputDirectory: DirectoryProperty
+    @get:Inject abstract val execOperations: ExecOperations
 
+    @TaskAction fun admit() {
+        val root = irohaDirectory.get().asFile.canonicalFile
+        val script = admissionScript.get().asFile
+        NativeBridgeBuildContract.requireRegularFileInside(root, script, "device demo admission script")
+        val python = Path.of(requireNotNull(System.getenv("MOBILE_SDK_PYTHON_BINARY")))
+        require(python.isAbsolute && python.toRealPath() == python && Files.isExecutable(python)) {
+            "Device demo admission requires the canonical MOBILE_SDK_PYTHON_BINARY"
+        }
+        val output = jniOutputDirectory.get().asFile.parentFile
+        require(jniOutputDirectory.get().asFile.name == "jni" &&
+            assetsOutputDirectory.get().asFile == output.resolve("assets"))
+        execOperations.exec {
+            workingDir(root)
+            commandLine(python.toString(), "-I", "-S", "-B", script.absolutePath,
+                "--root", root.absolutePath,
+                "--ndk", androidNdkDirectory.get().asFile.canonicalPath,
+                "--artifact-dir", artifactDirectory.get().asFile.absolutePath,
+                "--output-dir", output.absolutePath)
+        }.assertNormalExitValue()
+    }
+}
+
+if (deviceDemoSelected) {
+    require(deviceDemoArtifactInput.get().isNotBlank()) { "Device demo artifact directory must not be empty" }
+    androidComponents.beforeVariants(androidComponents.selector().withBuildType("release")) {
+        it.enable = false
+    }
+}
+val admitNativeDeviceDemo = tasks.register<AdmitNativeDeviceDemoTask>("admitNativeDeviceDemo") {
+    description = "Admit one explicitly qualified physical ARM64 demo original; never a release/all-ABI artifact"
+    dependsOn(requireAndroidArtifactDirectory)
+    artifactDirectory.set(layout.dir(deviceDemoArtifactInput.map { file(it) }))
+    admissionScript.set(file(irohaDir()).resolve("scripts/mobile_sdk_android_device_demo.py"))
+    irohaDirectory.set(file(irohaDir()))
+    androidNdkDirectory.set(layout.dir(androidNdkRoot.map { file(it) }))
+    jniOutputDirectory.set(layout.buildDirectory.dir("generated/deviceDemoNative/jni"))
+    assetsOutputDirectory.set(layout.buildDirectory.dir("generated/deviceDemoNative/assets"))
+    outputs.upToDateWhen { false }
+}
+
+// Default variants retain the complete authenticated native build and provenance.
+// The explicit debug-only device intake is separately typed and never invokes Cargo.
 androidComponents.onVariants { variant ->
-    requireNotNull(variant.sources.jniLibs) {
-        "AGP did not expose jniLibs sources for ${variant.name}"
-    }.addGeneratedSourceDirectory(stripNativeLibs, StripNativeBridgeTask::outputDirectory)
-    requireNotNull(variant.sources.assets) {
-        "AGP did not expose asset sources for ${variant.name}"
-    }.addGeneratedSourceDirectory(stripNativeLibs, StripNativeBridgeTask::provenanceDirectory)
+    if (deviceDemoSelected) {
+        require(variant.buildType == "debug") { "Device demo native intake is debug-only" }
+        requireNotNull(variant.sources.jniLibs).addGeneratedSourceDirectory(
+            admitNativeDeviceDemo, AdmitNativeDeviceDemoTask::jniOutputDirectory)
+        requireNotNull(variant.sources.assets).addGeneratedSourceDirectory(
+            admitNativeDeviceDemo, AdmitNativeDeviceDemoTask::assetsOutputDirectory)
+    } else {
+        requireNotNull(variant.sources.jniLibs) {
+            "AGP did not expose jniLibs sources for ${variant.name}"
+        }.addGeneratedSourceDirectory(stripNativeLibs, StripNativeBridgeTask::outputDirectory)
+        requireNotNull(variant.sources.assets) {
+            "AGP did not expose asset sources for ${variant.name}"
+        }.addGeneratedSourceDirectory(stripNativeLibs, StripNativeBridgeTask::provenanceDirectory)
+    }
 }
 
 tasks.register("buildNativeLibs") {
@@ -2634,12 +2700,14 @@ tasks.matching {
 }
 
 afterEvaluate {
-    publishing {
-        publications {
-            create<MavenPublication>("release") {
-                from(components["release"])
-                groupId = "org.hyperledger.iroha.sdk"
-                artifactId = "client-android"
+    if (!deviceDemoSelected) {
+        publishing {
+            publications {
+                create<MavenPublication>("release") {
+                    from(components["release"])
+                    groupId = "org.hyperledger.iroha.sdk"
+                    artifactId = "client-android"
+                }
             }
         }
     }

@@ -74,6 +74,7 @@ pub struct NativeMultisigIntent {
     instructions: Vec<InstructionBox>,
     instructions_hash: HashOf<Vec<InstructionBox>>,
     request_bytes: Vec<u8>,
+    creation_time_ms: Option<std::num::NonZeroU64>,
 }
 
 /// Exact unsigned payload admitted against a native intent.
@@ -199,6 +200,7 @@ impl NativeMultisigIntent {
             instructions,
             instructions_hash,
             request_bytes: Vec::new(),
+            creation_time_ms: None,
         };
         intent.request_bytes = norito::json::to_vec(&intent.request_value(None, None)?)?;
         ensure!(
@@ -206,6 +208,31 @@ impl NativeMultisigIntent {
             "native multisig request exceeds limit"
         );
         Ok(intent)
+    }
+
+    /// Freeze an intentional proposal's timestamp before preparing its native
+    /// payload, for operations whose reviewed instructions bind that timestamp.
+    /// Retain this intent and its request original across retries.
+    ///
+    /// # Errors
+    /// Refuses a non-proposal action, replacing an already selected timestamp,
+    /// or an oversized native request. Inspection requires the identical time.
+    pub fn with_creation_time_ms(mut self, time: std::num::NonZeroU64) -> Result<Self> {
+        ensure!(
+            matches!(self.action, NativeMultisigAction::Propose { .. }),
+            "only a proposal can select its original creation timestamp"
+        );
+        ensure!(
+            self.creation_time_ms.is_none_or(|old| old == time),
+            "cannot replace the original creation timestamp"
+        );
+        self.creation_time_ms = Some(time);
+        self.request_bytes = norito::json::to_vec(&self.request_value(None, None)?)?;
+        ensure!(
+            self.request_bytes.len() <= MAX_BYTES,
+            "native multisig request exceeds limit"
+        );
+        Ok(self)
     }
 
     /// Exact Torii path selected by the native action.
@@ -292,6 +319,8 @@ impl NativeMultisigIntent {
                 "signature_b64".into(),
                 Value::from(signature.ok_or_else(|| eyre!("signature is required"))?),
             );
+        } else if let Some(time) = self.creation_time_ms {
+            body.insert("creation_time_ms".into(), Value::from(time.get()));
         }
         match self.action {
             NativeMultisigAction::Propose { proposal_nonce } => {
@@ -404,6 +433,11 @@ impl NativeMultisigIntent {
             "prepare response changed fee payer, sponsor revision, or gas bound"
         );
         let creation_time_ms = builder.payload().creation_time_ms;
+        ensure!(
+            self.creation_time_ms
+                .is_none_or(|time| time.get() == creation_time_ms),
+            "prepare response changed the original creation timestamp"
+        );
         let ttl = builder
             .payload()
             .time_to_live_ms
@@ -845,6 +879,55 @@ mod tests {
         ] {
             assert!(
                 NativeMultisigIntent::new(context.clone(), action, original.instructions.clone())
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn frozen_proposal_time_is_retained_in_request_and_prepare() {
+        use std::num::NonZeroU64;
+        let (intent, _) = fixture(0);
+        let frozen = intent
+            .with_creation_time_ms(NonZeroU64::new(1_000).unwrap())
+            .unwrap();
+        let request: Value = norito::json::from_slice(frozen.request_bytes()).unwrap();
+        assert_eq!(request["creation_time_ms"], Value::from(1_000_u64));
+        assert!(
+            frozen
+                .clone()
+                .with_creation_time_ms(NonZeroU64::new(1_001).unwrap())
+                .is_err()
+        );
+        assert_eq!(
+            frozen
+                .clone()
+                .with_creation_time_ms(NonZeroU64::new(1_000).unwrap())
+                .unwrap()
+                .request_bytes(),
+            frozen.request_bytes()
+        );
+        let (mut builder, mut response) = draft(&frozen, false);
+        let bytes = norito::json::to_vec(&response).unwrap();
+        frozen
+            .inspect_prepare(frozen.request_bytes(), &bytes, 1_002)
+            .unwrap();
+        builder.set_creation_time(Duration::from_millis(1_001));
+        replace_payload(response.as_object_mut().unwrap(), &builder);
+        assert!(
+            frozen
+                .inspect_prepare(
+                    frozen.request_bytes(),
+                    &norito::json::to_vec(&response).unwrap(),
+                    1_002
+                )
+                .is_err()
+        );
+        for action in [1, 2] {
+            let (intent, _) = fixture(action);
+            assert!(
+                intent
+                    .with_creation_time_ms(NonZeroU64::new(1_000).unwrap())
                     .is_err()
             );
         }

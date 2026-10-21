@@ -1025,6 +1025,43 @@ public sealed class ContractManifestTests
         }
     }
 
+    [Fact]
+    public void UidHoldingQuoteHasExactBoundaryAndDurableShape()
+    {
+        var fields = new[] { "asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow" };
+        var types = new[] { "AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity" };
+        var valid = new[] { StructNode("kotodama::AssetUidHoldingQuote", fields), Leaf("AssetDefinitionId"), Leaf("AccountId"), Leaf("Int"), Leaf("Quantity"), NullNode("Option"), Leaf("Quantity"), Leaf("Quantity") };
+        var (_, schema) = ParseReturnSchema(valid, "AssetUidHoldingQuote");
+        Assert.Equal("AssetUidHoldingQuote", schema.CanonicalTypeName);
+        Assert.Equal(6, schema.WordCount);
+        var (_, optional) = ParseReturnSchema(new[] { NullNode("Option") }.Concat(valid), "Option<AssetUidHoldingQuote>");
+        Assert.Equal("Option<AssetUidHoldingQuote>", optional.CanonicalTypeName);
+        for (var index = 0; index < fields.Length; index++)
+        {
+            var changed = fields.ToArray(); changed[index] = $"forged_{index}";
+            AssertForgedSchemaRejected(new[] { StructNode("kotodama::AssetUidHoldingQuote", changed) }.Concat(valid.Skip(1)), "AssetUidHoldingQuote");
+        }
+        foreach (var index in new[] { 1, 2, 3, 4, 6, 7 })
+        {
+            var changed = valid.ToArray(); changed[index] = Leaf("Bool");
+            AssertForgedSchemaRejected(changed, "AssetUidHoldingQuote");
+        }
+        var reordered = valid.ToArray(); (reordered[1], reordered[2]) = (reordered[2], reordered[1]);
+        AssertForgedSchemaRejected(reordered, "AssetUidHoldingQuote");
+        AssertForgedSchemaRejected(valid.Where((_, index) => index != 5), "AssetUidHoldingQuote");
+        AssertForgedSchemaRejected(new[] { StructNode("QueryPage", new[] { "items", "next_offset" }), ListNode(64) }.Concat(valid).Append(NullNode("Option")).Append(Leaf("Int")), "QueryPage<AssetUidHoldingQuote>");
+        static string Durable(string[] names, string[] children) => "kotodama::AssetUidHoldingQuote{" + string.Join(", ", names.Select((name, index) => $"{name}: {children[index]}")) + "}";
+        Assert.NotNull(JsonSerializer.Deserialize<ToriiContractManifest>(StateManifestJson(Durable(fields, types))));
+        for (var index = 0; index < fields.Length; index++)
+        {
+            var names = fields.ToArray(); names[index] = $"forged_{index}";
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractManifest>(StateManifestJson(Durable(names, types))));
+            var children = types.ToArray(); children[index] = "bool";
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractManifest>(StateManifestJson(Durable(fields, children))));
+        }
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractManifest>(StateManifestJson($"kotodama::QueryPage{{items: List<{Durable(fields, types)}, 64>, next_offset: Option<int>}}")));
+    }
+
     private static void AssertForgedSchemaRejected(
         IEnumerable<string> nodes,
         string advertisedType)

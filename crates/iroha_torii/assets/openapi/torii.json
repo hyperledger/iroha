@@ -91481,8 +91481,8 @@
               "Retry-After": {
                 "description": "Delay in seconds before retrying the same observation.",
                 "schema": {
-                  "type": "integer",
-                  "minimum": 1
+                  "minimum": 1,
+                  "type": "integer"
                 }
               }
             }

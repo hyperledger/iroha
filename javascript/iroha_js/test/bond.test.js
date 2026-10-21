@@ -520,6 +520,16 @@ for (const [label, Client] of [["ToriiClient", ToriiClient], ["ToriiBrowserClien
     const respond = (body) => new Client("https://torii.example", {
       fetchImpl: async () => jsonResponse(200, body),
     });
+    // Only HTTP 404 means absent; a 200 JSON null remains malformed bond data.
+    for (const method of ["getBond", "getBondEntitlements"]) {
+      const nullRecordClient = new Client("https://torii.example", {
+        fetchImpl: async () => new Response("null", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      });
+      await assert.rejects(() => nullRecordClient[method](record.id), /must be an object/u);
+    }
     await assert.rejects(
       () => respond({ ...record, id: FIXTURE.payment_asset }).getBond(record.id),
       /not the requested bond/u,

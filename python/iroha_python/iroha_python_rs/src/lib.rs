@@ -7,6 +7,7 @@ use acceleration_bn254::{bn254_add_many, bn254_mul_many, bn254_sub_many};
 mod committed_transaction_verification;
 mod confidential_wallet;
 mod connect_key_bindings;
+mod contract_arguments;
 #[cfg(test)]
 mod crypto_admission_tests;
 mod identity_codec_v1;
@@ -15796,6 +15797,10 @@ fn _crypto(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
         module
     )?)?;
     module.add_function(wrap_pyfunction!(scheduled_execution_verification::verify, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        contract_arguments::encode_contract_arguments_v1_py,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(verify_py, module)?)?;
     module.add_function(wrap_pyfunction!(public_key_multihash_py, module)?)?;
     module.add_function(wrap_pyfunction!(private_key_multihash_py, module)?)?;

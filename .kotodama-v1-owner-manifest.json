@@ -96,379 +96,379 @@
       "path": "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
       "mode": "0644",
       "size": 2258,
-      "sha256": "3176b84d19446c83496ee7729a8c2d4a1104da9fa2578300ba67d91c252d4afa"
+      "sha256": "6be684616d2371d87e0b09ff9be4f9fcb1ebf9d358dcb0fe983e7138c1dc8945"
     },
     {
       "path": "crates/iroha/tests/fixtures/contract_code_readback/code_readback.to",
       "mode": "0644",
       "size": 949,
-      "sha256": "7813817526f9fa309cfe246aa6c01b7df43871388bb8bab7b37ffc288cb0554a"
+      "sha256": "6aa079e9d413189e89870ff7264d3332c2bebca1f7c735c32380515065c83894"
     },
     {
       "path": "crates/ivm/docs/examples/01_hajimari.to",
       "mode": "0644",
       "size": 933,
-      "sha256": "661e180e23fd42c77541d57ce142b629f89b6870ddb4373ae8432a4d0c63cd5e"
+      "sha256": "0621f5c7d446fc5e68f086167aebbe85258bbb477699bd088e252a6cf8bc4e17"
     },
     {
       "path": "crates/ivm/docs/examples/02_view_public_fn.to",
       "mode": "0644",
       "size": 1013,
-      "sha256": "5ae8a875f6418bf23abb894b8dd04eb1c0fc807b1314535caa723fba735f4c14"
+      "sha256": "cd49a8f0940ce8908399c359a5a14a69d668d293401d6346c025c8e9a51fe613"
     },
     {
       "path": "crates/ivm/docs/examples/03_kaizen_permission.to",
       "mode": "0644",
       "size": 985,
-      "sha256": "31f68a9bfa0af33b9dbbe6c420ac6b7ea2528dd48bb170f75cee11f9b971c982"
+      "sha256": "5090a312921ea5d1f3eb1130a6c69e69b579424339677d742a2dfb83740a9a59"
     },
     {
       "path": "crates/ivm/docs/examples/04_foreach_map.to",
       "mode": "0644",
       "size": 3657,
-      "sha256": "444acc3b9d9eb6e4e82eaeb424a4e33d42f662ea5410a33805a35fefc9cc4116"
+      "sha256": "26e0533fc1e0c5fbba8ca703f4f24078de4f764490f200908578e8ad85416d12"
     },
     {
       "path": "crates/ivm/docs/examples/05_range_for.to",
       "mode": "0644",
       "size": 1317,
-      "sha256": "a0f049c9a3f9532156e17ea25e9e77d724070a8cc173d2dcc74989cf06fdcaf9"
+      "sha256": "75e6e28de4ea543303edd14087a01c68d9d90eaa0897a64772cec2616187c66c"
     },
     {
       "path": "crates/ivm/docs/examples/06_map_ops.to",
       "mode": "0644",
       "size": 3329,
-      "sha256": "71ef07fb9d88cc5d5b6ef3cd2e0c6e7634340daece5703c4587d6976c91992eb"
+      "sha256": "9be62e45ec2e87f41de5a0982c687dee491c20edea6a3e3ba45e8d4d37199ec4"
     },
     {
       "path": "crates/ivm/docs/examples/07_set_detail_authority.to",
       "mode": "0644",
       "size": 1385,
-      "sha256": "88fe887c8d1723841afd8a9e88fb220340128e4cdc457839ea9f0b7cd2de06f4"
+      "sha256": "cd36d7a16df083639afa0b31b0b096854c19366779226c7b644ce5f455adede0"
     },
     {
       "path": "crates/ivm/docs/examples/08_call_transfer_asset.to",
       "mode": "0644",
       "size": 3137,
-      "sha256": "06646438658390c35dd787b144b317fb6efa53f99801f2e618effdd9c05a1796"
+      "sha256": "9188dbc74fb3a23ca612234d777aa564d695e4df9fa7f144db146376027954a0"
     },
     {
       "path": "crates/ivm/docs/examples/09_struct_and_state.to",
       "mode": "0644",
       "size": 1877,
-      "sha256": "8b3d51d70f520694275b723376b107baaf9a6965383171600e1d07c48cf63466"
+      "sha256": "f13afa60e6834f628cf2643835f868f6aff1a9789bed42b275394eaff096651f"
     },
     {
       "path": "crates/ivm/docs/examples/10_meta_header.to",
       "mode": "0644",
       "size": 917,
-      "sha256": "afc57b8671d2b2a12c0baf78ebb04127fb93e2dcb9ce3a0d8aa3957528ed3280"
+      "sha256": "a60e5577ae23413cfd47c6b3c3b72e381f84e0734a6379c23e3fc016574af9af"
     },
     {
       "path": "crates/ivm/docs/examples/11_detail_and_transfer.to",
       "mode": "0644",
       "size": 3581,
-      "sha256": "16d14c2f28270f549c78e5988e3754e6b1cee3a80d26d0ca56cdc052b0ad9be3"
+      "sha256": "65850d2c0f8a8cff8e827fa69bc1bffa6591b66bc8058a3ecf1d90439713cabb"
     },
     {
       "path": "crates/ivm/docs/examples/12_nft_flow.to",
       "mode": "0644",
       "size": 2457,
-      "sha256": "4a86cc7c0cd5c34ff517bc310d8087415aae0bf16fa7aa530b38177aa510b9f1"
+      "sha256": "09d770fdb7c249c5c95b9a2dca9bca558053eb9c608bd713e9d75d4486e47249"
     },
     {
       "path": "crates/ivm/docs/examples/13_register_and_mint.to",
       "mode": "0644",
       "size": 2405,
-      "sha256": "6c5f1697dc288eceef1800aa3315e194be5d409ccc9cc890f85325fb46ca6743"
+      "sha256": "d19a20ceec9b02f9b806911223df79727c99fdc3d94219ba7aa3ddadd2759169"
     },
     {
       "path": "crates/ivm/docs/examples/14_map_sum_take2.to",
       "mode": "0644",
       "size": 1917,
-      "sha256": "48882d8d105ad79fa04653c343ceb530391f22a137f2ca09215595df9ce082dd"
+      "sha256": "69e7acbfaad5a44d2edcd33bcb70b9e5b60f675f6db63a43480fdb973f28153d"
     },
     {
       "path": "crates/ivm/docs/examples/15_modulo.to",
       "mode": "0644",
       "size": 961,
-      "sha256": "8f9cbe39bc265682786e43c5a80f9145af78ba793d79c59310f2ffb21f551ce2"
+      "sha256": "689341f3d98a49ebe47e47ac01e5feccc3efb131022de3afd1ebd4b1d5af06f6"
     },
     {
       "path": "crates/ivm/docs/examples/16_register_domain.to",
       "mode": "0644",
       "size": 1133,
-      "sha256": "e0ea157befca67fdbd4aad1c1ecff675f69fbaf7202b820278ad70e9b8d33572"
+      "sha256": "0babd84d7508fcd38b90a803341130806a24fd9283e515ad14460879621ea7f4"
     },
     {
       "path": "crates/ivm/docs/examples/18_ternary.to",
       "mode": "0644",
       "size": 989,
-      "sha256": "a68f0c441bda63798a1418d9d44d38ce131aeb6c66cc8500f428d82b774acc99"
+      "sha256": "da893dbd932809eac5c56a3d6073a0653cfa475c4f8e565fa56b40efa5d8254a"
     },
     {
       "path": "crates/ivm/docs/examples/19_contract_flow_test.to",
       "mode": "0644",
       "size": 2777,
-      "sha256": "6e467f571934e225836523ba9f62f44cc13d15e18cd5368d2e9631e411a53d6e"
+      "sha256": "26bd41ec588083708046de714f1547c3265b00900471323d9a79413d700f6b96"
     },
     {
       "path": "crates/ivm/docs/examples/20_commit_reveal.to",
       "mode": "0644",
       "size": 5941,
-      "sha256": "4fd43cbb0211cad232f9b582934f0279ed0b5df5a4ca140dd75575d84c3c0982"
+      "sha256": "d3b2685ccb2f1a8daf156017fcea63baaad82418f22047c0fe74282bd486afc6"
     },
     {
       "path": "crates/ivm/tests/data/add.to",
       "mode": "0644",
       "size": 973,
-      "sha256": "6244546e51fbf5a031f4eb959e4a51edee21cdf0aa08db3d5f71bb2b902103ab"
+      "sha256": "3cd5733b6811c1f7c13b432728f6481cdcb489a9ee30aa3fc65098ae0546c26a"
     },
     {
       "path": "crates/ivm/tests/data/amm.to",
       "mode": "0644",
       "size": 1121,
-      "sha256": "7719c64df3be4a1dafe5e62049a940001e2784dce8b1d228e7bf965173d8e840"
+      "sha256": "a8a295e97e313b4da9629daf3045567560535f99f10b7d8368460aa1824cc0b8"
     },
     {
       "path": "crates/ivm/tests/data/complex.to",
       "mode": "0644",
       "size": 1057,
-      "sha256": "3079c2aa15a78a5c1e64353848d7032e22a97ffead62acc8bb5e21a0bca82eba"
+      "sha256": "ae678e2c2240576347fecf2328a40bb4d817ef65da545ac11ff7c905de2758a3"
     },
     {
       "path": "crates/ivm/tests/data/control.to",
       "mode": "0644",
       "size": 1441,
-      "sha256": "0582ae1cd60727e00f62815516d103e7fc80903426b8b2209905d7df5795cf73"
+      "sha256": "2839fa88197ce64b9e88067e69a0f2e3e999832664ca49d27fe2cf57a78ffafa"
     },
     {
       "path": "crates/ivm/tests/data/mfc.to",
       "mode": "0644",
       "size": 2605,
-      "sha256": "c07c1abb79e01e7b4e3908c5a4435651d5bb71c3118ec88f959586da943ebdd8"
+      "sha256": "71ef2435e4aca126080be5fe6fe9094d09ad1226f0cc80a60cef10130b3d3a3d"
     },
     {
       "path": "crates/kotodama_lang/src/samples/asset_ops.to",
       "mode": "0644",
       "size": 2025,
-      "sha256": "ca238002921a8d0b3e158fbe41beb3d7cd2f312b2081a023147b6ac34b4db12e"
+      "sha256": "75663798580cf3738193744a6b289393b3cbce3641ae661cb4014689c95423ce"
     },
     {
       "path": "crates/kotodama_lang/src/samples/create_nft_for_every_user_trigger.to",
       "mode": "0644",
       "size": 969,
-      "sha256": "75349b8da93f1f3a6b665f339b0721eb1c4093e4c73a822311f6d0f8ddb027f5"
+      "sha256": "952ccd4f12a5b901a6f14fcc180c422367b45c90e3c862fd710f48726c35cbd6"
     },
     {
       "path": "crates/kotodama_lang/src/samples/dex_contract.to",
       "mode": "0644",
       "size": 2553,
-      "sha256": "90d01521a0b080a9c352db5b748faa47d8d84b07b6cd652730cd39977aaecdb7"
+      "sha256": "33cd91bca9a69055854d39f6558a0414055fde1650b82f01fedffd347f920143"
     },
     {
       "path": "crates/kotodama_lang/src/samples/dex_simple.to",
       "mode": "0644",
       "size": 2565,
-      "sha256": "68a4720eb91d5c80cd9cf8042ce1503e1fe7d073e5d95bbaa04ca079fb95e39f"
+      "sha256": "d74a9a54b20a91231f1578cfd1e4510a5276125f816a8caef36964dc23571206"
     },
     {
       "path": "crates/kotodama_lang/src/samples/domain_ops.to",
       "mode": "0644",
       "size": 1233,
-      "sha256": "d3f082b13a9e53db8b2bc82cf939e8d0c8285ffdf2e996258054f71e0e65bf1f"
+      "sha256": "c025da4e42fb0f4063cf47a79c4c0d9a3d438cc2c10ebc9c9da35b6e781398bb"
     },
     {
       "path": "crates/kotodama_lang/src/samples/irohaswap.to",
       "mode": "0644",
       "size": 15181,
-      "sha256": "ae6c170ef82ff3af9f28d25726cb1d88dd91bd0a92ac6116d382c999012dc65c"
+      "sha256": "c240037e8cc8f6b406ae4c4c0b279d50aec9687440bc2747cb7d3611098caeee"
     },
     {
       "path": "crates/kotodama_lang/src/samples/kotodama_swap.to",
       "mode": "0644",
       "size": 2241,
-      "sha256": "270f2fcb4a16f3f057e2c3f0d39a7b36e66e2aaef69c2896cdae64a8605757f4"
+      "sha256": "025fbb6e95ea373542c189dbd6dc8522e2b924b6163121bf7874a534bd7088ef"
     },
     {
       "path": "crates/kotodama_lang/src/samples/lending_simple.to",
       "mode": "0644",
       "size": 2957,
-      "sha256": "b70f783fcbdbb090d820a4dda106a1c7a9d98ac0958b86b82d0ab870298022b8"
+      "sha256": "bcb10ca0e7bb27c4f4015fbb8a257d39500dc0fb697069c9526ea50234103f38"
     },
     {
       "path": "crates/kotodama_lang/src/samples/mint_rose_trigger.to",
       "mode": "0644",
       "size": 1645,
-      "sha256": "a4e3efca74fc0ac4d6e00f6063962df3dc0307405a5a60aa49477fdb88ec80d1"
+      "sha256": "e5a0731dfd652c4d020f956ccb46cceb794b1fca0e7b20bc32bd7cb7dec83ffd"
     },
     {
       "path": "crates/kotodama_lang/src/samples/native_escrow.to",
       "mode": "0644",
       "size": 3781,
-      "sha256": "68a744bd47d6d6b974547f57c983bdefbbffcd66e9298333c15a256a7e5bb0d8"
+      "sha256": "892b6799bafb613f2f27181bbc13bdd7c599c08157daff0087a96666246ca8ee"
     },
     {
       "path": "crates/kotodama_lang/src/samples/perp_funding.to",
       "mode": "0644",
       "size": 2793,
-      "sha256": "f62d46b4da7b924c0acabaf35cadb8cb09a4d1cc5bded26705d3a029aa3c2bbf"
+      "sha256": "e6c5560426bc697088eb23c909ed6f9c46225077c53395d377c00c4978cb2a5f"
     },
     {
       "path": "crates/kotodama_lang/src/samples/query_assets_and_save_cursor.to",
       "mode": "0644",
       "size": 1385,
-      "sha256": "47a5a13da3c75781aa6b8814f0d3d66abf6c71cd89b42397aa339ba475c22e13"
+      "sha256": "2268cc375f6feb8e7f6502502a66e5c68db6d06d84b66910c10445fd07823ca6"
     },
     {
       "path": "crates/kotodama_lang/src/samples/smart_contract_can_filter_queries.to",
       "mode": "0644",
       "size": 1341,
-      "sha256": "f39555614547e167f7991a974e6d9230d25a1606191a92bba2502cbecc7d488a"
+      "sha256": "439bf481ec2e3c934cedc48a9706b5f6c7dea99d7b9743ee870567cf794c543b"
     },
     {
       "path": "crates/kotodama_lang/src/samples/stablecoin_simple.to",
       "mode": "0644",
       "size": 2681,
-      "sha256": "df4cb84f00759da5c29f2a531332e84c6b91221b5e466884a3a5a8a34494fbbd"
+      "sha256": "f906ef9e4a0e958bdc8557d6c3cbf447e49f58301f32cb787e9599897c820bed"
     },
     {
       "path": "crates/kotodama_lang/src/samples/subscription_billing_trigger.to",
       "mode": "0644",
       "size": 1049,
-      "sha256": "0f06af68e07518581233cfab50ff0524b973e2c24029625ea6ae88dae554a3ae"
+      "sha256": "d82844a16c7847ac87c751c3ecefdae613bf0495c3a1c2525acf4223b64faaa1"
     },
     {
       "path": "crates/kotodama_lang/src/samples/subscription_usage_recorder.to",
       "mode": "0644",
       "size": 1061,
-      "sha256": "8d1da3f31c21644d5988b889ed5940a600c7ec5a3cd6bb555f31a9dd800cf944"
+      "sha256": "a66c11fda0c99708215315de34d9fb34ffab4731e5521e40da520f0f806f53ba"
     },
     {
       "path": "crates/kotodama_lang/src/samples/threshold_escrow.to",
       "mode": "0644",
       "size": 11093,
-      "sha256": "36c67f317403cb6e4dd48b4d9eb32c9ff5a5b8956478a5ebe3c3631f69dc9dc9"
+      "sha256": "500e5ef6173c12409e67e1a1e9acd2db6dc35da1d47b8fd2548a5bf1465ceb24"
     },
     {
       "path": "crates/kotodama_lang/src/samples/tuple_return_demo.to",
       "mode": "0644",
       "size": 1233,
-      "sha256": "bb3dabe12882f0818671161afa8abcac45868458698eb9f35f0c8b292416b566"
+      "sha256": "18173e56fb9bdfcc3eb0524fcad8bb2bb06b068c1c66f2a1d7d705e0f4339ee7"
     },
     {
       "path": "crates/kotodama_lang/src/samples/zk_vote_ballot.to",
       "mode": "0644",
       "size": 2709,
-      "sha256": "fd4c5c17c726f392080eecf8f8730046ebbc30692d298f3ae35956b8b8ae5d6c"
+      "sha256": "df29d920fceb42780f9dd1e001c356f2e5ade5fe4661db23a22c82639307bd87"
     },
     {
       "path": "demo/authority_probe.manifest.json",
       "mode": "0644",
       "size": 2684,
-      "sha256": "d79201d58a840bffc3e54fbe71fa2ce1e39355e813e6891c7bc8bbbae7d0da2d"
+      "sha256": "5419ac9e98884b83efcf5f0e673ce0098e1bdca3a602b8608d532a94dd79cc69"
     },
     {
       "path": "demo/authority_probe.to",
       "mode": "0644",
       "size": 1797,
-      "sha256": "96f498f573b96609a1aea99b727fe4e5ad250da5ad1db7db52410ff6b3b55600"
+      "sha256": "9a836f7566f66fdb5685e9b24f332530bcfd2f7c750bde6b76706c7b6f73538a"
     },
     {
       "path": "demo/irohaswap.manifest.json",
       "mode": "0644",
       "size": 14064,
-      "sha256": "a514356fcc71c93c33d24c3e109af9261138611c1ab7af3a2d3c4f183aaed4f2"
+      "sha256": "990d0bcf9533d76354d49a447a2c109df54d0a8d79556403b8b7053d7e81a848"
     },
     {
       "path": "demo/irohaswap.to",
       "mode": "0644",
       "size": 15181,
-      "sha256": "ae6c170ef82ff3af9f28d25726cb1d88dd91bd0a92ac6116d382c999012dc65c"
+      "sha256": "c240037e8cc8f6b406ae4c4c0b279d50aec9687440bc2747cb7d3611098caeee"
     },
     {
       "path": "demo/ivm_smoke.manifest.json",
       "mode": "0644",
       "size": 4131,
-      "sha256": "68c0c5fd4578ce4a90f25388865b774587bc294c8ec78704ed957255a847bad9"
+      "sha256": "594580ada6bb9f9981d0ddafd1324df6f03a142d2d8df583ed6f60b518a2d1df"
     },
     {
       "path": "demo/ivm_smoke.to",
       "mode": "0644",
       "size": 3117,
-      "sha256": "8ddc94f89df359dddd6e82d69ebbfaa3963f2ebb6249dc47a2353fdfa11eef55"
+      "sha256": "b9bff932619f796864ae411aaba15b18008d7c16eff7b156e3c9d4d8a40737fd"
     },
     {
       "path": "demo/prediction_market.manifest.json",
       "mode": "0644",
       "size": 6393,
-      "sha256": "840a0305e0f89039d19ebe7c881b31ea4be35bab7716ef89aefe31c251b200dc"
+      "sha256": "ccad99533e91adae897c0832caeaf2e874ca3cdf041f22246a6210508a477830"
     },
     {
       "path": "demo/prediction_market.to",
       "mode": "0644",
       "size": 6873,
-      "sha256": "276db73dab8420077f64a8fc98d630caaa585821640f49903a5b459fdb0cf155"
+      "sha256": "48d8d82c1c8e1f819bef7b82eaef6ea21ded4cde43b56a9ac4952a5d5e031e06"
     },
     {
       "path": "demo/transfer.to",
       "mode": "0644",
       "size": 3145,
-      "sha256": "183ed01930072bc15ac5251d212c4e01c217c2484d484a1ab0cc19c73ddeb5d2"
+      "sha256": "71d828f9969d6a5eb8bc8e12b7d2f8620ccdbc289ba02064c512d277f269560d"
     },
     {
       "path": "examples/hello/hello.to",
       "mode": "0644",
       "size": 2081,
-      "sha256": "a74f4c2a123145d66c270eaeb2f061e7ef158d266c1aa453fbb17ebf7e983f4c"
+      "sha256": "27bfeea9f5e0d1aaea507709b01127740b933bddb0263fd78409424730676f9e"
     },
     {
       "path": "examples/map/map.to",
       "mode": "0644",
       "size": 1941,
-      "sha256": "42d29b74866145f115cc1293734a0d8d0a7e17bb032e58e5aae8aa8a652eed9a"
+      "sha256": "868f1cbce7c8f3456b6f18139e1b0dc0c22a4dc88536a6265636f321a8a80380"
     },
     {
       "path": "examples/nft/nft.to",
       "mode": "0644",
       "size": 2697,
-      "sha256": "25537adcde884772ec53d95871599e9f8ced2b22d9dc0d45470fcb670097249c"
+      "sha256": "bfba2058acdb3be171d48709070ad4dda0716aba16c174c59be64406e95bba45"
     },
     {
       "path": "examples/transfer/transfer.to",
       "mode": "0644",
       "size": 3145,
-      "sha256": "183ed01930072bc15ac5251d212c4e01c217c2484d484a1ab0cc19c73ddeb5d2"
+      "sha256": "71d828f9969d6a5eb8bc8e12b7d2f8620ccdbc289ba02064c512d277f269560d"
     },
     {
       "path": "integration_tests/fixtures/ivm/create_nft_for_every_user_trigger.to",
       "mode": "0644",
       "size": 969,
-      "sha256": "75349b8da93f1f3a6b665f339b0721eb1c4093e4c73a822311f6d0f8ddb027f5"
+      "sha256": "952ccd4f12a5b901a6f14fcc180c422367b45c90e3c862fd710f48726c35cbd6"
     },
     {
       "path": "integration_tests/fixtures/ivm/mint_rose_trigger.to",
       "mode": "0644",
       "size": 1645,
-      "sha256": "a4e3efca74fc0ac4d6e00f6063962df3dc0307405a5a60aa49477fdb88ec80d1"
+      "sha256": "e5a0731dfd652c4d020f956ccb46cceb794b1fca0e7b20bc32bd7cb7dec83ffd"
     },
     {
       "path": "integration_tests/fixtures/ivm/query_assets_and_save_cursor.to",
       "mode": "0644",
       "size": 1385,
-      "sha256": "47a5a13da3c75781aa6b8814f0d3d66abf6c71cd89b42397aa339ba475c22e13"
+      "sha256": "2268cc375f6feb8e7f6502502a66e5c68db6d06d84b66910c10445fd07823ca6"
     },
     {
       "path": "integration_tests/fixtures/ivm/smart_contract_can_filter_queries.to",
       "mode": "0644",
       "size": 1341,
-      "sha256": "f39555614547e167f7991a974e6d9230d25a1606191a92bba2502cbecc7d488a"
+      "sha256": "439bf481ec2e3c934cedc48a9706b5f6c7dea99d7b9743ee870567cf794c543b"
     },
     {
       "path": "integration_tests/fixtures/ivm/threshold_escrow.to",
       "mode": "0644",
       "size": 11093,
-      "sha256": "36c67f317403cb6e4dd48b4d9eb32c9ff5a5b8956478a5ebe3c3631f69dc9dc9"
+      "sha256": "500e5ef6173c12409e67e1a1e9acd2db6dc35da1d47b8fd2548a5bf1465ceb24"
     }
   ]
 }

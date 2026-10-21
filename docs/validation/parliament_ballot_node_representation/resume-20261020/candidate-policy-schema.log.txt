@@ -1,0 +1,62 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --profile local-release -p iroha_schema_gen --lib -- parliament_candidate_testing no_missing_referenced_types no_extra_or_missing_schemas --nocapture --test-threads=1
+   Compiling sha2 v0.10.9
+   Compiling ark-serialize v0.4.2
+   Compiling norito v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito)
+   Compiling elliptic-curve v0.13.8
+   Compiling ark-ff v0.4.2
+   Compiling curve25519-dalek v4.1.3
+   Compiling ecdsa v0.16.9
+   Compiling primeorder v0.13.6
+   Compiling blstrs v0.7.1
+   Compiling sm2 v0.13.3
+   Compiling ark-poly v0.4.2
+   Compiling ed25519-dalek v2.2.0
+   Compiling ark-ec v0.4.2
+   Compiling ark-bls12-377 v0.4.0
+   Compiling ark-bls12-381 v0.4.0
+   Compiling w3f-bls v0.1.9
+   Compiling soranet_pq v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/soranet_pq)
+   Compiling x25519-dalek v2.0.1
+   Compiling k256 v0.13.4
+   Compiling regex-automata v0.4.14
+   Compiling iroha_primitives v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_primitives)
+   Compiling iroha_plonk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk)
+   Compiling iroha_crypto v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_crypto)
+   Compiling iroha_pasta v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_pasta)
+   Compiling halo2curves v0.9.0
+   Compiling sorafs_chunker v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_chunker)
+   Compiling iroha_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_data_model)
+   Compiling iroha_model_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_model_base)
+   Compiling iroha_sumeragi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sumeragi)
+   Compiling sorafs_manifest v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_manifest)
+   Compiling iroha_zkp_poseidon v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_poseidon)
+   Compiling regex v1.12.3
+   Compiling iroha_version v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_version)
+   Compiling p256 v0.13.2
+   Compiling tracing-core v0.1.36
+   Compiling tracing v0.1.44
+   Compiling matchers v0.2.0
+   Compiling iroha_config_base v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config_base)
+   Compiling tracing-subscriber v0.3.23
+   Compiling iroha_accel v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_accel)
+   Compiling iroha_executor_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_executor_data_model)
+   Compiling iroha_torii_shared v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_torii_shared)
+   Compiling iroha_config v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config)
+   Compiling iroha_genesis v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_genesis)
+   Compiling iroha_schema_gen v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_schema_gen)
+    Finished `local-release` profile [optimized] target(s) in 14m 50s
+     Running unittests src/lib.rs (target/cargo-fast/parliament-development/local-release/deps/iroha_schema_gen-d4d50921effd65ea)
+
+running 3 tests
+test tests::no_extra_or_missing_schemas ... ok
+test tests::no_missing_referenced_types ... ok
+test tests::parliament_candidate_testing_exports_policy_without_runtime_authority ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 0.02s
+

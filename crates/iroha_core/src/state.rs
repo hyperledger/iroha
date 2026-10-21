@@ -45015,6 +45015,12 @@ mod retail_contract_state_snapshot;
 pub(crate) mod retail_daily_limit_state;
 #[path = "state/asset_uid.rs"]
 pub(crate) mod asset_uid;
+#[path = "state/asset_fi.rs"]
+pub(crate) mod asset_fi;
+#[path = "state/asset_uid_enrollment.rs"]
+pub(crate) mod asset_uid_enrollment;
+#[path = "state/asset_uid_reader.rs"]
+pub(crate) mod asset_uid_reader;
 pub(crate) mod deserialize {
     use iroha_model_base::domain::DomainId;
     use iroha_model_base::peer::PeerId;

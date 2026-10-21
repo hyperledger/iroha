@@ -240,7 +240,7 @@ Request problems return `400` with the standard error envelope:
 | `invalid_limit` | `limit` outside the accepted range |
 | `invalid_cursor` | malformed cursors or cursors from a different query |
 | `invalid_include_total` | non-boolean values |
-| `query_scan_limit_exceeded` | reads that exceed the row, group, distinct-value or byte budget, and history pages that exhaust their budget without a caller-visible continuation |
+| `query_scan_limit_exceeded` | reads that exceed the row, group, distinct-value or byte budget, and history pages that exhaust their budget without a safe continuation |
 
 `details.field` names the control; when a data field is at fault,
 `details.actual` names it and `details.expected` lists the accepted fields as a
@@ -304,10 +304,14 @@ contract calls. Native event pages walk committed execution outputs and their
 emissions in descending `(block_height, output_index, emission_index)` order.
 Account movement pages add a descending
 `movement_index` within each transaction, so page boundaries never skip other
-movements from that transaction. History cursors contain only caller-visible
-candidates; exhausting a page budget before finding one returns an explicit
-`query_scan_limit_exceeded` error. Account movement expansion also consumes the
-raw-row budget. These pages do not build a full-history process cache.
+movements from that transaction. A cursor within a carrier contains only a
+caller-visible candidate. Account movement scans that finish a complete carrier
+may instead continue strictly below its public block height, without exposing
+hidden transaction or movement coordinates. Thus sparse stretches can return
+empty pages with advancing continuations. A budget that cannot reach or complete
+even one carrier, or cannot produce a safe partial-carrier continuation, still
+returns `query_scan_limit_exceeded`. Account movement expansion also consumes
+the raw-row budget. These pages do not build a full-history process cache.
 
 Multisig proposals are administrative activity for the controller account;
 their proposed transfers are not payments. Account movement history reads the
@@ -325,9 +329,11 @@ allowance across the page, with a separate bounded byte allowance for native
 originals. Malformed or inconsistent originals fail the page. These display
 rows do not replace consumers' verification of authenticated finality.
 
-- The cursor holds the block coordinates of the last row and the next page
-  starts strictly before them, so transactions committed while paging never
-  shift later pages.
+- The cursor holds the block coordinates of the last visible row or, for a
+  completely scanned account-history carrier, its public block boundary. The
+  next page starts strictly before that position, so transactions committed
+  while paging never shift later pages. Both forms bind the original collection,
+  account and filter; each request checks current data space visibility again.
 - `sort`, `include_total` and `aggregate` are rejected: each would need a
   scan of the whole history.
 - Each page has a bounded history-scan budget of

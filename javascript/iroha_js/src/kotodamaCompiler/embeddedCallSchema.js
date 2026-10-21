@@ -6,6 +6,9 @@ import { isCanonicalKotodamaIdentifier, isCanonicalKotodamaStructName } from "..
 import { normalizeContractErrorTypeV1, normalizeContractEnumTypeV1 } from "../contractErrorTypes.js";
 import { readU32Le, readU64Le, readCompactField, decodeEmbeddedString, visitEmbeddedVector } from "./embeddedNorito.js";
 
+import { UID_HOLDING_QUOTE } from "../kotodamaProducts.js";
+
+const UID_QUOTE_TAPE_SHAPE = [UID_HOLDING_QUOTE.fields, [8, 7, 0, 2, "option", 2, 2]];
 const MAX_NODES = 250_000;
 const MAX_DEPTH = 256;
 const MAX_WORDS = 8192;
@@ -118,8 +121,10 @@ function sameNames(actual, expected) {
   return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 function coreView(nodes, start, ends) {
+  return fixedProduct(nodes, start, ends, CORE_VIEWS.get(nodes[start]?.name));
+}
+function fixedProduct(nodes, start, ends, shape) {
   const root = nodes[start];
-  const shape = CORE_VIEWS.get(root?.name);
   if (root?.kind !== 0 || !shape || !sameNames(root.fields, shape[0]) || ends[start] !== start + shape[1].length + 1) return false;
   return shape[1].every((expected, offset) => {
     const actual = nodes[start + offset + 1];
@@ -129,7 +134,9 @@ function coreView(nodes, start, ends) {
 function reservedShapes(nodes, ends, label) {
   nodes.forEach((root, start) => {
     if (root.kind !== 0) return;
-    if (CORE_VIEWS.has(root.name)) {
+    if (root.name === UID_HOLDING_QUOTE.name) {
+      if (!fixedProduct(nodes, start, ends, UID_QUOTE_TAPE_SHAPE)) fail(label, "contains a forged UID holding quote");
+    } else if (CORE_VIEWS.has(root.name)) {
       if (!coreView(nodes, start, ends)) fail(label, "contains a forged reserved query view");
     } else if (root.name === "kotodama::QueryPage") {
       const after = ends[start + 2];

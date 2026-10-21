@@ -340,6 +340,29 @@ impl DeploymentSlot {
         Ok(cancellation)
     }
 
+    /// Record certified-history expiry only for this slot's exact active initial upload.
+    pub(crate) fn reconcile_expiry(
+        &self,
+        service: &DeploymentService,
+        journal: &Path,
+        root: &Path,
+        genesis: &Path,
+        max_height: u64,
+    ) -> Result<iroha_contract_deploy::DeploymentValidityWindowElapsed> {
+        self.admit_resume(service, journal)?;
+        let retained = self.authenticate(service, journal)?;
+        let id = plan_journal_id(&retained)?;
+        if self.read_state()? != (Publication::Active { journal: id }) {
+            bail!("only the exact active deployment may reconcile expiry in this slot");
+        }
+        self.revalidate()?;
+        let evidence = service
+            .reconcile_initial_upload_expiry(journal, &retained, root, genesis, max_height)
+            .map_err(|error| journal_failure(error, journal))?;
+        self.revalidate()?;
+        Ok(evidence)
+    }
+
     /// Reuse the exact saved plan before either consumer prepares new paid transactions.
     pub(crate) fn recover_matching(
         &self,
@@ -397,7 +420,8 @@ impl DeploymentSlot {
                 ))?),
             JournalDisposition::Completed(_)
             | JournalDisposition::Failed(_)
-            | JournalDisposition::Cancelled(_) => return Ok(None),
+            | JournalDisposition::Cancelled(_)
+            | JournalDisposition::ValidityWindowElapsed(_) => return Ok(None),
         };
         self.revalidate()?;
         Ok(Some(RetainedDeployment {

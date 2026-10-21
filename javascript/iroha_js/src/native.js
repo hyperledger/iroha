@@ -32,6 +32,7 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const PLATFORM_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)+$/u;
 const PE_DOS_HEADER_BYTES = 64;
 const NATIVE_BUILD_SOURCE_STATE_READER = "read-native-build-source-state.mjs";
+const NATIVE_SOURCE_VERIFICATION_TIMEOUT_MS = 60_000;
 const LOCAL_UNIT_MANIFEST = "iroha_js_host.local-unit.json";
 const LOCAL_UNIT_SCHEMA = "iroha.js-native-local-unit.v1";
 
@@ -141,15 +142,45 @@ function assertLoadableSourceProvenance(verification, paths) {
           ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
         },
         maxBuffer: 16 * 1024,
-        timeout: 15_000,
+        // Exact source hashing can exceed 15 seconds during concurrent builds.
+        timeout: NATIVE_SOURCE_VERIFICATION_TIMEOUT_MS,
       },
     );
     return;
-  } catch {
-    throw nativeBindingError(
-      `dirty source tree from ${paths.bindingPath} does not match current SDK source.`,
+  } catch (cause) {
+    // Child-process errors also contain argv and captured output. Retain only
+    // bounded scalar diagnostics, never the original error or its output.
+    const field = (key) => cause !== null && typeof cause === "object"
+      ? Object.getOwnPropertyDescriptor(cause, key)?.value
+      : undefined;
+    const rawCode = field("code");
+    const rawStatus = field("status");
+    const rawSignal = field("signal");
+    const code = typeof rawCode === "string" && /^[A-Z][A-Z0-9_]{0,63}$/u.test(rawCode)
+      ? rawCode : null;
+    const status = Number.isInteger(rawStatus) && rawStatus >= 0 && rawStatus <= 255
+      ? rawStatus : null;
+    const signal = typeof rawSignal === "string" && /^SIG[A-Z0-9]{1,16}$/u.test(rawSignal)
+      ? rawSignal : null;
+    const timedOut = code === "ETIMEDOUT";
+    const outcome = timedOut
+      ? `timed out after ${NATIVE_SOURCE_VERIFICATION_TIMEOUT_MS} ms`
+      : "failed";
+    const error = nativeBindingError(
+      `source verification ${outcome} for ${paths.bindingPath}.`,
       "source_provenance_error",
     );
+    Object.defineProperty(error, "sourceVerification", {
+      value: Object.freeze({
+        kind: timedOut ? "timeout" : "verifier_failure",
+        code,
+        status,
+        signal,
+        timeoutMs: NATIVE_SOURCE_VERIFICATION_TIMEOUT_MS,
+      }),
+      enumerable: true,
+    });
+    throw error;
   }
 }
 

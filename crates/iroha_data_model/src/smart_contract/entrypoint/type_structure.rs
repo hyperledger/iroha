@@ -172,6 +172,43 @@ fn core_query_view_range<N: FlatTypeNodeV1>(
     (range.end == expected_end).then_some(range)
 }
 
+// This controller-authorized quote is a fixed product, not a query-page row.
+fn valid_uid_holding_quote_shape<N: FlatTypeNodeV1>(nodes: &[N], start: usize) -> bool {
+    use TypeNodeViewV1::{Leaf, Option as Optional};
+    let Some(TypeNodeViewV1::Struct { name, fields }) =
+        nodes.get(start).map(FlatTypeNodeV1::type_node_view)
+    else {
+        return false;
+    };
+    let shape = [
+        Leaf(Kind::AssetDefinitionId),
+        Leaf(Kind::AccountId),
+        Leaf(Kind::Int),
+        Leaf(Kind::Quantity),
+        Optional,
+        Leaf(Kind::Quantity),
+        Leaf(Kind::Quantity),
+    ];
+    name == "kotodama::AssetUidHoldingQuote"
+        && fields
+            == [
+                "asset_definition_id",
+                "account_id",
+                "policy_revision",
+                "beneficial_holdings",
+                "holding_limit",
+                "required_overflow",
+            ]
+        && nodes
+            .iter()
+            .skip(start.saturating_add(1))
+            .take(shape.len())
+            .map(FlatTypeNodeV1::type_node_view)
+            .eq(shape)
+        && subtree_range_v1(nodes, start)
+            .is_some_and(|range| start.checked_add(shape.len() + 1) == Some(range.end))
+}
+
 fn valid_state_page_shape<N: FlatTypeNodeV1>(nodes: &[N], start: usize) -> Option<()> {
     let TypeNodeViewV1::Struct { fields, .. } = nodes.get(start)?.type_node_view() else {
         return None;
@@ -206,7 +243,7 @@ fn valid_state_page_shape<N: FlatTypeNodeV1>(nodes: &[N], start: usize) -> Optio
 
 /// Validate every reserved nominal shape in an already structurally validated type forest.
 ///
-/// This checks the exact core view, `QueryPage`, and `StatePage` field/type identities. The caller
+/// This checks exact core views, the UID holding quote, `QueryPage`, and `StatePage`. The caller
 /// retains its own node/depth limits and leaf privacy/resource policy; no allocation occurs.
 #[must_use]
 pub fn validate_reserved_nominal_shapes_v1<N: FlatTypeNodeV1>(nodes: &[N]) -> bool {
@@ -214,6 +251,12 @@ pub fn validate_reserved_nominal_shapes_v1<N: FlatTypeNodeV1>(nodes: &[N]) -> bo
         let TypeNodeViewV1::Struct { name, fields } = node.type_node_view() else {
             continue;
         };
+        if name == "kotodama::AssetUidHoldingQuote" {
+            if !valid_uid_holding_quote_shape(nodes, start) {
+                return false;
+            }
+            continue;
+        }
         if is_core_query_view_name(name) {
             if core_query_view_range(nodes, start).is_none() {
                 return false;

@@ -28173,7 +28173,7 @@ mod tests {
         }
         for response in cases {
             let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
-            quote_fees_with_response(&client, &payload, &store, response)
+            let _ = quote_fees_with_response(&client, &payload, &store, response)
                 .await
                 .expect_err("a refusal must not become an automatic retry");
             assert_eq!(store.lock().expect("requests").len(), 1);

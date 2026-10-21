@@ -1,6 +1,6 @@
 {
   "root": "specs/sdk/android/generated",
-  "tree_sha256": "fba3f32ec5c2e9ee0e2f5895a6d967de624acf694f228ffc012bab9c4838dc0c",
+  "tree_sha256": "4985a1854a289285464866afde3c8de198ba8b2f5d6d8f53e72efb8931a9d226",
   "files": [
     {
       "path": "specs/sdk/android/generated/builders.md",
@@ -14,7 +14,7 @@
     },
     {
       "path": "specs/sdk/android/generated/fixtures/smart_contract_code_executor_hashes.json",
-      "sha256": "61227d8f7b1cf3b40f5112b618a788d82d303e88c9c99e54b9e2bf7955f8fdc1",
+      "sha256": "410c58374423bc0c613342d0797ea36f952fe4cd98f886e09bbfb6cbc5796a0e",
       "size": 379
     },
     {

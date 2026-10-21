@@ -4,6 +4,13 @@
 use super::*;
 
 fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
+    retained_delivery_with_open_request(false, None)
+}
+
+fn retained_delivery_with_open_request(
+    open: bool,
+    mutation: Option<usize>,
+) -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
     let mut wallet = wallet();
     let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
     let companion: KagemushaWalletPayerCompanionV1 = fixture("KagemushaWalletPayerCompanionV1");
@@ -152,10 +159,24 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         .unwrap();
     let send_capsule = [84; 32];
     let send_commitment = payment.send.receipt.capsule_commitment;
+    let mut issued: KagemushaWalletRequestV1 = archive::decode(&request).unwrap();
+    if open {
+        issued.body = issued.body.open();
+    }
+    match mutation {
+        Some(0) => issued.body.nonce[0] ^= 1,
+        Some(1) => issued.signature = payment.send.receipt.signature,
+        Some(2) => issued.receiver_credential.body.account_digest[0] ^= 1,
+        Some(3) => issued.body.payer_wallet_id[0] ^= 1,
+        Some(4) => issued.body.send_ordinal += 1,
+        None => {}
+        _ => unreachable!(),
+    }
+    let selected_request = archive::encode(&issued).unwrap();
     let send = NativeIntentV1::user(OperationRequestV1 {
         request_id: send_id,
         action: OperationActionV1::Send {
-            request: request.clone(),
+            request: selected_request,
         },
     });
     wallet
@@ -213,6 +234,42 @@ fn bound_delivery_query_and_exact_retry_survive_collected_send_and_lost_app_ack(
     assert_eq!(wallet.custody.signatures, 0);
     assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 0);
     assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn bound_delivery_open_request_survives_collected_send_and_lost_app_ack() {
+    let (mut wallet, send, credited, original) = retained_delivery_with_open_request(true, None);
+    for _ in 0..2 {
+        assert_eq!(
+            wallet.credited_status_for_send(&send, &credited).unwrap(),
+            RequestStatusV1::Outcome(Completion::Complete(original.clone()))
+        );
+        assert_eq!(
+            wallet.accept_credited_for_send(&send, &credited).unwrap(),
+            Completion::Complete(original.clone())
+        );
+    }
+    assert_eq!(wallet.custody.signatures, 0);
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn bound_delivery_rejects_changed_request_terms_signature_originals_or_completion() {
+    for mutation in 0..5 {
+        let (mut wallet, send, credited, _) =
+            retained_delivery_with_open_request(mutation < 3, Some(mutation));
+        assert!(wallet.credited_status_for_send(&send, &credited).is_err());
+        assert!(wallet.accept_credited_for_send(&send, &credited).is_err());
+        assert!(
+            wallet
+                .verified_delivery_projection(&send, &credited)
+                .is_err()
+        );
+        assert_eq!(wallet.custody.signatures, 0);
+        assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 0);
+        assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    }
 }
 
 #[test]

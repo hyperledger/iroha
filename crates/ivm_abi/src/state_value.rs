@@ -1228,9 +1228,15 @@ fn valid_reserved_state_product(
             && nodes.get(index + 2) == Some(&N::Option)
             && nodes.get(index + 3) == Some(&N::Leaf(StateValueKindV1::Int));
     }
-    !name.starts_with("kotodama::") || valid_core_state_view(nodes, index)
+    !name.starts_with("kotodama::") || valid_fixed_state_product(nodes, index)
 }
 fn valid_core_state_view(nodes: &[StateValueNodeV1], start: usize) -> bool {
+    matches!(nodes.get(start), Some(StateValueNodeV1::Struct { name, .. })
+        if matches!(name.as_str(), "kotodama::AccountView" | "kotodama::AssetView"
+            | "kotodama::AssetDefinitionView" | "kotodama::DomainView" | "kotodama::NftView"))
+        && valid_fixed_state_product(nodes, start)
+}
+fn valid_fixed_state_product(nodes: &[StateValueNodeV1], start: usize) -> bool {
     use EntrypointValueKindV1 as E;
     use StateValueKindV1 as S;
     use StateValueNodeV1 as N;
@@ -1247,6 +1253,7 @@ fn valid_core_state_view(nodes: &[StateValueNodeV1], start: usize) -> bool {
             | "kotodama::AssetDefinitionView"
             | "kotodama::DomainView"
             | "kotodama::NftView"
+            | "kotodama::AssetUidHoldingQuote"
     ) {
         return false;
     }
@@ -2837,6 +2844,90 @@ mod tests {
             }
             assert!(!forged.validate());
         }
+    }
+    #[test]
+    fn durable_uid_holding_quote_is_exact_and_cannot_become_query_page_row() {
+        use super::*;
+        use StateValueNodeV1 as N;
+        let quote = StateValueSchemaV1 {
+            nodes: vec![
+                N::Struct {
+                    name: "kotodama::AssetUidHoldingQuote".into(),
+                    fields: [
+                        "asset_definition_id",
+                        "account_id",
+                        "policy_revision",
+                        "beneficial_holdings",
+                        "holding_limit",
+                        "required_overflow",
+                    ]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                },
+                N::Leaf(StateValueKindV1::AssetDefinitionId),
+                N::Leaf(StateValueKindV1::AccountId),
+                N::Leaf(StateValueKindV1::Int),
+                N::Leaf(StateValueKindV1::Quantity),
+                N::Option,
+                N::Leaf(StateValueKindV1::Quantity),
+                N::Leaf(StateValueKindV1::Quantity),
+            ],
+        };
+        assert!(quote.validate());
+        assert_eq!(quote.word_count(), Some(6));
+        let list = StateValueSchemaV1 {
+            nodes: vec![N::List {
+                element: Box::new(quote.clone()),
+                capacity: 2,
+            }],
+        };
+        assert!(list.validate());
+        let mut pair = vec![N::Tuple { arity: 2 }];
+        pair.extend(quote.nodes.clone());
+        pair.extend(quote.nodes.clone());
+        assert!(StateValueSchemaV1 { nodes: pair }.validate());
+        let page = StateValueSchemaV1 {
+            nodes: vec![
+                N::Struct {
+                    name: "kotodama::QueryPage".into(),
+                    fields: vec!["items".into(), "next_offset".into()],
+                },
+                N::List {
+                    element: Box::new(quote.clone()),
+                    capacity: 64,
+                },
+                N::Option,
+                N::Leaf(StateValueKindV1::Int),
+            ],
+        };
+        assert!(
+            !page.validate(),
+            "a controller quote is not an enumerable core view"
+        );
+        for schema in [quote.clone(), list] {
+            let bytes = crate::codec::encode_canonical_norito(&schema).unwrap();
+            assert_eq!(
+                norito::decode_from_bytes::<StateValueSchemaV1>(&bytes).unwrap(),
+                schema
+            );
+        }
+        for index in 0..6 {
+            let mut bad = quote.clone();
+            let N::Struct { fields, .. } = &mut bad.nodes[0] else {
+                unreachable!()
+            };
+            fields[index] = format!("forged_{index}");
+            assert!(!bad.validate());
+        }
+        for index in 1..quote.nodes.len() {
+            let mut bad = quote.clone();
+            bad.nodes[index] = N::Leaf(StateValueKindV1::Bool);
+            assert!(!bad.validate());
+        }
+        let mut reordered = quote.clone();
+        reordered.nodes.swap(1, 2);
+        assert!(!reordered.validate());
     }
     #[test]
     fn empty_nominal_struct_schema_and_record_have_one_runtime_unit() {

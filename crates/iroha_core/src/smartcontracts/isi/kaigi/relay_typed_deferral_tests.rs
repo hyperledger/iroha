@@ -113,6 +113,9 @@ fn relay_prefix(
 }
 
 fn retirement_refusal(checkpoint: RelayCheckpoint) {
+    // Keep committed fixture generations in the exact pool baseline; unrelated
+    // epoch reclamation must not look like a refund of the decoder's own backing.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (record, host, _) = super::tests::new_record(KaigiPrivacyMode::Transparent);
     let domain = record.id.domain_id.clone();
     let state = state(&domain, &host);
@@ -688,6 +691,9 @@ fn checked_record_writer_refusal_keeps_original_create_unpublished_and_retries()
 
 #[test]
 fn live_manifest_dependency_refusal_preserves_original_route_and_retry() {
+    // Keep committed fixture generations in the exact pool baseline; unrelated
+    // epoch reclamation must not look like a refund of the decoder's own backing.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (record, host, _) = super::tests::new_record(KaigiPrivacyMode::Transparent);
     let domain = record.id.domain_id.clone();
     let state = state(&domain, &host);
