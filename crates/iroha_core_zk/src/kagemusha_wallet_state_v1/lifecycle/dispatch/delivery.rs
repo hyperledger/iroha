@@ -8,7 +8,7 @@ fn require_bound_payment(
     wallet: &[u8; 32],
     commitment: &[u8; 32],
     operation: &[u8; 32],
-) -> Result<(), Error> {
+) -> Result<KagemushaWalletPaymentV1, Error> {
     let payment = read_model_original(
         || KagemushaWalletPaymentV1::decode_canonical(original, scheme),
         Error::Invalid("G1 validation"),
@@ -17,6 +17,23 @@ fn require_bound_payment(
         || valid(payment.send.statement.operation_id(wallet))? != *operation
     {
         return Err(Error::WitnessLost("bound Archive Send operation"));
+    }
+    Ok(payment)
+}
+
+fn require_bound_request(
+    selected_original: &[u8],
+    completed_original: &[u8],
+    payment: &KagemushaWalletPaymentV1,
+) -> Result<(), Error> {
+    // The selected Send retains the receiver's open Request, while its capsule
+    // and Archive retain that Request completed for this exact Payment. Complete
+    // only the payer fields, preserving every receiver term, original and signature.
+    // An already completed selection must be the very same completion.
+    let selected: KagemushaWalletRequestV1 = archive::decode(selected_original)?;
+    let completed = valid(selected.complete_with(&valid(payment.signed_request())?))?;
+    if archive::encode(&completed)? != completed_original {
+        return Err(Error::WitnessLost("selected Send original Request"));
     }
     Ok(())
 }
@@ -90,18 +107,18 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if intent.request_id() != archive_id
                     || archive.send_capsule != capsule
                     || archive.send_commitment != commitment
-                    || archive.request != *request
                     || archive.credited != credited
                 {
                     return Err(Error::WitnessLost("bound Archive originals"));
                 }
-                require_bound_payment(
+                let payment = require_bound_payment(
                     &archive.payment,
                     &self.scheme_id,
                     &self.wallet_id,
                     &commitment,
                     &operation,
                 )?;
+                require_bound_request(request, &archive.request, &payment)?;
                 return Ok(intent);
             }
         }
@@ -128,11 +145,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             return Err(Error::Invalid("Credited names another Send"));
         }
         let intent = NativeIntentV1::archive(&source, certificates, credited.to_vec())?;
-        if intent.request_id() != archive_id
-            || intent.archive_request().map(|a| &a.request) != Some(request)
-        {
-            return Err(Error::WitnessLost("selected Send original Request"));
+        if intent.request_id() != archive_id {
+            return Err(Error::WitnessLost("bound Archive identity"));
         }
+        let archive = intent
+            .archive_request()
+            .ok_or(Error::WitnessLost("bound Archive intent kind"))?;
+        let payment = require_bound_payment(
+            &archive.payment,
+            &self.scheme_id,
+            &self.wallet_id,
+            &commitment,
+            &operation,
+        )?;
+        require_bound_request(request, &archive.request, &payment)?;
         Ok(intent)
     }
 

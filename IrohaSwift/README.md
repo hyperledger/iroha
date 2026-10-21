@@ -425,6 +425,11 @@ which produces this entitlement:
 </array>
 ```
 
+Both reader and card controllers expose `updateAlertMessage(_:)` for localized progress
+on the system NFC sheet. Use contact-established/lost observations for connection feedback;
+local payment or receipt completion alone does not establish a live radio connection. Card
+updates after stop are ignored, and contact observations do not change retained payment bytes.
+
 Receiver/CardSession builds additionally require an Apple-provisioned HCE
 profile containing the following entitlements. Do not make CardSession a
 runtime fallback: require iOS 17.4 or newer and proceed only when

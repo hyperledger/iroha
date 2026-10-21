@@ -540,6 +540,10 @@ public enum IrohaPeerNfcCardFailureV1: Error, Equatable, Sendable {
 
 public enum IrohaPeerNfcCardEventV1: Equatable, Sendable {
     case emulationStarted
+    /// The reader selected this application's card successfully.
+    case contactEstablished
+    /// The reader left; retained request, payment and acknowledgement state is unchanged.
+    case contactLost
     /// The final hosted Request chunk was successfully returned to the payer.
     /// An exact repeated read reports this observation again; GET_INFO does not.
     case requestRead
@@ -692,6 +696,15 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             replacement.stop()
             throw error
         }
+    }
+
+    /// Updates the system card sheet while this presentation remains active.
+    /// Retired or stopped sessions ignore late progress messages.
+    public func updateAlertMessage(_ message: String) {
+        lock.lock()
+        let active = runtime
+        lock.unlock()
+        active?.updateAlertMessage(message)
     }
 
     public func stop() {
@@ -874,6 +887,13 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             stop()
             throw Self.mapCardStartupError(error)
         }
+    }
+
+    func updateAlertMessage(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !startGate.stopRequested, let session = cardSession else { return }
+        session.alertMessage = message
     }
 
     func stop() {
@@ -1177,6 +1197,10 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                             return
                         }
                     }
+                    if response.statusWord == .success, let command,
+                       IrohaPeerNfcCardEndpointV1.route(command) == .select {
+                        onEvent(.contactEstablished)
+                    }
                     if IrohaPeerNfcRequestReadPublicationV1.completedRead(
                         command, response: response,
                         requestLength: endpoint.receiver.receiveRequest.encoded.count
@@ -1191,6 +1215,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                         return
                     }
                 case .readerDeselected:
+                    onEvent(.contactLost)
                     // Receiver state remains latched. Proactive re-arming
                     // avoids depending on a later readerDetected callback.
                     try await ensureEmulation(session)
@@ -1694,6 +1719,10 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                             // durable checkpoint, if one already exists.
                             throw IrohaPeerNfcRetryableTransportErrorV1()
                         }
+                        if response.statusWord == .success,
+                           case .selectApplication = command {
+                            progressReporter.emit(.contactEstablished)
+                        }
                         return response
                     } catch is CancellationError {
                         throw CancellationError()
@@ -2097,6 +2126,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         lock.lock()
         guard !completed,
               self.session === session,
+              operationGate.mayMutate(capturedEpoch: operationEpoch),
               let gate = retryGate,
               let platformCallGate else {
             lock.unlock()
@@ -2115,7 +2145,9 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
             )
         }
         retryTimeoutTask = task
+        let reporter = progressReporter
         lock.unlock()
+        reporter?.emit(.contactLost)
         platformCallGate.performIfActive { session.restartPolling() }
     }
 
