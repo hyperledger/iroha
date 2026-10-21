@@ -1324,9 +1324,9 @@ fn pipeline_status_terminal_or_state_entry_from_outcome(
 }
 // HTTP consumers authenticate the exact transaction with request-owned capacity and use the
 // canonical outcome kernel. A cached status or membership alone cannot authorize settlement.
-// Successors read only bounded windows of their carrier, so a committed outcome is readable
-// whatever the size of its block or of the transaction itself; G1 still requires its actual
-// certified H2 and keeps the complete-carrier reader.
+// Successors read bounded windows without materializing transaction bodies. Finite source
+// work, window-byte and decoder limits still apply; an intrinsically oversized required
+// target is a permanent refusal. G1 needs its actual certified H2 and the complete carrier.
 fn reconcile_pending_pipeline_transaction(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
@@ -1426,7 +1426,7 @@ fn read_pipeline_transaction_outcome(
                 bytes,
                 &budget,
             )
-            .map_err(crate::canonical_history::query_attempt_error)?;
+            .map_err(crate::canonical_history::committed_outcome_error)?;
         canonical_transaction_outcome_from_committed(hash, anchor, &committed)
     })?;
     Ok((outcome, owner))

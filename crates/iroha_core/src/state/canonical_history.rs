@@ -19,6 +19,31 @@ use crate::{
     kura::{Kura, history_checkpoints::HistoryCheckpoint},
 };
 
+/// Non-wire refusal of one authenticated committed Network outcome read.
+///
+/// Deterministic target work is distinct from an unfinished execution's original
+/// decoder or allocation owner. Neither variant establishes a transaction outcome.
+#[derive(Debug, thiserror::Error)]
+pub enum CommittedOutcomeReadError {
+    /// Unchanged deterministic rejection or original local resource refusal.
+    #[error(transparent)]
+    Execution(#[from] ExecutionAttemptError<QueryExecutionFail>),
+    /// The authenticated target alone exceeds the request's finite work allowance.
+    #[error("committed target requires {required} work units, exceeding request limit {limit}")]
+    TargetWorkBudgetExceeded {
+        /// One target frame plus the larger certified input or typed-output count.
+        required: u64,
+        /// The same request's maximum source work.
+        limit: u64,
+    },
+}
+
+impl From<QueryExecutionFail> for CommittedOutcomeReadError {
+    fn from(error: QueryExecutionFail) -> Self {
+        Self::Execution(ExecutionAttemptError::Rejected(error))
+    }
+}
+
 /// Original local capture refusal, separate from execution and canonical history errors.
 /// This non-wire event boundary retains the actual physical State release owner;
 /// a busy publication never becomes a transaction rejection or allocation demand.

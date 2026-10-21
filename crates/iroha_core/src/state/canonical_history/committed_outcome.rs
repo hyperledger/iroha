@@ -59,10 +59,10 @@ use crate::{
     sumeragi::certified_chain::ChainReadError,
 };
 
-type ReadError = ExecutionAttemptError<QueryExecutionFail>;
+type ReadError = super::CommittedOutcomeReadError;
 
 fn invalid(message: impl Into<String>) -> ReadError {
-    ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message.into()))
+    QueryExecutionFail::Conversion(message.into()).into()
 }
 
 fn chain_error(error: &ChainReadError) -> ReadError {
@@ -73,6 +73,7 @@ fn decode_error(error: norito::core::DecodeAttemptError) -> ReadError {
     canonical_decode_attempt_error(error, |error| {
         QueryExecutionFail::Conversion(error.to_string())
     })
+    .into()
 }
 
 // Same classification as `certified_chain::frame_result_error`: an original decoder budget
@@ -89,7 +90,8 @@ fn certified_result_error(height: u64, error: CertifiedResultError) -> ReadError
                 }
                 .to_string(),
             )
-        }),
+        })
+        .into(),
         completed => chain_error(&ChainReadError::Malformed {
             height,
             reason: completed.to_string(),
@@ -221,8 +223,25 @@ impl SourceWork {
         Ok(())
     }
 
-    // The target's complete validation work, as `read_executed_carrier_from_checkpoints`
-    // counts it: its Network input and output rows (at least one) after its source frames.
+    // Only authenticated target commitments establish work that checkpoints cannot remove.
+    fn certified_target_rows(&self, inputs: u64, outputs: u64) -> Result<(), ReadError> {
+        let required = inputs
+            .max(outputs)
+            .max(1)
+            .checked_add(1)
+            .ok_or_else(|| invalid("certified target work exceeds the addressable range"))?;
+        if required > self.max_blocks {
+            return Err(ReadError::TargetWorkBudgetExceeded {
+                required,
+                limit: self.max_blocks,
+            });
+        }
+        Ok(())
+    }
+
+    // The target's observed validation work: Network inputs and every typed output
+    // (at least one), after all walked source frames. Raw sequence prefixes alone do
+    // not establish a permanent target demand.
     fn rows(&self, inputs: u64, outputs: u64) -> Result<(), ReadError> {
         inputs
             .max(outputs)
@@ -776,12 +795,11 @@ impl<'a> FrameWindows<'a> {
 }
 
 fn missing(height: u64, expected: HashOf<BlockHeader>) -> ReadError {
-    ExecutionAttemptError::Rejected(QueryExecutionFail::CanonicalHistory(
-        CanonicalHistoryError::BodyUnavailable {
-            height,
-            expected_hash: expected,
-        },
-    ))
+    QueryExecutionFail::CanonicalHistory(CanonicalHistoryError::BodyUnavailable {
+        height,
+        expected_hash: expected,
+    })
+    .into()
 }
 
 // The storage classification of `block_with_original_admission`.
@@ -801,6 +819,7 @@ fn storage_error(
         };
         QueryExecutionFail::Conversion(reason)
     })
+    .into()
 }
 
 // The canonical core header of a non-genesis certificate, as `checked_frame_header` decodes it.
@@ -869,12 +888,14 @@ fn read_outcome(
         // A checkpoint can omit newer ancestry, but it never replaces the target's
         // own frame or certificate. Preserve that distinction on the original refusal.
         let source_refusal = |error| match error {
-            ExecutionAttemptError::Deferred(original) => {
-                ExecutionAttemptError::Deferred(if source_height == target {
-                    original.at_history_target()
-                } else {
-                    original.at_history_ancestry()
-                })
+            ReadError::Execution(ExecutionAttemptError::Deferred(original)) => {
+                ReadError::Execution(ExecutionAttemptError::Deferred(
+                    if source_height == target {
+                        original.at_history_target()
+                    } else {
+                        original.at_history_ancestry()
+                    },
+                ))
             }
             rejected => rejected,
         };
@@ -952,6 +973,17 @@ fn target_outcome(
             reason: error.to_string(),
         })
     })?;
+    // `read_outcome` bound this exact preimage to authenticated R and the State journal.
+    // Counts in that validated commitment, unlike raw sequence prefixes, establish the
+    // minimum target work even before its necessarily over-budget rows can be inspected.
+    frame.work.certified_target_rows(
+        execution
+            .transaction_input_commitment
+            .map_or(0, |value| value.leaf_count().get()),
+        execution
+            .transaction_output_commitment
+            .map_or(0, |value| value.leaf_count().get()),
+    )?;
     let payload =
         frame.exact_fields::<{ PayloadField::ExecutionContext as usize + 1 }>(layout.payload)?;
     let inputs = frame.input_hashes(&payload, header, execution.transaction_input_commitment)?;
@@ -990,8 +1022,12 @@ impl crate::state::State {
     /// and recheck of the State hash journal and native tip are those of
     /// [`Self::read_executed_carrier_from_checkpoints`]; the walk starts at a verified
     /// checkpoint at or above `height`, so its source work depends on node-local checkpoints and
-    /// on-chain readers must not use it. `max_work` bounds walked frames plus the target's Network
-    /// inputs and outputs; `max_bytes` bounds the bytes of all windows. Genesis outcomes require
+    /// on-chain readers must not use it. `max_work` bounds walked frames plus the larger of
+    /// the target's Network input count and all typed outputs (Network, Pipeline and Time),
+    /// with at least one row. Authenticated target counts that cannot fit even one target
+    /// frame are a permanent work refusal; cumulative ancestry work remains a query-budget
+    /// rejection because closer checkpoints may shorten a retry. `max_bytes` bounds all
+    /// window bytes. Genesis outcomes require
     /// their actual H2 successor and are read by the full-prefix reader instead.
     ///
     /// # Errors
@@ -1038,14 +1074,21 @@ impl crate::state::State {
             max_blocks: max_work,
             max_bytes,
         };
-        let outcome = read_budget.with(|| read_outcome(&history, height, identity, &mut work))?;
-        if self.block_hashes.view().get(height.get() - 1).copied() != expected {
+        let outcome = read_budget.with(|| read_outcome(&history, height, identity, &mut work));
+        // A permanent refusal describes this exact canonical target, just like a positive
+        // outcome. Recheck its identity before exporting that classification; retain every
+        // pre-existing execution refusal and its original owner unchanged.
+        if matches!(
+            &outcome,
+            Ok(_) | Err(ReadError::TargetWorkBudgetExceeded { .. })
+        ) && self.block_hashes.view().get(height.get() - 1).copied() != expected
+        {
             return Err(QueryExecutionFail::Conversion(
                 "canonical carrier changed during finalized read".into(),
             )
             .into());
         }
-        Ok(outcome)
+        outcome
     }
 }
 

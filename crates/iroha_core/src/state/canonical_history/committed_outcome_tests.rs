@@ -105,7 +105,9 @@ fn bounded(
 
 fn conversion(error: ReadError) -> String {
     match error {
-        ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message)) => message,
+        ReadError::Execution(ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(
+            message,
+        ))) => message,
         other => panic!("expected a completed conversion rejection: {other:?}"),
     }
 }
@@ -309,7 +311,7 @@ fn bounded_outcome_cumulative_decoder_refusal_can_succeed_on_identical_retry() {
                 assert_eq!(outcome.matched_results(), expected.matched_results());
                 return;
             }
-            Err(ExecutionAttemptError::Deferred(deferred)) => {
+            Err(ReadError::Execution(ExecutionAttemptError::Deferred(deferred))) => {
                 assert!(
                     matches!(
                         deferred
@@ -501,20 +503,21 @@ fn bounded_outcome_work_and_byte_bounds_are_exact() {
         state.read_committed_network_outcome(height, &identity, max_work, max_bytes, &budget)
     };
     read_with(work, read).unwrap();
-    for (max_work, max_bytes) in [(work - 1, read), (work, read - 1)] {
+    assert!(matches!(
+        read_with(work - 1, read),
+        Err(ReadError::TargetWorkBudgetExceeded {
+            required: 3,
+            limit: 2
+        })
+    ));
+    for (max_work, max_bytes) in [(work, read - 1), (0, read)] {
         assert!(matches!(
             read_with(max_work, max_bytes),
-            Err(ExecutionAttemptError::Rejected(
+            Err(ReadError::Execution(ExecutionAttemptError::Rejected(
                 QueryExecutionFail::GasBudgetExceeded
-            ))
+            )))
         ));
     }
-    assert!(matches!(
-        read_with(0, read),
-        Err(ExecutionAttemptError::Rejected(
-            QueryExecutionFail::GasBudgetExceeded
-        ))
-    ));
 }
 
 #[test]
@@ -678,9 +681,8 @@ fn bounded_outcome_checks_input_work_before_inspecting_entrypoint_bodies() {
         assert!(
             matches!(
                 result,
-                Err(ExecutionAttemptError::Rejected(
-                    QueryExecutionFail::GasBudgetExceeded
-                ))
+                Err(ReadError::TargetWorkBudgetExceeded { required: 3, limit })
+                    if limit == max_work
             ),
             "over-budget input rows must not be inspected: {result:?}"
         );
@@ -727,7 +729,7 @@ fn bounded_outcome_per_item_refusal_identifies_target_and_skippable_ancestry() {
             &read_budget(frames, usize::MAX),
         )
         .unwrap_err();
-        let ExecutionAttemptError::Deferred(original) = refused else {
+        let ReadError::Execution(ExecutionAttemptError::Deferred(original)) = refused else {
             panic!("the original certificate window must be refused locally");
         };
         assert_eq!(original.phase(), Some(expected_phase));
@@ -757,7 +759,7 @@ fn bounded_outcome_per_item_refusal_identifies_target_and_skippable_ancestry() {
     .unwrap_err();
     assert!(matches!(
         refused,
-        ExecutionAttemptError::Deferred(original)
+        ReadError::Execution(ExecutionAttemptError::Deferred(original))
             if original.phase() == Some(ExecutionPhase::HistoryTarget)
                 && matches!(original.allocation_refusal(),
                     Some(AllocationRefusal::ExceedsLimit { .. }))
@@ -811,4 +813,123 @@ fn bounded_outcome_refuses_a_substituted_input_identity_before_returning_its_res
             || message == "certified input commitment differs from the committed Network inputs",
         "either authenticated input-root anchor must reject the substitution: {message}",
     );
+}
+
+#[test]
+fn certified_target_work_checks_intrinsic_minimum_and_overflow() {
+    let mut work = SourceWork {
+        blocks: 2,
+        bytes: 0,
+        max_blocks: 3,
+        max_bytes: BYTES,
+    };
+    // Removable ancestry is not part of the target's certified minimum.
+    work.certified_target_rows(2, 2).unwrap();
+    assert!(matches!(
+        work.rows(2, 2),
+        Err(ReadError::Execution(ExecutionAttemptError::Rejected(
+            QueryExecutionFail::GasBudgetExceeded
+        )))
+    ));
+    assert!(matches!(
+        work.certified_target_rows(2, 3),
+        Err(ReadError::TargetWorkBudgetExceeded {
+            required: 4,
+            limit: 3
+        })
+    ));
+    work.max_blocks = 1;
+    assert!(matches!(
+        work.certified_target_rows(0, 0),
+        Err(ReadError::TargetWorkBudgetExceeded {
+            required: 2,
+            limit: 1
+        })
+    ));
+    work.max_blocks = u64::MAX;
+    work.certified_target_rows(u64::MAX - 1, 0).unwrap();
+    for (inputs, outputs) in [(u64::MAX, 0), (0, u64::MAX)] {
+        assert_eq!(
+            conversion(work.certified_target_rows(inputs, outputs).unwrap_err()),
+            "certified target work exceeds the addressable range"
+        );
+    }
+}
+
+#[test]
+fn bounded_outcome_ancestry_work_refusal_can_succeed_on_identical_retry() {
+    let (mut chain, transactions) = outcome_chain(16);
+    chain.commit(Vec::new());
+    chain.kura().clear_history_checkpoints_for_testing();
+    let height = NonZeroUsize::new(2).unwrap();
+    let identity = transactions[0].hash_as_entrypoint();
+    // H2 needs three units intrinsically. The cold H3 -> H2 walk needs four,
+    // but records H2's authenticated checkpoint before its row-work refusal.
+    let first =
+        chain
+            .state()
+            .read_committed_network_outcome(height, &identity, 3, BYTES, &generous());
+    assert!(
+        matches!(
+            first,
+            Err(ReadError::Execution(ExecutionAttemptError::Rejected(
+                QueryExecutionFail::GasBudgetExceeded
+            )))
+        ),
+        "ancestry-only work stays retryable: {first:?}"
+    );
+    let second = chain
+        .state()
+        .read_committed_network_outcome(height, &identity, 3, BYTES, &generous())
+        .expect("the identical retry starts at the authenticated H2 checkpoint");
+    assert!(matches!(second.matched_results(), [Ok(())]));
+}
+
+#[test]
+fn bounded_outcome_untrusted_sequence_counts_do_not_establish_permanent_work() {
+    for replace_inputs in [true, false] {
+        let (chain, transactions) = outcome_chain(16);
+        let height = NonZeroUsize::new(2).unwrap();
+        let identity = transactions[0].hash_as_entrypoint();
+        let original = bounded(chain.state(), height, &identity, &generous()).unwrap();
+        assert!(matches!(original.matched_results(), [Ok(())]));
+        let committed = chain.committed(2);
+        let encoded = if replace_inputs {
+            norito::codec::encode_adaptive(&committed.block().execution_context().unwrap().external)
+        } else {
+            norito::codec::encode_adaptive(&committed.block().execution_outputs().to_vec())
+        };
+        assert_eq!(&encoded[..8], &2_u64.to_le_bytes());
+        let wire = chain
+            .kura()
+            .canonical_block_wire_bytes_for_testing(height)
+            .unwrap();
+        let positions: Vec<_> = wire
+            .windows(encoded.len())
+            .enumerate()
+            .filter_map(|(index, bytes)| (bytes == encoded.as_slice()).then_some(index))
+            .collect();
+        assert_eq!(
+            positions.len(),
+            1,
+            "the exact original sequence must be unambiguous"
+        );
+        // Only the untrusted raw row count changes. The authenticated certificate
+        // still commits two inputs and two outputs, so it cannot establish 501 units.
+        chain.kura().overwrite_native_frame_bytes_for_test(
+            height,
+            u64::try_from(positions[0]).unwrap(),
+            &u64::MAX.to_le_bytes(),
+        );
+        let refused = bounded(chain.state(), height, &identity, &generous());
+        assert!(
+            matches!(
+                refused,
+                Err(ReadError::Execution(ExecutionAttemptError::Rejected(
+                    QueryExecutionFail::GasBudgetExceeded
+                )))
+            ),
+            "an unverified prefix must not become a permanent work claim: {refused:?}"
+        );
+    }
 }

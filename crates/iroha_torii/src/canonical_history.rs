@@ -37,6 +37,25 @@ pub fn query_attempt_error(error: ExecutionAttemptError<QueryExecutionFail>) -> 
     crate::Error::Query(iroha_data_model::ValidationFail::QueryFailed(query_error))
 }
 
+/// Project authenticated target work or forward the original execution refusal unchanged.
+pub fn committed_outcome_error(
+    error: iroha_core::state::CommittedOutcomeReadError,
+) -> crate::Error {
+    match error {
+        iroha_core::state::CommittedOutcomeReadError::Execution(original) => {
+            query_attempt_error(original)
+        }
+        iroha_core::state::CommittedOutcomeReadError::TargetWorkBudgetExceeded {
+            required,
+            limit,
+        } => crate::Error::HistoryReadExceedsBudget {
+            resource: "work units",
+            required,
+            limit,
+        },
+    }
+}
+
 /// The resource, required quantity and limit of an intrinsically oversized required target
 /// item, or `None` when permanence is not established.
 ///

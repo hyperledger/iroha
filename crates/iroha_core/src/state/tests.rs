@@ -1217,6 +1217,41 @@ state_test! { large_stack pre_genesis_constructor_retains_nondefault_dataspace_b
     }
 }
 
+state_test! { large_stack pre_genesis_explicit_identities_preserve_policy_and_runtime_defaults
+    let mut requested = nondefault_pre_genesis_dataspace_fixture(true);
+    requested.fees.base_fee = Quantity::from(17_u32);
+    requested.fees.per_byte_fee = Quantity::from(3_u32);
+    requested.fees.per_instruction_fee = Quantity::from(5_u32);
+    requested.fees.per_gas_unit_fee = Quantity::from(7_u32);
+    let chain = ChainId::from("original-genesis-display-chain");
+    let network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"independently selected fixture genesis",
+    )));
+    let state = State::new_with_pre_genesis_nexus_and_identities_for_testing(
+        World::default(),
+        requested.clone(),
+        LiveQueryStore::start_test(),
+        chain.clone(),
+        network,
+    );
+    assert_eq!(state.chain_id, chain);
+    assert_eq!(state.network_id, network);
+    assert_eq!(state.nexus.read().fees, requested.fees);
+    assert!(
+        state.world.parameters.view().get().root_fees().is_none(),
+        "construction must not author a zero-fee test policy"
+    );
+    assert_eq!(state.pipeline.parallel_overlay, iroha_config::parameters::defaults::pipeline::PARALLEL_OVERLAY);
+    assert_eq!(state.pipeline.parallel_apply, iroha_config::parameters::defaults::pipeline::PARALLEL_APPLY);
+    assert_eq!(state.pipeline.ready_queue_heap, iroha_config::parameters::defaults::pipeline::READY_QUEUE_HEAP);
+    assert_eq!(state.pipeline.workers, iroha_config::parameters::defaults::pipeline::WORKERS);
+    assert_eq!(
+        state.gov.citizenship_bond_amount,
+        Quantity::from(iroha_config::parameters::defaults::governance::CITIZENSHIP_BOND_AMOUNT),
+    );
+    assert_pre_genesis_dataspace_fixture(&state, &requested);
+}
+
 state_test! { large_stack pre_genesis_installer_retains_nondefault_dataspace_baseline
     for configured in [false, true] {
         let requested = nondefault_pre_genesis_dataspace_fixture(configured);

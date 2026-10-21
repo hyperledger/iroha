@@ -11484,6 +11484,94 @@
       ],
       "test_note": "These tests exercise exact/one-short bounded certificate serialization, not a maximum admitted transaction and execution output through this route. That route-level acceptance gap remains open in the relation.",
       "note": "HistoryProducerOwner keeps the same admitted pool across bounded JSON encoding and response custody. A full response returns local capacity without altering payment execution or finality; no current measurement proves every allowed input/output JSON projection fits this ceiling."
+    },
+    {
+      "id": "transaction.parliament_candidate_testing_policy_wire_max_bytes",
+      "group": "transaction",
+      "what": "Largest complete canonical Norito frame accepted or produced by the candidate-selection policy codec. This standalone authoring/read representation selects only the fixed supported policy version and profile; original signed genesis carries its separately bounded JSON custom parameter. Neither representation grants production qualification, finality or enactment authority.",
+      "unit": "bytes",
+      "value": 256,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing.rs",
+        "symbol": "MAX_WIRE_BYTES",
+        "kind": "const",
+        "expr": "256"
+      },
+      "inclusive": true,
+      "framing": "Includes the complete canonical header-framed Norito policy; this is not a ballot-proof or transaction-envelope cap.",
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing.rs",
+          "contains": "enc_bounded(\n            self,\n            \"candidate-testing policy\",\n            Self::MAX_WIRE_BYTES,\n        )"
+        },
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing.rs",
+          "contains": "decode_enc_bounded(bytes, \"candidate-testing policy\", Self::MAX_WIRE_BYTES)?"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing/tests.rs",
+          "name": "candidate_testing_policy_roundtrips_canonical_norito_and_json"
+        },
+        {
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing/tests.rs",
+          "name": "candidate_testing_policy_refuses_truncation_trailing_layout_and_size"
+        },
+        {
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing/tests.rs",
+          "name": "candidate_testing_binary_reader_preserves_original_enclosing_field_refusal"
+        }
+      ],
+      "test_note": "The supported fixed policy round-trips within the cap; the size test rejects a 257-byte frame before decoding. It does not construct a valid policy of exactly 256 bytes. The enclosing-field test preserves the original local decoder refusal instead of treating it as invalid policy."
+    },
+    {
+      "id": "transaction.parliament_candidate_testing_policy_json_max_bytes",
+      "group": "transaction",
+      "what": "Largest canonical JSON payload of the reserved parliament_candidate_testing_v1 custom parameter. Authoring and extraction enforce the same fixed cap; authenticated original-genesis extraction supplies the exact selection consumed by immutable native Core installation. This is a schema validity bound, not a node-local allocation allowance or proof-verifier budget.",
+      "unit": "bytes",
+      "value": 256,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing.rs",
+        "symbol": "MAX_JSON_BYTES",
+        "kind": "const",
+        "expr": "256"
+      },
+      "inclusive": true,
+      "framing": "Counts UTF-8 bytes of the canonical JSON payload, excluding the custom parameter identity and outer transaction framing.",
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing.rs",
+          "contains": "let payload = Json::try_new(*self)?;\n        if payload.get().len() > Self::MAX_JSON_BYTES {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing.rs",
+          "contains": "let payload = parameter.payload();\n        if payload.get().len() > Self::MAX_JSON_BYTES {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing/tests.rs",
+          "name": "candidate_testing_policy_roundtrips_canonical_norito_and_json"
+        },
+        {
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing/tests.rs",
+          "name": "candidate_testing_parameter_rejects_wrong_identity_malformed_unknown_and_oversized_json"
+        },
+        {
+          "path": "crates/iroha_data_model/src/governance/anonymous_ballot/candidate_testing/tests.rs",
+          "name": "candidate_testing_extraction_preserves_original_json_resource_refusal"
+        }
+      ],
+      "test_note": "The supported fixed policy round-trips within the cap. The oversized JSON control serializes a 256-character string, whose JSON quotes make the payload 258 bytes, and requires JsonTooLarge. No valid exactly-256-byte or exactly-257-byte policy is constructed. The separate original-owner test preserves a JSON resource refusal; these source references are not a fresh runtime test claim."
     }
   ],
   "relations": [

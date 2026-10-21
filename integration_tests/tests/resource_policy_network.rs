@@ -9,8 +9,9 @@
 //! Protocol byte caps remain unchanged. Signed genesis separately budgets the synthetic `Log` fixture's
 //! one-gas-per-message-byte execution, plus 1,024 gas for small accompanying fixture work;
 //! the ordinary 4,000,000-gas fallback would correctly reject a 10 MiB `Log`.
-//! Full transaction-details checks separately fund a finite 16 MiB HTTP query source
-//! phase; this changes neither default query policy nor any committed byte/gas cap.
+//! Full transaction-details checks separately fund a finite 24 MiB HTTP query phase
+//! and its derived local aggregate reservation. This includes cumulative decoding,
+//! projection and response encoding; defaults and committed byte/gas caps are unchanged.
 //! Validators restart onto the same policy. A validator refuses to start with a local sync budget
 //! below the committed payload plus `FRAME_OVERHEAD`, a block-sync topic cap below the P2P frame of
 //! its largest sync response, or a control topic cap below the longest consensus control frame
@@ -61,11 +62,17 @@ const TRANSACTION_CAP: u64 = 10_485_760;
 const FIXTURE_BLOCK_GAS: u64 = TRANSACTION_CAP + 1_024;
 /// The committed 16 MiB block payload default.
 const BLOCK_PAYLOAD_DEFAULT: u32 = 16_777_216;
-/// Complete local HTTP query reservation for a 16 MiB full-carrier source phase.
+/// Smallest tested phase that funds the exact-cap carrier and complete response.
+const FIXTURE_QUERY_PHASE_BYTES: u64 = 24 * 1024 * 1024;
+/// Complete local HTTP query reservation, including cumulative codec allocations.
 const FIXTURE_QUERY_WORKING_SET_BYTES: u64 =
     iroha_config::parameters::defaults::torii::QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1
         + iroha_config::parameters::defaults::torii::QUERY_FANOUT_PREBODY_UNITS_V1
-            * BLOCK_PAYLOAD_DEFAULT as u64;
+            * FIXTURE_QUERY_PHASE_BYTES;
+/// One complete fanout reservation plus the original one-quarter ingress partition.
+const FIXTURE_QUERY_AGGREGATE_BYTES: u64 = (FIXTURE_QUERY_WORKING_SET_BYTES
+    * iroha_config::parameters::defaults::torii::QUERY_MEMORY_INGRESS_POOL_DIVISOR_V1)
+    .div_ceil(iroha_config::parameters::defaults::torii::QUERY_MEMORY_INGRESS_POOL_DIVISOR_V1 - 1);
 /// The tightest coherent block payload for the fixed transaction cap.
 const TIGHT_BLOCK_PAYLOAD: u32 = 10_551_296;
 /// An intermediate coherent block payload for the first tightening.
@@ -106,9 +113,19 @@ fn builder() -> NetworkBuilder {
         .with_auto_populated_trusted_peers()
         .with_base_seed("x2-resource-policy-agreement-v1")
         .with_config_layer(|layer| {
-            // Header agreement uses full transaction details, whose carrier is larger
-            // than the default 2,562,555-byte query source phase. Fund that read
-            // explicitly; status still uses its bounded committed-outcome reader.
+            // Full details must fund cold decoding and response encoding together.
+            // A 20 MiB phase reads the carrier but still refuses its response;
+            // 24 MiB completes the exact-cap control with finite local reservations.
+            layer.write(
+                ["torii", "max_content_len"],
+                i64::try_from(FIXTURE_QUERY_PHASE_BYTES)
+                    .expect("finite fixture query phase fits configuration"),
+            );
+            layer.write(
+                ["torii", "query_fanout_max_retained_bytes"],
+                i64::try_from(FIXTURE_QUERY_AGGREGATE_BYTES)
+                    .expect("finite fixture query aggregate fits configuration"),
+            );
             layer.write(
                 ["torii", "query_fanout_max_working_set_bytes"],
                 i64::try_from(FIXTURE_QUERY_WORKING_SET_BYTES)

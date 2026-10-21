@@ -478,7 +478,9 @@ fn history_read_refusals_separate_permanent_items_from_transient_capacity() {
         &tight,
     );
     let deferred = match refused {
-        Err(ExecutionAttemptError::Deferred(deferred)) => deferred,
+        Err(iroha_core::state::CommittedOutcomeReadError::Execution(
+            ExecutionAttemptError::Deferred(deferred),
+        )) => deferred,
         other => panic!("a cumulative decoder limit is a local refusal: {other:?}"),
     };
     assert!(matches!(
@@ -666,8 +668,8 @@ async fn transaction_details_full_carrier_respects_explicit_query_memory() {
         "read capacity must not become transaction absence"
     );
 
-    // This is the X2 fixture's explicit finite source phase, inside the unchanged
-    // aggregate pool. It admits the complete carrier and complete response.
+    // This finite source phase fits the 3 MiB control inside the default aggregate
+    // pool. The exact-cap control below separately accounts for response encoding.
     let funded = bounded_status_app(
         &chain,
         Some(status_working_set_for_frames(16 * 1024 * 1024)),
@@ -696,4 +698,319 @@ async fn transaction_details_full_carrier_respects_explicit_query_memory() {
         &HashOf::new(details.transaction.output())
     );
     assert_eq!(original.block().encode_wire().unwrap(), original_wire);
+}
+
+#[tokio::test]
+async fn transaction_details_exact_cap_funds_the_complete_response() {
+    use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use iroha_data_model::parameter::{CustomParameter, Parameter};
+
+    const TRANSACTION_BYTES: usize = 10_485_760;
+    let key = checked_torii_test_ed25519_keypair(0x47, "exact-cap details authority");
+    let authority = AccountId::new(key.public_key().clone());
+    let mut config = TestChainConfig::new(world_with_account(&authority), 1_000);
+    // The original signed genesis admits this synthetic Log's actual gas cost.
+    config
+        .genesis_parameters
+        .push(Parameter::Custom(CustomParameter::new(
+            "ivm_gas_limit_per_block".parse().unwrap(),
+            iroha_primitives::json::Json::new(TRANSACTION_BYTES as u64 + 1_024),
+        )));
+    let mut chain = CertifiedTestChain::start(config).unwrap();
+    let transaction = sized_log_transaction(&chain, &key, TRANSACTION_BYTES, 0);
+    assert_eq!(
+        chain.commit_at(10_000, vec![transaction.clone()]),
+        vec![true]
+    );
+    let height = NonZeroUsize::new(2).unwrap();
+    let entrypoint_hash = transaction.hash_as_entrypoint();
+    let original = chain.committed(2);
+    let original_wire = original.block().encode_wire().unwrap();
+    let original_output = &original.block().network_output_at(0).unwrap().1.result;
+    let work = routing::app_query_limits().max_fetch_size;
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+
+    // Both phases fund the exact cold carrier and projection. The 20 MiB phase
+    // still cannot fund response encoding; 24 MiB completes the original owner.
+    for (phase_mib, complete) in [(20_usize, false), (24, true)] {
+        let phase_bytes = phase_mib * 1024 * 1024;
+        let working_set = status_working_set_for_frames(phase_bytes);
+        let mut app = bounded_status_app(&chain, Some(working_set));
+        Arc::get_mut(&mut app).unwrap().query_fanout_inflight =
+            ByteWeightedMemoryPool::new(working_set).unwrap();
+        {
+            chain.kura().clear_history_checkpoints_for_testing();
+            let owner =
+                crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+            assert_eq!(owner.cold_frames().limit_bytes(), phase_bytes);
+            assert!(original_wire.len() < phase_bytes);
+            let budget = owner.canonical_history_budget();
+            let carrier = owner
+                .scope(|| {
+                    app.state
+                        .read_executed_carrier_from_checkpoints(height, work, bytes, &budget)
+                })
+                .expect("the original owner funds the complete cold carrier");
+            let projected = owner
+                .scope(|| carrier.transaction_at(0, bytes))
+                .expect("the same original owner funds the selected transaction");
+            assert_eq!(projected.entrypoint_hash(), &entrypoint_hash);
+            assert_eq!(projected.block_hash(), &original.block().hash());
+            assert_eq!(projected.result(), original_output);
+        }
+
+        // A fresh original HTTP owner must pay acquisition, authorization,
+        // projection and encoding together; the diagnostic read above grants no credit.
+        chain.kura().clear_history_checkpoints_for_testing();
+        let owner =
+            crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+        let response = pipeline_transaction_details_http_response(
+            &app,
+            &authority,
+            entrypoint_hash,
+            crate::utils::ResponseFormat::Norito,
+            &owner,
+        );
+        if complete {
+            let response =
+                response.expect("24 MiB funds the complete transaction-details response");
+            assert_eq!(response.status(), StatusCode::OK);
+            let response_bytes =
+                torii_body_bytes(response, "exact-cap complete transaction details").await;
+            let details: iroha_torii_shared::PipelineTransactionDetailsResponse =
+                norito::decode_canonical(&response_bytes).unwrap();
+            assert_eq!(details.transaction.entrypoint_hash(), &entrypoint_hash);
+            assert_eq!(details.transaction.entrypoint().hash(), entrypoint_hash);
+            assert_eq!(details.transaction.block_hash(), &original.block().hash());
+            assert_eq!(details.transaction.result(), original_output);
+            assert_eq!(
+                details.transaction.output_hash(),
+                &HashOf::new(details.transaction.output())
+            );
+        } else {
+            let error = response.expect_err("20 MiB cannot fund the complete encoded response");
+            assert!(matches!(
+                &error,
+                Error::Query(ValidationFail::QueryFailed(
+                    iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+                ))
+            ));
+            let response = history_read_error_response(error);
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            let retry_after: u64 = response
+                .headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let response_bytes =
+                torii_body_bytes(response, "exact-cap response-encoding refusal").await;
+            let envelope: iroha_torii_shared::ErrorEnvelope =
+                norito::json::from_slice(&response_bytes).unwrap();
+            assert_eq!(envelope.code(), "query_validation_failed");
+            assert_eq!(
+                envelope.details.as_ref().unwrap().retry_after_seconds,
+                Some(retry_after)
+            );
+        }
+        assert_eq!(original.block().encode_wire().unwrap(), original_wire);
+        assert_eq!(
+            app.state.committed_entrypoint_height(&entrypoint_hash),
+            Some(height),
+            "response capacity must not become committed transaction absence"
+        );
+    }
+}
+
+#[tokio::test]
+async fn pipeline_status_target_output_work_excess_is_permanent_under_default_policy() {
+    use iroha_core::{
+        state::{World, WorldReadOnly},
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+    use iroha_data_model::{
+        block::execution_output::ExecutionOutputV1,
+        events::time::{ExecutionTime, Schedule, TimeEventFilter},
+        isi::{InstructionBox, Register},
+        parameter::{
+            execution_output::ExecutionOutputPolicyV1, fastpq_source::FastpqSourcePolicyV1,
+        },
+        trigger::{
+            Trigger,
+            action::{Action, Repeats},
+        },
+    };
+
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    let key = config.genesis_key.clone();
+    let authority = AccountId::new(key.public_key().clone());
+    for index in 0..500 {
+        let trigger = Trigger::new(
+            format!("g24_work_{index:04}").parse().unwrap(),
+            Action::new(
+                vec![InstructionBox::from(Log::new(
+                    Level::DEBUG,
+                    "time work".into(),
+                ))],
+                Repeats::Exactly(1),
+                authority.clone(),
+                TimeEventFilter::new(ExecutionTime::Schedule(Schedule::starting_at(
+                    Duration::from_millis(10_000),
+                ))),
+            )
+            .unwrap(),
+        );
+        config
+            .genesis_instructions
+            .push(Register::trigger(trigger).into());
+    }
+    assert!(
+        config.genesis_parameters.is_empty(),
+        "no policy enlargement"
+    );
+    let mut chain = CertifiedTestChain::start(config)
+        .expect("500 genuine scheduled registrations must fit unchanged genesis admission");
+    let assert_default_policy = || {
+        let view = chain.state().view();
+        let parameters = view.world().parameters();
+        let block = parameters.block();
+        assert_eq!(
+            block.execution_output(),
+            ExecutionOutputPolicyV1::bootstrap()
+        );
+        assert_eq!(block.fastpq_source(), FastpqSourcePolicyV1::bootstrap());
+        assert_eq!(block.max_time_trigger_invocations().get(), 512);
+        assert_eq!(
+            block
+                .fastpq_source()
+                .maximum_network_inputs(block.execution_output())
+                .unwrap(),
+            11,
+        );
+    };
+    assert_default_policy();
+    let transaction = chain.sign(
+        &key,
+        [InstructionBox::from(Log::new(
+            Level::INFO,
+            "real Network work".into(),
+        ))],
+        19_999,
+    );
+    assert_eq!(
+        chain.commit_at(20_000, vec![transaction.clone()]),
+        vec![true]
+    );
+    let height = NonZeroUsize::new(2).unwrap();
+    let original = chain.committed(2);
+    let rows = original.block().execution_outputs();
+    let time_rows = rows
+        .iter()
+        .filter(|row| matches!(row, ExecutionOutputV1::Time(_)))
+        .count();
+    assert_eq!(
+        time_rows, 500,
+        "the real schedule must execute, not fabricated rows"
+    );
+    let inputs = original.block().network_entrypoint_count();
+    assert!((1..=11).contains(&inputs));
+    assert_eq!(rows.len(), inputs + time_rows);
+    assert!(rows.len() > 500);
+    let required_work = u64::try_from(rows.len()).unwrap() + 1;
+    let original_wire = original.block().encode_wire().unwrap();
+    let original_hash = original.block().hash();
+    let original_height = chain.state().view().height();
+    let identity = transaction.hash_as_entrypoint();
+    let app = bounded_status_app(&chain, None);
+    let work = routing::app_query_limits().max_fetch_size;
+    assert_eq!(
+        work, 500,
+        "exercise the unmodified default route work allowance"
+    );
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+    eprintln!(
+        "G24 work fixture: Network={inputs}, Time={time_rows}, outputs={}, required_work={required_work}, route_work={work}, wire_bytes={}",
+        rows.len(),
+        original_wire.len()
+    );
+
+    // The same real target and default request-memory owner succeed with only the
+    // explicit Core work argument large enough for one frame plus all output rows.
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let positive = owner
+        .scope(|| {
+            let budget = owner.canonical_history_budget();
+            app.state.read_committed_network_outcome(
+                height,
+                &identity,
+                required_work,
+                bytes,
+                &budget,
+            )
+        })
+        .expect("the complete actual output set fits O+1 work and unchanged memory/byte budgets");
+    assert!(matches!(positive.matched_results(), [Ok(())]));
+    drop(owner);
+
+    for _ in 0..2 {
+        let anchor = canonical_transaction_anchor(&app.state, &transaction.hash())
+            .unwrap()
+            .unwrap();
+        let error = match read_pipeline_transaction_outcome(&app, &transaction.hash(), anchor) {
+            Err(error) => error,
+            Ok(_) => panic!("the default route must retain the target-work refusal"),
+        };
+        let response = history_read_error_response(error);
+        assert_eq!(
+            response.status(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "intrinsic certified target work must be permanent, not endlessly retryable"
+        );
+        assert!(
+            response
+                .headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .is_none()
+        );
+        let body = torii_body_bytes(response, "target output work refusal").await;
+        let envelope: iroha_torii_shared::ErrorEnvelope = norito::json::from_slice(&body).unwrap();
+        assert_eq!(envelope.code(), "history_read_exceeds_request_budget");
+        let details = envelope.details.as_ref().unwrap();
+        assert_eq!(details.field.as_deref(), Some("work units"));
+        assert_eq!(
+            details.actual.as_deref(),
+            Some(required_work.to_string().as_str())
+        );
+        assert_eq!(details.expected.as_deref(), Some("at most 500 work units"));
+        assert_eq!(details.retry_after_seconds, None);
+        assert_eq!(
+            app.state.committed_entrypoint_height(&identity),
+            Some(height)
+        );
+        assert_eq!(chain.state().view().height(), original_height);
+        assert_eq!(chain.committed(2).block().hash(), original_hash);
+        assert_eq!(
+            chain.committed(2).block().encode_wire().unwrap(),
+            original_wire
+        );
+    }
+    let view = chain.state().view();
+    assert_eq!(
+        view.world().parameters().block().execution_output(),
+        ExecutionOutputPolicyV1::bootstrap()
+    );
+    assert_eq!(
+        view.world().parameters().block().fastpq_source(),
+        FastpqSourcePolicyV1::bootstrap()
+    );
+    assert_eq!(
+        view.world()
+            .parameters()
+            .block()
+            .max_time_trigger_invocations()
+            .get(),
+        512
+    );
 }

@@ -224,16 +224,23 @@ retry hint.
 A bounded committed-history read is refused permanently when its original error
 identifies an item required from the requested target that exceeds the request's
 own budget: one window or allocation larger than its whole pool, or a per-item
-decoder limit (one field, sequence, archive or nesting). A checkpoint cannot
-replace the requested target's own frame and certificate. Like the other
+decoder limit (one field, sequence, archive or nesting). The bounded transaction-outcome
+reader also refuses the target's authenticated minimum work when one target frame plus
+`max(certified Network input count, certified typed-output count, 1)` exceeds the request's
+work allowance. The output count includes Network, Pipeline and Time outputs. These counts
+come from the validated result bound to the captured canonical ancestry, and the target's
+journal identity is rechecked before reporting a permanent work refusal. Unverified sequence
+prefixes cannot establish permanent demand. A checkpoint cannot replace the requested
+target's own frame and certificate. Like the other
 too-large committed-history responses (`block_proof_capacity_exceeded`,
 `executed_block_wire_too_large`), it
 answers `413` with code `history_read_exceeds_request_budget`; `details.field`
-names the resource (`bytes` for a window or allocation), `details.actual` the
+names the resource (`bytes` for a window or allocation, `work units` for authenticated
+target work), `details.actual` the
 quantity at which the read is refused and `details.expected` the request's limit
 (`at most N <resource>`). This response carries neither `Retry-After` nor
-`retry_after_seconds`. Cumulative decoded-byte and element exhaustion remains
-retryable: authenticated checkpoints recorded during an attempt can shorten the
+`retry_after_seconds`. Cumulative source work/bytes and decoded-byte or element exhaustion
+remain retryable: authenticated checkpoints recorded during an attempt can shorten the
 ancestry walked by an identical retry. Per-item refusals from ancestry, and
 refusals without explicit required-target provenance, also remain retryable.
 Transient capacity (parallel-query slots, a pool that other owners occupy,

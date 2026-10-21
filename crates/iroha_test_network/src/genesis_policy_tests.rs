@@ -96,6 +96,56 @@ fn discovery_uses_only_the_retained_typed_policy_mismatch() {
 }
 
 #[test]
+fn generated_policy_binding_pins_each_original_network_without_candidate_testing() {
+    use iroha_data_model::{
+        NetworkId,
+        governance::anonymous_ballot::{
+            ParliamentCandidateTestingErrorV1, authenticate_parliament_candidate_genesis_v1,
+        },
+    };
+
+    let _profile = ChainDiscriminantGuard::enter(
+        iroha_config::parameters::defaults::common::chain_discriminant(),
+    );
+    let (proposal, account, topology, key, manifest) = fixture();
+    let original_network = NetworkId::from_genesis_hash(proposal.0.hash());
+    let mut networks = Vec::new();
+    let (executed, _, _) = execute_generated_genesis(proposal, manifest, &key, true, |candidate| {
+        let network = NetworkId::from_genesis_hash(candidate.0.hash());
+        let (_, selection) = authenticate_parliament_candidate_genesis_v1(&candidate.0, &network)
+            .expect("the original signed proposal authenticates without a candidate policy");
+        assert!(
+            selection.is_none(),
+            "ordinary genesis must not select candidate testing"
+        );
+        if !networks.is_empty() {
+            assert!(
+                matches!(
+                    authenticate_parliament_candidate_genesis_v1(&candidate.0, &original_network,),
+                    Err(ParliamentCandidateTestingErrorV1::ForeignNetwork),
+                ),
+                "the provisional network must not authorize the rebound proposal"
+            );
+        }
+        networks.push(network);
+        config::preexecute_genesis_with_runtime_config(
+            candidate, &account, &topology, &key, None, None, None, None,
+        )
+    })
+    .expect("each strict execution must use its own original signed genesis identity");
+    assert_eq!(
+        networks.len(),
+        2,
+        "one policy rebind requires two isolated executions"
+    );
+    assert_ne!(networks[0], networks[1]);
+    assert_eq!(networks[1], NetworkId::from_genesis_hash(executed.0.hash()));
+    assert!(config::genesis_results_are_canonical(&executed.0));
+    assert!(config::genesis_signature_is_canonical(&executed.0, &key));
+    assert!(executed.0.output_results().all(|result| result.is_ok()));
+}
+
+#[test]
 fn generated_policy_binding_executes_strictly_and_preserves_original_manifest_inputs() {
     let _profile = ChainDiscriminantGuard::enter(
         iroha_config::parameters::defaults::common::chain_discriminant(),
