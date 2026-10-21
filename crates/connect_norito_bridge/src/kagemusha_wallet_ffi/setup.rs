@@ -823,12 +823,12 @@ mod tests {
             assert!(request(&id, selector, 0, 1, inputs).is_err());
         }
         for index in [0, 1] {
-            let oversized = vec![0; 10_001];
+            let oversized = vec![0; 10_035];
             let mut inputs = [one, one, empty];
             inputs[index] = &oversized;
             assert!(request(&id, 44, 0, 0, inputs).is_err());
         }
-        let oversized = vec![0; 10_001];
+        let oversized = vec![0; 10_035];
         assert!(request(&id, 54, 0, 0, [&oversized, empty, empty]).is_err());
     }
     #[test]
@@ -847,7 +847,7 @@ mod tests {
             assert!(request(&id, selector, 1, 0, [one, empty, empty]).is_err());
             assert!(request(&id, selector, 0, 1, [one, empty, empty]).is_err());
             assert!(request(&id, selector, 0, 0, [one; 3]).is_err());
-            assert!(request(&id, selector, 0, 0, [&vec![0; 10_001], empty, empty]).is_err());
+            assert!(request(&id, selector, 0, 0, [&vec![0; 10_035], empty, empty]).is_err());
         }
     }
     #[test]
@@ -893,7 +893,7 @@ mod tests {
         assert!(request(&zero, 40, 0, 0, [one, empty, empty]).is_err());
         assert!(request(&zero, 40, 0, 0, [one; 3]).is_err());
         for index in 0..2 {
-            let oversized = vec![0; 10_001];
+            let oversized = vec![0; 10_035];
             let mut inputs = [one, one, empty];
             inputs[index] = &oversized;
             assert!(request(&id, 39, 7, 0, inputs).is_err());
@@ -942,13 +942,13 @@ mod tests {
         let zero = [0; 32];
         let one: &[u8] = &[7];
         let empty: &[u8] = &[];
-        assert_eq!(bounds(55).unwrap(), [10_000, 0, 0]);
+        assert_eq!(bounds(55).unwrap(), [10_034, 0, 0]);
         assert!(matches!(
             request(&zero, 55, 0, 0, [one, empty, empty]).unwrap(),
             Setup::PaymentCompanion { payment } if payment == one
         ));
-        assert!(request(&zero, 55, 0, 0, [&vec![7; 10_000], empty, empty]).is_ok());
-        assert!(request(&zero, 55, 0, 0, [&vec![7; 10_001], empty, empty]).is_err());
+        assert!(request(&zero, 55, 0, 0, [&vec![7; 10_034], empty, empty]).is_ok());
+        assert!(request(&zero, 55, 0, 0, [&vec![7; 10_035], empty, empty]).is_err());
         assert!(request(&zero, 55, 0, 0, [empty; 3]).is_err());
         assert!(request(&[1; 32], 55, 0, 0, [one, empty, empty]).is_err());
         assert!(request(&zero, 55, 1, 0, [one, empty, empty]).is_err());
@@ -1093,13 +1093,13 @@ mod tests {
             assert!(request(&credit, selector, 0, 0, [&[1], &[], &[]]).is_err());
             assert!(request(&zero, selector, 0, 0, [&[]; 3]).is_err());
         }
-        assert_eq!(bounds(26).unwrap(), [21_024, 16_384, 0]);
+        assert_eq!(bounds(26).unwrap(), [21_092, 16_384, 0]);
         assert!(request(&zero, 26, 0, 0, [&[1], &[2], &[]]).is_ok());
         for originals in [[&[1][..], &[][..], &[][..]], [&[1][..], &[2][..], &[3][..]]] {
             assert!(request(&zero, 26, 0, 0, originals).is_err());
         }
         assert!(request(&zero, 26, 0, 0, [&[1], &vec![0; 16_385], &[]]).is_err());
-        assert_eq!(bounds(21).unwrap()[0], 21_024);
+        assert_eq!(bounds(21).unwrap()[0], 21_092);
         assert_eq!(bounds(23).unwrap()[0], 36 * 1024 * 1024);
         assert_eq!(bounds(25).unwrap(), [32 * 1024 * 1024, 1024, 0]);
         assert!(request(&credit, 25, 0, 0, [&[1], &[2], &[]]).is_ok());

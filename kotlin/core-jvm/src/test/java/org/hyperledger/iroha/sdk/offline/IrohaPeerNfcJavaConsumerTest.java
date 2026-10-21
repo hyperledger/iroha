@@ -119,8 +119,8 @@ final class IrohaPeerNfcJavaConsumerTest {
   @Test
   void peerMessageKindsAreExactlyTheWalletEnvelopeTags() {
     assertEquals(5, IrohaPeerPayloadKind.values().length);
-    assertEquals(10_000, KagemushaWalletWireV1.MESSAGE_MAX_BYTES);
-    assertEquals(16 + 10_000 + 4_096, IrohaPeerWalletRequestV1.MAXIMUM_BYTES);
+    assertEquals(10_034, KagemushaWalletWireV1.MESSAGE_MAX_BYTES);
+    assertEquals(16 + 10_034 + 4_096, IrohaPeerWalletRequestV1.MAXIMUM_BYTES);
     for (final IrohaPeerPayloadKind kind : IrohaPeerPayloadKind.values()) {
       assertEquals(kind.getWalletMessageKind().wireTag, kind.getCode());
       final int expectedMaximum = kind == IrohaPeerPayloadKind.REQUEST
@@ -138,8 +138,8 @@ final class IrohaPeerNfcJavaConsumerTest {
         IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1, IrohaPeerPayloadProfile.fromCode(1));
     assertNull(IrohaPeerPayloadProfile.fromCode(0));
     assertNull(IrohaPeerPayloadProfile.fromCode(2));
-    assertEquals(84 + 14_112, IrohaPeerNfcV1.MAXIMUM_MESSAGE_BYTES);
-    assertEquals(16 + 10_000 + 2_048, IrohaPeerWalletPaymentV1.MAXIMUM_BYTES);
+    assertEquals(84 + 14_146, IrohaPeerNfcV1.MAXIMUM_MESSAGE_BYTES);
+    assertEquals(16 + 10_034 + 2_048, IrohaPeerWalletPaymentV1.MAXIMUM_BYTES);
     assertNull(IrohaPeerPayloadKind.fromCode(1));
     assertNull(IrohaPeerPayloadKind.fromCode(7));
   }

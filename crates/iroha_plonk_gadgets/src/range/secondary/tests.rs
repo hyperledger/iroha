@@ -102,7 +102,8 @@ impl<F: PastaField> Circuit<F> for CircuitUnderTest<F> {
 fn cases<F: PastaField>(k: u32) {
     let mut meta = ConstraintSystem::<F>::default();
     let _ = CircuitUnderTest::<F>::configure(&mut meta);
-    assert_eq!(meta.degree(), 14);
+    // The tagged bus reads precomputed coefficients; the exact small-digit gate sets degree 11.
+    assert_eq!(meta.degree(), 11);
     assert_eq!(meta.lookups().len(), 1);
     let end = meta.usable_rows(k).unwrap() - 1;
     for phase in [

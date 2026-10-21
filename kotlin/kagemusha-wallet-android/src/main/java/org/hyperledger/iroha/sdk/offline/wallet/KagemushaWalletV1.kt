@@ -49,7 +49,7 @@ class KagemushaWalletCallV1 internal constructor(
 ) {
     init {
         val carriesBytes = status == EPOCH_PROGRESS || status == DELETION_REVIEW || status == DELETED || status == CREDIT_PROJECTION || status == UNLOAD_CLAIM || status == COMPLETE || status == CREDIT_STATUS || status == SETUP || status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE || status == ACTIVATION || status == CLOSE_LOADS || status == 31 || status == 33 || status == 36 || status == LEDGER_INSTRUCTION || status == ENROLLMENT_LEDGER_INSTRUCTION || status == UNLOAD_CONFIRMATION || status == ACTIVATION_CONFIRMATION || status == ACTIVATION_PROGRESS || status == ACTIVATION_REJECTED || status in listOf(18, 19, 23, 24, 25, 27, 28, 37, 38)
-        if (status in listOf(41, 43) || (status >= 0 && status !in UNKNOWN..ENROLLMENT_LEDGER_INSTRUCTION) || bytes.size > when (status) { EPOCH_PROGRESS -> 16; DELETION_REVIEW -> 254; DELETED -> 32; DELETION_REVIEW_DISCARDED, NOT_DELETED -> 0; CREDIT_PROJECTION -> 10_092; ACTIVATION, ENROLLMENT_DISPATCH, CLOSE_LOADS, 36, UNLOAD_CLAIM -> 16_384; LEDGER_INSTRUCTION, ENROLLMENT_LEDGER_INSTRUCTION -> 65_536; 24 -> KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES; 25 -> 262_144; 28 -> 1024; 37 -> 1028; 38 -> 73_740; 31 -> 21_024; 33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED -> 32; else -> 10_000 } ||
+        if (status in listOf(41, 43) || (status >= 0 && status !in UNKNOWN..ENROLLMENT_LEDGER_INSTRUCTION) || bytes.size > when (status) { EPOCH_PROGRESS -> 16; DELETION_REVIEW -> 254; DELETED -> 32; DELETION_REVIEW_DISCARDED, NOT_DELETED -> 0; CREDIT_PROJECTION -> 10_126; ACTIVATION, ENROLLMENT_DISPATCH, CLOSE_LOADS, 36, UNLOAD_CLAIM -> 16_384; LEDGER_INSTRUCTION, ENROLLMENT_LEDGER_INSTRUCTION -> 65_536; 24 -> KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES; 25 -> 262_144; 28 -> 1024; 37 -> 1028; 38 -> 73_740; 31 -> 21_092; 33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED -> 32; else -> 10_034 } ||
             (if (carriesBytes) bytes.isEmpty() else bytes.isNotEmpty()) ||
             ((status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE) && (bytes.size != 32 || sequenceLow <= 0 || sequenceHigh != 0L)) ||
             (status in listOf(ACTIVATION, CLOSE_LOADS, 31, 32, 34, 35, 36, ACTIVATION_NOT_STARTED, LEDGER_INSTRUCTION, UNLOAD_CLAIM, COLLECTION_IDLE, DELETED, DELETION_REVIEW_DISCARDED, NOT_DELETED) && (sequenceLow != 0L || sequenceHigh != 0L || detail != 0)) ||
@@ -203,7 +203,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         val result = try { KagemushaWalletNativeWorkerV1.shared.run { KagemushaWalletObservationNativeV1.observe(owner, selector, input) } }
             catch (_: LinkageError) { throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE) }
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
-        return result.original(intArrayOf(5268, 20_066, 20_066, 65_756,
+        return result.original(intArrayOf(5268, 20_134, 20_134, 65_756,
             KagemushaWalletFoldMetricsV1.MAX_ORIGINAL_BYTES)[selector])
     }
     private fun call(operation: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf()): KagemushaWalletCallV1 {
@@ -458,7 +458,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         execute(KagemushaWalletOperationInputV1(requestId, 0, first = receipt, second = finality))
     /** Authenticate Send and its fully folded source before fresh hardware UI confirmation. */
     fun reviewSend(request: ByteArray, destinationAccountOriginal: ByteArray): KagemushaWalletReviewV1 {
-        require(request.isNotEmpty() && request.size <= 10_000)
+        require(request.isNotEmpty() && request.size <= 10_034)
         require(destinationAccountOriginal.isNotEmpty() && destinationAccountOriginal.size <= 4_096)
         return review(1, KagemushaWalletUInt128V1(0, 0), request, destinationAccountOriginal, KagemushaWalletReviewProjectionV1.Kind.SEND)
     }
@@ -628,13 +628,13 @@ internal class KagemushaWalletOperationInputV1(
     init {
         val limits = when (selector) {
             0 -> intArrayOf(512, 256 * 1024, 0)
-            2 -> intArrayOf(10_000, 1_024, 10_000)
-            3, 4 -> intArrayOf(1_024, 10_000, 0)
-            5 -> intArrayOf(65_536 * 34 + 512, 10_000, 0)
-            6 -> intArrayOf(512, 10_000, 0)
-            7 -> intArrayOf(8_192, 10_000, 0)
+            2 -> intArrayOf(10_034, 1_024, 10_034)
+            3, 4 -> intArrayOf(1_024, 10_034, 0)
+            5 -> intArrayOf(65_536 * 34 + 512, 10_034, 0)
+            6 -> intArrayOf(512, 10_034, 0)
+            7 -> intArrayOf(8_192, 10_034, 0)
             9 -> intArrayOf(0, 0, 0)
-            10 -> intArrayOf(10_000, 2_048, 0)
+            10 -> intArrayOf(10_034, 2_048, 0)
             else -> throw IllegalArgumentException("unknown lifecycle operation")
         }
         require(requestId.size == 32 && requestId.any { it != 0.toByte() } != (selector == 5)) {

@@ -24,7 +24,7 @@ use norito::codec::{Decode, Encode};
 
 /// Maximum canonical native finality envelope for one receipt certificate and event proof.
 /// Epoch transitions are synchronized separately as bounded original certificates.
-/// This online custody bound does not change the 10,000-byte peer Payment bound.
+/// This online custody bound does not change the 10,034-byte peer Payment bound.
 pub const KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1: usize = 256 * 1024;
 
 /// Original native consensus evidence for one successful ordinary Load receipt.

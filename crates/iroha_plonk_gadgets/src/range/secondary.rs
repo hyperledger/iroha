@@ -90,7 +90,9 @@ fn packed<F: PastaField>(ports: &[Expression<F>; 10], digits: &[(usize, usize)])
 impl SecondaryRangeConfig {
     /// Adds exact algebraic bounds while retaining one primary tuple lookup.
     /// Port four gains equality; every queried rotation already belongs to the
-    /// compact ECC/Glue layout. All added gates have degree at most nine.
+    /// compact ECC/Glue layout. The added gates have degree at most eleven:
+    /// "secondary exact small digits" reaches eleven and sets the compact
+    /// Omega's degree once the primary lookup reads precomputed coefficients.
     ///
     /// # Errors
     /// Repeated ports, overlap with the primary bus, a non-tagged primary, or

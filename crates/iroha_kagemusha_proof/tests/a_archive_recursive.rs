@@ -1671,7 +1671,7 @@ pub fn genuine_archive_receive_full_envelope_tail_retains_adjusted_pending(
         archive_q::IncomingOriginal::FullEnvelopeTail,
     );
     drop(fixture);
-    assert_eq!(source.incoming_sigma.len(), 9_321);
+    assert_eq!(source.incoming_sigma.len(), 9_355);
     assert!(!source.valid);
     prove_chain(source);
 }

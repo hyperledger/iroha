@@ -38,12 +38,12 @@ fn complete_archive_schema_covers_both_full_credited_envelope_domains() {
             }
         };
         let specs = result.unwrap();
-        assert_eq!(specs[7].capacity, 5_406);
+        assert_eq!(specs[7].capacity, 5_440);
         assert_eq!(specs[8].capacity, 3_520);
         assert_eq!(specs[11].capacity, u32::try_from(capacity).unwrap());
         assert_eq!(
             specs,
-            ArchiveStagePlan::context_specs(variant, 5_406, 3_520, capacity).unwrap()
+            ArchiveStagePlan::context_specs(variant, 5_440, 3_520, capacity).unwrap()
         );
         assert!(specs[11].capacity > 3_456);
         assert_eq!(
@@ -59,8 +59,8 @@ fn complete_archive_schema_covers_both_full_credited_envelope_domains() {
             (1..=u32::try_from(specs.len()).unwrap()).collect::<Vec<_>>()
         );
     }
-    assert_eq!(MAX_RECEIVE_SIGMA_RAW_BYTES + 679, 10_000);
-    assert_eq!(MAX_STATUS_OMEGA_RAW_BYTES - 320 + 2_188, 10_000);
+    assert_eq!(MAX_RECEIVE_SIGMA_RAW_BYTES + 679, 10_034);
+    assert_eq!(MAX_STATUS_OMEGA_RAW_BYTES - 320 + 2_188, 10_034);
 }
 
 #[test]

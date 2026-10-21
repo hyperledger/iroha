@@ -230,7 +230,7 @@ impl RequestV1 {
     }
 }
 
-/// Full issuer result bound, independent of the 10,000-byte Payment envelope limit.
+/// Full issuer result bound, independent of the 10,034-byte Payment envelope limit.
 pub const RESULT_MAX_BYTES: usize = 262_144;
 
 /// Exact originals retained by the issuer before it signs the initial credential.

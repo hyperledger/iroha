@@ -28,12 +28,12 @@ pub mod stage;
 /// Maximum original Receive sigma within the canonical Credited envelope.
 /// The fixed 679-byte carrier is measured by G1's envelope tests. The total
 /// verifier retains every byte up to this bound, even for a wrong proof length.
-pub const MAX_RECEIVE_SIGMA_RAW_BYTES: usize = 10_000 - 679;
+pub const MAX_RECEIVE_SIGMA_RAW_BYTES: usize = 10_034 - 679;
 
 /// Maximum original Status Omega, including its public 320-byte transcript.
 /// The canonical Credited Status envelope has 2,188 fixed bytes excluding the
 /// transport. This is an envelope capacity, never an admitted proof length.
-pub const MAX_STATUS_OMEGA_RAW_BYTES: usize = 320 + 10_000 - 2_188;
+pub const MAX_STATUS_OMEGA_RAW_BYTES: usize = 320 + 10_034 - 2_188;
 
 #[cfg(test)]
 mod tests;

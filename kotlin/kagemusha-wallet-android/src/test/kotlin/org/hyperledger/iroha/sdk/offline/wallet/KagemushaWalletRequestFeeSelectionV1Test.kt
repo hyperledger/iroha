@@ -32,7 +32,7 @@ class KagemushaWalletRequestFeeSelectionV1Test {
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, first = frame, second = frame) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, first = frame) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, id, first = frame, second = frame) }
-        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, first = frame, second = ByteArray(10_001)) }
-        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, first = frame, second = ByteArray(10_001)) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, first = frame, second = ByteArray(10_035)) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, first = frame, second = ByteArray(10_035)) }
     }
 }

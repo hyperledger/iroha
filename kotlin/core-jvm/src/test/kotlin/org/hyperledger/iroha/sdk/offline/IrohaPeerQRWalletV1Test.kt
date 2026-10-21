@@ -208,7 +208,7 @@ class IrohaPeerQRWalletV1Test {
         val frame = envelope(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
         val companion = ByteArray(IrohaPeerWalletPaymentV1.MAXIMUM_COMPANION_BYTES) { (it % 239).toByte() } // Bounded transport DATA.
         val message = IrohaPeerKagemushaWalletAdapterV1.wrap(frame, payerCompanion = companion)
-        assertEquals(12_064, message.encodedBody.size)
+        assertEquals(12_098, message.encodedBody.size)
         assertNull(IrohaPeerQRCodecV1.staticCompleteTextCandidate(message))
         val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
         val frames = texts.map { IrohaPeerQRCodecV1.decodeFrame(it) }
@@ -232,7 +232,7 @@ class IrohaPeerQRWalletV1Test {
     fun `a maximum envelope-only message uses forty data shards and recovers one lost shard`() {
         val frame = envelope(KagemushaWalletMessageKindV1.CREDITED, KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
         val message = IrohaPeerKagemushaWalletAdapterV1.wrap(frame)
-        assertEquals(10_000, message.encodedBody.size)
+        assertEquals(10_034, message.encodedBody.size)
         assertNull(IrohaPeerQRCodecV1.staticCompleteTextCandidate(message))
         val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
         val frames = texts.map { IrohaPeerQRCodecV1.decodeFrame(it) }
@@ -389,7 +389,7 @@ class IrohaPeerQRWalletV1Test {
         val envelope = envelope(KagemushaWalletMessageKindV1.REQUEST, KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
         val account = ByteArray(4_096) { (it % 251).toByte() } // Bounded transport DATA, no account admission.
         val message = IrohaPeerKagemushaWalletAdapterV1.wrap(envelope, destinationAccountOriginal = account)
-        assertEquals(14_112, message.encodedBody.size)
+        assertEquals(14_146, message.encodedBody.size)
         val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
         val frames = texts.map { IrohaPeerQRCodecV1.decodeFrame(it) }
         assertEquals(56, frames.count { it.frameKind == IrohaPeerQRFrameKindV1.DATA })

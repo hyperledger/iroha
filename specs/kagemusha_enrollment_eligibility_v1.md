@@ -141,7 +141,7 @@ transport failure never starts a replacement platform attempt. Recovery reuses t
 originals with fresh HTTP authentication. Permit and E6 response bytes remain transport data
 until the native wallet owner verifies and durably admits them. Online enrollment envelopes
 have separate fixed bounds (544 KiB request, 264 KiB response); the offline Payment limit
-remains 10,000 bytes.
+remains 10,034 bytes.
 
 `ExpiryProof` returns a separately signed, at most 4,096-byte statement that the
 exact retained Fresh permit's immutable E1 deadline elapsed. It requires a

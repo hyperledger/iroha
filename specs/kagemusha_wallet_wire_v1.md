@@ -207,7 +207,7 @@ Canonical bytes are one complete `norito::encode_canonical` frame ([Norito](../n
   `LE64 count ‖ (varint len ‖ element)…`. `AccountId` and `AssetDefinitionId` use
   their own canonical encodings.
 - **Decode order** for every framed type: (1) the complete-frame byte cap, before
-  any parsing (10,000 for any envelope); (2) canonical decode under
+  any parsing (10,034 for any envelope); (2) canonical decode under
   payload-derived limits (header, schema, flags, padding, CRC, exact length and
   canonical re-encoding); (3) every version
   field equals 1, outer value first, so a nested foreign body reports a version
@@ -230,10 +230,10 @@ Canonical bytes are one complete `norito::encode_canonical` frame ([Norito](../n
 | Bound | Value |
 |---|---:|
 | Envelope, SessionControl (complete frame) | 2,048 |
-| Envelope, Request, Payment, Credited and PolicyData | 10,000 |
-| `kgm1:` text, session / message | 2,736 / 13,339 |
+| Envelope, Request, Payment, Credited and PolicyData | 10,034 |
+| `kgm1:` text, session / message | 2,736 / 13,384 |
 | PayerCompanion (complete frame; its credential ≤ 1,024) | ≤ 2,048 |
-| σ bytes and Ω transport-proof bytes | ≥ 1, with exact source-specific lengths in the verifying-key allowlist (§3.1); every σ ≤ 3,520 and Ω ≤ 5,086. The independent Payment joint bound is Ω + σ_send ≤ 8,606 = 10,000 − F_payment (F_payment = 1,394, §4). The Receive 9,321-byte and Status 7,812-byte envelope budgets do not relax these role caps. |
+| σ bytes and Ω transport-proof bytes | ≥ 1, with exact source-specific lengths in the verifying-key allowlist (§3.1); every σ ≤ 3,520 and Ω ≤ 5,120. The independent Payment joint bound is Ω + σ_send ≤ 8,640 = 10,034 − F_payment (F_payment = 1,394, §4). The Receive 9,355-byte and Status 7,846-byte envelope budgets do not relax these role caps. |
 | Map and credit-digest opening siblings | exactly 32 (§3.2) |
 | Quota-usage array and quota-window openings | exactly 6 siblings (§3.3) |
 | Verifying-key allowlist entries | 8..=11 (one per operation; Send also per enabled-controls mask) |
@@ -242,20 +242,20 @@ Canonical bytes are one complete `norito::encode_canonical` frame ([Norito](../n
 | Quota windows per share | 1..=64 |
 | Android enrollment (E5) and renewal chain: certificates; each DER; total DER | 2..=8; 1..=16,384; ≤ 65,536 |
 | App Attest enrollment attestation; enrollment and renewal assertion | 1..=65,536; 1..=4,096 |
-| Completion record output bytes | 1..=10,000 |
+| Completion record output bytes | 1..=10,034 |
 | Asset scale; fee basis points | ≤ 28; ≤ 10,000 |
 
 Standalone frame caps (complete frame, checked before decoding) and padding:
 
 | Type | Cap | p | Type | Cap | p |
 |---|---:|---:|---|---:|---:|
-| `SchemeV1` | 512 | 0 | `PaymentV1` | 10,000 | 8 |
-| `SignerCertificateV1` | 512 | 0 | `PackageV1` | 10,000 | 8 |
+| `SchemeV1` | 512 | 0 | `PaymentV1` | 10,034 | 8 |
+| `SignerCertificateV1` | 512 | 0 | `PackageV1` | 10,034 | 8 |
 | `CredentialV1` | 1,024 | 0 | `MarkerV1` | 1,024 | 8 |
 | `RenewalRequestV1` | 73,728 | 0 | `RecoveryCapsuleV1` | 524,288 | 0 |
 | `ArtifactManifestV1` | 1,024 | 0 | `CompletionRecordV1` | 65,536 | 0 |
 | `VerifyingKeyAllowlistV1` | 2,048 | 0 | `LoadFinalityV1` | 262,144 | 0 |
-| `SchemePolicyV1` | 1,024 | 0 | `FoldRecordV1` | 10,000 | 8 |
+| `SchemePolicyV1` | 1,024 | 0 | `FoldRecordV1` | 10,034 | 8 |
 | `FeeScheduleV1` | 1,024 | 8 | `LoadReceiptV1` | 512 | 8 |
 | `BlacklistV1` | 2,228,736 | 0 | `UnloadClaimV1` | 16,384 | 8 |
 | `QuotaShareV1` | 8,192 | 0 | `FeeClaimV1` | 16,384 | 8 |
@@ -276,7 +276,7 @@ decoded as a package. The fold record carries one Ω, so it takes the Lineage
 message bound.
 
 **Text.** `kgm1:` followed by unpadded base64url of one canonical envelope frame.
-Decoding rejects text above 13,339 bytes, a missing prefix, an empty body,
+Decoding rejects text above 13,384 bytes, a missing prefix, an empty body,
 characters outside `A–Z a–z 0–9 - _` (so padding and whitespace), a body length of
 `1 mod 4`, and text that does not re-encode to itself; the frame then follows the
 decode order above.
@@ -292,7 +292,7 @@ is the body's fields in the order shown.
 |---|---|---|
 | Scheme (`scheme`) | `LE16 version ‖ network_id ‖ scheme_root_key(key) ‖ relation_id ‖ provider_contract` | `scheme_id = H("scheme", ·)`. `network_id` is the raw genesis `NetworkId`, carries the Iroha hash marker (last byte odd) and is not the marked zero `00…01`; `relation_id` nonzero; `provider_contract` is the V1 constant. Decoding requires the recomputed `scheme_id`. The root key signs certificates only. |
 | Relation (`relation`) | `LE16 1 ‖ eq_protocol_digest ‖ ep_protocol_digest ‖ native_profile_digest ‖ verifying_key_set_digest ‖ artifact_inventory_digest` | Gives `relation_id`, fixed for the scheme's lifetime: one scheme-level identity that every statement and Ω carries. `verifying_key_set_digest` is the `verifying-key-set` digest of the verifying-key allowlist (below). |
-| Verifying-key allowlist (`verifying-key-set`) | `LE16 version ‖ LE32 n ‖ n × (tag kind ‖ LE32 enabled_controls ‖ verifying_key_digest ‖ LE32 proof_bytes) ‖ lineage_verifying_key_digest ‖ LE32 lineage_proof_bytes` | Frame `{version, steps: [{kind, enabled_controls, verifying_key_digest, proof_bytes}], lineage_verifying_key_digest, lineage_proof_bytes}`. One σ entry per selector, strictly ascending by `(tag, mask)`, at most 11: every operation with mask 0, and Send also once per supported nonzero enabled-controls mask (defined bits only, so masks 1..3); every other kind has only mask 0; digests nonzero; lengths at least 1 and σ at most 3,520, including the Receive selector. The complete Credited::Receive envelope budget is independently 9,321 (`10,000 − F_receive`; §4). `lineage_proof_bytes` plus the largest Send `proof_bytes` is at most `10,000 − F_payment` (R9; 8,606 with the single-owner Payment frame, §4), and `lineage_proof_bytes` is at most 5,086. The Credited::Status envelope separately permits at most 7,812 bytes with its fixed opening (§2, §4); that spare capacity cannot enlarge the Ω role cap. A consumer selects σ's entry by the package's operation tag and, for Send, also by its mask (`Ω.enabled_controls`). It requires σ and Ω(pred) to have exactly the listed lengths. The frame decodes only against a manifest body whose `verifying_key_set_digest` it recomputes. |
+| Verifying-key allowlist (`verifying-key-set`) | `LE16 version ‖ LE32 n ‖ n × (tag kind ‖ LE32 enabled_controls ‖ verifying_key_digest ‖ LE32 proof_bytes) ‖ lineage_verifying_key_digest ‖ LE32 lineage_proof_bytes` | Frame `{version, steps: [{kind, enabled_controls, verifying_key_digest, proof_bytes}], lineage_verifying_key_digest, lineage_proof_bytes}`. One σ entry per selector, strictly ascending by `(tag, mask)`, at most 11: every operation with mask 0, and Send also once per supported nonzero enabled-controls mask (defined bits only, so masks 1..3); every other kind has only mask 0; digests nonzero; lengths at least 1 and σ at most 3,520, including the Receive selector. The complete Credited::Receive envelope budget is independently 9,355 (`10,034 − F_receive`; §4). `lineage_proof_bytes` plus the largest Send `proof_bytes` is at most `10,034 − F_payment` (R9; 8,640 with the single-owner Payment frame, §4), and `lineage_proof_bytes` is at most 5,120. The Credited::Status envelope separately permits at most 7,846 bytes with its fixed opening (§2, §4); that spare capacity cannot enlarge the Ω role cap. A consumer selects σ's entry by the package's operation tag and, for Send, also by its mask (`Ω.enabled_controls`). It requires σ and Ω(pred) to have exactly the listed lengths. The frame decodes only against a manifest body whose `verifying_key_set_digest` it recomputes. |
 | Provider contract | see §1 | Constant `ac0c9bdca39a5a00385214934f0299da60d5ff1425aa270c535a462247a9fa1e`. |
 | Asset scope (`asset-scope`) | `LE16 version ‖ asset UUID (16) ‖ asset_incarnation ‖ LE32 scale` | Frame `{version, asset: AssetDefinitionId, asset_incarnation, scale}`. UUIDv4 asset, valid `AxtAssetIncarnationV1`, `scale ≤ 28`. Gives `asset_digest`. |
 | Signer certificate (signed under `kgwcert1`) | `LE16 version ‖ scheme_id ‖ tag role ‖ key ‖ LE64 serial` | Signed by the scheme root. Roles: Enrollment 1, RegulatoryPolicy 3, TimeAnchor 4, Artifact 5. Tag 2 is invalid. Fixed depth one; no validity period or revocation is evaluated offline; the consumer requires the role it needs. Its digest `P(kgwocrt1, ·)` (§1) is what every `*_certificate` field names, a canonical σ-field value. |
@@ -1048,7 +1048,7 @@ with no decoder or transition path for a manifest lacking the operation index.
 | Object | Frame and transcript | Interoperability rules |
 |---|---|---|
 | Ordinary Load receipt (unsigned) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ request_id ‖ LE128 ordinal ‖ LE128 amount ‖ LE128 online_charge ‖ charge_quote ‖ transaction_hash ‖ LE64 block_height ‖ payer_account_digest` (282 bytes) | Digest `P_bytes(kgwolod1, transcript)`. Ordinary successful `IssueLoad` execution, authenticated by the installed genesis-rooted native certificate verifier. `block_height ≥ 2`; `amount > 0`; nonzero request identity; `charge_quote` nonzero iff `online_charge > 0`, and then a Load quote with the same scheme, asset, wallet, ordinal, amount and charge; `amount + online_charge` and `ordinal + 1` fit. A state absorbs only its `next_load`. Decoding or recomputing the digest grants no authority. |
-| Load finality (local custody frame) | `{version, receipt_digest, certificate: SumeragiCommitCertificateV1, event_proof: MerkleProof<EventBox>}` | Complete frame at most 262,144 bytes, containing only the receipt certificate and counted event path. The certificate carries the canonical consensus header, ordinary BLS CommitQC and execution-result preimage. Native selects its epoch authority from independently authenticated signed global genesis or its protected local epoch archive, then verifies the exact receipt before Advance signing. No finality prover, history-vector layout, accumulator or caller verdict is accepted. This local frame is not carried in each Payment; the 10,000-byte peer bound is unchanged. |
+| Load finality (local custody frame) | `{version, receipt_digest, certificate: SumeragiCommitCertificateV1, event_proof: MerkleProof<EventBox>}` | Complete frame at most 262,144 bytes, containing only the receipt certificate and counted event path. The certificate carries the canonical consensus header, ordinary BLS CommitQC and execution-result preimage. Native selects its epoch authority from independently authenticated signed global genesis or its protected local epoch archive, then verifies the exact receipt before Advance signing. No finality prover, history-vector layout, accumulator or caller verdict is accepted. This local frame is not carried in each Payment; the 10,034-byte peer bound is unchanged. |
 | Epoch boundary (online DATA frame) | `SumeragiCommitCertificateV1 {consensus_header, commit_qc, result_preimage}` | At most 262,144 bytes. Request one exact incumbent boundary through the payer-authenticated `/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}` route. The boundary must precede the retained receipt. Native verifies the incumbent's exact-quorum certificate before atomically selecting the successor under its rollback-sensitive manifest; it never imports a peer checkpoint. Older selected epochs remain available for delayed receipts. Each read and checkpoint is bounded independently of chain lifetime, with no ordinary-block replay. |
 | Unload claim | `{version, credential, package, account: AccountId, charge, certificates}`; charge None 0 or Quoted 1 `{quote, beneficiary: AccountId}` | Certificates exactly the issuer plus the quote signer when quoted. `H("account", account)` equals the credential's account digest. The package is a verified Unload carrying Ω(pred), which names the credential's wallet and payment key and passes the consumer checks; `charge` is Quoted iff the effect names a quote, which must be an Unload quote for the effect's exact terms, with `H("account", beneficiary)` as its beneficiary. Payout `amount − online_charge`. |
 | Fee claim | `{version, payment, beneficiary: AccountId}` | Structurally a valid Payment naming a fee schedule with `fee > 0`. The payout is checked against the historical schedule the Payment names (digest, scheme, asset, `fee = fee(amount)`), and `H("account", beneficiary)` equals its beneficiary. Full verification takes the schedule, the receiver's Request and the payer's credential and certificates from the ledger's records by the digests the Payment binds, and verifies the Payment as at Receive. |
@@ -1090,33 +1090,33 @@ acceptance or a completed Payment. The source fixes the 1,394-byte overhead;
 size tests must be rerun on the final composed candidate. Cryptographic and
 physical-device qualification remain open. The accepted ordinary
 transaction/finality Load relation and complete proof catalog still require qualification (G3).
-`F_payment` = 1,394 bytes and the joint proof budget is 8,606 bytes
+`F_payment` = 1,394 bytes and the joint proof budget is 8,640 bytes
 (`KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1`, `KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1`).
-`F_receive` = 679 bytes and the `σ_recv` budget is 9,321 bytes
+`F_receive` = 679 bytes and the `σ_recv` budget is 9,355 bytes
 (`KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1`,
 `KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1`). The Receive selector must fit
 this complete-envelope budget; its frozen key still selects an exact proof length.
-`F_status` = 2,188 bytes and its envelope-derived Ω budget is 7,812 bytes
+`F_status` = 2,188 bytes and its envelope-derived Ω budget is 7,846 bytes
 (`KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1`, `KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1`).
 The size tests pin complete-frame arithmetic over proof lengths from 128 to
 9,999 bytes; that arithmetic does not grant proof authority. The source catalog
-separately caps every σ at 3,520 bytes and the Ω transport at 5,086 bytes
+separately caps every σ at 3,520 bytes and the Ω transport at 5,120 bytes
 (`KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1`, `KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1`).
 The allowlist requires both role bounds and its exact source-specific lengths.
-Payment structural admission checks each role and the independent 8,606-byte
+Payment structural admission checks each role and the independent 8,640-byte
 joint bound before native verification; neither role can borrow unused capacity.
-The internal Ω input tape adds its 320-byte public prefix, giving a 5,406-byte
-individual raw cap and an independent 8,926-byte joint raw budget. These input
+The internal Ω input tape adds its 320-byte public prefix, giving a 5,440-byte
+individual raw cap and an independent 8,960-byte joint raw budget. These input
 limits do not enlarge the wire envelope or replace the complete proof decisions.
 
 | Envelope | Bytes / bound | Fixed overhead | Envelope-derived proof budget |
 |---|---:|---|---|
 | SessionControl (signed ReceiveDeferred) | 338 / 2,048 | — | — |
-| Request (fee schedule, 2 certificates) | 1,792 / 10,000 | — | — |
-| Payment (σ_send 3,520; Ω proof 4,800) | 9,714 / 10,000 | 1,394 + Ω proof + σ_send | Ω proof 5,086 with the selected σ_send; Ω proof + σ_send 8,606 |
-| Credited::Receive (σ_recv 3,456 sample) | 4,135 / 10,000 | 679 + σ_recv | σ_recv 9,321 |
-| Credited::Status (Ω(h) proof 4,800, 32 siblings; CreditStatus frame 6,933) | 6,988 / 10,000 | 2,188 + Ω(h) proof | Ω(h) proof 7,812 |
-| PolicyData certificates (3) | 698 / 10,000 | — | — |
+| Request (fee schedule, 2 certificates) | 1,792 / 10,034 | — | — |
+| Payment (σ_send 3,520; Ω proof 4,800) | 9,714 / 10,034 | 1,394 + Ω proof + σ_send | Ω proof 5,120 with the selected σ_send; Ω proof + σ_send 8,640 |
+| Credited::Receive (σ_recv 3,456 sample) | 4,135 / 10,034 | 679 + σ_recv | σ_recv 9,355 |
+| Credited::Status (Ω(h) proof 4,800, 32 siblings; CreditStatus frame 6,933) | 6,988 / 10,034 | 2,188 + Ω(h) proof | Ω(h) proof 7,846 |
+| PolicyData certificates (3) | 698 / 10,034 | — | — |
 
 Other measured frames: the largest Android renewal request (8 certificates totalling 65,536 DER bytes) is
 66,021 of 73,728 bytes; a 64-window quota share is 2,941 bytes; the full
@@ -1136,15 +1136,16 @@ negative cap checks and native32/SDK qualification remain pending. These private
 frame measurements do not qualify a native proof or a payment envelope.
 
 **Canonical framing.** The Request transcript is 418 bytes. Tests measure Request
-1,792 bytes, `F_payment` 1,394 bytes and the joint budget `|Ω| + |σ_send| ≤ 8,606`
+1,792 bytes, `F_payment` 1,394 bytes and the joint budget `|Ω| + |σ_send| ≤ 8,640`
 bytes. B1 changes no field width,
 and B5, B7 and B8 change only private state, so `F_status` (2,188 bytes) and
-its 7,812-byte envelope budget stay. The source caps remain 3,520 bytes for σ and
-5,086 bytes for Ω even when a particular envelope has spare room. The 4,800-byte Ω
-and 3,520-byte σ stand-ins leave 286 bytes in the complete envelope. Every admitted Send mask, the
+its 7,846-byte envelope budget stay. The source caps remain 3,520 bytes for σ and
+5,120 bytes for Ω even when a particular envelope has spare room. The 4,800-byte Ω
+and 3,520-byte σ stand-ins leave 320 bytes in the complete envelope. Every admitted Send mask, the
 Receive selector and the complete uniform Ω catalog must retain their exact measured
 descriptors before artifact freeze. The ordinary-transaction/finality Load migration does
-not add a Payment evidence trail or relax the 10,000-byte bound.
+not add a Payment evidence trail or relax the 10,034-byte bound.
+The message bound was 10,000 bytes until the reset after r12. On 2026-10-19 the owner raised it by 34 bytes so that Ω proves at degree 11: the Ω proof is 4,032 bytes and its transport 5,120 bytes, both exactly at the new caps.
 
 ## 5. Vectors
 
@@ -1254,20 +1255,20 @@ envelope vectors of §5 and structural envelopes of every kind.
 
 - For Request, the canonical payload is `"KWRQAC1" ‖ 0x00 ‖ BE32 envelope_length ‖
   BE32 account_length ‖ envelope_original ‖ destination_account_original`. The
-  unchanged Request envelope is 1..=10,000 bytes and the mandatory canonical
-  AccountId companion is 1..=4,096 bytes; the complete carrier is at most 14,112
+  unchanged Request envelope is 1..=10,034 bytes and the mandatory canonical
+  AccountId companion is 1..=4,096 bytes; the complete carrier is at most 14,146
   bytes. Both hashes bind both originals; structural transport decoding grants no
   account authentication or financial authority.
 - For Payment, the canonical payload is `"KWPYPC1" ‖ 0x00 ‖ BE32 envelope_length ‖
   BE32 companion_length ‖ envelope_original ‖ payer_companion`. The unchanged Payment
-  envelope is 1..=10,000 bytes and the mandatory canonical PayerCompanion (§3.4) is
-  1..=2,048 bytes; the complete carrier is at most 12,064 bytes. Both hashes bind both
+  envelope is 1..=10,034 bytes and the mandatory canonical PayerCompanion (§3.4) is
+  1..=2,048 bytes; the complete carrier is at most 12,098 bytes. Both hashes bind both
   originals. The receiver hands them unchanged to its wallet's Receive, which checks the
   companion against the Payment; structural transport decoding grants no authority.
 - Every other kind carries exactly one envelope frame whose message tag equals
-  the IPM1 kind, within that kind's bound: 2,048 bytes for SessionControl, 10,000 for
+  the IPM1 kind, within that kind's bound: 2,048 bytes for SessionControl, 10,034 for
   Credited and PolicyData. Canonical and encoded lengths are positive and bounded by the
-  selected kind. The companions do not increase the 10,000-byte envelope bounds.
+  selected kind. The companions do not increase the 10,034-byte envelope bounds.
 - zlib is the RFC 1950 form (`78 9C`, DEFLATE, Adler-32 of the canonical payload). A sender uses it
   only when it saves at least 32 bytes and at least one 256-byte QR shard; a decoder
   rejects any other zlib header or length pair.
@@ -1294,7 +1295,7 @@ parity shards `P_j = Σ_i d_i / ((K + j) ⊕ i)`, bytewise over GF(2^8) with pol
 `x^8+x^4+x^3+x^2+1` (0x11D), in the order D0, D1, P0, D2, D3, P1, …, and the identical
 header again after every 12 non-header frames; `total` counts data shards `K`, at most 170
 so that every row and data index is a distinct field element (48 for a maximum
-12,064-byte Payment carrier, 56 for a maximum 14,112-byte Request carrier). Every square
+12,098-byte Payment carrier, 56 for a maximum 14,146-byte Request carrier). Every square
 submatrix of these Cauchy coefficients is invertible, so any `K` distinct data and parity
 shards recover the message, whichever frames the camera missed. A receiver accepts frames
 in any order, ignores identical duplicates, solves for the missing data shards once its
@@ -1307,7 +1308,7 @@ Payment and the Credited receipt, in that order.
 
 **NFC.** The receiver's phone is the card (host card emulation) and the payer's phone is
 the reader. Commands use the proprietary class `0x80`, chunks of at most 4,096 bytes and
-messages of at most 14,196 bytes (84-byte header plus the maximum Request carrier). Payment is bounded at 12,148 bytes (84-byte header plus its 12,064-byte carrier);
+messages of at most 14,230 bytes (84-byte header plus the maximum Request carrier). Payment is bounded at 12,182 bytes (84-byte header plus its 12,098-byte carrier);
 Credited is bounded at 10,084 bytes. A normal payment uses one continuous hold:
 Request, exact transaction review and hardware confirmation,
 Payment, Credited and acknowledgement confirmation all share the active reader/card
@@ -1425,10 +1426,10 @@ against `fixtures/kagemusha/wallet_account_check_code_v1.json`.
   only the message's own top-level version and the decode-time scheme field's length (§6).
 - TODO(G3): qualify the complete admitted PIPA-v1 σ and Ω transport artifact set,
   its exact proof lengths and the selected verifying keys. The verifying-key allowlist
-  (§3.1) carries their identities; its validation requires Ω proof + largest σ_send ≤ 10,000 −
-  F_payment (8,606 bytes with the single-owner Payment frame; R9), each σ ≤ 3,520 bytes
-  and Ω transport ≤ 5,086 bytes. These source capacities are stricter than the
-  9,321-byte Receive and 7,812-byte Status envelope budgets. The vectors' allowlist
+  (§3.1) carries their identities; its validation requires Ω proof + largest σ_send ≤ 10,034 −
+  F_payment (8,640 bytes with the single-owner Payment frame; R9), each σ ≤ 3,520 bytes
+  and Ω transport ≤ 5,120 bytes. These source capacities are stricter than the
+  9,355-byte Receive and 7,846-byte Status envelope budgets. The vectors' allowlist
   remains a labelled stand-in until exact artifacts are admitted. Every admitted Send mask and the complete Ω construction must be measured
   together against this joint budget after the final descriptor and capacity changes.
   A stand-in byte sample or an earlier descriptor does not qualify the candidate.
@@ -1567,7 +1568,7 @@ simulated-provider tests of this boundary.
   Use the per-type table of §2.
 - The credit-opening siblings are one flat byte string of 32-byte values, not a
   sequence of 32-byte arrays: Norito would spend 65 bytes per array element inside
-  the 10,000-byte Credited bound.
+  the 10,034-byte Credited bound.
 - The ArchiveSent capsule also retains the Request and historical payer Credential
   with its CertificateSet, which the Payment binds only by digest. A later payer
   renewal cannot substitute its successor credential for those Send originals. A Send capsule retains the Request it consumed (its fee schedule) and a

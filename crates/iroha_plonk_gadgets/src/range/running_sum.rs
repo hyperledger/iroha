@@ -157,9 +157,8 @@ enum Pattern {
     Tagged {
         step: Column<Fixed>,
         tag_table: TableColumn,
-        /// Precomputed lookup coefficients `[a, s]` of `z` and `-2^15 z_next`
-        /// (banks only); `None` reads the pattern's indicator polynomials.
-        coefficients: Option<[Column<Fixed>; 2]>,
+        /// Precomputed lookup coefficients `[a, s]` of `z` and `-2^15 z_next`.
+        coefficients: [Column<Fixed>; 2],
     },
 }
 
@@ -176,17 +175,17 @@ impl RunningSumConfig {
     /// codes. A scalar union of offset intervals is deliberately not used:
     /// the tuple's tag prevents cross-width aliases.
     ///
-    /// The lookup reads the pattern's degree-four indicator polynomials, so its
-    /// argument needs degree fourteen. This single-bus form serves the compact
-    /// Omega, whose proof bytes are capped by the Payment budget: below degree
-    /// fourteen its equality columns need a second permutation set.
+    /// Two fixed columns hold the lookup coefficients the pattern determines
+    /// (see [`Self::configure_tagged_bank`]), so the lookup's input has degree
+    /// two and its argument degree eight. This single-bus form serves the
+    /// compact Omega; its other gates then set its degree.
     pub fn configure_tagged<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
         z: Column<Advice>,
     ) -> Self {
         let table = meta.lookup_table_column();
         let tag_table = meta.lookup_table_column();
-        Self::configure_tagged_on(meta, z, table, tag_table, false)
+        Self::configure_tagged_on(meta, z, table, tag_table)
     }
 
     /// Independent exact-width tuple lookups sharing one `(width,value)`
@@ -198,8 +197,8 @@ impl RunningSumConfig {
     /// pattern determines: `a` is one on steps and tagged tops and `s` is one
     /// on steps, both zero elsewhere. The lookup reads
     /// `(15 + (a - s)(width - 15), a z - 2^15 s z_next)`, row by row the
-    /// tuple of the indicator form, with input degree two (argument degree
-    /// eight) instead of five (fourteen). Every pattern write goes through
+    /// tuple the pattern's step and tagged-top indicators define, with input
+    /// degree two (argument degree eight). Every pattern write goes through
     /// [`Self::assign_tagged_code`], so the three columns agree.
     pub fn configure_tagged_bank<F: PastaField>(
         meta: &mut ConstraintSystem<F>,
@@ -212,7 +211,7 @@ impl RunningSumConfig {
         let tag_table = meta.lookup_table_column();
         columns
             .iter()
-            .map(|z| Self::configure_tagged_on(meta, *z, table, tag_table, true))
+            .map(|z| Self::configure_tagged_on(meta, *z, table, tag_table))
             .collect()
     }
 
@@ -221,12 +220,11 @@ impl RunningSumConfig {
         z: Column<Advice>,
         table: TableColumn,
         tag_table: TableColumn,
-        precomputed: bool,
     ) -> Self {
         meta.enable_equality(z);
         let shift = meta.fixed_column();
         let step = meta.fixed_column();
-        let coefficients = precomputed.then(|| [meta.fixed_column(), meta.fixed_column()]);
+        let coefficients = [meta.fixed_column(), meta.fixed_column()];
         let indicator = |pattern: Expression<F>, code: u64| {
             let mut expression = Expression::Constant(F::ONE);
             let mut denominator = F::ONE;
@@ -240,25 +238,15 @@ impl RunningSumConfig {
             expression * denominator.invert().expect("distinct fixed pattern codes")
         };
         meta.lookup("exact tagged running-sum limb", |cells| {
-            // Query order is descriptor order; the indicator form keeps its own.
-            let pattern = cells.query_fixed(step, Rotation::cur());
             let width = cells.query_fixed(shift, Rotation::cur());
             let cur = cells.query_advice(z, Rotation::cur());
             let next = cells.query_advice(z, Rotation::next());
-            let (top, value) = if let Some(columns) = coefficients {
-                let [limb, carry] =
-                    columns.map(|column| cells.query_fixed(column, Rotation::cur()));
-                // `a - s` is the tagged-top indicator: zero on steps and idle rows.
-                let value = limb.clone() * cur - carry.clone() * next * F::from(1 << 15);
-                (limb - carry, value)
-            } else {
-                let active = indicator(pattern.clone(), 1);
-                let top = indicator(pattern, 2);
-                let value = active * (cur.clone() - next * F::from(1 << 15)) + top.clone() * cur;
-                (top, value)
-            };
+            let [limb, carry] =
+                coefficients.map(|column| cells.query_fixed(column, Rotation::cur()));
+            // `a - s` is the tagged-top indicator: zero on steps and idle rows.
+            let value = limb.clone() * cur - carry.clone() * next * F::from(1 << 15);
             let tag = Expression::Constant(F::from(15))
-                + top * (width - Expression::Constant(F::from(15)));
+                + (limb - carry) * (width - Expression::Constant(F::from(15)));
             vec![(tag, tag_table), (value, table)]
         });
         meta.create_gate("algebraic narrow tagged top", |cells| {
@@ -310,16 +298,11 @@ impl RunningSumConfig {
         if code > 4 {
             return Err(Error::Synthesis);
         }
-        let [limb, carry] = coefficients.map_or([None, None], |[limb, carry]| {
-            [
-                Some((limb, u64::from(matches!(code, 1 | 2)))),
-                Some((carry, u64::from(code == 1))),
-            ]
-        });
+        let [limb, carry] = coefficients;
         let cells = [
             Some((step, code)),
-            limb,
-            carry,
+            Some((limb, u64::from(matches!(code, 1 | 2)))),
+            Some((carry, u64::from(code == 1))),
             control.map(|control| (self.shift, control)),
         ];
         for (column, value) in cells.into_iter().flatten() {
@@ -528,11 +511,11 @@ impl RunningSumConfig {
     pub(crate) fn assert_tagged_coefficients<F: PastaField>(&self, columns: &[Vec<F>]) {
         let Pattern::Tagged {
             step,
-            coefficients: Some([limb, carry]),
+            coefficients: [limb, carry],
             ..
         } = self.pattern
         else {
-            panic!("precomputed tagged configuration");
+            panic!("tagged configuration");
         };
         let codes = &columns[step.index()];
         assert!(codes.iter().any(|code| *code == F::from(2)));

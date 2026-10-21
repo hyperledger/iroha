@@ -662,9 +662,9 @@ Reconnect only to recover interrupted contact; an exact retry never creates anot
 
 There are three user-visible codes: receiver Request, payer Payment, receiver Credited.
 The Request carrier is `KWRQAC1` (envelope plus canonical destination account original,
-maximum 14,112 bytes); the Payment carrier is `KWPYPC1` (envelope plus payer companion,
-maximum 12,064 bytes). The envelope bound remains 10,000 bytes. IPM1 hashes bind both
-originals and the NFC bounds include its 84-byte header: 14,196 overall and 12,148 for
+maximum 14,146 bytes); the Payment carrier is `KWPYPC1` (envelope plus payer companion,
+maximum 12,098 bytes). The envelope bound remains 10,034 bytes. IPM1 hashes bind both
+originals and the NFC bounds include its 84-byte header: 14,230 overall and 12,182 for
 Payment. `IrohaPeerKagemushaWalletAdapterV1.decode` returns the bare envelope;
 `destinationAccountOriginal` and `payerCompanion` return the respective exact companions.
 Only Native authenticates monetary and credential bindings.

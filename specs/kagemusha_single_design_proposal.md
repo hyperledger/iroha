@@ -69,7 +69,7 @@ implementation returns an explicit error rather than reporting a payment complet
 | R6 | Account blacklist | Each wallet may hold one authenticated list, signed by the RegulatoryPolicy role, installed locally only when its `list_version` strictly increases and never sent to peers (owner decision 2026-10-17, blacklist local-only). While a list is held, the payer refuses to Send to a listed receiver account before the irreversible debit, and the receiver refuses to accept a Payment from a listed payer account (an open Request names no payer). Nothing about the list is committed in wallet state, proved by any σ, Λ or Ω, or carried in a Request, Payment, PayerCompanion, Credited or PolicyData. Lists are best effort and may differ between phones; no list distribution path exists (§7). |
 | R7 | Optional daily/monthly limits | Disabled by default; enforced through signed quotas and persistent counters when enabled (§7). |
 | R8 | Optional attestation expiry | Disabled by default; an enabled lease can require renewal before future sending (§7). |
-| R9 | Compact payment | Canonical binary Payment is at most 10,000 bytes, independent of history (§8). |
+| R9 | Compact payment | Canonical binary Payment is at most 10,034 bytes, independent of history (§8). |
 | R10 | Stock OS in the proof | Every transition's issuer-signed credential, recording the platform evidence verified at enrollment or the last renewal, is verified natively by every party that consumes the package. In-circuit, the lineage proof verifies the credential and its certificate in the step that introduces the credential (Bootstrap and RefreshCredential), and Λ_recv verifies the quoted receiver credential of a Request issued before a renewal; every other step binds the credential digest and payment key by continuity from that verification (owner decision 2026-10-17, lean lineage). The step proof binds the credential digest (§§2.2, 3.2). Android: hardware key, locked bootloader, verified vendor boot, patch levels and app signing identity, as the attestation records them. iPhone: an App Attest key of this app on genuine Apple hardware, bound to the payment key; no boot, patch or jailbreak field exists. This proves recorded evidence, not live absence of compromise. Load finality has the explicit §6.1 native-verification carve-out: the released app on a stock uncompromised vendor OS verifies CommitQC and receipt inclusion before its hardware-backed payment key signs Advance; the lineage proof does not independently prove BLS finality. Other R10 credential and attestation obligations remain unchanged. |
 
 For a payment from A to B, the following define completion:
@@ -1305,7 +1305,7 @@ acknowledgement is not evidence of credit. A CreditStatus verifier decides
 `Ω(h).wallet_id` and `Ω(h).payment_key` equal the Request's receiver wallet and
 the `payment_key` of the Request's receiver credential (credential digests are
 not compared), and checks the opening. CreditStatus therefore cannot invent an accepted credit. Its
-budget is the 10,000-byte Credited bound (§8). It carries no σ, so it is
+budget is the 10,034-byte Credited bound (§8). It carries no σ, so it is
 expected to be smaller than Payment. ArchiveSent verifies all that evidence
 natively before Advance and in-circuit in Λ_archive. If the in-circuit check
 fails, Λ_archive takes the no-op branch: the descriptor stays pending (§3.2),
@@ -1554,12 +1554,12 @@ Fresh Load preparation authenticates its exact retained receipt evidence before
 Advance selection. An unsigned Selected restart may sign only that already
 authenticated capsule; it does not accept new evidence or credit another Load.
 A completed retry returns the exact retained output. Receipt evidence is not part
-of the 10,000-byte offline Payment envelope.
+of the 10,034-byte offline Payment envelope.
 
 TODO(G3/G5): complete the [native finality goals](kagemusha_native_finality_goals.md),
 rebuild affected A/W/Omega keys, and qualify Load, subsequent Receive/Unload and
 the common terminal catalog. Measure real complete Payment envelopes against
-10,000 bytes and native verification on physical phones. Historical recursive
+10,034 bytes and native verification on physical phones. Historical recursive
 finality runs and structural fixtures do not establish those gates.
 
 `Unload` subtracts a chosen positive amount, increments `next_redeem` and creates
@@ -1803,24 +1803,24 @@ additional carrier overhead, not hidden in the binary budget.
 | Object | Maximum canonical binary bytes |
 |---|---:|
 | PayerCompanion (the payer's `CredentialV1` and its issuer certificate) and simple session-control frame | 2,048 |
-| Request, Payment or Credited (a Receive package, or CreditStatus {statement, `proof_digest`, τ, Ω, opening} of a folded head), with required dependencies | 10,000 each |
+| Request, Payment or Credited (a Receive package, or CreditStatus {statement, `proof_digest`, τ, Ω, opening} of a folded head), with required dependencies | 10,034 each |
 
 Payment uses the compact §5.1 layout: the unique signed Request fields and
 signature, and {statement, Ω(pred), σ_send, τ_send},
 with Ω in single-parity transport form. The σ and Ω byte caps are the exact
 proof lengths that the frozen artifact allowlist (§3.2) records. Under R9 they
-satisfy `|Ω| + |σ_send| ≤ 10,000 − F_payment`, where `|Ω|` is the Ω
+satisfy `|Ω| + |σ_send| ≤ 10,034 − F_payment`, where `|Ω|` is the Ω
 transport-proof length, `|σ_send|` the largest σ_send length in the allowlist,
 and `F_payment` every other byte of the largest valid Payment (1,394
-bytes with the single-owner Request representation, leaving 8,606 bytes for
+bytes with the single-owner Request representation, leaving 8,640 bytes for
 both proofs; the wire record pins it). The current source catalog admits at most
-3,520 bytes for each σ and 5,086 bytes for the Ω transport. Payment admission
+3,520 bytes for each σ and 5,120 bytes for the Ω transport. Payment admission
 checks these individual capacities as well as the independent joint and complete
 frame bounds before a consuming operation can Advance. Unused capacity in one
 role cannot enlarge the other role. Frozen keys still require their exact lengths.
 Artifact generation and measurement must establish that every admitted source
-fits these capacities and the complete 10,000-byte envelope.
-The same applies if CreditStatus cannot keep Credited within 10,000 bytes, for
+fits these capacities and the complete 10,034-byte envelope.
+The same applies if CreditStatus cannot keep Credited within 10,034 bytes, for
 example a fallback in which Credited carries only the Receive package. Its
 opening has exactly 32 siblings, so a CreditStatus is a fixed number of bytes
 plus `|Ω|` (the wire record pins it). A Lineage message is smaller than the
@@ -1860,7 +1860,7 @@ receipt-confirmation latency separately. Schemes with enabled controls report
 latency separately. With the fixed quota-usage array (§3), the quota σ_send is
 estimated at about 350 permutations, a single-lane shape near 3.4 KB; its
 proving time, targeted well under 1 s, is to be measured. Record failures and slow trials as
-well as successes. The 10,000-byte bound is a format requirement;
+well as successes. The 10,034-byte bound is a format requirement;
 2 seconds is an optimization target. Neither is a claim about today's code.
 Work on integration and optimization can proceed together; missing a latency
 target does not authorize skipping proof or durability work.
@@ -2188,7 +2188,7 @@ remain unchanged.
 | 1. iOS rollback and release | G2 / native provider and Swift storage | Trace Selected marker, journal, signature, anchor and externally available Payment bytes. Reproduce interrupted/ambiguous writes, restart, concurrency and replay. Determine which backup/restore schedules supported stock-device operations actually permit. Establish the platform persistence guarantee before claiming that a released Payment precludes a competing successor from restored state; Keychain readback alone is insufficient. Preserve any residual counterexample and identify the smallest unavailable primitive or required design decision. |
 | 2. Complete monetary lifecycle | G4/G5, NF1–NF6 / wallet, node and SDK | From one source/artifact candidate, perform enrollment → activation → funded Load → A pays B → B pays C offline → Unload → ledger payout. Cover supported selectors, Receive folding, ArchiveReceive, ArchiveStatus, fees and enabled controls; crashes, lost acknowledgements, exact retries, duplicate credits, conflicting inputs, invalid proofs, stale state and restart must preserve conservation, committed payments and once-only payout. Retain actual four-validator and physical Android/iPhone results separately from software fixtures. |
 | 3. Proof correctness and privacy | G3 / proof owners and independent reviewer | Run genuine-proof native/circuit binding mutations for every consuming operation, including Ω opening and both exposed accumulator decisions at acceptance boundaries. Complete [C12](kagemusha_recursion_soundness_v1.md) for the actual recursive setup, three-Q prefix, RP57 interfaces, exposed challenges, adaptive histories, checkpoints, retries and joint folding/publication, with explicit assumptions and independent review. Regenerate affected artifacts after a construction change. |
-| 4. Size and performance | G1/G4/G7 / native, SDK and carrier owners | Retain each genuine bounded message's exact canonical envelope and demonstrate ≤10,000 bytes across supported variants. Measure cold opening, peak memory, retained storage, durable payment completion and the separate time until received value is spendable. Evaluate the two-second p95 requirement on a declared physical-device/OS/carrier population; preserve failed, cancelled and slow trials. Stand-in proofs and host timings do not qualify phone payments. |
+| 4. Size and performance | G1/G4/G7 / native, SDK and carrier owners | Retain each genuine bounded message's exact canonical envelope and demonstrate ≤10,034 bytes across supported variants. Measure cold opening, peak memory, retained storage, durable payment completion and the separate time until received value is spendable. Evaluate the two-second p95 requirement on a declared physical-device/OS/carrier population; preserve failed, cancelled and slow trials. Stand-in proofs and host timings do not qualify phone payments. |
 | 5. One verified delivery | G6/G7 / native and managed consumer owners | Record source closure, lock/build inputs, catalog/key/native-library/SDK hashes and exact test commands. Rebuild matching consumers, run focused regressions followed by complete required suites and release checks, and update current specifications/status/public documentation. A changed source candidate requires affected evidence to be repeated; compilation or another candidate's results do not close a requirement. |
 
 The completion report names concrete defects and their regressions, exact source
@@ -2262,7 +2262,7 @@ quota usage, share expiry and Send time-span
 bounds. Shared Rust/SDK vectors and
 native σ relations cover all four Send masks and the Receive selector. The
 codec budget reserves 3,520 bytes for every σ; the fixed Payment overhead is 1,394
-bytes, leaving at most 5,086 bytes for the complete transported Ω. Final admitted
+bytes, leaving at most 5,120 bytes for the complete transported Ω. Final admitted
 proof lengths must be measured together after descriptor regeneration. The retired
 Reserve/Commit monetary engines and mint-finality authority are deleted.
 
@@ -2273,7 +2273,7 @@ retired recursive-finality proofs supply no authority. The current complete
 catalog test expects 22 routes and 16 programs, including ordinary and renewed
 Receive routes over the single Receive sigma selector. The complete current
 catalog still needs matching strict profiles, regenerated registry DATA and
-genuine capacity/size qualification against the 5,086-byte Omega transport cap.
+genuine capacity/size qualification against the 5,120-byte Omega transport cap.
 Changes to proof constraints and fixed input capacities require regenerated
 descriptors and genuine proofs before artifact freeze; earlier component
 geometry and the historical 52-route catalog do not establish this result.

@@ -90,7 +90,7 @@ class KagemushaWalletCurrentReviewIntegrationV1Test {
         assertFailsWith<KagemushaWalletExceptionV1> { reply(changed).review(Any(),if(changed.getOrNull(8)==8.toByte())KagemushaWalletReviewProjectionV1.Kind.UNLOAD else KagemushaWalletReviewProjectionV1.Kind.SEND) }
     }
     @Test fun `review input bounds both originals without foreign financial authority`() {
-        val request = ByteArray(10_000) { 7 }
+        val request = ByteArray(10_034) { 7 }
         val account = ByteArray(4_096) { 9 }
         val send = KagemushaWalletReviewInputV1(1, first = request, second = account)
         request.fill(0); account.fill(0); send.first()[0] = 0; send.second()[0] = 0
@@ -98,11 +98,11 @@ class KagemushaWalletCurrentReviewIntegrationV1Test {
         assertContentEquals(ByteArray(4_096){9},send.second())
         KagemushaWalletReviewInputV1(8, KagemushaWalletUInt128V1(-1, -1))
         KagemushaWalletReviewInputV1(8, KagemushaWalletUInt128V1(1, 0), ByteArray(1_024),
-            KagemushaWalletUnloadChargeReviewV1.encode(ByteArray(10_000), ByteArray(4_096)))
+            KagemushaWalletUnloadChargeReviewV1.encode(ByteArray(10_034), ByteArray(4_096)))
         for (make in listOf<() -> KagemushaWalletReviewInputV1>(
             { KagemushaWalletReviewInputV1(2, first = byteArrayOf(1)) },
             { KagemushaWalletReviewInputV1(1) },
-            { KagemushaWalletReviewInputV1(1, first = ByteArray(10_001), second = byteArrayOf(1)) },
+            { KagemushaWalletReviewInputV1(1, first = ByteArray(10_035), second = byteArrayOf(1)) },
             { KagemushaWalletReviewInputV1(1, KagemushaWalletUInt128V1(1, 0), byteArrayOf(1), byteArrayOf(1)) },
             { KagemushaWalletReviewInputV1(1, first = byteArrayOf(1)) },
             { KagemushaWalletReviewInputV1(1, second = byteArrayOf(1)) },

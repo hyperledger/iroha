@@ -107,7 +107,7 @@ class KagemushaWalletEnrollmentV1Test {
             bytes.fill(0);if(size>0)assertEquals(5,reply.bytes()[0].toInt())
             assertFailsWith<KagemushaWalletExceptionV1>{KagemushaWalletCallV1(status,-1,0,0,0,0,reply.bytes())}
         }
-        assertFailsWith<KagemushaWalletExceptionV1>{KagemushaWalletCallV1(1,-1,0,0,0,0,ByteArray(10001))}
+        assertFailsWith<KagemushaWalletExceptionV1>{KagemushaWalletCallV1(1,-1,0,0,0,0,ByteArray(10035))}
         assertFailsWith<KagemushaWalletExceptionV1>{KagemushaWalletCallV1(25,-1,0,7,0,0,ByteArray(262145))}
     }
     @Test fun `wrapper copies inputs requires exact projection and closes once`() {

@@ -44,7 +44,7 @@ class IrohaPeerWalletRequestV1Test {
         val envelope = IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.REQUEST)
         val valid = IrohaPeerWalletRequestV1(envelope, IrohaPeerRequestFixtureV1.account()).encode()
         val bad = listOf(envelope, valid.copyOf(15), valid.copyOf(valid.size-1), valid+byteArrayOf(0),
-            valid.copyOf().also{it[0]=0}, valid.copyOf().also{java.nio.ByteBuffer.wrap(it,8,4).putInt(10001)},
+            valid.copyOf().also{it[0]=0}, valid.copyOf().also{java.nio.ByteBuffer.wrap(it,8,4).putInt(10035)},
             valid.copyOf().also{java.nio.ByteBuffer.wrap(it,12,4).putInt(4097)},
             valid.copyOf().also{java.nio.ByteBuffer.wrap(it,12,4).putInt(0)},
             valid.copyOf().also{java.nio.ByteBuffer.wrap(it,8,4).putInt(-1)})
@@ -69,12 +69,12 @@ class IrohaPeerWalletRequestV1Test {
         assertContentEquals(account,IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(restored))
     }
     @Test fun expandedAllocationsBelongOnlyToRequestAndPayment() {
-        assertEquals(14112,IrohaPeerPayloadKind.REQUEST.maximumWalletFrameBytes)
-        assertEquals(12064,IrohaPeerPayloadKind.PAYMENT.maximumWalletFrameBytes)
-        assertEquals(10000,IrohaPeerPayloadKind.CREDITED.maximumWalletFrameBytes)
+        assertEquals(14146,IrohaPeerPayloadKind.REQUEST.maximumWalletFrameBytes)
+        assertEquals(12098,IrohaPeerPayloadKind.PAYMENT.maximumWalletFrameBytes)
+        assertEquals(10034,IrohaPeerPayloadKind.CREDITED.maximumWalletFrameBytes)
         val payment=IrohaPeerKagemushaWalletAdapterV1.wrap(IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.PAYMENT),
             payerCompanion=IrohaPeerRequestFixtureV1.companion()).encode()
-        java.nio.ByteBuffer.wrap(payment,12,4).putInt(12065)
+        java.nio.ByteBuffer.wrap(payment,12,4).putInt(12099)
         assertFailsWith<IllegalArgumentException>{IrohaPeerWireMessageV1.decode(payment)}
         val request=IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.REQUEST)
         assertEquals(4096,IrohaPeerWalletRequestV1(request,ByteArray(4096)).destinationAccountOriginal().size)

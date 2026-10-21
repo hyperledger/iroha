@@ -267,9 +267,9 @@ fn kagemusha_wallet_v1_split_lineage_envelopes_fit_their_bounds() {
         assert!(len <= bound, "{name}: {len} > {bound}");
     }
     // A Payment envelope at its bound and a companion at its bound fit one `KWPYPC1` carrier:
-    // the 8-byte tag, two BE32 lengths and both frames, at most 12,064 bytes.
+    // the 8-byte tag, two BE32 lengths and both frames, at most 12,098 bytes.
     assert!(sizes.companion > sizes.credential);
-    assert_eq!(8 + 4 + 4 + message_max + companion_max, 12_064);
+    assert_eq!(8 + 4 + 4 + message_max + companion_max, 12_098);
     assert!(sizes.largest_omega_with_sample_sigma >= SAMPLE_OMEGA_PROOF_BYTES);
     assert!(sizes.largest_omega_in_status >= SAMPLE_OMEGA_PROOF_BYTES);
     // F_payment and the joint R9 budget of |Ω| + |σ_send| (owner answer Q6) are pinned.
@@ -314,7 +314,7 @@ fn kagemusha_wallet_v1_split_lineage_envelopes_fit_their_bounds() {
             .is_err()
     );
     // F_status and the Ω cap of the verifying-key allowlist are pinned: with the fixed
-    // 32-sibling opening the Credited::Status bound caps Ω at 10,000 − F_status.
+    // 32-sibling opening the Credited::Status bound caps Ω at 10,034 − F_status.
     assert_eq!(
         sizes.credited_status_overhead,
         KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1

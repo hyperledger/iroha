@@ -34,7 +34,7 @@ class KagemushaWalletV1Test {
     @Test fun `malformed native output never becomes completion`() {
         for ((status, bytes) in listOf(
             1 to byteArrayOf(), 10 to byteArrayOf(), 2 to byteArrayOf(1),
-            12 to byteArrayOf(), -4 to byteArrayOf(1), 1 to ByteArray(10_001),
+            12 to byteArrayOf(), -4 to byteArrayOf(1), 1 to ByteArray(10_035),
         )) {
             val error = assertFailsWith<KagemushaWalletExceptionV1> {
                 KagemushaWalletCallV1(status, -1, 0, 0, 0, 0, bytes)
@@ -48,7 +48,7 @@ class KagemushaWalletV1Test {
                 }
             }
         }
-        assertEquals(10_000, KagemushaWalletCallV1(1, -1, 0, 0, 0, 0, ByteArray(10_000)).bytes().size)
+        assertEquals(10_034, KagemushaWalletCallV1(1, -1, 0, 0, 0, 0, ByteArray(10_034)).bytes().size)
     }
     @Test fun `native failure metadata remains distinct from a completion`() {
         val failure = KagemushaWalletCallV1(-4, 3, 5, 0, 0, 0, byteArrayOf())
@@ -73,7 +73,7 @@ class KagemushaWalletV1Test {
         KagemushaWalletOpenOriginalsV1(one, one, one, one)
         for (role in 0..3) {
             val values = MutableList(4) { one }
-            values[role] = ByteArray(listOf(1024, 10000, 4096, 1024)[role] + 1)
+            values[role] = ByteArray(listOf(1024, 10034, 4096, 1024)[role] + 1)
             assertFailsWith<IllegalArgumentException> { KagemushaWalletOpenOriginalsV1(values[0], values[1], values[2], values[3]) }
             values[role] = byteArrayOf()
             assertFailsWith<IllegalArgumentException> { KagemushaWalletOpenOriginalsV1(values[0], values[1], values[2], values[3]) }
@@ -105,13 +105,13 @@ class KagemushaWalletV1Test {
             val id = ByteArray(32) { if (selector == 5) 0 else 1 }
             val limits = when (selector) {
                 0 -> intArrayOf(512, 256 * 1024, 0)
-                2 -> intArrayOf(10_000, 1_024, 10_000)
-                5 -> intArrayOf(65_536 * 34 + 512, 10_000, 0)
-                6 -> intArrayOf(512, 10_000, 0)
-                7 -> intArrayOf(8_192, 10_000, 0)
+                2 -> intArrayOf(10_034, 1_024, 10_034)
+                5 -> intArrayOf(65_536 * 34 + 512, 10_034, 0)
+                6 -> intArrayOf(512, 10_034, 0)
+                7 -> intArrayOf(8_192, 10_034, 0)
                 9 -> intArrayOf(0, 0, 0)
-                10 -> intArrayOf(10_000, 2_048, 0)
-                else -> intArrayOf(1_024, 10_000, 0)
+                10 -> intArrayOf(10_034, 2_048, 0)
+                else -> intArrayOf(1_024, 10_034, 0)
             }
             val original = limits.map { if (it == 0) byteArrayOf() else byteArrayOf(7) }
             val amount = KagemushaWalletUInt128V1(0, 0)
@@ -153,14 +153,14 @@ class KagemushaWalletV1Test {
 
     @Test fun `receive with companion bounds both exact originals and never accepts foreign fields`() {
         val id = ByteArray(32) { 1 }
-        val payment = ByteArray(10_000) { 7 }
+        val payment = ByteArray(10_034) { 7 }
         val companion = ByteArray(2_048) { 9 }
         val input = KagemushaWalletOperationInputV1(id, 10, first = payment, second = companion)
         id[0] = 0; payment[0] = 0; companion[0] = 0
         input.requestId()[1] = 0; input.first()[1] = 0; input.second()[1] = 0
         assertEquals(10, input.selector)
         assertContentEquals(ByteArray(32) { 1 }, input.requestId())
-        assertContentEquals(ByteArray(10_000) { 7 }, input.first())
+        assertContentEquals(ByteArray(10_034) { 7 }, input.first())
         assertContentEquals(ByteArray(2_048) { 9 }, input.second())
         assertContentEquals(byteArrayOf(), input.third())
         val one = byteArrayOf(1)
@@ -171,7 +171,7 @@ class KagemushaWalletV1Test {
         }
         for ((a, b, c) in listOf(
             Triple(byteArrayOf(), one, byteArrayOf()), Triple(one, byteArrayOf(), byteArrayOf()),
-            Triple(ByteArray(10_001), one, byteArrayOf()), Triple(one, ByteArray(2_049), byteArrayOf()),
+            Triple(ByteArray(10_035), one, byteArrayOf()), Triple(one, ByteArray(2_049), byteArrayOf()),
             Triple(one, one, one),
         )) {
             assertFailsWith<IllegalArgumentException> {

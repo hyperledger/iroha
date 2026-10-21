@@ -1,5 +1,5 @@
 //! Exact tuple tags, narrow roots, padding, boundary and assignment adversaries,
-//! for the single-bus indicator form and the bank form's precomputed coefficients.
+//! for the single-bus form and the bank form, both with precomputed coefficients.
 
 use super::*;
 use ff::Field;
@@ -118,12 +118,10 @@ fn bounds<F: PastaField>(bank: bool) {
     let unknown = synthesize(&circuit.without_witnesses(), 16, None).unwrap();
     assert_eq!(known.tables.fixed(), unknown.tables.fixed());
     let required = known.cs.lookups()[0].required_degree();
-    assert_eq!(required, if bank { 8 } else { 14 });
-    if bank {
-        let (config, _) =
-            Tagged::<F>::configure_with_params(&mut ConstraintSystem::default(), (252, bank));
-        config.assert_tagged_coefficients(known.tables.fixed());
-    }
+    assert_eq!(required, 8);
+    let (config, _) =
+        Tagged::<F>::configure_with_params(&mut ConstraintSystem::default(), (252, bank));
+    config.assert_tagged_coefficients(known.tables.fixed());
     assert_eq!(known.tables.selectors(), unknown.tables.selectors());
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());
     assert_eq!(

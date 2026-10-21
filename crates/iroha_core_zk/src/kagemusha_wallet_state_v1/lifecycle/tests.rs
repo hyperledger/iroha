@@ -1194,7 +1194,7 @@ fn canonical_request_bounds_and_originals_are_checked_before_publication() {
             charge: None,
         },
         OperationActionV1::Send {
-            request: vec![0; 10_001],
+            request: vec![0; 10_035],
         },
         OperationActionV1::Load {
             receipt: vec![],

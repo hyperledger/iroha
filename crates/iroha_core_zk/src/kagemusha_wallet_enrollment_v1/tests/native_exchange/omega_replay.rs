@@ -246,7 +246,7 @@ fn installed_omega_replay_preserves_originals_and_rejects_foreign_transport() {
     assert_eq!(rows.len(), 4);
     let files = norito::json!({"files": (rows.clone())});
     for name in ["a-b-payment.norito", "b-c-payment.norito"] {
-        let original = target_original(input.parent().unwrap(), &files, name, 10_000);
+        let original = target_original(input.parent().unwrap(), &files, name, 10_034);
         let payment: KagemushaWalletPaymentV1 = decode(&original);
         let expected = payment
             .send

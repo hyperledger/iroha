@@ -387,11 +387,11 @@ mod tests {
     }
     #[test]
     fn charged_review_carrier_is_closed_bounded_and_keeps_exact_originals() {
-        let certificates = vec![7; 10_000];
+        let certificates = vec![7; 10_034];
         let beneficiary = vec![8; ACCOUNT_MAX];
         let bytes = charge_carrier(&certificates, &beneficiary);
         assert_eq!(bytes.len(), CHARGE_CARRIER_MAX);
-        assert_eq!(bounds(8).unwrap(), [1_024, 14_112]);
+        assert_eq!(bounds(8).unwrap(), [1_024, 14_146]);
         let Input::Unload {
             charge,
             beneficiary: actual,
@@ -403,10 +403,10 @@ mod tests {
         assert_eq!(charge.unwrap().certificates, certificates);
         assert_eq!(actual, Some(beneficiary));
         for invalid in [
-            vec![7; 10_000],
+            vec![7; 10_034],
             charge_carrier(&[], &[8]),
             charge_carrier(&[7], &[]),
-            charge_carrier(&vec![7; 10_001], &[8]),
+            charge_carrier(&vec![7; 10_035], &[8]),
             charge_carrier(&[7], &vec![8; ACCOUNT_MAX + 1]),
             bytes[..bytes.len() - 1].to_vec(),
             [bytes.as_slice(), &[0]].concat(),
@@ -425,7 +425,7 @@ mod tests {
         assert!(request(1, 1, &[7], &[8]).is_err());
         assert!(request(1, 0, &[7], &[]).is_err());
         assert!(request(1, 0, &[], &[8]).is_err());
-        assert_eq!(bounds(1).unwrap(), [10_000, ACCOUNT_MAX]);
+        assert_eq!(bounds(1).unwrap(), [10_034, ACCOUNT_MAX]);
         assert!(request(1, 0, &[7], &vec![8; ACCOUNT_MAX + 1]).is_err());
         assert!(request(8, u128::MAX, &[], &[]).is_ok());
         assert!(request(8, 1, &[7], &charge_carrier(&[8], &[9])).is_ok());

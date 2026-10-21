@@ -567,6 +567,37 @@ fn genuine_send_q_and_fixed_operation_stages_reject_drop_or_relabel() {
         );
     }
 
+    // Without the quota control A1 also owns both map insertions; the terminal stage
+    // stays the receipt's, and no map insertion may move into it.
+    let plain_tasks = vec![
+        vec![
+            OperationTask::SendObjects,
+            OperationTask::SendPending,
+            OperationTask::SendFeeAndCarry,
+            OperationTask::SendTransition,
+        ],
+        vec![OperationTask::SendAuthorization],
+    ];
+    let plain = ContextPlan::with_schedule(
+        context.operation().clone(),
+        vec![vec![], vec![0]],
+        Some(0),
+        SendStagePlan::context_specs().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        SendStagePlan::new(
+            plain
+                .clone()
+                .with_operation_tasks(plain_tasks.clone())
+                .unwrap()
+        )
+        .is_ok()
+    );
+    let mut late = plain_tasks;
+    let fee = late[0].remove(2);
+    late[1].insert(0, fee);
+    assert!(SendStagePlan::new(plain.with_operation_tasks(late).unwrap()).is_err());
     assert_ne!(complete.schema(), context.schema());
     // The inline relation cannot move beside the receipt or be dropped.
     let mut moved = tasks.clone();

@@ -6,10 +6,13 @@
 use iroha_plonk::frontend::Error;
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
-use crate::a_relation::{
-    AProofPlan,
-    context::{ContextObjectSpec, ContextPlan},
-    schedule::OperationTask,
+use crate::{
+    a_relation::{
+        AProofPlan,
+        context::{ContextObjectSpec, ContextPlan},
+        schedule::OperationTask,
+    },
+    witness::CONTROL_QUOTAS,
 };
 
 /// One exact compiled owner/Q schedule, independent of witnesses and artifact keys.
@@ -21,10 +24,21 @@ pub struct OperationSchedule {
     predecessor: Option<usize>,
 }
 impl OperationSchedule {
-    /// Select the sole current source schedule for an operation variant.
+    /// Select the sole current source schedule for an operation variant with every
+    /// control off.
     #[must_use]
     pub fn for_variant(variant: Variant) -> Self {
+        Self::for_operation(variant, 0)
+    }
+
+    /// Select the sole current source schedule for an operation variant under its
+    /// route's enabled-controls mask. Only Send depends on the mask: its A1 owns both
+    /// map insertions unless the quota control's inline window charges leave no room
+    /// for them beside the real Omega predecessor.
+    #[must_use]
+    pub fn for_operation(variant: Variant, enabled_controls: u32) -> Self {
         use OperationTask::*;
+        let quotas = enabled_controls & CONTROL_QUOTAS != 0;
         let (q, tasks) = match variant {
             // Lean: one unsplit terminal A proves the zero state, the issuer and
             // the own receipt on its single signature Q; no W follows it.
@@ -35,14 +49,25 @@ impl OperationSchedule {
             // Lean, one terminal A: the hard predecessor, the recovery and the own
             // receipt on its single signature Q; no W follows it.
             Variant::Load => (vec![vec![0]], vec![vec![LoadRecovery, LoadReceipt]]),
-            // Lean: A1 proves the transition and its objects beside the hard predecessor,
-            // A2 both map insertions, A3 the own receipt. The two-stage packing (maps in
-            // A1) exceeds k16's usable rows once A1 verifies the real Omega predecessor.
-            Variant::Send => (
+            // Lean with the quota control: A1 proves the transition and its objects beside
+            // the hard predecessor, A2 both map insertions, A3 the own receipt. The
+            // two-stage packing (maps in A1) exceeds k16's usable rows once A1 verifies
+            // the real Omega predecessor and charges the quota windows.
+            Variant::Send if quotas => (
                 vec![vec![], vec![], vec![0]],
                 vec![
                     vec![SendObjects, SendTransition],
                     vec![SendPending, SendFeeAndCarry],
+                    vec![SendAuthorization],
+                ],
+            ),
+            // Lean without the quota control: A1 proves the transition, its objects and
+            // both map insertions beside the hard predecessor; the terminal A2 the own
+            // receipt.
+            Variant::Send => (
+                vec![vec![], vec![0]],
+                vec![
+                    vec![SendObjects, SendPending, SendFeeAndCarry, SendTransition],
                     vec![SendAuthorization],
                 ],
             ),
@@ -160,6 +185,16 @@ impl OperationSchedule {
         }
     }
 
+    /// The schedule of `route`: Send's follows its own selector's enabled-controls
+    /// mask; every other variant's mask is zero.
+    #[must_use]
+    pub fn for_route(route: OperationRoute) -> Self {
+        let controls = super::SIGMA_SELECTORS
+            .get(usize::from(route.own))
+            .map_or(0, |(_, mask)| u32::from(*mask));
+        Self::for_operation(route.variant, controls)
+    }
+
     /// Bind these exact partitions to the actual fixed Q keys and object schema.
     /// # Errors
     /// Another operation variant, omitted/reordered Q or mandatory owner, or invalid schema.
@@ -264,9 +299,11 @@ struct RouteRecord {
 }
 
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
-#[norito_schema(name = "iroha.kagemusha.native.operation_schedule.v1")]
+#[norito_schema(name = "iroha.kagemusha.native.operation_schedule.v2")]
 struct Record {
     variant: u8,
+    /// The enabled controls that select this schedule (Send's quota class), else 0.
+    controls: u32,
     predecessor: Option<u32>,
     q: Vec<Vec<u32>>,
     tasks: Vec<Vec<u8>>,
@@ -279,18 +316,31 @@ struct Policy {
     routes: Vec<RouteRecord>,
 }
 
+/// Every distinct compiled schedule with its variant and selecting controls: each
+/// variant with every control off in [`Variant::ALL`] order, then quota-control Send.
+fn compiled_schedules() -> Vec<(Variant, u32)> {
+    let mut schedules: Vec<_> = Variant::ALL.into_iter().map(|v| (v, 0)).collect();
+    schedules.push((Variant::Send, CONTROL_QUOTAS));
+    schedules
+}
+
 /// Canonical compiled schedule preimage for the common native artifact profile.
-/// It contains every variant, not caller-selected partitions or witness verdicts.
+/// It contains every variant's schedule and the quota-control Send schedule, not
+/// caller-selected partitions or witness verdicts.
 /// # Errors
 /// Integer overflow or canonical Norito encoding failure.
 pub fn compiled_schedule_transcript() -> Result<Vec<u8>, Error> {
-    let records = Variant::ALL
+    let records = compiled_schedules()
         .into_iter()
-        .enumerate()
-        .map(|(index, variant)| {
-            let s = OperationSchedule::for_variant(variant);
+        .map(|(variant, controls)| {
+            let index = Variant::ALL
+                .iter()
+                .position(|v| *v == variant)
+                .ok_or(Error::Synthesis)?;
+            let s = OperationSchedule::for_operation(variant, controls);
             Ok(Record {
                 variant: u8::try_from(index + 1).map_err(|_| Error::BoundsFailure)?,
+                controls,
                 predecessor: s
                     .predecessor
                     .map(u32::try_from)
@@ -313,7 +363,7 @@ pub fn compiled_schedule_transcript() -> Result<Vec<u8>, Error> {
         })
         .collect::<Result<_, Error>>()?;
     norito::encode_canonical(&Policy {
-        version: 1,
+        version: 2,
         records,
         routes: compiled_routes()
             .into_iter()
@@ -342,9 +392,17 @@ mod tests {
         // Every route except Refresh is lean: no own Q_sigma. Bootstrap, Load, Send,
         // Unload, Retiring and ArchiveStatus have one signature leaf; Receive and
         // ArchiveReceive add the incoming-only Q_sigma.
-        let expected = [1, 1, 3, 5, 5, 9, 8, 1, 1, 4, 4, 7, 4];
-        for (variant, count) in Variant::ALL.into_iter().zip(expected) {
-            let schedule = OperationSchedule::for_variant(variant);
+        let expected = [1, 1, 2, 5, 5, 9, 8, 1, 1, 4, 4, 7, 4];
+        let schedules = Variant::ALL
+            .into_iter()
+            .zip(expected)
+            .map(|(variant, count)| (variant, OperationSchedule::for_variant(variant), count))
+            .chain([(
+                Variant::Send,
+                OperationSchedule::for_operation(Variant::Send, CONTROL_QUOTAS),
+                3,
+            )]);
+        for (variant, schedule, count) in schedules {
             assert_eq!(schedule.stage_count(), count);
             assert_eq!(schedule.tasks().len(), count);
             OperationTask::validate(variant, schedule.tasks()).unwrap();
@@ -416,8 +474,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(norito::encode_canonical(&policy).unwrap(), bytes);
-        assert_eq!(policy.version, 1);
-        assert_eq!(policy.records.len(), Variant::ALL.len());
+        assert_eq!(policy.version, 2);
+        assert_eq!(policy.records.len(), Variant::ALL.len() + 1);
         assert_eq!(policy.routes.len(), 22);
         for (actual, expected) in policy.routes.iter().zip(compiled_routes()) {
             assert_eq!(
@@ -427,9 +485,11 @@ mod tests {
             assert_eq!(actual.own, expected.own);
             assert_eq!(actual.incoming, expected.incoming);
         }
-        for (index, (record, variant)) in policy.records.iter().zip(Variant::ALL).enumerate() {
-            assert_eq!(usize::from(record.variant), index + 1);
-            let source = OperationSchedule::for_variant(variant);
+        for (index, record) in policy.records.iter().enumerate() {
+            let (variant, controls) = compiled_schedules()[index];
+            assert_eq!(Variant::ALL[usize::from(record.variant) - 1], variant);
+            assert_eq!(record.controls, controls);
+            let source = OperationSchedule::for_operation(variant, controls);
             assert_eq!(
                 record.predecessor,
                 source.predecessor.map(|i| u32::try_from(i).unwrap())
@@ -453,6 +513,54 @@ mod tests {
                     .map(|p| p.iter().map(|t| t.code()).collect::<Vec<_>>())
                     .collect::<Vec<_>>()
             );
+        }
+    }
+
+    #[test]
+    fn send_packs_both_map_insertions_into_a1_unless_the_quota_control_is_on() {
+        use super::super::SIGMA_SELECTORS;
+        let plain = OperationSchedule::for_variant(Variant::Send);
+        assert_eq!(plain.q, [vec![], vec![0]]);
+        assert_eq!(
+            plain.tasks,
+            [
+                vec![
+                    OperationTask::SendObjects,
+                    OperationTask::SendPending,
+                    OperationTask::SendFeeAndCarry,
+                    OperationTask::SendTransition
+                ],
+                vec![OperationTask::SendAuthorization]
+            ]
+        );
+        let quota = OperationSchedule::for_operation(Variant::Send, CONTROL_QUOTAS);
+        assert_eq!(quota.q, [vec![], vec![], vec![0]]);
+        assert_eq!(
+            quota.tasks,
+            [
+                vec![OperationTask::SendObjects, OperationTask::SendTransition],
+                vec![OperationTask::SendPending, OperationTask::SendFeeAndCarry],
+                vec![OperationTask::SendAuthorization]
+            ]
+        );
+        for route in compiled_routes() {
+            let schedule = OperationSchedule::for_route(route);
+            let (_, mask) = SIGMA_SELECTORS[usize::from(route.own)];
+            let expected = match route.variant {
+                Variant::Send if u32::from(mask) & CONTROL_QUOTAS != 0 => 3,
+                Variant::Send => 2,
+                variant => OperationSchedule::for_variant(variant).stage_count(),
+            };
+            assert_eq!(schedule.stage_count(), expected, "{route:?}");
+        }
+        // Only Send reads the controls.
+        for variant in Variant::ALL {
+            if variant != Variant::Send {
+                assert_eq!(
+                    OperationSchedule::for_operation(variant, CONTROL_QUOTAS).tasks,
+                    OperationSchedule::for_variant(variant).tasks
+                );
+            }
         }
     }
 

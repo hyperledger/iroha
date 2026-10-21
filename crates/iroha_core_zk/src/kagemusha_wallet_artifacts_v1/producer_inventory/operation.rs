@@ -183,8 +183,9 @@ impl Plan {
                     p, terminal,
                 ))?))
             }
+            // Send's stage count follows its mask's quota control (two or three A stages).
             Self::Send(p) => QualifiedOperationOwnerV1::Send(Box::new(source(
-                send::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
+                send::Prover::from_artifacts(p, a, w),
             )?)),
             Self::Receive(p) => QualifiedOperationOwnerV1::Receive(Arc::new(source(
                 receive::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),

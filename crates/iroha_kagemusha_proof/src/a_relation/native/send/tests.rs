@@ -53,9 +53,15 @@ fn original(mask: u8) -> Inputs {
 }
 
 #[test]
-fn lean_schedule_has_three_a_two_w_and_the_pinned_trivial_part() {
-    assert_eq!(A_STAGE_COUNT, 3);
-    assert_eq!(W_STAGE_COUNT, 2);
+fn lean_schedule_has_two_or_three_a_by_quota_control_and_the_pinned_trivial_part() {
+    assert_eq!(PLAIN_A_STAGE_COUNT, 2);
+    assert_eq!(QUOTA_A_STAGE_COUNT, 3);
+    assert_eq!(
+        (0..4).map(a_stage_count).collect::<Vec<_>>(),
+        [2, 3, 2, 3],
+        "masks without the quota control pack both map insertions into A1"
+    );
+    assert_eq!(a_stage_count(4), 2);
     // No own sigma verifier: W0 folds the explicit pinned filler, exactly the words
     // every internal frame already uses for absent Vesta slots.
     let part = trivial_vesta_claim().unwrap();

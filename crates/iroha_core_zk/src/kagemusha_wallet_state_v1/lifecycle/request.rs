@@ -5,7 +5,7 @@ use iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1;
 use super::*;
 
 /// Largest original, the online Load finality, plus companion and request metadata.
-/// This local intake bound leaves the 10,000-byte peer Payment limit unchanged. A locally
+/// This local intake bound leaves the 10,034-byte peer Payment limit unchanged. A locally
 /// installed blacklist is not an operation request and has its own bound.
 pub const REQUEST_MAX_BYTES: usize =
     KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1024;
@@ -41,7 +41,7 @@ pub enum OperationActionV1 {
     },
     /// Receive the exact Payment; Native selects its durably issued Request by digest.
     Receive {
-        /// Original canonical Payment, at most10,000 bytes.
+        /// Original canonical Payment, at most10,034 bytes.
         payment: Vec<u8>,
         /// Original payer credential.
         payer_credential: Vec<u8>,

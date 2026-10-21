@@ -123,7 +123,7 @@ class KagemushaWalletSetupV1Test {
         KagemushaWalletSetupInputV1(25, identity = id, first = byteArrayOf(1), second = byteArrayOf(2))
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(25, identity = id, first = byteArrayOf(1)) }
         for (status in 31..35) {
-            val bytes = if (status == 31) ByteArray(21_024) { 1 } else if (status == 33) id else byteArrayOf()
+            val bytes = if (status == 31) ByteArray(21_092) { 1 } else if (status == 33) id else byteArrayOf()
             val result = KagemushaWalletCallV1(status, -1, 0, if (status == 33) -1 else 0, 0, 0, bytes)
             assertFailsWith<KagemushaWalletExceptionV1> { result.completion() }
             if (status == 33) assertEquals(-1L, KagemushaWalletLedgerProgressV1(result).heightBits)
@@ -142,7 +142,7 @@ class KagemushaWalletSetupV1Test {
             assertEquals(selector, input.selector)
             assertContentEquals(result.bytes(), input.first())
             assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector) }
-            assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector, first = ByteArray(10_001)) }
+            assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector, first = ByteArray(10_035)) }
             assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector, token = 1, first = result.bytes()) }
         }
         for (status in listOf(0, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12)) {
@@ -183,7 +183,7 @@ class KagemushaWalletSetupV1Test {
         KagemushaWalletCallV1(17, -1, 0, 0, 0, 0, ByteArray(16_384))
         for (count in listOf(0, 16_385)) assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(17, -1, 0, 0, 0, 0, ByteArray(count)) }
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(17, -1, 0, 1, 0, 0, byteArrayOf(1)) }
-        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(1, -1, 0, 0, 0, 0, ByteArray(10_001)) }
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(1, -1, 0, 0, 0, 0, ByteArray(10_035)) }
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(17, -1, 0, 0, 0, 0, byteArrayOf(1)).completion() }
     }
     @Test fun `setup fields are bounded copied and cannot inject time`() {
@@ -199,7 +199,7 @@ class KagemushaWalletSetupV1Test {
         for (selector in listOf(8, 9, 10, 12, 13, 14)) {
             KagemushaWalletSetupInputV1(selector, first = envelope)
             assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector) }
-            assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector, first = ByteArray(10_001)) }
+            assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector, first = ByteArray(10_035)) }
         }
         // The Offer setup (1) and its transport selectors (7, 11) are retired.
         for (selector in listOf(1, 7, 11)) {
@@ -230,7 +230,7 @@ class KagemushaWalletSetupV1Test {
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(2, id, amount, second = ByteArray(1_025), third = byteArrayOf(1)) }
         // RequestWithFeePolicy: first the schedule envelope, second the certificates envelope, both or neither.
         KagemushaWalletSetupInputV1(39, id, amount)
-        KagemushaWalletSetupInputV1(39, id, amount, first = ByteArray(10_000), second = ByteArray(10_000))
+        KagemushaWalletSetupInputV1(39, id, amount, first = ByteArray(10_034), second = ByteArray(10_034))
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, first = byteArrayOf(1)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, second = byteArrayOf(1)) }
         assertFailsWith<IllegalArgumentException> {
@@ -241,13 +241,13 @@ class KagemushaWalletSetupV1Test {
     }
 
     @Test fun `the payment companion takes exactly one Payment original and no identity`() {
-        val payment = ByteArray(10_000) { 7 }
+        val payment = ByteArray(10_034) { 7 }
         val input = KagemushaWalletSetupInputV1(55, first = payment)
         payment[0] = 0
         assertEquals(7, input.first()[0].toInt())
         assertContentEquals(ByteArray(32), input.identity())
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(55) }
-        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(55, first = ByteArray(10_001)) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(55, first = ByteArray(10_035)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(55, ByteArray(32) { 1 }, first = byteArrayOf(1)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(55, amount = KagemushaWalletUInt128V1(1, 0), first = byteArrayOf(1)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(55, token = 1, first = byteArrayOf(1)) }

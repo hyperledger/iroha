@@ -27,11 +27,11 @@ object IrohaPeerNfcV1 {
     const val HASH_BYTES = 32
     const val MAXIMUM_CHUNK_BYTES = 4_096
 
-    /** The 84-byte IPM1 header plus the maximum Request carrier (14,112 bytes). */
+    /** The 84-byte IPM1 header plus the maximum Request carrier (14,146 bytes). */
     const val MAXIMUM_MESSAGE_BYTES =
         IrohaPeerWireMessageV1.HEADER_LENGTH + IrohaPeerWireMessageV1.MAXIMUM_WALLET_ENCODED_BYTES
 
-    /** The 84-byte IPM1 header plus the maximum Payment carrier with its payer companion (12,064 bytes). */
+    /** The 84-byte IPM1 header plus the maximum Payment carrier with its payer companion (12,098 bytes). */
     const val MAXIMUM_PAYMENT_BYTES =
         IrohaPeerWireMessageV1.HEADER_LENGTH + IrohaPeerWalletPaymentV1.MAXIMUM_BYTES
 

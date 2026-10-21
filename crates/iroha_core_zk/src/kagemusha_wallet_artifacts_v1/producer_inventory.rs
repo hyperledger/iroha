@@ -7,7 +7,9 @@
 
 use std::io::Read;
 
-use iroha_kagemusha_proof::a_relation::schedule::compiled::{OperationSchedule, compiled_routes};
+use iroha_kagemusha_proof::a_relation::schedule::compiled::{
+    OperationRoute, OperationSchedule, compiled_routes,
+};
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
 use super::*;
@@ -274,10 +276,24 @@ impl ProducerInventoryV1 {
         let mut terminal_keys = Vec::new();
         for operation in &self.operations {
             let variant = variant(operation.variant)?;
-            let schedule = OperationSchedule::for_variant(variant);
-            let q_count = schedule.q_partitions().iter().flatten().count();
             selectors(&operation.own_class, false)?;
             selectors(&operation.incoming_class, true)?;
+            // Every own selector of the class selects the same schedule (Send's follows
+            // the quota control of its mask).
+            let mut schedules = operation.own_class.iter().map(|own| {
+                OperationSchedule::for_route(OperationRoute {
+                    variant,
+                    own: *own,
+                    incoming: None,
+                })
+            });
+            let schedule = schedules.next().ok_or(Error::Inventory)?;
+            if schedules.any(|other| {
+                other.tasks() != schedule.tasks() || other.q_partitions() != schedule.q_partitions()
+            }) {
+                return Err(Error::Inventory);
+            }
+            let q_count = schedule.q_partitions().iter().flatten().count();
             let allowed: Vec<_> = routes
                 .iter()
                 .filter(|route| route.variant == variant)

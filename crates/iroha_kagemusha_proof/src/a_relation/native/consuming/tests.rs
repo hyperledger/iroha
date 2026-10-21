@@ -144,13 +144,13 @@ fn final_digest_has_exact52_fields_and_keeps_high_foreign_challenge_limbs() {
 
 #[test]
 fn uniform_omega_transport_cap_rejects_generic_profiles_without_a_fallback() {
-    assert_eq!(OMEGA_TRANSPORT_CAP, 5_086);
-    for size in (32..=3_968).step_by(32) {
+    assert_eq!(OMEGA_TRANSPORT_CAP, 5_120);
+    for size in (32..=4_032).step_by(32) {
         assert_eq!(check_omega_transport_length(size), Ok(()), "size {size}");
     }
-    assert_eq!(check_omega_transport_length(3_872), Ok(()));
     assert_eq!(check_omega_transport_length(3_904), Ok(()));
-    for size in [0, 1, 3_733, 4_000, 11_360 - 1_088, usize::MAX] {
+    assert_eq!(check_omega_transport_length(4_032), Ok(()));
+    for size in [0, 1, 3_733, 4_064, 11_360 - 1_088, usize::MAX] {
         assert_eq!(
             check_omega_transport_length(size),
             Err(Error::Input),

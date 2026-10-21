@@ -333,7 +333,7 @@ fn manifest_originals(
     let rows = manifest["originals"].as_array().unwrap();
     assert_eq!(rows.len(), 8);
     let files = norito::json!({"files": (rows.clone())});
-    ORIGINAL_NAMES.map(|name| target_original(input.parent().unwrap(), &files, name, 10_000))
+    ORIGINAL_NAMES.map(|name| target_original(input.parent().unwrap(), &files, name, 10_034))
 }
 
 pub(super) fn read_pinned_originals() -> (Vec<u8>, [Vec<u8>; 8]) {
@@ -1059,10 +1059,10 @@ fn message_census_records_complete_frame_and_retains_oversize_failure() {
     let KagemushaWalletMessageV1::Payment { mut payment } = message else {
         unreachable!()
     };
-    while norito::encode_canonical(&payment).unwrap().len() < 9_995 {
+    while norito::encode_canonical(&payment).unwrap().len() < 10_029 {
         payment.send.step_proof.bytes.push(0);
     }
-    assert!(norito::encode_canonical(&payment).unwrap().len() <= 10_000);
+    assert!(norito::encode_canonical(&payment).unwrap().len() <= 10_034);
     assert!(
         std::panic::catch_unwind(|| record(
             directory.path(),
@@ -1076,7 +1076,7 @@ fn message_census_records_complete_frame_and_retains_oversize_failure() {
     )
     .unwrap();
     assert_eq!(measured["within_bound"].as_bool(), Some(false));
-    assert!(measured["bytes"].as_u64().unwrap() > 10_000);
+    assert!(measured["bytes"].as_u64().unwrap() > 10_034);
     assert_eq!(
         measured["bytes"].as_u64(),
         Some(

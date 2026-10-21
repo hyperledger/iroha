@@ -4,7 +4,7 @@ use crate::kagemusha_wallet_advance_v1::LiveEnrollmentReadingV1;
 use iroha_crypto::Algorithm;
 use iroha_data_model::{account::AccountId, kagemusha::*};
 
-/// Complete dispatch bound, independent of the 10,000-byte monetary Payment limit.
+/// Complete dispatch bound, independent of the 10,034-byte monetary Payment limit.
 pub const PREKEY_DISPATCH_MAX_BYTES: usize = 16_384;
 
 /// Exact native-selected transport originals and fresh dispatch identifiers.

@@ -61,8 +61,8 @@ record.
 | Constraint | Met by | Status |
 |---|---|---|
 | Two-second p95 to durable completion; Ω verified on the path unless pre-verified | Matching native/SDK/device campaign, initially Pixel 6 and the connected iPhone 17 Pro Max | open; the estimates in §4 do not qualify durable completion |
-| R9: Ω + largest σ_send ≤ 10,000 − 1,394 = 8,606 B | Independent role caps σ ≤ 3,520 B and Ω ≤ 5,086 B, plus the checked joint bound (§3.5) | model/SDK boundary rules implemented; current candidate validation and genuine complete-catalog artifact qualification are open |
-| Credited::Status ≤ 10,000 B | Fixed status overhead 2,188 B plus Ω ≤ 5,086 B gives at most 7,274 B; the carrier-derived 7,812 B budget does not replace the Ω role cap | envelope arithmetic [C]; genuine artifact qualification open |
+| R9: Ω + largest σ_send ≤ 10,034 − 1,394 = 8,640 B | Independent role caps σ ≤ 3,520 B and Ω ≤ 5,120 B, plus the checked joint bound (§3.5) | model/SDK boundary rules implemented; current candidate validation and genuine complete-catalog artifact qualification are open |
+| Credited::Status ≤ 10,034 B | Fixed status overhead 2,188 B plus Ω ≤ 5,120 B gives at most 7,308 B; the carrier-derived 7,846 B budget does not replace the Ω role cap | envelope arithmetic [C]; genuine artifact qualification open |
 | Fold peak RAM ≤ 1 GiB | §6: one prover at a time, ≤ 0.85 GiB per sub-proof plus ≤ 0.15 GiB wallet core | estimate only; current candidate measurement remains open (G3.6, G3.7, G4.6, G5.3) |
 | First release; formats may be redesigned | PIPA-R profile and PIPA-AS-v1 (§8); σ moves to the base-field transcript at unchanged byte length | used |
 | std, deterministic, no new external crates, Pasta curves | only `iroha_pasta`, `iroha_plonk`, `iroha_plonk_gadgets` and a new workspace crate `iroha_plonk_recursion`; verifier MSMs stay `msm_complete` (PIPA S10) | met |
@@ -70,7 +70,7 @@ record.
 | Wallet maps and the credit-digest tree are depth-32 IMTs; the quota-usage map is the B5 depth-6 array | IMT chip in A; the array shares the depth-6 path layer of the quota-window tree | met |
 | Receiver matched by `wallet_id` and `payment_key`; continuity proven in Λ | A equalities; the Request's receiver credential is verified in Λ_recv and deduplicated with the current credential | met |
 | One Fp head commitment; one `relation_id`; σ keys selected by (tag, mask) | `relation_id` is carried in D_A, never a circuit constant; σ's key is selected in Q by one-hot digest and checked in A against the (tag, mask) table | met |
-| Enabled controls enforced in σ_send | Λ only selects σ's key; G-Ω2 enforces σ_send ≤ 3,520 B, Ω ≤ 5,086 B and their independent joint cap of 8,606 B | met; σ shape threshold |
+| Enabled controls enforced in σ_send | Λ only selects σ's key; G-Ω2 enforces σ_send ≤ 3,520 B, Ω ≤ 5,120 B and their independent joint cap of 8,640 B | met; σ shape threshold |
 | Proposal §3.2 containment: deferred failures burn or no-op, no poison | corrected-claim witness plus total soft verifiers (§2.7) | met |
 | Proposal §3.2: native and in-circuit verifiers accept exactly the same set | one table-driven predicate (PIPA S11), complete in-circuit arithmetic, total soft verifiers (§7 C7) | met deterministically |
 
@@ -438,17 +438,17 @@ proof payloads:
 | Bound | Bytes [C] | Owner |
 |---|---:|---|
 | σ proof | 3,520 | Every admitted σ descriptor and decoded Payment |
-| Transported Ω, including both accumulator claims | 5,086 | Every admitted Ω descriptor, Lineage and Payment |
-| σ + transported Ω | 8,606 | Checked addition in Payment and artifact admission |
-| Complete Payment | 10,000 | 1,394 + 3,520 + 5,086 |
+| Transported Ω, including both accumulator claims | 5,120 | Every admitted Ω descriptor, Lineage and Payment |
+| σ + transported Ω | 8,640 | Checked addition in Payment and artifact admission |
+| Complete Payment | 10,034 | 1,394 + 3,520 + 5,120 |
 | Credited::Status fixed overhead | 2,188 | Canonical wire encoder |
-| Credited::Status with Ω at its role cap | 7,274 | 2,188 + 5,086 |
+| Credited::Status with Ω at its role cap | 7,308 | 2,188 + 5,120 |
 
-The status carrier's derived budget, 10,000 − 2,188 = 7,812 B, is a frame
+The status carrier's derived budget, 10,034 − 2,188 = 7,846 B, is a frame
 calculation only. It cannot be borrowed by an oversized Ω; spare Ω space cannot
 be borrowed by an oversized σ. The same applies when only one role's proof is
 present. The native raw carrier adds its own 320-byte prefix: a maximal raw Ω
-carrier is 5,406 B and a maximal raw Ω-plus-σ carrier is 8,926 B. These raw
+carrier is 5,440 B and a maximal raw Ω-plus-σ carrier is 8,960 B. These raw
 carriers are not the Payment transport encoding.
 
 Let `B(D)` be the exact proof length derived by `Protocol::proof_length` from
@@ -509,7 +509,7 @@ not fit.
 
 | Step | Work | Mac | Phone [E] |
 |---|---|---|---|
-| Decode ≤ 10,000 B canonically | — | < 0.1 ms [E] | < 0.3 ms |
+| Decode ≤ 10,034 B canonically | — | < 0.1 ms [E] | < 0.3 ms |
 | Ω(pred) byte identity with the cached Lineage Ω | byte comparison (equal `lineage_digest`) | < 0.1 ms [E] | < 0.1 ms |
 | Consumer checks, Request account digests; with a held local blacklist, a native search of it for the payer account | equalities, ≈ 35 permutations | < 0.5 ms [E] | < 1 ms |
 | σ_send `verify_full`, key by (Send, Ω.enabled_controls) | k12; its 2^12 G'_0 MSM is 36.8 ms [M] | **39 ms 1t, 14 ms 4t** [M]; PIPA-R re-measure G4.8 | 15–32 ms (4 cores), 43–90 ms (1 core) |
@@ -1205,7 +1205,7 @@ hard slot; MV14 skip the VK-digest equality in A; MV15 allow a Corrected slot wi
 |---|---|
 | G4.1 | Fiat–Shamir, CRT and PCD/containment memos written; PIPA-R and PIPA-AS text merged into `plonk_ipa_v1.md` with KATs |
 | G4.2 | In-circuit verify cells ≤ σ 191k; Q 297k + 0.45k per instance; A 337k; Ω 212k; PIPA-AS (r = 4) 91k |
-| G4.3 | Current complete-catalog Ω proof body ≤ 3,968 B, transported Ω ≤ 5,086 B; all main/range rows fit and actual assignments replay. Matching genuine artifact, source catalog and root continuity qualification remain open |
+| G4.3 | Current complete-catalog Ω proof body ≤ 4,032 B, transported Ω ≤ 5,120 B; all main/range rows fit and actual assignments replay. Matching genuine artifact, source catalog and root continuity qualification remain open |
 | G4.4 | PIPA-AS prover ≤ 3.5 s Mac 1t, ≤ 1.2 s 4t |
 | G4.5 | `msm_complete` at 2^16 measured on 4 threads; two decides ≤ 0.35 s Mac 4t |
 | G4.6 | Measured peak RSS ≤ 0.85 GiB for the A shape under the owned-witness API |
@@ -1255,7 +1255,7 @@ Named tests:
 | Threshold | Value |
 |---|---|
 | G5.1 | A cells per variant ≤ 1.67M, else the variant ships as the A-split |
-| G5.2 | Measured Ω = allowlist length; Payment worst case ≤ 10,000 B with the largest σ_send; Credited::Status worst case ≤ 10,000 B |
+| G5.2 | Measured Ω = allowlist length; Payment worst case ≤ 10,034 B with the largest σ_send; Credited::Status worst case ≤ 10,034 B |
 | G5.3 | On at least two phone classes, per-sub-proof peak RSS ≤ 0.85 GiB and the fold engine ≤ 1 GiB in total |
 | G5.4 | On the slower phone class, receiver proof CPU on the pre-verified path ≤ 150 ms; cold two decides ≤ 0.8 s on 4 cores |
 | G5.5 | Fold time and energy recorded per operation and measured phone as evidence; nothing gates a device class or model. The proposal §5.3 runtime capacity check uses per-relation bounds computed from the installed relation descriptors, with no artifact change, and refuses before commit with `NotEnoughStorage` or `NotEnoughMemory`. An OS kill for memory during proving or commit, which returns no typed result, is recovered at the next app start: an uncommitted operation leaves the head unchanged and a committed one completes from its retained outcome |
@@ -1267,7 +1267,7 @@ Named tests:
 |---|---|---|---|
 | R1 | P-256 cost: estimated 0.2–0.4M cells, measured today at 1.47M | above 0.30M Receive needs the A-split (+48–65 s Mac); above 0.40M every operation gains a Q leaf | G3.1 first; window tables; precommitted own key |
 | R2 | Current complete-catalog Ω geometry and genuine artifact qualification remain open | A row or proof-length overflow makes the candidate inadmissible | G4.3; measure all stages and the current outer Ω before freezing the catalog/root |
-| R3 | Norm products, masking and enabled controls change σ geometry | Any σ above 3,520 B fails admission even if its paired Ω is smaller | Prove every admitted mask and enforce both role caps and the independent 8,606 B joint bound at artifact freeze |
+| R3 | Norm products, masking and enabled controls change σ geometry | Any σ above 3,520 B fails admission even if its paired Ω is smaller | Prove every admitted mask and enforce both role caps and the independent 8,640 B joint bound at artifact freeze |
 | R4 | No native measurement wider than k14; quotient cost of the wide gate sets | fold times 1.5–2× the model | G3.6, G3.7, G4.7 |
 | R5 | RAM: A at 0.84 GiB under the owned-witness API, close to 0.85 | over the cap | streaming (0.64 GiB); A-split; global scratch cap |
 | R6 | Phone performance: per-core ratio 1.1–2.3, 4-core wide-circuit speedup unmeasured, thermals | Receive up to ≈ 4 min on a slow phone | G5.6; fold while charging or in the foreground; preemption |
@@ -1308,13 +1308,13 @@ last were applied to the proposal and the wire record with the third set of owne
   quota-usage array and its in-place charges, the core quota share expiry and maximum
   anchor response time, and the Send time span.
 - **Pending (G4.3). Wire §3.2:** `lineage.proof = π_Ω ‖ acc_P (544) ‖ acc_V (544)`;
-  derive the exact `π_Ω` length from the regenerated descriptor and enforce the 5,086-byte
+  derive the exact `π_Ω` length from the regenerated descriptor and enforce the 5,120-byte
   Ω role cap. No historical component length is fixed into the wire contract.
 
 Remaining design gates:
 
-- A current σ exceeding 3,520 B, Ω exceeding 5,086 B, combined proofs exceeding
-  8,606 B, or a complete Payment exceeding 10,000 B fails admission. Fix the
+- A current σ exceeding 3,520 B, Ω exceeding 5,120 B, combined proofs exceeding
+  8,640 B, or a complete Payment exceeding 10,034 B fails admission. Fix the
   descriptor or relation design and regenerate the coherent artifact set.
 - A stage that exceeds its domain or memory bound must be split or optimized
   while preserving its constraints, containment behavior and causal privacy

@@ -102,7 +102,7 @@ fn rows<F: iroha_pasta::PastaField, C: Circuit<F>>(source: &C) -> usize {
 fn every_mask_inline_relation_stage_fits_k16() {
     for mask in 0..4 {
         let plan = original_plan(mask);
-        assert_eq!(plan.context.stage_count(), A_STAGE_COUNT);
+        assert_eq!(plan.context.stage_count(), a_stage_count(mask));
         let source = plan.source_circuit(0, None).unwrap();
         let a_rows = rows(&source);
         eprintln!(
@@ -118,8 +118,8 @@ fn every_mask_inline_relation_stage_fits_k16() {
 }
 
 #[test]
-#[ignore = "imports all actual Send and wrapper source tables at k16 for masks 0 and 3; run optimized explicitly"]
-fn three_a_two_w_original_sources_qualify_at_k16() {
+#[ignore = "imports all actual Send and wrapper source tables at k16 for masks 0 (two A) and 3 (three A); run optimized explicitly"]
+fn every_layout_original_sources_qualify_at_k16() {
     struct Original {
         d: Vec<u8>,
         v: Vec<u8>,
@@ -134,14 +134,16 @@ fn three_a_two_w_original_sources_qualify_at_k16() {
     }
     for mask in [0, 3] {
         let plan = original_plan(mask);
-        assert!(plan.source_circuit(A_STAGE_COUNT, None).is_err());
+        let stages = a_stage_count(mask);
+        assert_eq!(plan.context.stage_count(), stages);
+        assert!(plan.source_circuit(stages, None).is_err());
         assert!(plan.source_circuit(1, None).is_err());
         let mut wrappers: Vec<WKey> = Vec::new();
         let mut a_keys = Vec::new();
         let mut w_keys = Vec::new();
         let mut a_config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
         a_config.compress_selectors = false;
-        for stage in 0..A_STAGE_COUNT {
+        for stage in 0..stages {
             let source = plan
                 .source_circuit(
                     stage,
@@ -155,10 +157,10 @@ fn three_a_two_w_original_sources_qualify_at_k16() {
             assert!(a_rows < 65_529);
             let key = keygen_pk_v2(&plan.vesta, &source, &a_config).unwrap();
             assert!(
-                plan.wrapper_source(A_STAGE_COUNT - 1, key.binding(), key.vk())
+                plan.wrapper_source(stages - 1, key.binding(), key.vk())
                     .is_err()
             );
-            if stage + 1 < A_STAGE_COUNT {
+            if stage + 1 < stages {
                 let source = plan.wrapper_source(stage, key.binding(), key.vk()).unwrap();
                 eprintln!("lean Send mask{mask} W{stage} rows={}", rows(&source));
                 let (fixed, wrapper) = WKey::keygen(&source, &plan.pallas).unwrap();
@@ -188,32 +190,30 @@ fn three_a_two_w_original_sources_qualify_at_k16() {
             coset_cache: iroha_plonk::keys::CosetCachePolicy::OnDemand,
             msm_budget: MemoryBudget::DEFAULT,
         };
-        let imported = Prover::from_artifacts(
-            plan.clone(),
-            core::array::from_fn(|i| a[i].metadata()),
-            core::array::from_fn(|i| w[i].metadata()),
-        )
-        .unwrap();
-        assert_eq!(imported.descriptors().len(), 2 * A_STAGE_COUNT - 1);
-        for stage in 0..A_STAGE_COUNT {
+        let a_metadata = || -> Vec<KeyArtifact<Eq>> { a.iter().map(Original::metadata).collect() };
+        let w_metadata = || -> Vec<KeyArtifact<Ep>> { w.iter().map(Original::metadata).collect() };
+        let imported = Prover::from_artifacts(plan.clone(), a_metadata(), w_metadata()).unwrap();
+        assert_eq!(imported.descriptors().len(), 2 * stages - 1);
+        assert_eq!(imported.checkpoint_layouts().unwrap().len(), 2 * stages - 1);
+        for stage in 0..stages {
             let key_seal = imported.import_a(stage, &a[stage].p, config).unwrap();
             let key = imported.bind_a(stage, &key_seal, None).unwrap();
             assert_eq!(key.verifying_key().to_bytes(), a[stage].v);
-            if stage < W_STAGE_COUNT {
+            if stage + 1 < stages {
                 let key_seal = imported.import_w(stage, &w[stage].p, config).unwrap();
                 let key = imported.bind_w(stage, &key_seal, None).unwrap();
                 assert_eq!(key.verifying_key().to_bytes(), w[stage].v);
             }
         }
-        assert!(imported.import_a(A_STAGE_COUNT, &a[0].p, config).is_err());
-        assert!(imported.import_w(W_STAGE_COUNT, &w[0].p, config).is_err());
-        // Each mask's keys fix its relation: another mask's A1 never imports.
-        let other = Prover::from_artifacts(
-            original_plan(mask ^ 1),
-            core::array::from_fn(|i| a[i].metadata()),
-            core::array::from_fn(|i| w[i].metadata()),
-        )
-        .unwrap();
+        assert!(imported.import_a(stages, &a[0].p, config).is_err());
+        assert!(imported.import_w(stages - 1, &w[0].p, config).is_err());
+        // Each mask's keys fix its relation and layout: another layout's plan never
+        // installs them, and another mask's A1 of the same layout never imports.
+        assert!(
+            Prover::from_artifacts(original_plan(mask ^ 1), a_metadata(), w_metadata()).is_err()
+        );
+        let other =
+            Prover::from_artifacts(original_plan(mask ^ 2), a_metadata(), w_metadata()).unwrap();
         assert!(other.import_a(0, &a[0].p, config).is_err());
     }
 }

@@ -209,7 +209,7 @@ mod tests {
         let payment = original("Payment");
         let companion = companion();
         let companion_bytes = companion.to_canonical_bytes().unwrap();
-        for invalid in [vec![], vec![0], vec![0; 10_001]] {
+        for invalid in [vec![], vec![0], vec![0; 10_035]] {
             assert!(action(&invalid, &companion_bytes).is_err());
             assert!(action(&payment, &invalid).is_err());
         }

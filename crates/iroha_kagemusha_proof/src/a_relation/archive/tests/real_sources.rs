@@ -115,7 +115,7 @@ fn with_predecessor(
             .verifier()
             .proof_length();
         assert!(
-            length <= 10_000,
+            length <= 10_034,
             "fixed incoming sigma bound before tape allocation"
         );
         let incoming = IncomingSigmaWitness {

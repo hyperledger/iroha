@@ -1,8 +1,8 @@
-//! Genuine lean Send after a common-key Bootstrap→Load chain: A1 proves the step
-//! relation inline beside the hard predecessor, A2 both map insertions, A3 the own
-//! receipt under the predecessor payment key. The two-terminal predecessor catalog is
-//! a component scope, not the complete release catalog. Every source proof, pending
-//! claim and operation task is real.
+//! Genuine lean Send (mask 0, no quota control) after a common-key Bootstrap→Load
+//! chain: A1 proves the step relation inline beside the hard predecessor and both map
+//! insertions, A2 the own receipt under the predecessor payment key. The two-terminal
+//! predecessor catalog is a component scope, not the complete release catalog. Every
+//! source proof, pending claim and operation task is real.
 #![allow(clippy::duplicate_mod)]
 #[path = "common/bootstrap.rs"]
 mod bootstrap;
@@ -534,8 +534,20 @@ impl Circuit<Fp> for First {
                     &pv,
                     &proof,
                 )?;
-                // A1 proves the step relation itself beside the hard predecessor.
+                // A1 proves the step relation itself beside the hard predecessor, and
+                // both map insertions unless the quota control is on.
                 let native = maps.witness.step.evaluate(SigmaRelation::SEND);
+                let tasks = self.plan.operation_tasks(0).ok_or(Error::Synthesis)?;
+                let pending = if tasks.contains(&OperationTask::SendPending) {
+                    Some(maps.insertion(&mut chip.uint(), &mut region, &maps.witness.pending)?)
+                } else {
+                    None
+                };
+                let fee = if tasks.contains(&OperationTask::SendFeeAndCarry) {
+                    Some(maps.insertion(&mut chip.uint(), &mut region, &maps.witness.fee)?)
+                } else {
+                    None
+                };
                 SendStagePlan::new(self.plan.clone())?.constrain_stage(
                     &mut chip,
                     &mut region,
@@ -554,6 +566,8 @@ impl Circuit<Fp> for First {
                     },
                     SendStageWitness {
                         transition: Some(self.transition(&native)),
+                        pending: pending.as_ref(),
+                        fee: fee.as_ref(),
                         ..SendStageWitness::default()
                     },
                 )?;
@@ -1471,19 +1485,15 @@ pub(crate) fn run_send_from_load(
     native_differential: bool,
 ) -> AuthenticatedSend {
     let source = Arc::new(sources(rooted));
-    let context = ContextPlan::with_schedule(
-        source.plan.clone(),
-        vec![vec![], vec![], vec![0]],
-        Some(0),
-        SendStagePlan::context_specs().unwrap(),
-    )
-    .unwrap()
-    .with_operation_tasks(vec![
-        vec![OperationTask::SendObjects, OperationTask::SendTransition],
-        vec![OperationTask::SendPending, OperationTask::SendFeeAndCarry],
-        vec![OperationTask::SendAuthorization],
-    ])
-    .unwrap();
+    // The controls-off compiled schedule, bound exactly as the native plan binds it: A1
+    // carries the objects, both map insertions and the transition; A2 authorizes.
+    let context =
+        iroha_kagemusha_proof::a_relation::schedule::compiled::OperationSchedule::for_operation(
+            Variant::Send,
+            0,
+        )
+        .bind(source.plan.clone(), SendStagePlan::context_specs().unwrap())
+        .unwrap();
     SendStagePlan::new(context.clone()).unwrap();
     let claims = [
         source.predecessor.pallas.as_input(),
@@ -1638,18 +1648,18 @@ fn native_installed_send_differential(
     );
     // Only installed metadata is needed for source/key import. No native Inputs,
     // Prepared operation or runtime checkpoint exists at this point.
-    let key_originals_a: [NativeSendOriginal; 3] = a
+    let key_originals_a: [NativeSendOriginal; 2] = a
         .iter()
         .map(|key| NativeSendOriginal::from_key(key.as_ref()))
         .collect::<Vec<_>>()
         .try_into()
-        .unwrap_or_else(|_| panic!("exact three A originals"));
-    let key_originals_w: [NativeSendOriginal; 2] = w
+        .unwrap_or_else(|_| panic!("exact two A originals"));
+    let key_originals_w: [NativeSendOriginal; 1] = w
         .iter()
         .map(|key| NativeSendOriginal::from_key(key.as_ref()))
         .collect::<Vec<_>>()
         .try_into()
-        .unwrap_or_else(|_| panic!("exact two W originals"));
+        .unwrap_or_else(|_| panic!("exact one W original"));
     let config = iroha_plonk::keys::pk::artifact::ReadConfig {
         maximum_bytes: key_originals_a
             .iter()
@@ -1662,22 +1672,18 @@ fn native_installed_send_differential(
         msm_budget: MemoryBudget::DEFAULT,
     };
     let install = |plan: native::Plan,
-                   a: &[NativeSendOriginal; 3],
-                   w: &[NativeSendOriginal; 2],
+                   a: &[NativeSendOriginal; 2],
+                   w: &[NativeSendOriginal; 1],
                    config|
      -> Result<native::Prover, native::Error> {
         let a_metadata = a
             .iter()
             .map(NativeSendOriginal::metadata)
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| native::Error::Artifact)?;
+            .collect::<Result<Vec<_>, _>>()?;
         let w_metadata = w
             .iter()
             .map(NativeSendOriginal::metadata)
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| native::Error::Artifact)?;
+            .collect::<Result<Vec<_>, _>>()?;
         let prover = native::Prover::from_artifacts(plan, a_metadata, w_metadata)?;
         for (stage, original) in a.iter().enumerate() {
             prover.import_a(stage, &original.pk, config)?;
@@ -1690,27 +1696,27 @@ fn native_installed_send_differential(
     let installed = install(plan.clone(), &key_originals_a, &key_originals_w, config).unwrap();
     assert!(
         installed
-            .import_a(3, &key_originals_a[0].pk, config)
+            .import_a(2, &key_originals_a[0].pk, config)
             .is_err()
     );
     assert!(
         installed
-            .import_w(2, &key_originals_w[0].pk, config)
+            .import_w(1, &key_originals_w[0].pk, config)
             .is_err()
     );
     for mutation in 0..12 {
         let mut bad_a = key_originals_a.clone();
         let mut bad_w = key_originals_w.clone();
         match mutation {
-            0 => bad_a.swap(0, 2),
-            1 => bad_a.swap(1, 2),
-            2 => bad_w.swap(0, 1),
-            3 => bad_a[0].vk.clone_from(&key_originals_a[2].vk),
-            4 => bad_w[0].vk.clone_from(&key_originals_w[1].vk),
+            0 => bad_a.swap(0, 1),
+            1 => bad_a[1].vk.clone_from(&key_originals_a[0].vk),
+            2 => bad_w[0].pk.push(0),
+            3 => bad_a[0].vk.clone_from(&key_originals_a[1].vk),
+            4 => bad_w[0].vk.clone_from(&key_originals_a[0].vk),
             5 => bad_a[0].pk[44 + key_originals_a[0].vk.len()] ^= 1,
             6 => bad_a[0].pk[44 + key_originals_a[0].vk.len() + 32] ^= 1,
             7 => bad_w[0].pk[44 + key_originals_w[0].vk.len()] ^= 1,
-            8 => bad_a[2].pk[44 + key_originals_a[2].vk.len()] ^= 1,
+            8 => bad_a[1].pk[44 + key_originals_a[1].vk.len()] ^= 1,
             9 => bad_a[0].pk.push(0),
             10 => {
                 bad_a[0].pk.pop();
@@ -1811,9 +1817,9 @@ fn native_installed_send_differential(
             vesta: source.predecessor.vesta.to_bytes(),
         },
     };
-    assert_eq!(installed.descriptors().len(), 5);
+    assert_eq!(installed.descriptors().len(), 3);
     let layouts = installed.checkpoint_layouts().unwrap();
-    assert_eq!(layouts.len(), 5);
+    assert_eq!(layouts.len(), 3);
     assert!(
         native::Catalog::new(core::array::from_fn(|_| installed.clone())).is_err(),
         "copies of mask0 do not constitute the complete source catalog"
@@ -1908,7 +1914,7 @@ fn native_installed_send_differential(
             .restore_first(originals_a[0].0.clone(), &originals_a[0].1[..543], budget)
             .is_err()
     );
-    for stage in 0..native::W_STAGE_COUNT {
+    for stage in 0..(native::PLAIN_A_STAGE_COUNT - 1) {
         // D6a: each continuation runs on a session detached and resumed between
         // fold calls; checkpoints restored before detaching keep their source.
         session = installed.resume(session.into_retained()).unwrap();
@@ -1918,27 +1924,27 @@ fn native_installed_send_differential(
             session.encode_a_checkpoint(&foreign_current, budget),
             Err(native::Error::Input)
         ));
-        if stage == 0 {
-            let foreign_seal = installed
-                .import_w(1, &key_originals_w[1].pk, config)
-                .unwrap();
-            let foreign = installed.bind_w(1, &foreign_seal, None).unwrap();
-            assert!(matches!(
-                session.wrapper(
-                    &current,
-                    &foreign,
-                    common::public_fixture_tape(124),
-                    &fold,
-                    common::fresh_randomness(),
-                    ProverConfig::default()
-                ),
-                Err(native::Error::Artifact)
-            ));
-        }
         let key_seal = installed
             .import_w(stage, &key_originals_w[stage].pk, config)
             .unwrap();
         let key = installed.bind_w(stage, &key_seal, None).unwrap();
+        // There is only one W source. Its admitted seal cannot select a nonexistent
+        // stage, and its genuine key cannot authorize another session's A checkpoint.
+        assert!(matches!(
+            installed.bind_w(native::PLAIN_A_STAGE_COUNT - 1, &key_seal, None),
+            Err(native::Error::Artifact)
+        ));
+        assert!(matches!(
+            session.wrapper(
+                &foreign_current,
+                &key,
+                common::public_fixture_tape(124),
+                &fold,
+                common::fresh_randomness(),
+                ProverConfig::default()
+            ),
+            Err(native::Error::Input)
+        ));
         let generated_w = session
             .wrapper(
                 &current,
@@ -2083,7 +2089,7 @@ fn native_installed_send_differential(
     terminal.vesta_part.decide(&vparams, budget).unwrap();
     terminal.predecessor_vesta.decide(&vparams, budget).unwrap();
     terminal.opening.decide(&vparams, budget).unwrap();
-    assert_eq!(payloads.len(), 5);
+    assert_eq!(payloads.len(), 3);
     let restarted = installed.prepare(input.clone(), budget).unwrap();
     let mut replayed = restarted
         .restore_first_checkpoint(&payloads[0], budget)
@@ -2097,13 +2103,7 @@ fn native_installed_send_differential(
             .restore_first_checkpoint(&payloads[2], budget)
             .is_err()
     );
-    for stage in 0..native::W_STAGE_COUNT {
-        let wrong = (stage + 1) % native::W_STAGE_COUNT;
-        assert!(
-            restarted
-                .restore_wrapper_checkpoint(&replayed, &payloads[2 * wrong + 1], budget)
-                .is_err()
-        );
+    for stage in 0..(native::PLAIN_A_STAGE_COUNT - 1) {
         let wrapper = restarted
             .restore_wrapper_checkpoint(&replayed, &payloads[2 * stage + 1], budget)
             .unwrap();
@@ -2121,6 +2121,13 @@ fn native_installed_send_differential(
         replayed = restarted
             .restore_a_checkpoint(&wrapper, &payloads[2 * stage + 2], budget)
             .unwrap();
+        // Valid W bytes cannot be reused after the terminal A: their authenticated
+        // predecessor must still be the initial A checkpoint.
+        assert!(
+            restarted
+                .restore_wrapper_checkpoint(&replayed, &payloads[2 * stage + 1], budget)
+                .is_err()
+        );
         assert_eq!(
             restarted.encode_a_checkpoint(&replayed, budget).unwrap(),
             payloads[2 * stage + 2]

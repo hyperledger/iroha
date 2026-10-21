@@ -21,7 +21,7 @@ const SPONGE_END: usize = 32_768;
 const ARITHMETIC_END: usize = 131_072;
 const TRACE_END: usize = 262_138;
 const ADVICE_COLUMNS: usize = 11;
-const FIXED_COLUMNS: usize = 12;
+const FIXED_COLUMNS: usize = 14;
 const RANGE_START: usize = 16;
 const RANGE_RADIX: usize = 15;
 const RANGE_MAX: usize = 252;
@@ -231,7 +231,7 @@ mod tests {
     fn compiled_policy_has_exact_unambiguous_framing() {
         let mut expected = b"iroha-kagemusha-omega-layout-v1\0".to_vec();
         for word in [
-            16_u32, 18, 37, 65_530, 32_768, 131_072, 262_138, 11, 12, 16, 15, 252, 6, 0, 1, 2, 4,
+            16_u32, 18, 37, 65_530, 32_768, 131_072, 262_138, 11, 14, 16, 15, 252, 6, 0, 1, 2, 4,
             5, 9, 6, 4, 5, 6, 7, 8, 9, 3,
         ] {
             expected.extend_from_slice(&word.to_le_bytes());

@@ -64,7 +64,7 @@ class KagemushaWalletOutputV1Test {
     }
     @Test fun replyUsesSeparateDataGeometryAndPreservesNativeFailures() {
         val original = ByteArray(65_756) { 3 }; val value = KagemushaWalletObservationReplyV1(12,-1,0,0,0,0,original); original.fill(0)
-        assertEquals(3,value.original(65_756)[0].toInt()); invalid { value.original(20_066) }
+        assertEquals(3,value.original(65_756)[0].toInt()); invalid { value.original(20_134) }
         invalid { KagemushaWalletObservationReplyV1(1,-1,0,0,0,0,byteArrayOf(1)) }
         invalid { KagemushaWalletObservationReplyV1(12,-1,0,1,0,0,byteArrayOf(1)) }
         invalid { KagemushaWalletObservationReplyV1(12,-1,0,0,0,0,ByteArray(131_073)) }

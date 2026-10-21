@@ -237,8 +237,8 @@ fn aggregate_fee_original_encoding_bound_and_canonical_projection() {
     // encoding length. Payload DATA here is not a valid Payment; 1024 is a conservative
     // metadata allowance, not a claim about valid monetary proof sizes.
     let maximum = RetainedFeeClaim {
-        payment: vec![1; 10_000],
-        request: vec![2; 10_000],
+        payment: vec![1; 10_034],
+        request: vec![2; 10_034],
     };
     let encoded = archive::encode(&maximum).unwrap();
     println!(
@@ -246,7 +246,7 @@ fn aggregate_fee_original_encoding_bound_and_canonical_projection() {
         encoded.len()
     );
     assert!(encoded.len() <= FEE_CLAIM_MAX_BYTES_V1);
-    assert_eq!(FEE_CLAIM_MAX_BYTES_V1, 21_024);
+    assert_eq!(FEE_CLAIM_MAX_BYTES_V1, 21_092);
     assert!(
         RetainedFeeClaim::decode_canonical(&vec![0; FEE_CLAIM_MAX_BYTES_V1 + 1], &[0; 32]).is_err()
     );
@@ -346,11 +346,11 @@ fn fee_transport_encoding_fits_existing_cap_at_large_original_boundaries() {
     // Encoding capacity only: opaque proof padding is not genuine proof evidence, and the
     // enlarged account is not the fixture's authorized schedule beneficiary.
     let mut low = 1;
-    let mut high = 10_001;
+    let mut high = 10_035;
     while high - low > 1 {
         let next = (low + high) / 2;
         claim.payment.send.step_proof.bytes.resize(next, 0);
-        if archive::encode(&claim.payment).unwrap().len() <= 10_000 {
+        if archive::encode(&claim.payment).unwrap().len() <= 10_034 {
             low = next;
         } else {
             high = next;
@@ -394,7 +394,7 @@ fn fee_transport_encoding_fits_existing_cap_at_large_original_boundaries() {
     );
     claim.beneficiary = last_fitting;
     let account_bytes = archive::encode(&claim.beneficiary).unwrap().len();
-    assert!(payment_bytes > 9_900 && payment_bytes <= 10_000);
+    assert!(payment_bytes > 9_900 && payment_bytes <= 10_034);
     assert!(account_bytes > 4_096 && account_bytes < KAGEMUSHA_WALLET_FEE_CLAIM_MAX_BYTES_V1);
     let bytes = archive::encode(&claim).unwrap();
     println!(

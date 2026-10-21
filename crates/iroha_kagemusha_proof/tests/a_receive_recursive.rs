@@ -1939,7 +1939,7 @@ pub fn genuine_omega_can_carry_a_succinct_but_nondeciding_vesta_claim(
         compact_catalog::compact_payer_load_and_receiver_with_bad_vesta(fixture);
     let (receiver, payer) = shared_wallet_heads(&wallets);
     assert_eq!(receiver.key.to_bytes(), payer.key.to_bytes());
-    assert_eq!(payer.proof.len(), 3904);
+    assert_eq!(payer.proof.len(), 4032);
     let params = common::vesta_params(16);
     assert!(payer.vesta.decide(&params, MemoryBudget::DEFAULT).is_err());
     assert_ne!(*payer.vesta.g(), correction);
@@ -1947,7 +1947,7 @@ pub fn genuine_omega_can_carry_a_succinct_but_nondeciding_vesta_claim(
         FoldInput::<Eq>::from_normalized(correction, 16, *payer.vesta.challenges()).unwrap();
     corrected.decide(&params, MemoryBudget::DEFAULT).unwrap();
     eprintln!(
-        "GENUINE_NONDECIDING_VESTA_OMEGA actual_proof=3904 original_V_fails_decide=true distinct_same_challenges_correction_decides=true explicit_native_Load_originals=true full_Receive=false"
+        "GENUINE_NONDECIDING_VESTA_OMEGA actual_proof=4032 original_V_fails_decide=true distinct_same_challenges_correction_decides=true explicit_native_Load_originals=true full_Receive=false"
     );
 }
 

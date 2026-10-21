@@ -2884,7 +2884,7 @@ fn kagemusha_wallet_v1_envelope_bounds_per_kind() {
         let max = message.max_bytes();
         let expected = match message {
             KagemushaWalletMessageV1::SessionControl { .. } => 2_048,
-            _ => 10_000,
+            _ => 10_034,
         };
         assert_eq!(max, expected);
         require_message_bound_v1(&message, max).expect("at the bound");
@@ -2923,8 +2923,8 @@ fn kagemusha_wallet_v1_envelope_decode_order() {
     assert!(matches!(
         KagemushaWalletEnvelopeV1::decode_canonical(&garbage, &scheme_id),
         Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded {
-            actual: 10_001,
-            max: 10_000
+            actual: 10_035,
+            max: 10_034
         })
     ));
     let mut trailing = frame.clone();
@@ -4071,7 +4071,7 @@ fn kagemusha_wallet_v1_request_terms_are_the_credit_elements_without_the_payer()
 fn kagemusha_wallet_v1_payment_proof_roles_cannot_borrow_each_others_capacity() {
     let omega = KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1;
     let sigma = KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
-    assert_eq!((omega, sigma), (5_086, 3_520));
+    assert_eq!((omega, sigma), (5_120, 3_520));
     assert_eq!(omega + sigma, KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1);
     for (o, s) in [(0, 0), (omega, 0), (0, sigma), (omega, sigma)] {
         require_payment_proof_sizes_v1(o, s).expect("individual and joint bounds");
@@ -4094,7 +4094,7 @@ fn kagemusha_wallet_v1_payment_proof_roles_cannot_borrow_each_others_capacity() 
     })
     .to_canonical_bytes()
     .expect("exact maximum frame");
-    assert_eq!(frame.len(), 10_000);
+    assert_eq!(frame.len(), 10_034);
     for (o, s, field) in [
         (omega + 1, sigma - 1, "payment.omega_proof_bytes"),
         (omega - 1, sigma + 1, "payment.sigma_proof_bytes"),
