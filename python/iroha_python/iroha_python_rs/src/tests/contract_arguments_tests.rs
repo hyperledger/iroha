@@ -293,3 +293,97 @@ fn contract_argument_python_boundary_requires_exact_types_and_returns_immutable_
         );
     });
 }
+
+#[test]
+fn contract_argument_encoder_is_registered_on_the_native_module() {
+    Python::initialize();
+    Python::attach(|py| {
+        let module = pyo3::types::PyModule::new(py, "_crypto").unwrap();
+        crate::_crypto(py, &module).unwrap();
+        let function = module.getattr("encode_contract_arguments_v1").unwrap();
+        let kwargs = PyDict::new(py);
+        kwargs
+            .set_item("expected_code_hash_hex", &fixture().code_hash)
+            .unwrap();
+        kwargs
+            .set_item("expected_abi_hash_hex", &fixture().abi_hash)
+            .unwrap();
+        kwargs.set_item("chain_discriminant", 369).unwrap();
+        let artifact = PyBytes::new(py, &fixture().artifact);
+        let text = payload(31, 369, "12.5");
+        let encoded = function
+            .call((&artifact, "quote", &text), Some(&kwargs))
+            .unwrap();
+        assert!(encoded.is_exact_instance_of::<PyBytes>());
+        assert_eq!(
+            encoded.cast::<PyBytes>().unwrap().as_bytes(),
+            encode(request(Some(&text))).unwrap().unwrap(),
+        );
+        assert!(
+            function
+                .call((&artifact, "ready"), Some(&kwargs))
+                .unwrap()
+                .is_none()
+        );
+        kwargs
+            .set_item("expected_code_hash_hex", "00".repeat(32))
+            .unwrap();
+        assert!(
+            function
+                .call((&artifact, "quote", &text), Some(&kwargs))
+                .is_err()
+        );
+    });
+    emit_installed_encoder_fixture();
+}
+
+// Included only in the native test module. After the complete native gate,
+// invoke its existing module-registration test in the same digest-bound binary
+// with --exact --nocapture to capture this freshly compiled artifact. No extra
+// Cargo invocation, environment-dependent behavior, signing or node access.
+fn emit_installed_encoder_fixture() {
+    let _context = ChainDiscriminantGuard::enter(369);
+    let original = fixture();
+    let verified = ivm::verify_contract_artifact(&original.artifact).unwrap();
+    let schema = verified
+        .contract_interface
+        .entrypoints
+        .iter()
+        .find(|entrypoint| entrypoint.name == "quote")
+        .and_then(|entrypoint| entrypoint.argument_schema.as_ref())
+        .unwrap();
+    let text = payload(31, 369, "12.5");
+    let changed = payload(31, 369, "12.6");
+    let foreign = payload(31, 117, "12.5");
+    let native_record = |text: &str| {
+        ivm_abi::arguments::encode_argument_record_from_json_detailed(
+            schema,
+            &Json::from_str_norito(text).unwrap(),
+        )
+        .unwrap()
+    };
+    let expected = native_record(&text);
+    let different = native_record(&changed);
+    assert!(!expected.is_empty());
+    assert_ne!(expected, different);
+    let artifact_hex = hex::encode(&original.artifact);
+    let code_hash = &original.code_hash;
+    let abi_hash = &original.abi_hash;
+    let expected_arguments_hex = hex::encode(expected);
+    let changed_arguments_hex = hex::encode(different);
+    let record = norito::json::json!({
+        "schema": "iroha.python.contract-argument-fixture.v1",
+        "artifact_hex": artifact_hex,
+        "code_hash": code_hash,
+        "abi_hash": abi_hash,
+        "chain_discriminant": 369,
+        "payload_json": text,
+        "expected_arguments_hex": expected_arguments_hex,
+        "changed_payload_json": changed,
+        "changed_arguments_hex": changed_arguments_hex,
+        "foreign_payload_json": foreign,
+    });
+    let record = norito::json::to_json(&record).unwrap();
+    assert!(record.len() <= 8 * 1024 * 1024);
+    println!("IROHA_CONTRACT_ARGUMENT_FIXTURE_V1 {record}");
+}

@@ -3,8 +3,6 @@
 //! This is a local, pre-signing semantic check. It consumes neither a server's
 //! manifest nor its prepared argument record. Callers compare the result with
 //! every prepared creation/callback record before signing or recovering a call.
-//!
-//! Registration is deferred to the next coordinated SDK candidate.
 
 use super::{ChainDiscriminantGuard, exact_chain_discriminant};
 use iroha_primitives::json::{Json, MAX_JSON_BYTES};

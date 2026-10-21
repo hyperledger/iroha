@@ -540,6 +540,7 @@ from .dataspaces import (
 )
 
 _BASE_EXPORTS = [
+    "encode_contract_arguments_v1",
     "ConfidentialChange",
     "ConfidentialInput",
     "ConfidentialOutput",
@@ -1366,6 +1367,15 @@ from .crypto import (
     inspect_signed_privacy_pq_masp_note_action_v1,
     sm2_fixture_from_seed,
 )
+# Bind the original native callable itself: no payload conversion, codec, or fallback.
+# Its native signature owns the keyword-only artifact pins and chain context.
+from .crypto import _crypto as _contract_arguments_native
+
+encode_contract_arguments_v1 = _contract_arguments_native.encode_contract_arguments_v1
+if not callable(encode_contract_arguments_v1):
+    raise RuntimeError("native encode_contract_arguments_v1 export is not callable")
+del _contract_arguments_native
+
 from .sorafs import (
     SorafsAliasPolicy,
     SorafsAliasEvaluation,
