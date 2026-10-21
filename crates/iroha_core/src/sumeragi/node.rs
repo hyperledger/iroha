@@ -1586,6 +1586,17 @@ mod tests {
         chain_id: ChainId,
     }
 
+    /// Admit one real-node scenario before its wall-clock progress bounds begin.
+    ///
+    /// Independent scenarios share the process-wide execution witness recorder. Keep
+    /// their networks from competing for that recorder while preserving all validators
+    /// and concurrent data space roots inside each scenario. Acquire at test entry,
+    /// before fixture owners, so every worker stops before the guard is released.
+    fn real_node_scenario_guard() -> parking_lot::MutexGuard<'static, ()> {
+        static SCENARIO: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        SCENARIO.lock()
+    }
+
     /// A chain of `validators` with a 100 ms block time and the given idle interval.
     fn chain(validators: u8, payload_retry_interval_ms: u64) -> Chain {
         chain_with(validators, payload_retry_interval_ms, |_| Vec::new())
@@ -1828,6 +1839,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn readiness_until_expired_deadline_refuses_live_node() {
+        let _scenario = real_node_scenario_guard();
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2200,6 +2212,7 @@ mod tests {
 
     #[test]
     fn a_fixed_lane_carries_transactions_the_global_chain_merges() {
+        let _scenario = real_node_scenario_guard();
         let lane = iroha_model_base::topology::LaneId::new(2);
         let chain = chain_with(4, 200, fixed_lane_policy);
         let disks = disks(&chain);
@@ -2353,6 +2366,7 @@ mod tests {
 
     #[test]
     fn autoscale_opens_an_elastic_lane_under_load_and_retires_it_when_idle() {
+        let _scenario = real_node_scenario_guard();
         let elastic = iroha_model_base::topology::LaneId::new(16);
         let chain = chain_with(4, 200, elastic_lane_policy);
         let disks = disks(&chain);
@@ -2474,10 +2488,16 @@ mod tests {
                 || committed_everywhere(&validators, hash),
             );
         }
-        let closing = lane_record(&validators[0], elastic)
-            .and_then(|record| record.closing)
-            .expect("the idle lane closes");
-        // It retires at c + A + 1, and every validator stops its instance.
+        let closing_record = lane_record(&validators[0], elastic).expect("the elastic lane");
+        let closing = closing_record.closing.expect("the idle lane closes");
+        assert_eq!(
+            closing_record.incarnation, record.incarnation,
+            "the routed incarnation closes when idle"
+        );
+        // It retires at c + A + 1, and every validator stops its instance. Keep the
+        // idle cadence through retirement: with only lane 0 admitting new work,
+        // one input per four seconds is 250 permille, below the 300-permille
+        // scale-out threshold. A rapid burst could correctly reopen the same id.
         for _ in 0..16 {
             if validators
                 .iter()
@@ -2485,13 +2505,18 @@ mod tests {
             {
                 break;
             }
+            std::thread::sleep(Duration::from_secs(4));
             burst(&validators, 1);
         }
         assert!(
             validators
                 .iter()
                 .all(|validator| lane_record(validator, elastic).is_none()),
-            "the lane closed at {closing} retires"
+            "the lane closed at {closing} retires: {:?}",
+            validators
+                .iter()
+                .map(|validator| lane_record(validator, elastic))
+                .collect::<Vec<_>>()
         );
         wait_until(
             &validators,
@@ -2506,6 +2531,7 @@ mod tests {
     fn idle_chain_never_advances_and_real_work_survives_restart() {
         use mv::storage::StorageReadOnly as _;
 
+        let _scenario = real_node_scenario_guard();
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2584,6 +2610,7 @@ mod tests {
 
     #[test]
     fn all_seat_restart_reproduces_missing_original_context_archives_from_certified_execution() {
+        let _scenario = real_node_scenario_guard();
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2668,6 +2695,7 @@ mod tests {
     #[test]
     fn replay_rejects_a_block_whose_certified_result_differs() {
         use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
+        let _scenario = real_node_scenario_guard();
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2864,6 +2892,7 @@ mod tests {
 
     #[test]
     fn every_committed_block_contains_work_before_and_after_restart() {
+        let _scenario = real_node_scenario_guard();
         // Explicit queue notifications must bypass even a long rebuild retry interval.
         let chain = chain(4, 600_000);
         let disks = disks(&chain);

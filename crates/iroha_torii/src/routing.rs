@@ -23105,7 +23105,9 @@ None,
             .iter()
             .find(|item| item.proposal_id == execute_trigger_hash)
             .expect("execute trigger proposal in query");
-        assert_eq!(execute_trigger_item.operation_type, "EXECUTE_TRIGGER");
+        // ExecuteTrigger plus a marker Log is a batch; only a single instruction
+        // receives the generic trigger display projection. The marker adds no intent.
+        assert_eq!(execute_trigger_item.operation_type, "ONCHAIN_MULTISIG");
         assert!(execute_trigger_item.intent.is_none());
         let JsonBody(transfer_resolve_response) = handle_post_multisig_proposals_resolve(
             state.clone(),
@@ -23129,7 +23131,7 @@ None,
         .expect("resolve execute trigger proposal");
         assert_eq!(
             execute_trigger_resolve_response.operation_type,
-            "EXECUTE_TRIGGER"
+            "ONCHAIN_MULTISIG"
         );
         assert!(execute_trigger_resolve_response.intent.is_none());
     }

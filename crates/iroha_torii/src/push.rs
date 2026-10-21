@@ -4749,6 +4749,8 @@ mod tests {
     }
     #[test]
     fn disabled_rejected() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = OverrideGuard::new(temp.path());
         let bridge = PushBridge::new(actual::Push {
             enabled: false,
             ..Default::default()
@@ -4765,6 +4767,8 @@ mod tests {
     }
     #[test]
     fn missing_credentials_rejected() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = OverrideGuard::new(temp.path());
         let bridge = PushBridge::new(actual::Push {
             enabled: true,
             fcm_project_id: Some("project".to_string()),
@@ -4783,6 +4787,8 @@ mod tests {
     }
     #[test]
     fn too_many_topics_rejected() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = OverrideGuard::new(temp.path());
         let bridge = PushBridge::new(actual::Push {
             max_topics_per_device: nonzero!(2_usize),
             ..test_bridge_config()
@@ -5217,6 +5223,8 @@ mod tests {
     }
     #[test]
     fn alias_account_id_is_rejected() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = OverrideGuard::new(temp.path());
         let bridge = PushBridge::new(test_bridge_config());
         let err = bridge
             .register_device(RegisterDeviceRequest {

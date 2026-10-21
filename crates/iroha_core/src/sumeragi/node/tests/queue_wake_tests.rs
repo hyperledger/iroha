@@ -66,6 +66,7 @@ fn enqueue_only(
 
 #[test]
 fn native_queue_admission_wakes_original_global_driver_after_empty() {
+    let _scenario = real_node_scenario_guard();
     let chain = chain(4, 600_000);
     let disks = disks(&chain);
     let validators = start_all(&chain, &disks, true);
@@ -98,6 +99,7 @@ fn native_queue_admission_wakes_original_global_driver_after_empty() {
 
 #[test]
 fn native_queue_admission_wakes_original_live_lane_after_empty() {
+    let _scenario = real_node_scenario_guard();
     let chain = chain_with(4, 600_000, |keys| {
         fixed_lane_policy_with_retry(keys, 600_000)
     });
@@ -207,6 +209,7 @@ fn duplicate_prepared_start(chain: &Chain, queue: &Arc<Queue>) -> (NodeError, te
 
 #[test]
 fn native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_restart() {
+    let _scenario = real_node_scenario_guard();
     // Keep fixture State generations in the exact pool baseline; unrelated epoch
     // reclamation must not appear to refund this operation's original custody.
     let retirement_pin = crossbeam_epoch::pin();
@@ -386,6 +389,7 @@ fn native_queue_reservation_refuses_foreign_funded_pool_without_changing_origina
 
 #[test]
 fn native_queue_admission_before_start_retains_original_prepared_state_and_commits() {
+    let _scenario = real_node_scenario_guard();
     let chain = chain(4, 600_000);
     let disks = disks(&chain);
     let registry = Arc::new(Registry::default());
@@ -467,6 +471,7 @@ fn native_queue_admission_before_start_retains_original_prepared_state_and_commi
 
 #[test]
 fn native_queue_admission_never_waits_for_original_live_lane_map() {
+    let _scenario = real_node_scenario_guard();
     let chain = chain_with(4, 600_000, |keys| {
         fixed_lane_policy_with_retry(keys, 600_000)
     });

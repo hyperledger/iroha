@@ -482,6 +482,7 @@ fn private_root_fresh_and_replay_preserve_identical_pre_genesis_parameters() {
 
 #[test]
 fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage() {
+    let _scenario = real_node_scenario_guard();
     let parent = chain(4, 200);
     let parent = NetworkId::from_genesis_hash(parent.genesis.hash());
     let first = DataspaceChain::new(parent, DataSpaceId::new((1_u64 << 40) + 17));

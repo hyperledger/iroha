@@ -1156,12 +1156,12 @@
   "declared_abi_cutover": {
     "surface": "abi",
     "cutover": "contract_redeployment",
-    "abi_hash": "d87449f2ec45628b835c736c9915eaa85bfcb87e544da269fdb7c4889d3db82f",
+    "abi_hash": "89a91f48e932cd55297f03cb7e38ec6ceb50a728b949f77cb785ce676adb92d3",
     "golden": {
       "path": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
       "prefix": "pub const ABI_V1_HASH_GOLDEN: &str =\n    \""
     },
-    "change": "ABI V1 uses the compact CS1 callable schema, declared permission identities, authenticated native event schemas and typed contract-call argument/result tables. The hashed syscall surface describes the current registers, including generation-bound alias operations, and 0xA0 accepts only SubmitBallot. Retired opaque contract calls and the duplicate DEX call surface are removed. The ABI version remains 1; the current complete descriptor determines this hash.",
+    "change": "ABI V1 includes controller-bound native asset-lock open, drawdown, cancel and expire syscalls (0x010220 through 0x010223). These authenticated contract operations have ledger-write access and are denied to contract-less generic programs. The existing compact CS1 callable schema, declared permission identities, authenticated native event schemas, typed contract-call argument/result tables, generation-bound alias operations and SubmitBallot-only 0xA0 remain part of the current descriptor. The ABI version remains 1; the current complete descriptor determines this hash.",
     "redeployment": "Contracts compiled before this surface change carry an obsolete interface or abi_hash and are refused by decoding or admission. Recompile .ko to .to with the current compiler and deploy its manifest. There is no alias for former hashes or compatibility decoder.",
     "fresh_genesis": false,
     "fresh_genesis_reason": "The pinned history holds no contract and no runtime-ABI record: none of its frames contains the ABI hash, which the guard re-checks on every run. A history that holds either needs a fresh genesis with this cutover."

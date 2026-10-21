@@ -215,6 +215,7 @@ fn world_root(state: &State) -> Result<String, String> {
 /// reopen nor the replay rewrites a persisted frame.
 #[test]
 fn current_genesis_history_replays_from_reopened_stores_to_the_identical_state() {
+    let _scenario = real_node_scenario_guard();
     let chain = chain(4, 200);
     let disks = stored_disks(&chain);
     let validators = start_all(&chain, &disks, true);
@@ -301,6 +302,7 @@ fn current_genesis_history_replays_from_reopened_stores_to_the_identical_state()
 /// calls `prepare`, so a State of another network never reaches replay.
 #[test]
 fn a_store_never_replays_under_another_genesis() {
+    let _scenario = real_node_scenario_guard();
     let old = chain(4, 200);
     // Any signed difference is another genesis; here one consensus parameter.
     let new = chain(4, 300);
@@ -716,6 +718,7 @@ fn write_pinned_history(
 #[test]
 #[ignore = "explicit capture of the pinned first-release history, not a qualification gate"]
 fn capture_pinned_first_release_history() {
+    let _scenario = real_node_scenario_guard();
     let chain = chain(4, 200);
     let disks = stored_disks(&chain);
     let validators = start_all(&chain, &disks, true);

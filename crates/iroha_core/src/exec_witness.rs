@@ -1915,6 +1915,10 @@ mod tests {
         assert_eq!(drained.reads.len(), 1);
         assert_eq!(drained.reads[0].key, key_account_kv(&account, &key));
         assert_eq!(drained.reads[0].value, bytes_from_json(&value));
+        // Both deliberate poison flags belong to this fixture. Restore them only
+        // after proving recovery, while the exclusive recorder guard is still held.
+        slot().clear_poison();
+        exec_witness_lock().clear_poison();
     }
     #[test]
     fn recorder_key_namespaces_match_formal_tags_and_separators() {
