@@ -521,23 +521,12 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         word(requestId); require(requestId.any { it != 0.toByte() })
         val value = handle()
         val token = review.consume(this)
-        try {
+        return KagemushaWalletReviewedExecutionV1.run(execute = {
             val reply = KagemushaWalletNativeCallsV1.executeReviewed(value, token, requestId.copyOf())
                 ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
             if (reply.status < 0) throw KagemushaWalletExceptionV1(reply.status, reply.reason, reply.platformCode)
-            return reply.completion()
-        } catch (failure: Throwable) {
-            // Native may have consumed this token before failure. Closed then means no unused
-            // review remains; it is never treated as acknowledgement of owner release.
-            try {
-                val status=KagemushaWalletNativeCallsV1.discardReview(value,token)
-                if(status!=0 && status!=-2)checked(status)
-            }catch(cleanup:Throwable){
-                if(failure !== cleanup)failure.addSuppressed(cleanup)
-                try{close()}catch(retirement:Throwable){if(failure !== retirement)failure.addSuppressed(retirement)}
-            }
-            throw failure
-        }
+            reply.completion()
+        }, discard = { KagemushaWalletNativeCallsV1.discardReview(value, token) }, close = ::close)
     }
     /** Discard an unused review on a worker without creating intent, payment or monetary authority. */
     fun discardReview(review: KagemushaWalletReviewV1) {

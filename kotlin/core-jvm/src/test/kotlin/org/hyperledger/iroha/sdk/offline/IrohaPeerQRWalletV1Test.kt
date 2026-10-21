@@ -6,6 +6,10 @@ package org.hyperledger.iroha.sdk.offline
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -24,6 +28,152 @@ import org.hyperledger.iroha.sdk.norito.Varint
 
 /** QR carries exact wallet envelopes, the mandatory Request account companion and the mandatory Payment payer companion. */
 class IrohaPeerQRWalletV1Test {
+    @Test
+    fun `same-index header data and parity conflicts quarantine only that stream`() {
+        val original = envelope(KagemushaWalletMessageKindV1.CREDITED, 1_024)
+        val message = IrohaPeerKagemushaWalletAdapterV1.wrap(original)
+        val frames = IrohaPeerQRCodecV1.animatedFrameTexts(message).map(IrohaPeerQRCodecV1::decodeFrame)
+        val header = frames.first { it.frameKind == IrohaPeerQRFrameKindV1.HEADER }
+        val unrelated = IrohaPeerKagemushaWalletAdapterV1.wrap(envelope(KagemushaWalletMessageKindV1.CREDITED, 1_025))
+        val unrelatedTexts = IrohaPeerQRCodecV1.animatedFrameTexts(unrelated)
+        val limits = IrohaPeerQRScanLimitsV1(idleTimeoutMillis = 2_000, absoluteTimeoutMillis = 3_000)
+        for (kind in listOf(IrohaPeerQRFrameKindV1.HEADER, IrohaPeerQRFrameKindV1.DATA, IrohaPeerQRFrameKindV1.PARITY)) {
+            for (hasHeader in if (kind == IrohaPeerQRFrameKindV1.HEADER) listOf(false) else listOf(false, true)) {
+                val session = IrohaPeerQRScanSessionV1(scanLimits = limits)
+                assertNull(session.ingestAt(unrelatedTexts.first(), 0).message)
+                if (hasHeader) assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 0).message)
+                val first = frames.first { it.frameKind == kind }
+                assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(first), 0).message)
+                val payload = first.payload.also { it[0] = (it[0].toInt() xor 1).toByte() }
+                // Re-encode the frame checksum: this is a conflicting valid frame, not CRC noise.
+                val conflict = IrohaPeerQRFrameV1(kind, first.profile, first.payloadKind, first.streamId,
+                    first.index, first.total, payload)
+                assertEquals("Conflicting duplicate IRQR frame", assertFailsWith<IllegalArgumentException> {
+                    session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(conflict), 0)
+                }.message)
+                assertEquals(1, session.activeStreamCount)
+                assertEquals("IRQR stream is quarantined", assertFailsWith<IllegalArgumentException> {
+                    session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 0)
+                }.message)
+                val other = unrelatedTexts.asSequence().map { session.ingestAt(it, 0) }.first { it.isComplete }
+                assertContentEquals(unrelated.encode(), assertNotNull(other.message).encode())
+                assertEquals(0, session.activeStreamCount)
+                val retry = frames.asSequence().map { session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(it), 3_000) }
+                    .first { it.isComplete }
+                val retried = assertNotNull(retry.message)
+                assertContentEquals(original, IrohaPeerKagemushaWalletAdapterV1.decode(retried))
+                assertContentEquals(message.encode(), retried.encode())
+            }
+        }
+    }
+
+    @Test
+    fun `reordered duplicated frames recover lost Payment shards without changing either original`() {
+        val message = IrohaPeerNfcTestFixturesV1.payment
+        val texts = IrohaPeerQRCodecV1.animatedFrameTexts(message)
+        val frames = texts.map(IrohaPeerQRCodecV1::decodeFrame)
+        val header = frames.first { it.frameKind == IrohaPeerQRFrameKindV1.HEADER }
+        val shards = frames.filter { it.frameKind != IrohaPeerQRFrameKindV1.HEADER }
+        val total = header.total
+        // All parity plus the last data shards: lose the maximum recoverable data prefix.
+        val retained = (shards.filter { it.frameKind == IrohaPeerQRFrameKindV1.PARITY } +
+            shards.filter { it.frameKind == IrohaPeerQRFrameKindV1.DATA }.takeLast(total / 2))
+            .shuffled(kotlin.random.Random(31))
+        assertEquals(total, retained.size)
+        val session = IrohaPeerQRScanSessionV1(expectedKind = IrohaPeerPayloadKind.PAYMENT)
+        val preheader = IrohaPeerQRCodecV1.encodeFrame(retained.first())
+        assertNull(session.ingestAt(preheader, 0).message)
+        assertNull(session.ingestAt(preheader, 0).message)
+        assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 0).message)
+        retained.dropLast(1).forEach { frame ->
+            val text = IrohaPeerQRCodecV1.encodeFrame(frame)
+            val first = session.ingestAt(text, 0)
+            val duplicate = session.ingestAt(text, 0)
+            assertNull(first.message)
+            assertNull(duplicate.message)
+            assertEquals(first.usableFrames, duplicate.usableFrames)
+            assertEquals(first.receivedDataFrames, duplicate.receivedDataFrames)
+        }
+        val result = session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(retained.last()), 0)
+        val decoded = assertNotNull(result.message)
+        assertEquals((total + 1) / 2, result.recoveredDataFrames)
+        assertEquals(0, session.activeStreamCount)
+        assertContentEquals(message.encode(), decoded.encode())
+        assertContentEquals(IrohaPeerKagemushaWalletAdapterV1.decode(message), IrohaPeerKagemushaWalletAdapterV1.decode(decoded))
+        assertContentEquals(IrohaPeerKagemushaWalletAdapterV1.payerCompanion(message), IrohaPeerKagemushaWalletAdapterV1.payerCompanion(decoded))
+        assertEquals(texts, IrohaPeerQRCodecV1.animatedFrameTexts(decoded))
+    }
+
+    @Test
+    fun `valid frame checksums cannot substitute a corrupted canonical message`() {
+        val message = IrohaPeerKagemushaWalletAdapterV1.wrap(envelope(KagemushaWalletMessageKindV1.CREDITED, 1_024))
+        val frames = IrohaPeerQRCodecV1.animatedFrameTexts(message).map(IrohaPeerQRCodecV1::decodeFrame)
+        val header = frames.first { it.frameKind == IrohaPeerQRFrameKindV1.HEADER }
+        val data = frames.filter { it.frameKind == IrohaPeerQRFrameKindV1.DATA }
+        val session = IrohaPeerQRScanSessionV1()
+        assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 0).message)
+        data.dropLast(1).forEach { frame ->
+            val payload = frame.payload
+            if (frame.index == 0) payload[0] = (payload[0].toInt() xor 1).toByte()
+            val changed = IrohaPeerQRFrameV1(frame.frameKind, frame.profile, frame.payloadKind,
+                frame.streamId, frame.index, frame.total, payload)
+            assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(changed), 0).message)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(data.last()), 0)
+        }
+        assertEquals(0, session.activeStreamCount)
+        assertEquals("IRQR stream is quarantined", assertFailsWith<IllegalArgumentException> {
+            session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(header), 0)
+        }.message)
+    }
+
+    @Test
+    fun `concurrent streams respect capacity and rejected streams can retry after completion`() {
+        val messages = (0..3).map {
+            IrohaPeerKagemushaWalletAdapterV1.wrap(envelope(KagemushaWalletMessageKindV1.CREDITED, 1_024 + it))
+        }
+        val frames = messages.map { message ->
+            IrohaPeerQRCodecV1.animatedFrameTexts(message).map(IrohaPeerQRCodecV1::decodeFrame)
+        }
+        for (capacity in 1..3) {
+            val session = IrohaPeerQRScanSessionV1(scanLimits = IrohaPeerQRScanLimitsV1(maximumActiveStreams = capacity))
+            val executor = Executors.newFixedThreadPool(messages.size)
+            val entered = CountDownLatch(messages.size)
+            val start = CountDownLatch(1)
+            val accepted = try {
+                val submissions = frames.map { stream -> executor.submit(Callable {
+                    entered.countDown()
+                    check(start.await(5, TimeUnit.SECONDS))
+                    try {
+                        assertNull(session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(stream.first()), 0).message)
+                        true
+                    } catch (failure: IllegalArgumentException) {
+                        assertEquals("Too many active IRQR streams", failure.message)
+                        false
+                    }
+                }) }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                start.countDown()
+                submissions.map { it.get(5, TimeUnit.SECONDS) }
+            } finally {
+                start.countDown()
+                executor.shutdownNow()
+                assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+            }
+            assertEquals(capacity, accepted.count { it })
+            assertEquals(capacity, session.activeStreamCount)
+            val order = accepted.indices.filter { accepted[it] } + accepted.indices.filter { !accepted[it] }
+            for (index in order) {
+                val result = frames[index].asSequence()
+                    .map { session.ingestAt(IrohaPeerQRCodecV1.encodeFrame(it), 0) }.first { it.isComplete }
+                assertContentEquals(messages[index].encode(), assertNotNull(result.message).encode())
+                assertTrue(session.activeStreamCount <= capacity)
+            }
+            assertEquals(0, session.activeStreamCount)
+        }
+    }
+
     @Test
     fun `every wallet envelope vector round trips through QR under its own kind`() {
         val envelopes = vectors().getValue("envelopes").jsonArray.map { it.jsonObject }
