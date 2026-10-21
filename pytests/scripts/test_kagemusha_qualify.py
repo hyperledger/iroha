@@ -1713,6 +1713,70 @@ def test_prepare_joins_exact_generated_native_identity_to_executable(tmp_path, m
     assert (fixture.output / "native-source-evaluator/source-snapshot-build.json").is_file()
 
 
+@pytest.mark.parametrize("component", [False, True], ids=["whole-checkout", "component"])
+@pytest.mark.parametrize("change", ["unchanged", "edit", "delete", "leaf_symlink", "parent_symlink"])
+def test_native_watched_ignored_metadata_package_survives_source_recensus(
+        tmp_path, monkeypatch, component, change):
+    """Initial package capture and runtime recensus bind the same ignored native input."""
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    package = tmp_path / "crates/metadata_only"
+    ignored = package / "src/__pycache__/probe.pyc"
+    ignored.parent.mkdir(parents=True)
+    (package / "Cargo.toml").write_text("[package]\n")
+    ignored.write_bytes(b"original native generator prerequisite")
+    with (tmp_path / ".gitignore").open("a") as stream:
+        stream.write("**/__pycache__/\n")
+    fixture.metadata["packages"].append(
+        dict(id="metadata_only", name="metadata_only", version="1", source=None,
+             manifest_path=str(package / "Cargo.toml")))
+    assert all(item["package_id"] != "metadata_only" for item in fixture.artifacts)
+    name = ignored.relative_to(tmp_path).as_posix()
+    subprocess.run(["git", "check-ignore", "--quiet", name], cwd=tmp_path, check=True)
+    fixture.snapshot["watched"] = sorted([*fixture.snapshot["watched"], name])
+    with fixture.build_output.open("a") as stream:
+        stream.write(f"cargo:rerun-if-changed={ignored}\n")
+    expected = "file:" + qualify.file_hash(ignored)
+    initial = qualify.source_manifest(qualify.metadata_roots(fixture.metadata))
+    assert initial[name] == expected
+    mocked_build(monkeypatch, [*fixture.artifacts, *fixture.scripts], fixture.binary)
+
+    # Every negative case first admits an unchanged candidate. A failure to recapture
+    # this existing input must not accidentally satisfy a later mutation assertion.
+    qualify.prepare(fixture.output, component=component)
+    candidate = json.loads((fixture.output / "candidate.json").read_text())
+    scope = candidate["source_scope"]
+    assert ("crates/metadata_only" in scope["roots"]) is (not component)
+    assert name in scope["required_inputs"]
+    assert name in scope["files"]
+    assert name in scope["native_source"]["watched"]
+    provenance = json.loads((fixture.output / "source-provenance.json").read_text())
+    assert provenance["before"][name] == provenance["after"][name] == expected
+    before = qualify.source_digest(scope)
+    assert candidate["source_sha256"] == before
+
+    if change == "unchanged":
+        assert qualify.source_digest(scope) == before
+    elif change == "edit":
+        # The snapshot evaluator is stubbed; the manifest must independently bind
+        # these actual bytes even when the reported native snapshot stays fixed.
+        ignored.write_bytes(b"changed native generator prerequisite")
+        assert qualify.source_digest(scope) != before
+    elif change == "delete":
+        ignored.unlink()
+        with pytest.raises(ValueError, match="missing source input|mandatory compiler input"):
+            qualify.source_digest(scope)
+    else:
+        if change == "leaf_symlink":
+            ignored.unlink()
+            ignored.symlink_to(package / "Cargo.toml")
+        else:
+            retained = tmp_path / "target/retained-cache"
+            ignored.parent.rename(retained)
+            ignored.parent.symlink_to(retained, target_is_directory=True)
+        with pytest.raises(ValueError, match="symlink"):
+            qualify.source_digest(scope)
+
+
 @pytest.mark.parametrize("field,bad", [
     ("schema", "unknown"), ("native_source_digest", "22" * 32), ("binary_sha256", "cd" * 32),
     ("target_arch", "x86_64"), ("target_os", "linux"), ("pointer_width", 32),

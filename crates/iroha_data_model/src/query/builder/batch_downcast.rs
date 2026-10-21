@@ -4,6 +4,7 @@ use crate::{
     block::{BlockHeader, SignedBlock},
     domain::Domain,
     escrow::AssetEscrowRecord,
+    asset::uid::AssetUidPolicyViewV1,
     events::data::oracle::FeedEventRecord,
     nft::{Nft, NftId},
     oracle::{
@@ -120,6 +121,7 @@ mod single_item {
         OracleChangeProposal,
         TwitterBindingRecord,
         AssetEscrowRecord,
+        AssetUidPolicyViewV1,
     );
 }
 /// Query result item represented by one typed batch column.

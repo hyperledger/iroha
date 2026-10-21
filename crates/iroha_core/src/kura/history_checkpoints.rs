@@ -155,7 +155,7 @@ impl HistoryCheckpoints {
     }
 
     /// Forget every entry, as after a restart without the startup walk.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn clear(&self) {
         if let Some(entries) = self.inner.write().as_mut() {
             entries.clear();

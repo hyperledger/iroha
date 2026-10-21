@@ -11,6 +11,10 @@ use ivm::error::{ExecutionDeferral, VMError};
 pub enum ExecutionPhase {
     /// Lane preparation refused inside the native output finalizer, before sealing.
     NativeLaneFinalizer,
+    /// A bounded history read refused an item required from its requested target.
+    HistoryTarget,
+    /// A history read refused ancestry that a verified closer checkpoint may omit.
+    HistoryAncestry,
 }
 
 /// An unfinished local execution, retaining the original capacity refusal owner.
@@ -98,6 +102,18 @@ impl ExecutionDeferred {
     /// Record the actual lane-finalizer boundary without replacing its refusal owner.
     pub(crate) fn at_native_lane_finalizer(mut self) -> Self {
         self.phase = Some(ExecutionPhase::NativeLaneFinalizer);
+        self
+    }
+
+    /// Record a required target read without replacing earlier boundary provenance.
+    pub(crate) fn at_history_target(mut self) -> Self {
+        self.phase.get_or_insert(ExecutionPhase::HistoryTarget);
+        self
+    }
+
+    /// Record skippable ancestry without replacing earlier boundary provenance.
+    pub(crate) fn at_history_ancestry(mut self) -> Self {
+        self.phase.get_or_insert(ExecutionPhase::HistoryAncestry);
         self
     }
 
@@ -1598,6 +1614,52 @@ mod tests {
         drop(occupied);
         assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
         assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Ready(()));
+    }
+
+    #[test]
+    fn history_provenance_preserves_original_refusal_release_and_earlier_phase() {
+        use std::{
+            future::Future,
+            pin::Pin,
+            task::{Context, Poll, Waker},
+        };
+
+        use super::ExecutionPhase;
+
+        for phase in [
+            ExecutionPhase::HistoryTarget,
+            ExecutionPhase::HistoryAncestry,
+            ExecutionPhase::NativeLaneFinalizer,
+        ] {
+            let budget = iroha_allocation::AllocationBudget::new(
+                8 + iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+            );
+            let mut registration = crate::unit_test_support::release_registration(&budget);
+            let occupied = budget.try_reserve_bytes(8).unwrap();
+            let original = budget.try_reserve_bytes(1).unwrap_err();
+            let owner = ExecutionDeferred::from(original.clone());
+            let owner = match phase {
+                ExecutionPhase::HistoryTarget => owner.at_history_target(),
+                ExecutionPhase::HistoryAncestry => owner.at_history_ancestry(),
+                ExecutionPhase::NativeLaneFinalizer => owner.at_native_lane_finalizer(),
+            };
+            // A later history caller cannot relabel the boundary which first retained
+            // this owner, including the native lane finalizer's execution provenance.
+            let owner = owner.at_history_ancestry().at_history_target();
+            assert_eq!(owner.phase(), Some(phase));
+            assert_eq!(owner.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+            assert_eq!(owner.allocation_refusal(), Some(&original));
+            let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
+                owner.allocation_refusal()
+            else {
+                panic!("history context must preserve the original release observation");
+            };
+            let mut release = release.clone().wait_for_release(&mut registration);
+            let mut context = Context::from_waker(Waker::noop());
+            assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Pending);
+            drop(occupied);
+            assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Ready(()));
+        }
     }
 
     #[test]

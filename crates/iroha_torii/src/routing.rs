@@ -18845,6 +18845,32 @@ fn multisig_cancellation_intent<W: iroha_core::state::WorldReadOnly>(
         "operation": (operation.try_into_any_norito::<Value>().ok()?),
     })))
 }
+/// Display projection only. The original proposal remains the approval/hash authority.
+const MULTISIG_EXECUTE_TRIGGER_DISPLAY_MAX_ARGS_BYTES: usize = 64 * 1024;
+
+fn single_multisig_execute_trigger_intent(
+    proposal: &iroha_executor_data_model::isi::multisig::MultisigProposalValue,
+) -> Option<IrohaJson> {
+    let [instruction] = proposal.instructions.as_slice() else {
+        return None;
+    };
+    let execute = instruction
+        .as_any()
+        .downcast_ref::<iroha_data_model::isi::ExecuteTrigger>()?;
+    // Check the retained native JSON bytes before parsing or allocating its value graph.
+    if execute.args.get().len() > MULTISIG_EXECUTE_TRIGGER_DISPLAY_MAX_ARGS_BYTES {
+        return None;
+    }
+    let arguments = execute.args.try_into_any_norito::<Value>().ok()?;
+    let mut payload = Map::new();
+    payload.insert("kind".into(), Value::from("EXECUTE_TRIGGER"));
+    payload.insert("trigger_id".into(), Value::from(execute.trigger.to_string()));
+    payload.insert("args".into(), arguments);
+    // The display wrapper adds nesting; even a valid native argument at the
+    // maximum JSON depth must remain opaque rather than panic here.
+    IrohaJson::try_new(Value::Object(payload)).ok()
+}
+
 fn multisig_proposal_operation_type<W: iroha_core::state::WorldReadOnly>(
     world: &W,
     multisig_account_id: &iroha_data_model::account::AccountId,
@@ -18892,10 +18918,11 @@ fn multisig_proposal_operation_type<W: iroha_core::state::WorldReadOnly>(
     ) {
         return "MINT";
     }
-    if first_instruction
-        .as_any()
-        .downcast_ref::<iroha_data_model::isi::ExecuteTrigger>()
-        .is_some()
+    if proposal.instructions.len() == 1
+        && first_instruction
+            .as_any()
+            .downcast_ref::<iroha_data_model::isi::ExecuteTrigger>()
+            .is_some()
     {
         return "EXECUTE_TRIGGER";
     }
@@ -18909,6 +18936,7 @@ fn multisig_proposal_intent<W: iroha_core::state::WorldReadOnly>(
     if let Some(intent) = multisig_cancellation_intent(world, multisig_account_id, proposal) { return Some(intent); }
     strict_multisig_contract_call_intent_with_world(world, multisig_account_id, proposal)
         .map(|intent| intent.intent)
+        .or_else(|| single_multisig_execute_trigger_intent(proposal))
         .or_else(|| {
             proposal.instructions.first().and_then(|instruction| {
                 multisig_asset_transfer_control_operation(instruction).map(|(_, intent)| intent)
@@ -20708,6 +20736,9 @@ seiyaku PublicCallPayloadNormalizeTest { permission CanEnactGovernance;
 #[cfg(all(test, feature = "app_api"))]
 mod multisig_selector_tests {
     use super::*;
+    mod execute_trigger_display_tests {
+        include!("routing/multisig_execute_trigger_display_tests.rs");
+    }
     use http_body_util::BodyExt as _;
     use iroha_core::{
         kura::Kura,

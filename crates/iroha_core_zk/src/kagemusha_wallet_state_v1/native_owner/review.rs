@@ -649,7 +649,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             return Ok(None);
         }
         // The same admission execute applies before it proves.
-        self.require_runtime_capacity()?;
+        self.require_runtime_capacity(NativeAdmissionPhaseV1::Speculation)?;
         let (snapshot, map_state) = self.preparation_source_custody(
             &manifest,
             &released,

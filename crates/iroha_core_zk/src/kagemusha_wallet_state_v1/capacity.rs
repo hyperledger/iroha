@@ -86,12 +86,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .checked_add(INTAKE_MEMORY_RESERVATION_BYTES)
                 .ok_or(Error::Invalid("intake memory bound"))?,
         };
-        required
-            .check(&self.custody.runtime_resources()?)
-            .map_err(|shortfall| match shortfall {
-                KagemushaWalletCapacityShortfallV1::Storage => Error::NotEnoughStorage,
-                KagemushaWalletCapacityShortfallV1::Memory => Error::NotEnoughMemory,
-            })
+        self.check_capacity_observed(NativeAdmissionPhaseV1::Intake, required)
     }
 
     /// Admit recovery decoding independently of fresh-operation disk reservations.
@@ -105,12 +100,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .checked_add(INTAKE_MEMORY_RESERVATION_BYTES)
                 .ok_or(Error::Invalid("intake memory bound"))?,
         };
-        required
-            .check(&self.custody.runtime_resources()?)
-            .map_err(|shortfall| match shortfall {
-                KagemushaWalletCapacityShortfallV1::Storage => Error::NotEnoughStorage,
-                KagemushaWalletCapacityShortfallV1::Memory => Error::NotEnoughMemory,
-            })
+        self.check_capacity_observed(NativeAdmissionPhaseV1::IntakeMemory, required)
     }
 
     /// Admit a local blacklist install only while one operation still fits after it: the
@@ -131,12 +121,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .ok_or(Error::Invalid("blacklist storage bound"))?,
             memory_bytes: 0,
         };
-        required
-            .check(&self.custody.runtime_resources()?)
-            .map_err(|shortfall| match shortfall {
-                KagemushaWalletCapacityShortfallV1::Storage => Error::NotEnoughStorage,
-                KagemushaWalletCapacityShortfallV1::Memory => Error::NotEnoughMemory,
-            })
+        self.check_capacity_observed(NativeAdmissionPhaseV1::Blacklist, required)
     }
 
     /// Check this phone now against the operation's design §5.3 bounds.
@@ -149,7 +134,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     /// # Errors
     /// `NotEnoughStorage` or `NotEnoughMemory` before anything is proven or committed;
     /// provider errors for unreadable storage, never converted to a shortfall.
-    pub(crate) fn require_runtime_capacity(&mut self) -> Result<(), Error> {
+    pub(crate) fn require_runtime_capacity(
+        &mut self,
+        phase: NativeAdmissionPhaseV1,
+    ) -> Result<(), Error> {
         let relations = self.proofs.runtime_capacity()?;
         let required = KagemushaWalletRuntimeCapacityV1 {
             storage_bytes: relations
@@ -158,12 +146,46 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .ok_or(Error::Invalid("runtime capacity bound"))?,
             memory_bytes: relations.memory_bytes,
         };
-        let available = self.custody.runtime_resources()?;
-        required
-            .check(&available)
-            .map_err(|shortfall| match shortfall {
-                KagemushaWalletCapacityShortfallV1::Storage => Error::NotEnoughStorage,
-                KagemushaWalletCapacityShortfallV1::Memory => Error::NotEnoughMemory,
-            })
+        self.check_capacity_observed(phase, required)
+    }
+
+    // Observe the existing probe and result once. Diagnostics never re-probe or select policy.
+    fn check_capacity_observed(
+        &mut self,
+        phase: NativeAdmissionPhaseV1,
+        required: KagemushaWalletRuntimeCapacityV1,
+    ) -> Result<(), Error> {
+        let available = match self.custody.runtime_resources() {
+            Ok(available) => available,
+            Err(error) => {
+                fold_metrics::admission::record(NativeAdmissionV1 {
+                    phase,
+                    required,
+                    available: None,
+                    result: NativeAdmissionResultV1::ProbeFailed,
+                });
+                return Err(error.into());
+            }
+        };
+        let checked = required.check(&available);
+        let observed = match checked {
+            Ok(()) => NativeAdmissionResultV1::Passed,
+            Err(KagemushaWalletCapacityShortfallV1::Storage) => {
+                NativeAdmissionResultV1::StorageShortfall
+            }
+            Err(KagemushaWalletCapacityShortfallV1::Memory) => {
+                NativeAdmissionResultV1::MemoryShortfall
+            }
+        };
+        fold_metrics::admission::record(NativeAdmissionV1 {
+            phase,
+            required,
+            available: Some(available),
+            result: observed,
+        });
+        checked.map_err(|shortfall| match shortfall {
+            KagemushaWalletCapacityShortfallV1::Storage => Error::NotEnoughStorage,
+            KagemushaWalletCapacityShortfallV1::Memory => Error::NotEnoughMemory,
+        })
     }
 }

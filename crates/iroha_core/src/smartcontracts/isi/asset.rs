@@ -21,7 +21,7 @@ pub mod isi {
     use crate::{
         privacy_state::{PrivacyPublicReserveOwnerV1, privacy_public_reserve_owner_v1},
         smartcontracts::isi::account_admission::ensure_receiving_account,
-        state::{WorldTransaction, retail_daily_limit_state as retail_state},
+        state::{WorldTransaction, asset_uid, retail_daily_limit_state as retail_state},
     };
     use iroha_crypto::Hash;
     use iroha_data_model::{
@@ -351,6 +351,18 @@ pub mod isi {
                 expected_amount,
                 source_policy,
             )?;
+            // The complete live UID balance/usage view is checked again at
+            // consumption, including sibling wallets and retained escrow.
+            let uid_writes = asset_uid::prepare_movements(
+                self,
+                &[asset_uid::Movement {
+                    source: source_id,
+                    destination: destination_id,
+                    amount: expected_amount,
+                    charge_activity: source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                }],
+                self.retail_fee_now_ms,
+            )?;
             // Reservation-only instructions can change a source's available funds
             // without changing its balance. Recheck at consumption as well as preparation.
             let balance_after = if source_id == destination_id {
@@ -368,6 +380,9 @@ pub mod isi {
                 self.precheck_quantity_balance_assignment(source_id, &delta.to_balance_after)?;
                 self.quantity_mutation_observation.changed();
                 self.assign_prechecked_quantity_balance(source_id, delta.to_balance_after.clone());
+                for (key, bytes) in uid_writes {
+                    self.smart_contract_state.insert(key, bytes);
+                }
                 if !delta.to_balance_after.is_zero() {
                     self.track_nonzero_asset_holder(destination_id);
                 }
@@ -388,6 +403,9 @@ pub mod isi {
                 );
             }
             self.assign_prechecked_quantity_balance(destination_id, delta.to_balance_after.clone());
+            for (key, bytes) in uid_writes {
+                self.smart_contract_state.insert(key, bytes);
+            }
             if !delta.to_balance_after.is_zero() {
                 self.track_nonzero_asset_holder(destination_id);
             }
@@ -525,6 +543,7 @@ pub mod isi {
                 .map_err(|_| MathError::Overflow)?;
             assert_numeric_spec_with(candidate.as_numeric(), spec)?;
             self.ensure_numeric_asset_holding_limit(id, &candidate)?;
+            asset_uid::check_credit(self, id, &candidate)?;
             Ok(candidate)
         }
         fn apply_prechecked_numeric_asset_credit_exact(
@@ -878,6 +897,13 @@ pub mod isi {
         if asset_definition_ids.is_empty() {
             return Ok(());
         }
+        for definition in asset_definition_ids {
+            if asset_uid::retained(state_transaction.world(), Some(definition), None)? {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    format!("cannot {removal_target}: asset definition {definition} retains UID policy").into(),
+                ));
+            }
+        }
         for (account_id, account) in state_transaction.world.accounts.iter() {
             if account
                 .metadata()
@@ -932,6 +958,11 @@ pub mod isi {
         state_transaction: &StateTransaction<'_, '_>,
         account_id: &AccountId,
     ) -> Result<(), Error> {
+        if asset_uid::retained(state_transaction.world(), None, Some(account_id))? {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "cannot unregister an account retained by UID membership".into(),
+            ));
+        }
         let has_binding_or_issuer =
             retail_state::account_is_retained(state_transaction.world(), account_id)
                 .map_err(|reason| InstructionExecutionError::InvariantViolation(reason.into()))?;
@@ -1897,7 +1928,7 @@ pub mod isi {
         ImplicitReceive,
         ExistingAccount,
     }
-    fn ensure_user_numeric_asset_source_authority(
+    pub(in crate::smartcontracts::isi) fn ensure_user_numeric_asset_source_authority(
         state_transaction: &StateTransaction<'_, '_>,
         authority: &AccountId,
         source_id: &AssetId,
@@ -6353,6 +6384,16 @@ pub mod isi {
                     &amount,
                     control_policy,
                 )?;
+            asset_uid::prepare_movements(
+                state_transaction.world(),
+                &[asset_uid::Movement {
+                    source: &source_id,
+                    destination: &destination_id,
+                    amount: &amount,
+                    charge_activity: source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                }],
+                state_transaction.block_unix_timestamp_ms(),
+            )?;
             if !source_policy.is_moderation_challenge_settlement() {
                 let source_balance_after = if source_id == destination_id {
                     &prechecked_delta.to_balance_after
@@ -6618,6 +6659,16 @@ pub mod isi {
                 authorization
                     .ensure_admits_bond_units(state_transaction, plan.source_id.definition())?;
             }
+            asset_uid::prepare_movements(
+                state_transaction.world(),
+                &plans.iter().map(|plan| asset_uid::Movement {
+                    source: &plan.source_id,
+                    destination: &plan.destination_id,
+                    amount: &plan.amount,
+                    charge_activity: plan.source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                }).collect::<Vec<_>>(),
+                state_transaction.block_unix_timestamp_ms(),
+            )?;
             let mut initial_balances = BTreeMap::<AssetId, Quantity>::new();
             for plan in &plans {
                 for id in [&plan.source_id, &plan.destination_id] {
@@ -6850,6 +6901,16 @@ pub mod isi {
                     ));
                 }
             }
+            asset_uid::prepare_movements(
+                state_transaction.world(),
+                &self.plans.iter().map(|plan| asset_uid::Movement {
+                    source: &plan.source_id,
+                    destination: &plan.destination_id,
+                    amount: &plan.amount,
+                    charge_activity: plan.source_policy != NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+                }).collect::<Vec<_>>(),
+                state_transaction.block_unix_timestamp_ms(),
+            )?;
             // Aggregation has replaced every delta with its exact ordered virtual balance
             // transition. Prepare one whole occurrence before applying the first batch leg.
             let deltas = self

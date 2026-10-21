@@ -19,6 +19,17 @@ impl IsoPaymentOutcomeFixture {
     }
 
     fn with_committed_payment(rejected: bool, committed: bool) -> Self {
+        Self::with_payment_after_history(rejected, committed, 1, 100)
+    }
+
+    // The payment follows empty blocks up to `history_height`; its committed settlement
+    // expiry must cover the height it is committed at.
+    fn with_payment_after_history(
+        rejected: bool,
+        committed: bool,
+        history_height: u64,
+        expires_at_height: u64,
+    ) -> Self {
         use iroha_config::parameters::actual;
         use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
 
@@ -101,6 +112,9 @@ impl IsoPaymentOutcomeFixture {
         );
         let mut chain = CertifiedTestChain::start(TestChainConfig::new(world, 1_000))
             .expect("certified payment chain");
+        while chain.height() < history_height {
+            chain.commit(Vec::new());
+        }
         let mut app = mk_app_state_for_tests_with_iso_bridge(Some(config.clone()));
         let unique = Arc::get_mut(&mut app).expect("unique fixture app");
         unique.state = chain.state().clone();
@@ -108,7 +122,7 @@ impl IsoPaymentOutcomeFixture {
         let runtime = app.iso_bridge.as_ref().expect("ISO bridge enabled");
         let original_fields = "AppHdr/Fr/FIId/FinInstnId/BICFI=DEUTDEFF\nAppHdr/To/FIId/FinInstnId/BICFI=MARKDEFF\nAppHdr/BizSvc=generic-iso20022\nMsgId=outcome-payment\nIntrBkSttlmCcy=USD\nIntrBkSttlmAmt=10\nIntrBkSttlmDt=2026-01-01\nDbtrAcct=GB82WEST12345698765432\nCdtrAcct=GB33BUKB20201555555555\nDbtrAgt=DEUTDEFF\nCdtrAgt=MARKDEFF";
         let original_bytes = format!(
-            "{original_fields}\nUETR=123e4567-e89b-42d3-a456-426614174000\nNexusSettlement/NetworkId={}\nNexusSettlement/ExpiresAtHeight=100\nNexusSettlement/SourceAccountId={sender}\nNexusSettlement/TargetAccountId={recipient}\nNexusSettlement/AssetDefinitionId={definition}",
+            "{original_fields}\nUETR=123e4567-e89b-42d3-a456-426614174000\nNexusSettlement/NetworkId={}\nNexusSettlement/ExpiresAtHeight={expires_at_height}\nNexusSettlement/SourceAccountId={sender}\nNexusSettlement/TargetAccountId={recipient}\nNexusSettlement/AssetDefinitionId={definition}",
             chain.network_id()
         );
         let original = ivm::iso20022::parse_message("pacs.008", original_bytes.as_bytes())
@@ -247,8 +261,7 @@ async fn iso_settlement_rejects_included_but_rejected_payment_before_reconciliat
             .pacs002_code(),
         "ACSC"
     );
-    reconcile_iso_bridge_transactions(runtime, &fixture.app.state)
-        .expect("canonical reconciliation");
+    reconcile_iso_bridge_transactions(runtime, &fixture.app).expect("canonical reconciliation");
     assert_eq!(
         runtime
             .message_status("outcome-payment")
@@ -292,8 +305,7 @@ async fn iso_settlement_accepts_successful_payment_without_later_network_traffic
             .settled_at(),
         Some(canonical_time)
     );
-    reconcile_iso_bridge_transactions(runtime, &fixture.app.state)
-        .expect("idempotent reconciliation");
+    reconcile_iso_bridge_transactions(runtime, &fixture.app).expect("idempotent reconciliation");
     assert_eq!(
         runtime
             .message_status("outcome-payment")
@@ -539,7 +551,7 @@ async fn iso_reported_return_wakes_idle_worker_after_final_payment() {
     let shutdown = ShutdownSignal::new();
     let worker = start_iso_bridge_projection_worker(
         runtime.clone(),
-        fixture.app.state.clone(),
+        fixture.app.clone(),
         &events,
         shutdown.clone(),
     )
@@ -601,7 +613,7 @@ async fn iso_reported_return_recovers_original_outcome_after_restart() {
         let shutdown = ShutdownSignal::new();
         let worker = start_iso_bridge_projection_worker(
             restored.clone(),
-            fixture.app.state.clone(),
+            fixture.app.clone(),
             &events,
             shutdown.clone(),
         )
@@ -674,8 +686,7 @@ async fn iso_reported_return_canonical_success_supersedes_local_queue_expiry() {
         .submit_return()
         .await
         .expect("retain report against exact expired carrier");
-    reconcile_iso_bridge_transactions(runtime, &fixture.app.state)
-        .expect("canonical original recovery");
+    reconcile_iso_bridge_transactions(runtime, &fixture.app).expect("canonical original recovery");
     assert_eq!(
         runtime
             .message_status("outcome-payment")
@@ -819,7 +830,7 @@ async fn iso_native_two_gateways_recover_one_business_effect_and_honest_rejected
             .pacs002_code(),
         "PDNG"
     );
-    reconcile_iso_bridge_transactions(&restored, &app.state).unwrap();
+    reconcile_iso_bridge_transactions(&restored, &app).unwrap();
     let recovered = restored.message_status("other-gateway-payment").unwrap();
     assert_eq!(recovered.pacs002_code(), "ACSC");
     assert_eq!(recovered.native_payment_json(), native);

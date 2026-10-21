@@ -10,6 +10,7 @@
 mod contract_calls;
 pub(crate) mod contract_event;
 mod native_events;
+mod controlled_asset_locks;
 mod prepared_verifying_key_memo;
 mod tlv_transport;
 
@@ -156,7 +157,11 @@ include!("host/contract_state_namespace.rs");
 // canonical root or include its delimiter. Matching reserves only the exact
 // root and `_`/`/` descendants so similarly named user keys remain available.
 const OPAQUE_SYSTEM_CONTRACT_STATE_PREFIXES: &[&str] = &[
+    crate::smartcontracts::isi::escrow::controlled::STATE_ROOT,
     crate::state::retail_daily_limit_state::POLICY_ROOT,
+    crate::state::asset_uid::POLICY_ROOT,
+    crate::state::asset_uid::BINDING_ROOT,
+    crate::state::asset_uid::USAGE_ROOT,
     crate::state::retail_daily_limit_state::ACTIVATION_ROOT,
     crate::state::retail_daily_limit_state::IDENTITY_ROOT,
     crate::state::retail_daily_limit_state::USAGE_ROOT,
@@ -10273,6 +10278,10 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                 ivm::syscalls::SYSCALL_TRANSFER_V1_BATCH_APPLY => {
                     self.apply_fastpq_batch_from_tlv(vm)
                 }
+                ivm::syscalls::SYSCALL_ASSET_LOCK_OPEN
+                | ivm::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN
+                | ivm::syscalls::SYSCALL_ASSET_LOCK_CANCEL
+                | ivm::syscalls::SYSCALL_ASSET_LOCK_EXPIRE => self.controlled_asset_lock(vm, number),
                 // ----------------- Native asset escrow ISIs via pointer-ABI -----------------
                 ivm::syscalls::SYSCALL_ESCROW_OPEN_OFFER => {
                     let escrow_ptr = vm.register(10);

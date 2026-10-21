@@ -162,7 +162,8 @@ disposition. Deleted code remains in Git history; later goals rebuild from the
   receipt block's exact BLS CommitQC and counted Load-event inclusion against
   signed genesis and authenticated epoch changes before requesting Advance.
   The receipt is unsigned and binds the successful transaction, height, payer
-  digest and complete approved terms. The four-A/three-W monetary Load relation
+  digest and complete approved terms. The single-terminal A_Load relation, with
+  no W continuation,
   binds those exact terms, replay insertion and the credential-bound Advance
   signature; it does not prove BLS verification inside PLONK. The finality
   circuits, recursive history prover and finality key inventories are deleted.
@@ -173,7 +174,7 @@ disposition. Deleted code remains in Git history; later goals rebuild from the
   TODO(G3/G5): qualify the regenerated complete monetary catalog, genuine Load
   and downstream lineage, complete 10,000-byte payment envelopes, four-validator
   execution and physical-phone performance on the current candidate. Historical
-  recursive-finality captures do not qualify this replacement.
+  recursive-finality and earlier staged-Load captures do not qualify this replacement.
 
 ## 3. Disposition of the inspected implementation
 

@@ -1079,21 +1079,6 @@ fn canonical_transaction_anchor(
         block_hash,
     }))
 }
-fn canonical_transaction_outcome(
-    state: &CoreState,
-    hash: &HashOf<SignedTransaction>,
-) -> Result<Option<CanonicalTransactionOutcome>, Error> {
-    canonical_transaction_outcome_with_authenticator(state, hash, |anchor| {
-        authenticate_canonical_transaction_outcome(state, hash, anchor)
-    })
-}
-fn canonical_transaction_outcome_with_authenticator(
-    state: &CoreState,
-    hash: &HashOf<SignedTransaction>,
-    authenticate: impl FnOnce(CanonicalTransactionAnchor) -> Result<CanonicalTransactionOutcome, Error>,
-) -> Result<Option<CanonicalTransactionOutcome>, Error> {
-    canonical_transaction_read_with_authenticator(state, hash, authenticate)
-}
 // Keep the exact canonical bracket around the owned result as well as its scalar projection.
 // This retains the original carrier/query lease until the membership recheck has succeeded.
 fn canonical_transaction_read_with_authenticator<T>(
@@ -1115,26 +1100,6 @@ fn canonical_transaction_read_with_authenticator<T>(
         )));
     }
     Ok(Some(outcome))
-}
-// State captures and rechecks membership; Kura authenticates the exact finalized
-// execution wire without retaining a world-state read guard across storage I/O.
-fn authenticate_canonical_transaction_outcome(
-    state: &CoreState,
-    hash: &HashOf<SignedTransaction>,
-    anchor: CanonicalTransactionAnchor,
-) -> Result<CanonicalTransactionOutcome, Error> {
-    let work = routing::app_query_limits().max_fetch_size;
-    canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
-        iroha_core::smartcontracts::isi::tx::visit_finalized_network_transactions(
-            state,
-            anchor.height,
-            anchor.block_hash,
-            work,
-            iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
-            visitor,
-        )
-        .map_err(crate::canonical_history::query_attempt_error)
-    })
 }
 // HTTP status is an off-chain observation. Retain its exact query-owned carrier until
 // the canonical membership bracket and matching pending projection have both completed.
@@ -1166,6 +1131,28 @@ fn read_pipeline_execution_carrier_within(
     bytes: u64,
 ) -> Result<AuthenticatedPipelineCarrier, Error> {
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
+    read_execution_carrier_under_owner(app, owner, height, work, bytes)
+}
+// Background workers have no request. Each read takes its own fail-fast owner from the same
+// query-fanout pool as HTTP observations and reads the same State/checkpoint ancestry under
+// the unchanged fetch budget. A busy pool or a local deferral is `CapacityLimit`, which the
+// worker retries; this off-chain read never feeds on-chain metering.
+fn read_background_execution_carrier(
+    app: &SharedAppState,
+    height: NonZeroUsize,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
+    let work = routing::app_query_limits().max_fetch_size;
+    let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+    let owner = crate::history_producer::HistoryProducerOwner::background_read(app)?;
+    read_execution_carrier_under_owner(app, owner, height, work, bytes)
+}
+fn read_execution_carrier_under_owner(
+    app: &SharedAppState,
+    owner: crate::history_producer::HistoryProducerOwner,
+    height: NonZeroUsize,
+    work: u64,
+    bytes: u64,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
     let carrier = owner.scope(|| {
         let budget = owner.canonical_history_budget();
         // G1 still requires its actual certified H2. Only successors use the original
@@ -1180,6 +1167,30 @@ fn read_pipeline_execution_carrier_within(
         .map_err(crate::canonical_history::query_attempt_error)
     })?;
     Ok(AuthenticatedPipelineCarrier { carrier, owner })
+}
+// How a background worker treats one history read refusal. Only a busy history pool or a
+// transient local deferral is retried. A read this node's own off-chain budget can never serve
+// (`HistoryReadExceedsBudget`, or `GasBudgetExceeded` for work or bytes) is deterministic here:
+// retrying cannot help and exiting cannot recover, so the record stays unresolved. Every other
+// refusal (absent, substituted or inconsistent history, a changed binding) is fatal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackgroundHistoryRefusal {
+    Transient,
+    Budget,
+    Fatal,
+}
+fn background_history_refusal(error: &Error) -> BackgroundHistoryRefusal {
+    use iroha_data_model::{ValidationFail::QueryFailed, query::error::QueryExecutionFail};
+    match error {
+        Error::Query(QueryFailed(QueryExecutionFail::CapacityLimit)) => {
+            BackgroundHistoryRefusal::Transient
+        }
+        Error::HistoryReadExceedsBudget { .. }
+        | Error::Query(QueryFailed(QueryExecutionFail::GasBudgetExceeded)) => {
+            BackgroundHistoryRefusal::Budget
+        }
+        _ => BackgroundHistoryRefusal::Fatal,
+    }
 }
 // Existing private outcome controls use the same production acquisition/projection.
 #[cfg(test)]
@@ -1288,6 +1299,26 @@ fn pipeline_status_from_request(
         Ok((outcome.into_pipeline_status_entry(), original))
     })
     .map(|read| read.map(|(entry, _original)| entry))
+}
+// The ISO projection worker's twin of the HTTP status read: G1 keeps its complete carrier (it
+// needs its actual certified H2); every successor reads only bounded windows of its carrier,
+// so neither block nor transaction size can refuse it. Each read takes its own background
+// owner, retained through the membership recheck. It records no pipeline cache entry.
+fn canonical_transaction_outcome_in_background(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+) -> Result<Option<CanonicalTransactionOutcome>, Error> {
+    canonical_transaction_read_with_authenticator(&app.state, hash, |anchor| {
+        if anchor.height == NonZeroUsize::MIN {
+            let original = read_background_execution_carrier(app, anchor.height)?;
+            let outcome = pipeline_carrier_outcome(hash, anchor, &original)?;
+            return Ok((outcome, original.owner));
+        }
+        let owner = crate::history_producer::HistoryProducerOwner::background_read(app)?;
+        let outcome = read_transaction_outcome_under_owner(app, &owner, hash, anchor)?;
+        Ok((outcome, owner))
+    })
+    .map(|read| read.map(|(outcome, _owner)| outcome))
 }
 fn pipeline_status_terminal_or_state_entry(
     app: &SharedAppState,
@@ -1413,8 +1444,18 @@ fn read_pipeline_transaction_outcome(
     Error,
 > {
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
+    let outcome = read_transaction_outcome_under_owner(app, &owner, hash, anchor)?;
+    Ok((outcome, owner))
+}
+// One exact outcome from bounded windows of its carrier under an already acquired owner.
+fn read_transaction_outcome_under_owner(
+    app: &SharedAppState,
+    owner: &crate::history_producer::HistoryProducerOwner,
+    hash: &HashOf<SignedTransaction>,
+    anchor: CanonicalTransactionAnchor,
+) -> Result<CanonicalTransactionOutcome, Error> {
     let work = routing::app_query_limits().max_fetch_size;
-    let outcome = owner.scope(|| {
+    owner.scope(|| {
         let budget = owner.canonical_history_budget();
         let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
         let committed = app
@@ -1428,8 +1469,7 @@ fn read_pipeline_transaction_outcome(
             )
             .map_err(crate::canonical_history::query_attempt_error)?;
         canonical_transaction_outcome_from_committed(hash, anchor, &committed)
-    })?;
-    Ok((outcome, owner))
+    })
 }
 impl PipelineStatusCache {
     // An exact authenticated transaction completes only its own matching pending block: it

@@ -369,7 +369,7 @@ fn classify_exact_reserve_entrypoint_outcome(
     }
 }
 fn inspect_indexed_reserve_transaction(
-    state: &iroha_core::state::State,
+    state: &SharedAppState,
     transaction_hash: &HashOf<SignedTransaction>,
     block_height: NonZeroUsize,
     expected_block_hash: HashOf<BlockHeader>,
@@ -968,7 +968,7 @@ fn observe_reserve_transaction_in_one_finalized_view(
             (None, _) => ReserveAuthoritativeTransactionOutcomeV1::Absent,
             (Some(_), None) => ReserveAuthoritativeTransactionOutcomeV1::Unavailable,
             (Some(_), Some((height, expected))) => {
-                inspect_indexed_reserve_transaction(&state.state, hash, height, expected)
+                inspect_indexed_reserve_transaction(state, hash, height, expected)
             }
         });
     let current = state.state.view();

@@ -148,7 +148,7 @@ fn compact_length_decoder_matches_the_norito_writer_and_refuses_noncanonical_for
 }
 
 #[test]
-fn bounded_outcome_matches_the_full_carrier_for_applied_rejected_and_absent_inputs() {
+fn bounded_outcome_matches_applied_and_rejected_inputs_and_refuses_unresolved_identity() {
     let (chain, transactions) = outcome_chain(16);
     let state = chain.state();
     let height = NonZeroUsize::new(2).unwrap();
@@ -168,11 +168,9 @@ fn bounded_outcome_matches_the_full_carrier_for_applied_rejected_and_absent_inpu
         assert_eq!(result.is_ok(), applied);
     }
     let absent = HashOf::from_untyped_unchecked(Hash::new(b"absent bounded outcome identity"));
-    assert!(
-        bounded(state, height, &absent, &budget)
-            .unwrap()
-            .matched_results()
-            .is_empty()
+    assert_eq!(
+        conversion(bounded(state, height, &absent, &budget).unwrap_err()),
+        "committed Network identity has no authenticated outcome"
     );
     assert_eq!(
         budget.frames().reserved_bytes(),
@@ -251,6 +249,82 @@ fn bounded_outcome_walks_successor_certificates_and_records_their_identities() {
         .map(|(height, _)| height)
         .collect();
     assert!(recorded.contains(&2), "{recorded:?}");
+}
+
+#[test]
+fn bounded_outcome_cumulative_decoder_refusal_can_succeed_on_identical_retry() {
+    let (mut chain, transactions) = outcome_chain(16);
+    for _ in 0..6 {
+        chain.commit(Vec::new());
+    }
+    let state = chain.state();
+    let height = NonZeroUsize::new(2).unwrap();
+    let identity = transactions[0].hash_as_entrypoint();
+    // Measure the exact target and one authenticated successor. This budget can
+    // advance each retry by at least one height without funding the entire cold walk.
+    chain.kura().history_checkpoints().clear();
+    // The full carrier can authenticate this empty successor without asserting an outcome
+    // for our target identity. Its checkpoint seeds the measured two-frame descent.
+    state
+        .read_executed_carrier_from_checkpoints(
+            NonZeroUsize::new(3).unwrap(),
+            WORK,
+            BYTES,
+            &generous(),
+        )
+        .unwrap();
+    let measured = DecodeBudgetContext::new(DecodeLimits::new(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        norito::core::MAX_VALUE_NESTING_DEPTH,
+    ));
+    let measuring_budget =
+        CanonicalHistoryReadBudget::new(AllocationBudget::new(1 << 20), measured.clone());
+    let expected = bounded(state, height, &identity, &measuring_budget).unwrap();
+    let limit = usize::try_from(measured.consumed_allocated_bytes()).unwrap();
+    assert!(limit > 0);
+
+    chain.kura().history_checkpoints().clear();
+    let mut refusals = 0;
+    // Every attempt is the same query with the same limits and a fresh request owner.
+    // A refused descent retains the identities it did authenticate, so later attempts
+    // can start closer to the target without changing the request or its budget.
+    for _ in 0..=chain.height() {
+        let context = DecodeBudgetContext::new(DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            limit,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ));
+        let budget = CanonicalHistoryReadBudget::new(AllocationBudget::new(1 << 20), context);
+        match bounded(state, height, &identity, &budget) {
+            Ok(outcome) => {
+                assert!(
+                    refusals > 0,
+                    "a cold descent must exceed the short-walk budget"
+                );
+                assert_eq!(outcome.matched_results(), expected.matched_results());
+                return;
+            }
+            Err(ExecutionAttemptError::Deferred(deferred)) => {
+                assert!(
+                    matches!(
+                        deferred
+                            .decode_refusal()
+                            .map(norito::core::DecodeLocalRefusal::resource_error),
+                        Some(norito::core::DecodeResourceError::TotalAllocationExceeded { .. })
+                    ),
+                    "{deferred:?}"
+                );
+                refusals += 1;
+            }
+            Err(other) => panic!("unexpected completed refusal: {other:?}"),
+        }
+    }
+    panic!("identical retries failed to finish the checkpoint descent");
 }
 
 /// A sealed commitment at height 2 and its applied reveal at height 3. Returns the chain, the
@@ -460,5 +534,281 @@ fn bounded_outcome_refuses_genesis_and_a_contradicted_journal() {
     assert_eq!(
         conversion(contradicted),
         "native execution parent contradicts State hash at 2"
+    );
+}
+
+#[test]
+fn bounded_outcome_refuses_a_substituted_reveal_variant_instead_of_alias_absence() {
+    let (chain, signed, outer_identity) = sealed_reveal_chain();
+    let height = NonZeroUsize::new(3).unwrap();
+    let wire = chain
+        .kura()
+        .canonical_block_wire_bytes_for_testing(height)
+        .unwrap();
+    let reveal =
+        norito::codec::encode_adaptive(&chain.committed(3).block().external_entrypoints_slice()[0]);
+    let position = wire
+        .windows(reveal.len())
+        .position(|window| window == reveal.as_slice())
+        .expect("the reveal appears verbatim in its original frame");
+    assert_eq!(
+        &wire[position..position + size_of::<u32>()],
+        &EntrypointTag::SealedReveal.wire()
+    );
+    // No accepted non-reveal tag may turn an unresolved committed alias into
+    // an authenticated empty result. Positive outer-identity outcomes remain unchanged.
+    for tag in [
+        EntrypointTag::External,
+        EntrypointTag::SealedCommitment,
+        EntrypointTag::AnonymousBallot,
+    ] {
+        chain.kura().overwrite_native_frame_bytes_for_test(
+            height,
+            u64::try_from(position).unwrap(),
+            &tag.wire(),
+        );
+        let error = bounded(
+            chain.state(),
+            height,
+            &signed.hash_as_entrypoint(),
+            &generous(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            conversion(error),
+            "committed Network identity has no authenticated outcome"
+        );
+        let outer = bounded(chain.state(), height, &outer_identity, &generous()).unwrap();
+        assert!(matches!(outer.matched_results(), [Ok(())]));
+    }
+}
+
+#[test]
+fn bounded_outcome_scans_known_and_retired_tags_even_for_other_network_inputs() {
+    let (chain, transactions) = outcome_chain(16);
+    let height = NonZeroUsize::new(2).unwrap();
+    let expected = transactions
+        .iter()
+        .map(|transaction| full_results(chain.state(), height, &transaction.hash_as_entrypoint()))
+        .collect::<Vec<_>>();
+    let wire = chain
+        .kura()
+        .canonical_block_wire_bytes_for_testing(height)
+        .unwrap();
+    let entrypoint =
+        norito::codec::encode_adaptive(&chain.committed(2).block().external_entrypoints_slice()[1]);
+    let position = wire
+        .windows(entrypoint.len())
+        .position(|window| window == entrypoint.as_slice())
+        .expect("the second input appears verbatim in its original frame");
+
+    // Pin the parser's known tag to a canonical structural carrier. This does not
+    // admit or execute a ballot, or assert proof validity: only its tag is copied
+    // into an ordinary input whose original hash and result remain authenticated.
+    let anonymous =
+        norito::codec::encode_adaptive(&crate::tx::anonymous_ballot_tests::entrypoint());
+    let tag = &anonymous[..size_of::<u32>()];
+    assert_eq!(tag, EntrypointTag::AnonymousBallot.wire());
+    chain.kura().overwrite_native_frame_bytes_for_test(
+        height,
+        u64::try_from(position).unwrap(),
+        tag,
+    );
+    for (transaction, expected) in transactions.iter().zip(&expected) {
+        let outcome = bounded(
+            chain.state(),
+            height,
+            &transaction.hash_as_entrypoint(),
+            &generous(),
+        )
+        .unwrap();
+        assert_eq!(outcome.matched_results(), expected.as_slice());
+    }
+
+    // Every input is still scanned even when the first ordinary identity already
+    // matches. Retired tag 3 and unknown tags remain invalid for both identities.
+    for tag in [3_u32, 5, u32::MAX] {
+        chain.kura().overwrite_native_frame_bytes_for_test(
+            height,
+            u64::try_from(position).unwrap(),
+            &tag.to_le_bytes(),
+        );
+        for transaction in &transactions {
+            let error = bounded(
+                chain.state(),
+                height,
+                &transaction.hash_as_entrypoint(),
+                &generous(),
+            )
+            .unwrap_err();
+            assert_eq!(conversion(error), "Network input has an unknown variant");
+        }
+    }
+}
+
+#[test]
+fn bounded_outcome_checks_input_work_before_inspecting_entrypoint_bodies() {
+    let (chain, transactions) = outcome_chain(16);
+    let height = NonZeroUsize::new(2).unwrap();
+    let wire = chain
+        .kura()
+        .canonical_block_wire_bytes_for_testing(height)
+        .unwrap();
+    let entrypoint =
+        norito::codec::encode_adaptive(&chain.committed(2).block().external_entrypoints_slice()[0]);
+    let position = wire
+        .windows(entrypoint.len())
+        .position(|window| window == entrypoint.as_slice())
+        .expect("the entrypoint appears verbatim in its original frame");
+    chain.kura().overwrite_native_frame_bytes_for_test(
+        height,
+        u64::try_from(position).unwrap(),
+        &u32::MAX.to_le_bytes(),
+    );
+    // One frame plus two input rows needs three work units. Refuse either smaller
+    // allowance before inspecting the malformed entrypoint's tag or payload.
+    for max_work in [1, 2] {
+        let result = chain.state().read_committed_network_outcome(
+            height,
+            &transactions[0].hash_as_entrypoint(),
+            max_work,
+            BYTES,
+            &generous(),
+        );
+        assert!(
+            matches!(
+                result,
+                Err(ExecutionAttemptError::Rejected(
+                    QueryExecutionFail::GasBudgetExceeded
+                ))
+            ),
+            "over-budget input rows must not be inspected: {result:?}"
+        );
+    }
+    // At the exact allowance the reader reaches the malformed tag. This prevents
+    // a permanently rejecting implementation from satisfying the refusal control.
+    let exact = chain
+        .state()
+        .read_committed_network_outcome(
+            height,
+            &transactions[0].hash_as_entrypoint(),
+            3,
+            BYTES,
+            &generous(),
+        )
+        .unwrap_err();
+    assert_eq!(conversion(exact), "Network input has an unknown variant");
+}
+
+#[test]
+fn bounded_outcome_per_item_refusal_identifies_target_and_skippable_ancestry() {
+    use crate::execution_attempt::ExecutionPhase;
+
+    let (mut chain, transactions) = outcome_chain(16);
+    chain.commit(Vec::new());
+    let certificate_bytes =
+        norito::codec::encode_adaptive(chain.committed(3).block().commit_certificate().unwrap())
+            .len();
+    let frames = certificate_bytes - 1;
+    let target_identity = chain.committed(3).block().external_entrypoints_slice()[0].hash();
+    for (height, identity, expected_phase) in [
+        (
+            2,
+            transactions[0].hash_as_entrypoint(),
+            ExecutionPhase::HistoryAncestry,
+        ),
+        (3, target_identity, ExecutionPhase::HistoryTarget),
+    ] {
+        chain.kura().clear_history_checkpoints_for_testing();
+        let refused = bounded(
+            chain.state(),
+            NonZeroUsize::new(height).unwrap(),
+            &identity,
+            &read_budget(frames, usize::MAX),
+        )
+        .unwrap_err();
+        let ExecutionAttemptError::Deferred(original) = refused else {
+            panic!("the original certificate window must be refused locally");
+        };
+        assert_eq!(original.phase(), Some(expected_phase));
+        assert!(matches!(
+            original.allocation_refusal(),
+            Some(AllocationRefusal::ExceedsLimit {
+                requested_bytes,
+                limit_bytes,
+            }) if *requested_bytes == certificate_bytes && *limit_bytes == frames
+        ));
+    }
+    // A verified checkpoint still requires the target's own certificate on every read.
+    assert!(
+        !full_results(
+            chain.state(),
+            NonZeroUsize::new(3).unwrap(),
+            &target_identity,
+        )
+        .is_empty()
+    );
+    let refused = bounded(
+        chain.state(),
+        NonZeroUsize::new(3).unwrap(),
+        &target_identity,
+        &read_budget(frames, usize::MAX),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        refused,
+        ExecutionAttemptError::Deferred(original)
+            if original.phase() == Some(ExecutionPhase::HistoryTarget)
+                && matches!(original.allocation_refusal(),
+                    Some(AllocationRefusal::ExceedsLimit { .. }))
+    ));
+}
+
+#[test]
+fn bounded_outcome_refuses_a_substituted_input_identity_before_returning_its_result() {
+    let (chain, transactions) = outcome_chain(16);
+    let height = NonZeroUsize::new(2).unwrap();
+    let original_identity = transactions[0].hash_as_entrypoint();
+    let original = bounded(chain.state(), height, &original_identity, &generous()).unwrap();
+    assert!(matches!(original.matched_results(), [Ok(())]));
+    let wire = chain
+        .kura()
+        .canonical_block_wire_bytes_for_testing(height)
+        .unwrap();
+    let committed = chain.committed(2);
+    let context = &committed.block().execution_context().unwrap().external[0];
+    let encoded = norito::codec::encode_adaptive(context);
+    let positions: Vec<_> = wire
+        .windows(encoded.len())
+        .enumerate()
+        .filter_map(|(index, bytes)| (bytes == encoded.as_slice()).then_some(index))
+        .collect();
+    assert_eq!(
+        positions.len(),
+        1,
+        "the original input context must occur exactly once"
+    );
+    let fabricated = HashOf::<TransactionEntrypoint>::from_untyped_unchecked(Hash::new(
+        b"adversarial substituted committed input identity",
+    ));
+    assert_ne!(fabricated, original_identity);
+    let mut replacement = context.clone();
+    replacement.entrypoint_hash = fabricated;
+    let replacement = norito::codec::encode_adaptive(&replacement);
+    assert_eq!(replacement.len(), encoded.len());
+    // Corrupt only the stored input-context row. The original durable header and
+    // native commit certificate remain unchanged; no new finality is fabricated.
+    chain.kura().overwrite_native_frame_bytes_for_test(
+        height,
+        u64::try_from(positions[0]).unwrap(),
+        &replacement,
+    );
+    let error = bounded(chain.state(), height, &fabricated, &generous())
+        .expect_err("substituted Network identity must not inherit the original committed output");
+    let message = conversion(error);
+    assert!(
+        message == "execution context differs from the Network inputs committed by the header"
+            || message == "certified input commitment differs from the committed Network inputs",
+        "either authenticated input-root anchor must reject the substitution: {message}",
     );
 }

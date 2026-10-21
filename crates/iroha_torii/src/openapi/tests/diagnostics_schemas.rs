@@ -63,9 +63,9 @@ fn pipeline_status_openapi_exposes_only_the_exact_first_release_scope() {
             .keys()
             .map(String::as_str)
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["200", "404", "503"])
+        BTreeSet::from(["200", "404", "413", "429", "503"])
     );
-    for status in ["404", "503"] {
+    for status in ["404", "413", "429", "503"] {
         let content = operation["responses"][status]["content"]
             .as_object()
             .expect("typed pipeline error representations");
@@ -96,6 +96,33 @@ fn pipeline_status_openapi_exposes_only_the_exact_first_release_scope() {
             .as_str()
             .expect("incomplete global observation semantics")
             .contains("route_unavailable")
+    );
+    let permanent = &operation["responses"]["413"];
+    for detail in [
+        "history_read_exceeds_request_budget",
+        "details.field",
+        "details.actual",
+        "details.expected",
+    ] {
+        assert!(
+            permanent["description"]
+                .as_str()
+                .expect("permanent history-budget refusal")
+                .contains(detail),
+            "missing budget detail: {detail}"
+        );
+    }
+    assert!(permanent.get("headers").is_none());
+    let transient = &operation["responses"]["429"];
+    assert!(
+        transient["description"]
+            .as_str()
+            .expect("retryable history-budget refusal")
+            .contains("cumulative decoder exhaustion")
+    );
+    assert_eq!(
+        transient["headers"]["Retry-After"]["schema"]["minimum"],
+        Value::from(1_u64)
     );
     let detail = &schemas["PipelineTransactionStatusNotFoundV1"];
     assert_eq!(detail["type"], Value::from("object"));
@@ -248,7 +275,6 @@ fn npos_schema_excludes_retired_process_local_and_vrf_surfaces() {
         "retired Sumeragi VRF path remains in OpenAPI"
     );
 }
-
 
 #[test]
 fn status_openapi_uses_only_exact_scalar_probe_paths() {

@@ -1001,7 +1001,12 @@ pub unsafe extern "C" fn connect_norito_kagemusha_wallet_fold_v1(
     handle: u64,
     out: *mut WalletResult,
 ) -> i32 {
-    unsafe { output(out, || fold(handle)) }
+    let observation = FoldBridgeTurnV1::begin(handle);
+    let status = unsafe { output(out, || fold(handle)) };
+    if let Some(observation) = observation {
+        observation.finish(status == 0);
+    }
+    status
 }
 /// Construct canonical CreditStatus from the authenticated persistent first-credit index.
 /// # Safety

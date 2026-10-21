@@ -2464,14 +2464,14 @@ async fn canonical_outcome_releases_state_snapshot_before_kura_authentication() 
     drop(view);
     assert_eq!(Arc::strong_count(&crypto), baseline);
     let mut calls = 0;
-    let outcome = canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
+    let outcome = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
         calls += 1;
         assert_eq!(
             Arc::strong_count(&crypto),
             baseline,
             "the complete StateView must be dropped before Kura/authentication"
         );
-        let outcome = authenticate_canonical_transaction_outcome(&app.state, &hash, anchor)?;
+        let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
         assert_eq!(Arc::strong_count(&crypto), baseline);
         Ok(outcome)
     })
@@ -2498,7 +2498,7 @@ async fn canonical_outcome_preserves_exact_committed_rejection() {
         .as_ref()
         .unwrap_err()
         .clone();
-    let outcome = canonical_transaction_outcome(&app.state, &hash)
+    let outcome = canonical_transaction_outcome_in_background(&app, &hash)
         .expect("stable rejection binding")
         .expect("indexed rejected transaction");
     assert!(matches!(
@@ -2511,9 +2511,11 @@ async fn canonical_outcome_preserves_exact_committed_rejection() {
 async fn canonical_outcome_absent_membership_never_authenticates() {
     let app = mk_app_state_for_tests();
     let hash = HashOf::from_untyped_unchecked(Hash::new(b"unindexed canonical outcome"));
-    let result = canonical_transaction_outcome_with_authenticator(&app.state, &hash, |_| {
-        panic!("absent State membership must not enter Kura/authentication")
-    })
+    let result = canonical_transaction_read_with_authenticator::<CanonicalTransactionOutcome>(
+        &app.state,
+        &hash,
+        |_| panic!("absent State membership must not enter Kura/authentication"),
+    )
     .expect("absence is not an inconsistent projection");
     assert!(result.is_none());
 }
@@ -2521,9 +2523,9 @@ async fn canonical_outcome_absent_membership_never_authenticates() {
 async fn canonical_outcome_accepts_unrelated_state_append_after_authentication() {
     let (app, hash, mut chain) = canonical_outcome_test_fixture(false);
     let mut calls = 0;
-    let outcome = canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
+    let outcome = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
         calls += 1;
-        let outcome = authenticate_canonical_transaction_outcome(&app.state, &hash, anchor)?;
+        let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
         append_canonical_outcome_test_block(&mut chain, anchor, false);
         assert_eq!(app.state.view().block_hashes().len(), 3);
         assert_eq!(
@@ -2544,24 +2546,22 @@ async fn canonical_outcome_rejects_removed_membership_after_authentication() {
     for rejected in [false, true] {
         let (app, hash, _chain) = canonical_outcome_test_fixture(rejected);
         let mut calls = 0;
-        let result =
-            canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
-                calls += 1;
-                let outcome =
-                    authenticate_canonical_transaction_outcome(&app.state, &hash, anchor)?;
-                assert_eq!(
-                    matches!(outcome, CanonicalTransactionOutcome::Rejected { .. }),
-                    rejected
-                );
-                // Mutate the actual indexed store, not a detached State clone.
-                let mut membership = app.state.transactions.block_and_revert();
-                membership.insert_block(BTreeSet::new(), anchor.height);
-                membership
-                    .commit()
-                    .expect("remove latest fixture membership");
-                assert!(canonical_transaction_anchor(&app.state, &hash)?.is_none());
-                Ok(outcome)
-            });
+        let result = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
+            calls += 1;
+            let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
+            assert_eq!(
+                matches!(outcome, CanonicalTransactionOutcome::Rejected { .. }),
+                rejected
+            );
+            // Mutate the actual indexed store, not a detached State clone.
+            let mut membership = app.state.transactions.block_and_revert();
+            membership.insert_block(BTreeSet::new(), anchor.height);
+            membership
+                .commit()
+                .expect("remove latest fixture membership");
+            assert!(canonical_transaction_anchor(&app.state, &hash)?.is_none());
+            Ok(outcome)
+        });
         let error = result.expect_err("neither terminal disposition survives removal");
         assert!(
             query_conversion_message(&error)
@@ -2574,8 +2574,8 @@ async fn canonical_outcome_rejects_removed_membership_after_authentication() {
 #[tokio::test]
 async fn canonical_outcome_rejects_rebound_membership_after_authentication() {
     let (app, hash, mut chain) = canonical_outcome_test_fixture(false);
-    let result = canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
-        let outcome = authenticate_canonical_transaction_outcome(&app.state, &hash, anchor)?;
+    let result = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
+        let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
         append_canonical_outcome_test_block(&mut chain, anchor, true);
         let rebound = canonical_transaction_anchor(&app.state, &hash)?.expect("rebound membership");
         assert_eq!(rebound.entrypoint_hash, anchor.entrypoint_hash);
@@ -2593,8 +2593,8 @@ async fn canonical_outcome_rejects_rebound_membership_after_authentication() {
 #[tokio::test]
 async fn canonical_outcome_rejects_replaced_journal_after_authentication() {
     let (app, hash, _chain) = canonical_outcome_test_fixture(false);
-    let result = canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
-        let outcome = authenticate_canonical_transaction_outcome(&app.state, &hash, anchor)?;
+    let result = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
+        let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
         let replacement = HashOf::from_untyped_unchecked(Hash::new(b"replaced outcome carrier"));
         assert_ne!(replacement, anchor.block_hash);
         let mut journal = app.state.block_hashes.block_and_revert();
@@ -2616,8 +2616,8 @@ async fn canonical_outcome_rejects_replaced_journal_after_authentication() {
 #[tokio::test]
 async fn canonical_outcome_rejects_missing_journal_after_authentication() {
     let (app, hash, _chain) = canonical_outcome_test_fixture(false);
-    let result = canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
-        let outcome = authenticate_canonical_transaction_outcome(&app.state, &hash, anchor)?;
+    let result = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
+        let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
         app.state.block_hashes.block_and_revert().commit_for_tests();
         assert_eq!(
             app.state.view().block_hashes().len(),
@@ -2682,7 +2682,7 @@ async fn canonical_outcome_rejects_result_substitution_under_the_same_header_has
         ),
         Err(iroha_core::kura::Error::CanonicalBlockWireMismatch { height: 2 })
     ));
-    let outcome = canonical_transaction_outcome(&app.state, &hash)
+    let outcome = canonical_transaction_outcome_in_background(&app, &hash)
         .expect("rejected mutations preserve canonical authority")
         .expect("indexed transaction");
     assert!(
@@ -2776,12 +2776,11 @@ async fn pipeline_status_handler_rejects_inconsistent_committed_membership() {
     else {
         panic!("inconsistent committed membership must fail closed");
     };
+    // The positive-membership reader refuses the unbound identity before status
+    // projection; it cannot authenticate absence from skipped transaction bodies.
     assert_eq!(
-        message,
-        format!(
-            "committed transaction status projection is inconsistent: transaction {bogus_hash} is absent from its finalized carrier"
-        ),
-        "authenticated output absence must not be confused with missing finality",
+        message, "committed Network identity has no authenticated outcome",
+        "inconsistent membership must remain an explicit authentication refusal",
     );
 }
 #[tokio::test]
@@ -4990,17 +4989,34 @@ async fn pipeline_status_authentication_keeps_original_admitted_query_pool_on_re
 async fn pipeline_status_checkpoint_reader_preserves_exact_rejection_and_publication_bracket() {
     for rejected in [false, true] {
         let (app, hash, mut chain) = canonical_outcome_test_fixture(rejected);
-        let original = canonical_transaction_outcome(&app.state, &hash)
-            .unwrap()
-            .unwrap();
-        let observed =
-            canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
-                let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
-                append_canonical_outcome_test_block(&mut chain, anchor, false);
-                Ok(outcome)
-            })
-            .expect("an unrelated committed append keeps the exact target source")
-            .unwrap();
+        let original = {
+            let committed = chain.committed(2);
+            let header = committed.block().header();
+            match committed
+                .block()
+                .network_output_at(0)
+                .unwrap()
+                .1
+                .result
+                .as_ref()
+            {
+                Ok(_) => CanonicalTransactionOutcome::Applied {
+                    height: header.height(),
+                    settled_at: UNIX_EPOCH.checked_add(header.creation_time()).unwrap(),
+                },
+                Err(reason) => CanonicalTransactionOutcome::Rejected {
+                    height: header.height(),
+                    reason: reason.clone(),
+                },
+            }
+        };
+        let observed = canonical_transaction_read_with_authenticator(&app.state, &hash, |anchor| {
+            let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
+            append_canonical_outcome_test_block(&mut chain, anchor, false);
+            Ok(outcome)
+        })
+        .expect("an unrelated committed append keeps the exact target source")
+        .unwrap();
         match (original, observed) {
             (
                 CanonicalTransactionOutcome::Applied {
@@ -5029,20 +5045,17 @@ async fn pipeline_status_checkpoint_reader_preserves_exact_rejection_and_publica
         let anchor = canonical_transaction_anchor(&app.state, &hash)
             .unwrap()
             .unwrap();
-        let error =
-            canonical_transaction_outcome_with_authenticator(&app.state, &hash, |captured| {
-                let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, captured)?;
-                let mut membership = app.state.transactions.block_and_revert();
-                membership.insert_block(
-                    [anchor.entrypoint_hash].into_iter().collect(),
-                    NonZeroUsize::new(usize::try_from(chain.height()).unwrap()).unwrap(),
-                );
-                membership.commit().unwrap();
-                Ok(outcome)
-            })
-            .expect_err(
-                "a replaced original membership must refuse despite successful authentication",
+        let error = canonical_transaction_read_with_authenticator(&app.state, &hash, |captured| {
+            let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, captured)?;
+            let mut membership = app.state.transactions.block_and_revert();
+            membership.insert_block(
+                [anchor.entrypoint_hash].into_iter().collect(),
+                NonZeroUsize::new(usize::try_from(chain.height()).unwrap()).unwrap(),
             );
+            membership.commit().unwrap();
+            Ok(outcome)
+        })
+        .expect_err("a replaced original membership must refuse despite successful authentication");
         assert!(
             query_conversion_message(&error)
                 .unwrap()
@@ -5151,8 +5164,16 @@ async fn pipeline_status_genesis_requires_actual_h2_and_refuses_substituted_succ
     let mut journal = app.state.block_hashes.block_and_revert();
     journal.push_for_tests(replacement);
     journal.commit_for_tests();
-    let ordinary = canonical_transaction_outcome(&app.state, &hash)
-        .expect_err("original full-prefix status refuses H2 substitution");
+    let work = routing::app_query_limits().max_fetch_size;
+    let ordinary = crate::canonical_history::query_attempt_error(
+        app.state
+            .read_finalized_execution_carrier(
+                NonZeroUsize::MIN,
+                work,
+                iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
+            )
+            .expect_err("original full-prefix status refuses H2 substitution"),
+    );
     let error = pipeline_status_terminal_or_state_entry(&app, &hash)
         .expect_err("the HTTP G1 branch must retain the same original H2 requirement");
     assert_eq!(

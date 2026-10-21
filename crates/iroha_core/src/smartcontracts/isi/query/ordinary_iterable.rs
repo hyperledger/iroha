@@ -5,6 +5,8 @@
 //! item. Unadapted producers stop before `ValidQuery::execute`; each admitted producer instead owns
 //! rows through its query-specific bounded adapter.
 #![allow(unsafe_code)]
+mod asset_uid;
+use asset_uid::collect_asset_uid_policies;
 use super::{
     OrdinaryQueryExecutionLimits, QueryAttemptError, QueryExecutionStats,
     ordinary_memory::OrdinaryCursorMode, singular_memory::SingularQueryFrame,
@@ -39,7 +41,7 @@ use std::{
 };
 /// The world-state producer count admitted through a source-specific adapter.
 #[cfg(test)]
-pub(super) const ADMITTED_WORLD_PRODUCERS: usize = 4;
+pub(super) const ADMITTED_WORLD_PRODUCERS: usize = 5;
 /// The world-state producer count still awaiting source-specific bounded
 /// ownership and exact predicate parity.
 #[cfg(test)]
@@ -67,6 +69,19 @@ where
     E: Into<QueryAttemptError>,
 {
     if let Some(limits) = limits {
+        if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1>()
+            && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::uid::AssetUidPolicyViewV1>()
+            && params.pagination.offset_value() == 0
+            && params.sorting.sort_by_metadata_key.is_none()
+            && predicate.is_pass()
+        {
+            drop(predicate);
+            let query = cast_owned_exact::<Q, iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1>(query)?;
+            let (rows, stats) = collect_asset_uid_policies(&query, params, mode, limits, state)?;
+            return Ok((OrdinaryIterable::Owned(cast_owned_exact::<
+                ExactOwnedRows<iroha_data_model::asset::uid::AssetUidPolicyViewV1>, ExactOwnedRows<T>,
+            >(rows)?), stats));
+        }
         if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::peer::prelude::FindPeers>()
             && TypeId::of::<T>() == TypeId::of::<PeerId>()
             && mode == OrdinaryCursorMode::Ephemeral
@@ -951,12 +966,12 @@ mod tests {
     use super::*;
     #[test]
     fn residual_inventory_is_explicit_and_exhaustive() {
-        assert_eq!(ADMITTED_WORLD_PRODUCERS, 4);
+        assert_eq!(ADMITTED_WORLD_PRODUCERS, 5);
         assert_eq!(WORLD_PRODUCER_RESIDUALS, 33);
         assert_eq!(KURA_PRODUCER_RESIDUALS, 3);
         assert_eq!(
             ADMITTED_WORLD_PRODUCERS + WORLD_PRODUCER_RESIDUALS + KURA_PRODUCER_RESIDUALS,
-            40
+            41
         );
     }
     fn trigger_test_limits(source_bytes: u64) -> OrdinaryQueryExecutionLimits {
@@ -1071,6 +1086,169 @@ mod tests {
             crate::kura::Kura::blank_kura_for_testing(),
             crate::query::store::LiveQueryStore::start_test(),
         )
+    }
+    #[test]
+    fn bounded_uid_roster_source_is_exact_and_preserves_stored_cursor() {
+        use crate::{
+            kura::Kura,
+            query::store::LiveQueryStore,
+            smartcontracts::Execute,
+            state::{State, World},
+        };
+        use iroha_data_model::{
+            asset::{
+                AssetBalancePolicy,
+                uid::{AssetUidDailyWindowV1, AssetUidPolicyV1, AssetUidPolicyViewV1},
+            },
+            isi::asset_uid::SetAssetUidPolicyV1,
+            prelude::*,
+            query::{asset_uid::FindAssetUidPoliciesV1, parameters::FetchSize},
+        };
+        use std::{collections::BTreeSet, num::NonZeroU64};
+        let owner = iroha_test_samples::ALICE_ID.clone();
+        let second = iroha_test_samples::BOB_ID.clone();
+        let definition = AssetDefinitionId::from_uuid_bytes([
+            0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0x48, 0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0xa8,
+            0xa8,
+        ])
+        .unwrap();
+        let world = World::with(
+            [],
+            [
+                Account::new(owner.clone()).build(&owner),
+                Account::new(second.clone()).build(&owner),
+            ],
+            [
+                AssetDefinition::numeric(definition.clone(), "DS", AssetBalancePolicy::Global, None)
+                    .build(&owner),
+            ],
+        );
+        let state = State::new_for_testing(
+            world,
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        let query = FindAssetUidPoliciesV1 {
+            asset_definition_id: definition.clone(),
+            uid: None,
+        };
+        let limits = trigger_test_limits(4_096);
+        let params = QueryParams {
+            fetch_size: FetchSize::new(NonZeroU64::new(1)),
+            ..QueryParams::default()
+        };
+        assert!(
+            collect_asset_uid_policies(
+                &query,
+                &params,
+                OrdinaryCursorMode::Stored,
+                limits,
+                &state.view()
+            )
+            .is_err(),
+            "missing authenticated time must not look like an empty roster"
+        );
+        {
+            let header = BlockHeader::new(
+                NonZeroU64::new(1).unwrap(),
+                None,
+                None,
+                1_000,
+                0,
+            );
+            let mut block = state.block(header.clone());
+            let mut tx = block.transaction();
+            for (uid, account) in [(7, owner.clone()), (8, second)] {
+                SetAssetUidPolicyV1 {
+                    policy: AssetUidPolicyV1 {
+                        asset_definition_id: definition.clone(),
+                        uid: [uid; 32],
+                        revision: 1,
+                        accounts: BTreeSet::from([account]),
+                        holding_limit: Some(50_u32.into()),
+                        daily_window: AssetUidDailyWindowV1::UtcDay,
+                        daily_limit: Some(50_u32.into()),
+                    },
+                }
+                .execute(&owner, &mut tx)
+                .unwrap();
+            }
+            tx.apply();
+            block.commit_empty_block_for_testing().unwrap();
+            state.update_latest_block_header_cache_for_tests(header);
+        }
+        let view = state.view();
+        let (rows, stats) =
+            collect_asset_uid_policies(&query, &params, OrdinaryCursorMode::Stored, limits, &view)
+                .unwrap();
+        let rows: Vec<AssetUidPolicyViewV1> = rows.collect();
+        assert_eq!(
+            rows.iter().map(|row| row.policy.uid).collect::<Vec<_>>(),
+            [[7; 32], [8; 32]]
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row.ledger_time_ms == 1_000 && row.as_of_height == 1)
+        );
+        assert!(stats.processed_items() >= 4);
+        let point = FindAssetUidPoliciesV1 {
+            uid: Some([8; 32]),
+            ..query.clone()
+        };
+        assert_eq!(
+            collect_asset_uid_policies(&point, &params, OrdinaryCursorMode::Stored, limits, &view)
+                .unwrap()
+                .0
+                .count(),
+            1
+        );
+        let (rows, stats) =
+            collect_asset_uid_policies(&query, &params, OrdinaryCursorMode::Stored, limits, &view)
+                .unwrap();
+        let output = super::super::ordinary_stored::handle(
+            rows,
+            &params,
+            super::super::QueryLimits::new(2)
+                .with_count_mode(super::super::QueryCountMode::Bounded)
+                .with_ordinary_execution_limits(limits),
+            limits,
+            view.query_handle(),
+            &owner,
+            None,
+            stats,
+        )
+        .unwrap();
+        assert!(output.has_more);
+        assert!(output.continue_cursor.is_some());
+        assert_eq!(output.batch.len(), 1);
+        let cursor = output.continue_cursor.unwrap();
+        assert!(
+            view.query_handle()
+                .handle_iter_continue(cursor.clone(), &iroha_test_samples::BOB_ID)
+                .is_err(),
+            "another participant cannot take the owner's UID cursor"
+        );
+        let next = view
+            .query_handle()
+            .handle_iter_continue(cursor, &owner)
+            .unwrap();
+        assert_eq!(next.batch.len(), 1);
+        assert!(!next.has_more);
+        assert!(next.continue_cursor.is_none());
+        let tiny = trigger_test_limits(1_024);
+        let mut invalid = query.clone();
+        invalid.asset_definition_id = AssetDefinitionId::from_uuid_bytes([
+            0xb8, 0xb8, 0xb8, 0xb8, 0xb8, 0xb8, 0x48, 0xb8, 0xb8, 0xb8, 0xb8, 0xb8, 0xb8, 0xb8, 0xb8,
+            0xb8,
+        ])
+        .unwrap();
+        assert_eq!(
+            collect_asset_uid_policies(&invalid, &params, OrdinaryCursorMode::Stored, tiny, &view)
+                .unwrap()
+                .0
+                .count(),
+            0
+        );
     }
     #[test]
     fn bounded_trigger_rows_preserve_typed_order_and_frozen_cursor_prefix() {

@@ -105,7 +105,20 @@ fn require_frozen(
                 original(frozen, R::LoadReceipt, receipt)
                     && original(frozen, R::LoadFinality, finality)
             }
-            OperationActionV1::Send { request } => original(frozen, R::Request, request),
+            OperationActionV1::Send { request } => {
+                let KagemushaWalletEffectV1::Send { send_ordinal, .. } =
+                    &capsule.body().statement.effect
+                else {
+                    return Err(Error::Invalid("prepared Send effect"));
+                };
+                // Intent retains the receiver's open Request; Native preparation
+                // retains its exact payer completion. Rebuild only those payer
+                // fields from this frozen Send, then compare the complete original
+                // including every receiver term, certificate and signature.
+                let received: KagemushaWalletRequestV1 = archive::decode(request)?;
+                let completed = valid(received.complete(&frozen.credential, *send_ordinal))?;
+                original(frozen, R::Request, &archive::encode(&completed)?)
+            }
             OperationActionV1::Receive {
                 payment,
                 payer_credential,
@@ -795,7 +808,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             self.frozen(capsule)?
         } else {
             // Design §5.3: check this phone before proving; commit checks it again.
-            self.require_runtime_capacity()?;
+            self.require_runtime_capacity(NativeAdmissionPhaseV1::BeforeProve)?;
             // The checkpoint binds every custody root and the archive-indexed head the
             // derivation read. Any change is foreign-writer evidence, refused before a proof.
             let (checkpoint, _) = self.manifest()?;
@@ -871,6 +884,119 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
 mod tests {
     use super::*;
     use crate::kagemusha_wallet_state_v1::tests::fixture;
+
+    fn prepared_send() -> (KagemushaWalletRequestV1, FrozenTransition) {
+        let vectors: norito::json::Value = norito::json::from_str(include_str!(
+            "../../../../../fixtures/kagemusha/wallet_v1_vectors.json"
+        ))
+        .unwrap();
+        let row = vectors["envelopes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["kind"].as_str() == Some("Request"))
+            .unwrap();
+        let envelope: KagemushaWalletEnvelopeV1 =
+            archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()).unwrap();
+        let KagemushaWalletMessageV1::Request { request } = envelope.message else {
+            panic!("Request fixture");
+        };
+        request
+            .verify_open(&fixture("KagemushaWalletSchemeV1"))
+            .unwrap();
+        let credential: KagemushaWalletCredentialV1 = fixture("KagemushaWalletCredentialV1");
+        let completed = request.complete(&credential, 3).unwrap();
+        completed
+            .verify(&fixture("KagemushaWalletSchemeV1"))
+            .unwrap();
+        let previous = crate::kagemusha_wallet_state_v1::tests::bootstrap();
+        let mut frozen = crate::kagemusha_wallet_state_v1::tests::frozen(
+            Some(&previous),
+            KagemushaWalletEffectV1::Send {
+                credit_id: completed.credit_id(),
+                receiver_wallet_id: completed.body.receiver_wallet_id,
+                send_ordinal: completed.body.send_ordinal,
+                amount: completed.body.amount,
+                fee: completed.body.fee,
+                request: completed.request_digest(),
+                accepted_lower_ms: completed.body.receiver_accepted_time_ms,
+                accepted_upper_ms: completed.body.receiver_accepted_time_ms,
+            },
+        );
+        let mut body = frozen.capsule.body().clone();
+        body.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
+            role: KagemushaWalletRetainedInputRoleV1::Request,
+            bytes: archive::encode(&completed).unwrap(),
+        }];
+        frozen.capsule = body.freeze().unwrap().seal([0; 32]).unwrap();
+        frozen.validate().unwrap();
+        (request, frozen)
+    }
+
+    fn send_intent(request: &KagemushaWalletRequestV1) -> NativeIntentV1 {
+        NativeIntentV1::user(OperationRequestV1 {
+            request_id: [71; 32],
+            action: OperationActionV1::Send {
+                request: archive::encode(request).unwrap(),
+            },
+        })
+    }
+
+    #[test]
+    fn prepared_send_accepts_exact_completion_of_retained_open_request() {
+        // Signed Request/credential vectors with explicit stand-in proof data.
+        // This exercises the dispatcher binding, not proof or hardware admission.
+        let (open, frozen) = prepared_send();
+        let source = frozen.capsule.body().predecessor_capsule_digest;
+        assert!(!original(
+            &frozen,
+            KagemushaWalletRetainedInputRoleV1::Request,
+            &archive::encode(&open).unwrap()
+        ));
+        require_frozen(&send_intent(&open), &source, &frozen).unwrap();
+        let completed = open.complete(&frozen.credential, 3).unwrap();
+        require_frozen(&send_intent(&completed), &source, &frozen).unwrap();
+    }
+
+    #[test]
+    fn prepared_send_rejects_changed_terms_signature_payer_and_ordinal() {
+        let (open, frozen) = prepared_send();
+        let source = frozen.capsule.body().predecessor_capsule_digest;
+        for mutation in 0..8 {
+            let mut changed = open.clone();
+            match mutation {
+                0 => changed.body.receiver_wallet_id[0] ^= 1,
+                1 => changed.body.receiver_account_digest[0] ^= 1,
+                2 => changed.body.amount += 1,
+                3 => changed.body.fee += 1,
+                4 => changed.body.nonce[0] ^= 1,
+                5 => {
+                    changed = open.complete(&frozen.credential, 4).unwrap();
+                }
+                6 => {
+                    changed = open.complete(&frozen.credential, 3).unwrap();
+                    changed.body.payer_wallet_id[0] ^= 1;
+                }
+                _ => {
+                    let mut signature = changed.signature.as_ref().to_vec();
+                    signature[0] ^= 1;
+                    changed.signature =
+                        KagemushaDeviceSignatureV1::from_raw_bytes(&signature).unwrap();
+                }
+            }
+            assert!(
+                require_frozen(&send_intent(&changed), &source, &frozen).is_err(),
+                "mutation {mutation}"
+            );
+        }
+        let completed = open.complete(&frozen.credential, 3).unwrap();
+        let mut duplicate = frozen.clone();
+        let mut body = duplicate.capsule.body().clone();
+        body.retained_inputs.push(body.retained_inputs[0].clone());
+        duplicate.capsule = body.freeze().unwrap().seal([0; 32]).unwrap();
+        assert!(require_frozen(&send_intent(&completed), &source, &duplicate).is_err());
+        assert!(require_frozen(&send_intent(&open), &[0x99; 32], &frozen).is_err());
+    }
 
     #[test]
     fn permanent_preparation_pair_is_complete_nonzero_and_fits_existing_index() {

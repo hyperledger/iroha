@@ -41,6 +41,56 @@ records and source-specific sign-offs below remain evidence for their captured
 sources only. They are not transferred to the current native argument; current
 descriptors, proofs and resource gates require fresh qualification.
 
+**Current fixed-pattern variants.** Standalone `FfConfig::configure` now stores
+separate step/top indicators for the C and Q groups; `configure_shared` retains
+the ternary patterns used by the Q leaf. Their row predicates are described in
+§2. The standalone variant adds two fixed columns and lowers its norm lookup
+degree to eight; it does not change limb widths, carries, arithmetic equations,
+advice-cell counts or the numeric bounds below. Independent compact and tagged
+range banks also store fixed indicators or lookup coefficients. Those bank and
+serialized paths remain outside the historical fused-path acceptance. Earlier
+source-specific reviews and test records do not qualify these new fixed-column
+assignments, descriptors or keys.
+
+**Current conditional binding acceptance (20 October 2026).** Independent
+review re-derives the standalone FF row equivalence in §2 and the compact/tagged
+bank equivalences below. It accepts their range-binding predicates conditional
+on the selected key authenticating the fixed metadata and on the native
+lookup/permutation arguments establishing the stated memberships and copies.
+The limb, carry and CRT bounds remain unchanged for all four named moduli.
+This acceptance is limited to the maintained constructors and their structural
+row/table ownership; it does not cover arbitrary callers that overwrite those
+schedules.
+
+For a compact bank, the fixed `(step, top)` values for codes 0, 1 and 2 are
+`(0,0)`, `(1,0)` and `(0,1)`. Thus
+`step (z - 2^b z_next) + top z` is exactly the earlier ternary expression on
+every row. The shifted-top gate changes its nonzero multiplier from
+`2 * factor` to `factor`, preserving its zero set in the odd-characteristic
+field. Original and scaled tops both belong to `[0, 2^b)`; for `b <= 24` the
+scaled product is below `2^48 < N`, so membership enforces the exact top bound.
+
+For a tagged bank, fixed coefficients `(a,s)` are `(1,1)` on a step,
+`(1,0)` on a tagged top and `(0,0)` otherwise. The lookup tuple
+`(15 + (a-s)(width-15), a z - 2^15 s z_next)` therefore preserves each exact
+`(width,value)` membership. Codes 3 and 4 retain their separate polynomial
+roots `{0,1}` and `{0,1,2,3}` for one- and two-bit tops. Default and padding
+tuples remain `(15,0)`. The assignment helpers pin pattern, coefficient and
+control entries together, including zero guards in secondary assignment and
+replay. Structural reservations retain the final usable-row checks and keep
+canonical Q-leaf guests disjoint from the host range checks.
+
+The review receipt is
+`target/qualification/post-merge-range-carry-review-20261020-1/conditional-binding-review.json`
+(SHA-256 `636f81cef1bf1f27956723b1f42b1e4db9121af73a8ff018c75be0afb50aab25`).
+Its 16 reviewed code hashes match the fresh 23-check capture in
+`post-merge-range-carry-tests-20261020-1`: 19 focused checks and four finite
+per-assigned-cell `+1` sweeps, with all eight source snapshots and both copied
+binaries unchanged. These finite mutations support the source argument; they
+do not prove rejection of arbitrary coordinated forgeries. Current
+authenticated descriptors/keys/catalogs, complete cryptographic soundness and
+resource qualification remain separate obligations.
+
 ## 1. Parameters
 
 | Symbol | Value | Enforced by |
@@ -69,13 +119,17 @@ Block rows (7 per block, rows `0..6` from the block start):
 Lookups (every input into `V`; the pattern columns are fixed, so the set of
 checks is the same for every witness):
 
-- `C`/`Q` column with top width `w` and ternary pattern `h` (1 on rows 1..5,
-  2 on row 6, 0 elsewhere): input `s (z - 2^15 z_next) + t z + e 2^(15-w)
-  z_(+6)` with `s = h (2 - h)`, `t = h (h - 1) / 2`, `e = t(h at +6)`.
-  For `h in {0, 1, 2}`, `(s, t) in {(0,0), (1,0), (0,1)}`, and `e = 1`
-  exactly on a row whose row `+6` has `h = 2`, i.e. a block's row 0, whose own
-  `h` is 0 (blocks are 7 contiguous rows; `ff_range_patterns_follow_the_block_layout`
-  checks `h(r) = 0` wherever `h(r + 6) = 2`). So rows 1..5 check the steps
+- `C`/`Q` column with top width `w`: input
+  `s (z - 2^15 z_next) + t z + e 2^(15-w) z_(+6)`. In the standalone
+  configuration, `s` and `t` are fixed columns: `s = 1` on rows 1..5,
+  `t = 1` on row 6, both zero elsewhere, and `e` reads `t` at rotation +6.
+  In the shared configuration, the fixed ternary pattern `h` is 1 on rows
+  1..5, 2 on row 6 and 0 elsewhere; `s = h (2 - h)`,
+  `t = h (h - 1) / 2`, and `e` applies the same top indicator to `h` at +6.
+  Thus both forms have `(s, t) in {(0,0), (1,0), (0,1)}` and `e = 1`
+  exactly on a block's row 0, where `s = t = 0`. Blocks are 7 contiguous
+  rows; `ff_range_patterns_follow_the_block_layout` checks the placement
+  and the row-by-row identity `h = s + 2t`. Rows 1..5 check the steps
   `z_j - 2^15 z_{j+1}`, row 6 checks `z_5`, row 0 checks `2^(15-w) z_5`, and
   every other row checks 0.
 - `U` column with binary patterns `s` (rows 0..5) and `t` (row 6), never
@@ -99,10 +153,11 @@ below `2^105 < N`. So `z_0` is an integer in `[0, 2^{15(L-1)+w})`: `2^87`
 the equivalence exhaustively for `w in {7, 12}` and the widths
 `15 * 5 + {12, 12, 7} = 87, 87, 82`, `15 * 5 + 12 = 87`, `15 * 7 = 105`.
 
-Degrees: `C`/`Q` inputs have degree 3 and fixed-table degree 1, giving current
-norm lookup degree `2 + 2*3 + 2*1 = 10`. `U` inputs have degree 2 and
-fixed-table degree 1, giving `2 + 2*2 + 2*1 = 8`. Advice queries per operand
-column: rotations 0, 1, 6
+Degrees: standalone `C`/`Q` inputs have degree 2, as do all `U` inputs;
+with fixed-table degree 1 their norm lookup degree is `2 + 2*2 + 2*1 = 8`.
+Shared `C`/`Q` inputs retain degree 3, giving `2 + 2*3 + 2*1 = 10` before
+any guest is merged; §11 gives the merged Q-leaf argument degrees. Advice
+queries per operand column remain rotations 0, 1, 6
 (three, as before: blinding stays 5; a `Rotation::prev` design would have
 needed a fourth query and six blinding rows).
 
@@ -206,10 +261,14 @@ shape), never witness-dependent.
 - Exact (synthesis inventory, `ff_inventory_per_operation`): 70 advice cells per
   multiplication or division (7 rows x 10 columns, no idle cell); proper witness
   18; canonical witness 36; comparison of an existing value 21. Gates degree 3,
-  current norm `C`/`Q` lookups degree 10 and `U` lookups degree 8 (10 width-1 range lookups,
-  one per column), 4 fixed pattern columns plus one table column (32,768
-  rows, `k >= 16`), 3 queries per operand column (blinding 5, unchanged).
-  G3.4 threshold <= 100 cells: met (70).
+  with 10 range lookups, one per column. Standalone configuration has 6 fixed
+  pattern columns plus one table column and norm degree 8 for every argument.
+  Shared configuration retains 4 pattern columns, degree-10 `C`/`Q` arguments
+  and degree-8 unmerged `U` arguments; §11 describes its two merged guests.
+  The range table has 32,768 rows (`k >= 16`), with 3 queries per operand
+  column (blinding 5, unchanged). G3.4 threshold <= 100 cells: 70 by this
+  layout; the new standalone fixed-column variant still needs current-source
+  validation and does not inherit the measured proof/resource results below.
 - M3 release measurement (`ff_gate_shape_measurement_release`, before D1, with
   the tagged table and 6 pattern columns; P-256 `p` in `Fq`, Pallas proof,
   KAGEMUSHA transcript, Direct instances): 9,000 chained products in 63,014 rows
@@ -1550,12 +1609,13 @@ identity or transfer qualification to the pinned-catalog producer.
 These captured Load-derived component chains use the superseded dedicated-publisher
 voucher trust model. Current Load verifies the ordinary BLS certificate and counted
 receipt-event inclusion natively, under authenticated genesis and epoch authority,
-before signing Advance. Its four-A/three-W monetary relation binds the exact receipt
+before signing Advance. Its single-terminal A_Load relation, with no W continuation, binds the exact receipt
 and credential-bound signature; it does not verify BLS finality in-circuit. See the
 [native finality goals](kagemusha_native_finality_goals.md) for this accepted trust
 boundary. Integration helpers require genuine monetary proving originals and native
 receipt evidence; the retired issuer fixture is removed. Current native-finality
-fixture and complete source/catalog qualification remain open. No measured component
+fixture and complete source/catalog qualification remain open; earlier staged-Load
+qualification does not transfer. No measured component
 key is an admitted release key.
 The other seven Send masks and full fourteen-terminal composition remain open.
 

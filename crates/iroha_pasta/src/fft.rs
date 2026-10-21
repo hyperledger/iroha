@@ -631,7 +631,13 @@ fn dif_stages<F: PastaField, const PARALLEL: bool>(
 }
 
 /// Shared two-stage butterfly; preserves the exact in-place operation order.
-#[inline]
+// Keep the field arrays in the caller's loop rather than passing them through
+// an outlined helper's stack frame for every butterfly.
+#[allow(
+    clippy::inline_always,
+    reason = "the measured butterfly kernel avoids per-call field-array copies"
+)]
+#[inline(always)]
 fn dif_butterfly4<F: PastaField>(
     [a0, a1, a2, a3]: [F; 4],
     m: usize,

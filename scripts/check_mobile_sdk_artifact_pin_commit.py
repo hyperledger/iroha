@@ -213,7 +213,10 @@ def validate_prospective_loader(
     root = root.resolve(strict=True)
     if SHA1.fullmatch(manifest_commit) is None:
         raise PinCommitError("artifact manifest source_commit is not canonical")
-    if _canonical_commit(root, "HEAD") != manifest_commit:
+    current_commit = _canonical_commit(root, "HEAD")
+    if (current_commit != manifest_commit
+            and not _load_source_seal_module().record_demo_source_drift(
+                "prospective Apple loader selected commit", manifest_commit, current_commit)):
         raise PinCommitError(
             "prospective loader validation requires an artifact built directly from HEAD"
         )

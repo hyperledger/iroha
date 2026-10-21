@@ -2584,10 +2584,7 @@ mod tests {
         let mut ctx = TestContext::new(authority);
         let dir = tempfile::tempdir().expect("tempdir");
         let source_path = dir.path().join("debug_view_with_path.ko");
-        let source = concat!(
-            include_str!("contracts/fixtures/minimal_view.ko"),
-            "        "
-        );
+        let source = include_str!("contracts/fixtures/debug_view_trap.ko");
         std::fs::write(&source_path, source).expect("write source");
         let (program, source_map) =
             compile_contract_program_with_source_map(source, &source_path.display().to_string());
@@ -2599,8 +2596,8 @@ mod tests {
             code_file: None,
             code_b64: Some(code_b64),
             entrypoint: "inspect".to_owned(),
-            // The entrypoint wrapper costs two gas; exhaust at the first mapped body opcode.
-            gas_limit: 2,
+            // Trap in the source body independently of wrapper code and gas prices.
+            gas_limit: DEFAULT_CONTRACT_GAS_LIMIT,
             source_file: None,
             source_map_file: Some(source_map_path),
             accounts_json: None,
@@ -2608,7 +2605,7 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                args: None,
+                args: Some(r#"{"divisor":"0"}"#.to_owned()),
                 args_file: None,
             },
         };
@@ -2622,6 +2619,13 @@ mod tests {
             .get("vm_diagnostic")
             .and_then(norito::json::Value::as_object)
             .expect("VM diagnostic");
+        assert_eq!(
+            diagnostic
+                .get("trap_kind")
+                .and_then(norito::json::Value::as_str),
+            Some("NumericFault"),
+            "expected the mapped division fault: {output:?}"
+        );
         assert_eq!(
             diagnostic
                 .get("function")
@@ -2776,10 +2780,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let embedded_path = dir.path().join("embedded.ko");
         let override_path = dir.path().join("override.ko");
-        let source = concat!(
-            include_str!("contracts/fixtures/minimal_view.ko"),
-            "        "
-        );
+        let source = include_str!("contracts/fixtures/debug_view_trap.ko");
         std::fs::write(&embedded_path, source).expect("write embedded source");
         std::fs::write(
             &override_path,
@@ -2799,8 +2800,8 @@ mod tests {
             code_file: None,
             code_b64: Some(code_b64),
             entrypoint: "inspect".to_owned(),
-            // The entrypoint wrapper costs two gas; exhaust at the first mapped body opcode.
-            gas_limit: 2,
+            // Trap in the source body independently of wrapper code and gas prices.
+            gas_limit: DEFAULT_CONTRACT_GAS_LIMIT,
             source_file: Some(override_path.clone()),
             source_map_file: Some(source_map_path),
             accounts_json: None,
@@ -2808,7 +2809,7 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                args: None,
+                args: Some(r#"{"divisor":"0"}"#.to_owned()),
                 args_file: None,
             },
         };

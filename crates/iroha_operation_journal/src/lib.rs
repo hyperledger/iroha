@@ -67,6 +67,8 @@ pub fn canonical_bytes<T: JsonSerialize + ?Sized>(value: &T) -> Result<Box<[u8]>
 
 // One pure native-record decode/canonical policy, after the caller's per-record exit custody.
 fn decode_native<T: JsonDeserialize + JsonSerialize>(bytes: &[u8]) -> Result<T> {
+    #[cfg(test)]
+    inventory_scope_tests::record_decode();
     let value = json::from_slice(bytes).wrap_err("invalid native preparation evidence")?;
     eyre::ensure!(
         canonical_bytes(&value)?.as_ref() == bytes,
@@ -85,7 +87,8 @@ pub struct Journal {
 /// Borrowed fixed-record reader inside one closed original journal inspection.
 ///
 /// No descriptor, path, writer or custody verdict is exposed. Each record retains entry/middle/exit
-/// original-lock checks before decoding. This view cannot leave [`Journal::read_native_scope`].
+/// original-lock checks before decoding. This view cannot leave [`Journal::read_native_scope`]
+/// or [`Journal::read_native_inventory_scope`].
 pub struct NativeJournalReadScope<'read, 'scope> {
     journal: &'read Journal,
     reader: &'read mut PrivateReadScope<'scope>,
@@ -112,6 +115,8 @@ impl NativeJournalReadScope<'_, '_> {
         reader: &mut PrivateReadScope<'_>,
         name: &str,
     ) -> Result<Option<Vec<u8>>> {
+        #[cfg(test)]
+        inventory_scope_tests::record_leaf();
         reader.read_admitted(
             name,
             MAX_JOURNAL_BYTES,
@@ -387,6 +392,43 @@ impl Journal {
         decode_native(&bytes).map(Some)
     }
 
+    /// Verify the complete native inventory, then inspect records under one closed ancestry boundary.
+    ///
+    /// Runs [`Self::verify_native_inventory`] followed by [`Self::read_native_scope`], retaining
+    /// every inventory, original-lock, leaf and decoder check in their existing order. Unix
+    /// consolidates repeated directory ancestry walks into fresh entry and ordinary-result exit
+    /// observations; Windows keeps its original per-operation walks. The borrowed journal and
+    /// its exclusive lock stay alive through both fences, including inside a surrounding custody
+    /// transaction. Each nested fence observes all roots already joined by the caller: an unrelated
+    /// root can refuse entry, or override an ordinary callback error at exit. A closing native
+    /// refusal always overrides the callback result.
+    ///
+    /// A custody change fully restored between these observations can go unseen. This is not
+    /// an atomic snapshot or a freshness verdict that can cross calls. Keep the callback read-only,
+    /// without signing, writes, publication or network effects. Callers own decoder eligibility.
+    ///
+    /// # Errors
+    /// Preserves inventory, lock, record and decoder errors after closing original native custody.
+    pub fn read_native_inventory_scope<T>(
+        &self,
+        read: impl for<'read, 'scope> FnOnce(&mut NativeJournalReadScope<'read, 'scope>) -> Result<T>,
+    ) -> Result<T> {
+        iroha_fs::custody_transaction(|| {
+            // A fresh frame has no roots yet. A nested joined root is observed before its
+            // join can consolidate; a new root is checked completely by the following join.
+            iroha_fs::fence_custody_transaction()?;
+            self.directory.join_custody_transaction()?;
+            let result = (|| {
+                self.verify_native_inventory()?;
+                self.read_native_scope(read)
+            })();
+            // Nested transactions do not observe on return, so this explicit fence closes
+            // every ordinary result while this exact directory and lock are still borrowed.
+            iroha_fs::fence_custody_transaction()?;
+            result
+        })
+    }
+
     /// Inspect fixed native records in one read-only original-directory transaction.
     ///
     /// Every record retains fresh original-lock and native leaf admission and closes lock custody
@@ -427,6 +469,8 @@ impl Journal {
     }
 
     fn revalidate_lock_in_scope(&self, reader: &PrivateReadScope<'_>) -> Result<()> {
+        #[cfg(test)]
+        inventory_scope_tests::record_lock();
         reader.require_same_file("lock", &self.lock, || {
             eyre!("journal lock no longer identifies the retained ownership file")
         })
@@ -465,6 +509,8 @@ impl Journal {
     pub fn verify_native_inventory(&self) -> Result<()> {
         self.revalidate()?;
         self.directory.visit_private_files(7, |name, _| {
+            #[cfg(test)]
+            inventory_scope_tests::record_inventory_entry();
             if [
                 "lock",
                 "preparation.json",
@@ -682,6 +728,8 @@ impl Journal {
     }
 
     fn revalidate(&self) -> Result<()> {
+        #[cfg(test)]
+        inventory_scope_tests::record_lock();
         // This fixed-name open brackets native lock admission with full directory
         // revalidation; an adjacent standalone walk would repeat its entry check.
         let current = self.directory.open_read("lock")?;
@@ -1049,3 +1097,6 @@ mod revalidate_tests;
 
 #[cfg(test)]
 mod scope_boundary_tests;
+
+#[cfg(test)]
+mod inventory_scope_tests;

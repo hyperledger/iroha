@@ -502,7 +502,14 @@ def source_digest(scope: dict | None = None) -> str:
     """Rescan the same roots, required inputs, metadata and tools at runtime."""
     if scope is None:
         raise ValueError("candidate lacks a captured Cargo source scope")
-    selected = selected_sources(source_manifest(scope["roots"]), scope)
+    manifest = source_manifest(scope["roots"])
+    # Native watchers can bind ignored files in workspace packages that this
+    # component does not compile. Preparation must still capture them before
+    # building; runtime recensus must retain those exact required inputs too.
+    for name in scope["required_inputs"]:
+        if name not in manifest:
+            manifest[name] = "file:" + file_hash(local_path(name))
+    selected = selected_sources(manifest, scope)
     selected["@cargo_metadata"] = manifest_digest(cargo_metadata())
     selected["@tools"] = manifest_digest(tool_identity())
     selected["@build_environment"] = manifest_digest({key: os.environ.get(key) for key in scope["build_environment"]})

@@ -203,6 +203,9 @@ pub struct Init {
 }
 
 /// Answer to `Action::Execute` (§4.1, O4): exactly one per request.
+// The fixed commitment and shared admission outweigh String on 32-bit targets.
+// Keep the original admission inline; boxing it would add an allocation per execution.
+#[cfg_attr(target_pointer_width = "32", allow(variant_size_differences))]
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ExecOutcome {
     /// Deterministic success with execution commitment `R`.

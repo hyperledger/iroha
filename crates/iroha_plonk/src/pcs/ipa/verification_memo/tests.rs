@@ -1278,7 +1278,7 @@ fn opening_memo_values_drop_at_eviction_and_leave_no_mutable_alias() {
     );
 }
 
-/// Report payload accounting separately from allocator and BTree node overhead.
+/// Report payload accounting separately from allocator and `BTree` node overhead.
 fn report_opening_memo_layout<C: PastaCurve>() {
     for k in [16, iroha_pasta::params::MAX_K] {
         let per_entry = std::mem::size_of::<Option<Arc<VerifiedOpening<C>>>>()

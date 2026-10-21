@@ -15,7 +15,8 @@ fn response(env: &mut JNIEnv<'_>, result: wallet::Result<wallet::Response>) -> j
     )
 }
 
-/// Copy immutable admission, released output or prepared Load DATA from the same live owner.
+/// Copy admission, released output, prepared Load DATA or public fold diagnostics from
+/// the same live owner. Each selector keeps its own fixed input and output bounds.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletObservationNativeV1_observe(
     mut env: JNIEnv<'_>,

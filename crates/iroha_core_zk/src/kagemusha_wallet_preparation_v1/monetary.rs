@@ -967,6 +967,9 @@ impl PreparationV1<'_> {
         {
             return Err(Error::Proof);
         }
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         iroha_plonk::verify_full(
             verifier.params(),
             verifier.binding(),

@@ -36,6 +36,8 @@ ff = "0.13.1"
 group = "0.13"
 
 [dev-dependencies]
+# Test-only fallible process CPU and kernel lifetime peak RSS probes.
+iroha_measurement = { workspace = true }
 sha2 = "0.10.9"
 # Native signed-genesis, certificate and receipt admission for captured Load fixtures.
 iroha_data_model = { workspace = true, default-features = false }

@@ -379,7 +379,7 @@ macro_rules! sc {
 }
 
 /// Number of ABI V1 syscalls.
-pub const SYSCALL_COUNT: usize = 232;
+pub const SYSCALL_COUNT: usize = 236;
 
 /// Every ABI V1 syscall in ascending number order.
 pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
@@ -621,6 +621,10 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_ACCOUNT_RECOVERY_APPROVE, LedgerEffect),
     sc!(SYSCALL_ACCOUNT_RECOVERY_CANCEL, LedgerEffect),
     sc!(SYSCALL_ACCOUNT_RECOVERY_FINALIZE, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_OPEN, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_DRAWDOWN, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_CANCEL, LedgerEffect),
+    sc!(SYSCALL_ASSET_LOCK_EXPIRE, LedgerEffect),
 ];
 
 // The table is binary-searched and compared with the sorted ABI list.

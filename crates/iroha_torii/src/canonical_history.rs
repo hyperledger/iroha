@@ -2,7 +2,9 @@
 
 use std::num::NonZeroUsize;
 
-use iroha_core::{execution_attempt::ExecutionAttemptError, smartcontracts::isi::tx, state::State};
+use iroha_core::execution_attempt::ExecutionAttemptError;
+#[cfg(test)]
+use iroha_core::state::State;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{BlockHeader, SignedBlock},
@@ -16,7 +18,7 @@ fn invalid(message: impl std::fmt::Display) -> QueryExecutionFail {
 
 /// Project a local read refusal only at the HTTP boundary, without inventing missing history.
 ///
-/// A deferral whose original refusal no retry of the same request can satisfy (see
+/// An intrinsic item refusal carrying explicit required-target provenance (see
 /// [`permanent_refusal`]) is the typed permanent [`crate::Error::HistoryReadExceedsBudget`],
 /// which names the required quantity and the request's own limit and carries no retry hint.
 /// Every other deferral is transient capacity: a retryable `CapacityLimit` (HTTP 429).
@@ -37,19 +39,25 @@ pub fn query_attempt_error(error: ExecutionAttemptError<QueryExecutionFail>) -> 
     crate::Error::Query(iroha_data_model::ValidationFail::QueryFailed(query_error))
 }
 
-/// The resource, required quantity and limit of a local refusal that no retry of the same
-/// request can satisfy, or `None` for transient capacity.
+/// The resource, required quantity and limit of an intrinsically oversized required target
+/// item, or `None` when permanence is not established.
 ///
-/// Permanent: one allocation demand larger than its whole pool (`ExceedsLimit`, or a layout
-/// the address space cannot represent), and a decoder limit of the request's own budget that
-/// this deterministic read exceeds (one field, sequence or archive, or its cumulative
-/// allocations, elements or nesting). These do not depend on other requests. Transient: a pool
-/// that other owners occupy (`Capacity`), an allocator failure and every other deferral.
+/// Only the bounded history reader's explicit `HistoryTarget` provenance establishes that
+/// the item must be read again: checkpoints cannot replace the target's own frame. Within
+/// that scope, one allocation above its whole pool (`ExceedsLimit` or an unrepresentable
+/// layout), or a per-item decoder limit (field, sequence, archive or nesting), is permanent.
+/// Unclassified and ancestry refusals remain retryable. Cumulative allocations/elements
+/// also remain retryable, even at the target: earlier ancestry may have spent the budget.
+/// An occupied pool (`Capacity`), allocator failure and every other deferral remain transient.
 pub fn permanent_refusal(
     deferred: &iroha_core::execution_attempt::ExecutionDeferred,
 ) -> Option<(&'static str, u64, u64)> {
     use iroha_allocation::AllocationRefusal;
+    use iroha_core::execution_attempt::ExecutionPhase;
     use norito::core::{DecodeLocalRefusalKind, DecodeResourceError};
+    if deferred.phase() != Some(ExecutionPhase::HistoryTarget) {
+        return None;
+    }
     if let Some(refusal) = deferred.allocation_refusal() {
         return match refusal {
             AllocationRefusal::ExceedsLimit {
@@ -82,12 +90,10 @@ pub fn permanent_refusal(
         DecodeResourceError::ArchiveLengthExceeded { length, limit } => {
             Some(("archive bytes", length, limit))
         }
-        DecodeResourceError::TotalAllocationExceeded { attempted, limit } => {
-            Some(("decoded bytes", attempted, limit))
-        }
-        DecodeResourceError::TotalElementsExceeded { attempted, limit } => {
-            Some(("decoded elements", attempted, limit))
-        }
+        // A retry can start from authenticated checkpoints recorded by this or another
+        // attempt, so cumulative ancestry work does not prove the query can never fit.
+        DecodeResourceError::TotalAllocationExceeded { .. }
+        | DecodeResourceError::TotalElementsExceeded { .. } => None,
         DecodeResourceError::NestingDepthExceeded { depth, limit, .. } => Some((
             "nesting depth",
             u64::try_from(depth).ok()?,
@@ -102,9 +108,8 @@ pub fn permanent_refusal(
 /// HTTP 413 with the stable code `history_read_exceeds_request_budget`, like the other
 /// too-large committed-history responses (`block_proof_capacity_exceeded`,
 /// `executed_block_wire_too_large`). `details.field` names the resource, `details.actual` the
-/// quantity at which the read is refused (one item's exact size, or the cumulative amount it
-/// reached) and `details.expected` the request's own limit. The read
-/// is deterministic, so the same request can never succeed and the response carries neither
+/// required target item's quantity and `details.expected` the request's own limit.
+/// That same required item cannot fit this budget, so the response carries neither
 /// `Retry-After` nor `retry_after_seconds`.
 pub fn history_read_budget_envelope(
     resource: &'static str,
@@ -185,7 +190,8 @@ pub fn signed_calls(
         let signed = match source {
             TransactionEntrypoint::External(signed) => signed,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => return None,
         };
         Some((source.hash(), signed, &output.result))
     }))
@@ -193,32 +199,37 @@ pub fn signed_calls(
 
 /// Resolve a unique ordinary signed submission from exact authenticated history.
 /// Reveals and internal invocations cannot impersonate an external submission.
+///
+/// Its callers are background SoraFS forwarders with no request: the carrier is read through
+/// State/checkpoint ancestry under a background owner, retained through the projection.
+/// Every refusal, a busy history pool included, stays an error the forwarder reports as
+/// unavailable and retries on a later scan.
 pub fn exact_external_outcome(
-    state: &State,
+    app: &crate::SharedAppState,
     height: NonZeroUsize,
     hash: HashOf<BlockHeader>,
     target: &HashOf<SignedTransaction>,
-) -> Result<(BlockHeader, Option<bool>), ExecutionAttemptError<QueryExecutionFail>> {
-    let work = crate::routing::app_query_limits().max_fetch_size;
+) -> Result<(BlockHeader, Option<bool>), crate::Error> {
+    let original = crate::read_background_execution_carrier(app, height)?;
     let mut outcome = None;
     let mut duplicate = false;
-    let header = tx::visit_finalized_network_transactions(
-        state,
-        height,
-        hash,
-        work,
-        tx::transaction_history_byte_limit(work),
-        |source, result| {
-            if let TransactionEntrypoint::External(signed) = source
-                && signed.hash() == *target
-            {
-                duplicate |= outcome.replace(result.is_ok()).is_some();
-            }
-        },
-    )?;
+    let header = original
+        .owner
+        .scope(|| {
+            original
+                .carrier
+                .visit_network_transactions(hash, |source, result| {
+                    if let TransactionEntrypoint::External(signed) = source
+                        && signed.hash() == *target
+                    {
+                        duplicate |= outcome.replace(result.is_ok()).is_some();
+                    }
+                })
+        })
+        .map_err(|error| query_attempt_error(error.into()))?;
     if duplicate {
-        return Err(ExecutionAttemptError::Rejected(invalid(
-            "signed submission has multiple finalized Network sources",
+        return Err(query_attempt_error(ExecutionAttemptError::Rejected(
+            invalid("signed submission has multiple finalized Network sources"),
         )));
     }
     Ok((header, outcome))

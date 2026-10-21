@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -123,12 +125,19 @@ def test_ci_uses_checkout_sources_and_blake3_runtime() -> None:
     import iroha_torii_client
     import norito
 
-    assert (
-        Path(iroha_torii_client.__file__)
-        .resolve()
-        .is_relative_to(PYTHON_ROOT / "iroha_torii_client")
-    )
-    assert Path(norito.__file__).resolve().is_relative_to(PYTHON_ROOT / "norito_py")
+    origins = {
+        "iroha_torii_client": Path(iroha_torii_client.__file__).resolve(strict=True),
+        "norito_py": Path(norito.__file__).resolve(strict=True),
+    }
+    if os.environ.get("IROHA_PYTHON_TEST_INSTALLED_PACKAGE") == "1":
+        assert sys.prefix != sys.base_prefix
+        environment_root = Path(sys.prefix).resolve(strict=True)
+        for source_name, origin in origins.items():
+            assert origin.is_relative_to(environment_root)
+            assert not origin.is_relative_to(PYTHON_ROOT / source_name)
+    else:
+        for source_name, origin in origins.items():
+            assert origin.is_relative_to(PYTHON_ROOT / source_name)
     assert len(blake3.blake3(b"numeric-v1").digest()) == 32
 
 

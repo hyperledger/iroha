@@ -407,6 +407,9 @@ impl<'a> QSignatureProverView<'a> {
             create_proof_owned(self.params, &key, witness, randomness, config)
                 .map_err(QSignatureError::Prover)?
         };
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         // All proving buffers are released before complete self-verification.
         iroha_plonk::verifier::verify_full_cancellable(
             self.params,

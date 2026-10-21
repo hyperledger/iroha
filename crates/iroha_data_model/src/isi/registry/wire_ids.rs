@@ -1,6 +1,7 @@
 //! Explicit wire identifiers for the built-in instruction registry.
 use super::*;
 use crate::isi::retail_daily_limit;
+use crate::isi::asset_uid;
 type TypeName = fn() -> &'static str;
 /// One built-in instruction's Rust type and path-independent wire identity.
 #[derive(Clone, Copy)]
@@ -69,6 +70,7 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(asset_transfer_control::SetAssetTransferControl => "iroha.asset.transfer.control.set"),
     built_in_wire_id!(asset_transfer_control::SetAssetHoldingLimit => "iroha.asset.holding_limit.set"),
     built_in_wire_id!(retail_daily_limit::ActivateRetailDailyLimitV1 => "iroha.asset.retail_day.activate.v1"),
+    built_in_wire_id!(asset_uid::SetAssetUidPolicyV1 => "iroha.asset.uid.policy.set.v1"),
     built_in_wire_id!(retail_daily_limit::BindRetailIdentityV1 => "iroha.asset.retail_day.identity.bind.v1"),
     built_in_wire_id!(retail_daily_limit::RetailMonetaryMovementV1 => "iroha.asset.retail_day.monetary_movement.v1"),
     built_in_wire_id!(crate::isi::sumeragi_amx::RegisterAmxDataspaceV1 => "iroha.sumeragi.amx.register_dataspace.v1", register),
@@ -140,6 +142,10 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(escrow::OpenEscrowDispute => "iroha.instruction.v1::escrow::OpenEscrowDispute"),
     built_in_wire_id!(escrow::ResolveEscrowDispute => "iroha.instruction.v1::escrow::ResolveEscrowDispute"),
     built_in_wire_id!(escrow::OpenAssetLock => "iroha.instruction.v1::escrow::OpenAssetLock"),
+    built_in_wire_id!(crate::isi::escrow_control::OpenControlledAssetLockV1 => "iroha.asset.lock.controlled.open.v1"),
+    built_in_wire_id!(crate::isi::escrow_control::DrawdownControlledAssetLockV1 => "iroha.asset.lock.controlled.drawdown.v1"),
+    built_in_wire_id!(crate::isi::escrow_control::CancelControlledAssetLockV1 => "iroha.asset.lock.controlled.cancel.v1"),
+    built_in_wire_id!(crate::isi::escrow_control::ExpireControlledAssetLockV1 => "iroha.asset.lock.controlled.expire.v1"),
     built_in_wire_id!(escrow::OpenConditionalEscrow => "iroha.instruction.v1::escrow::OpenConditionalEscrow"),
     built_in_wire_id!(escrow::AttestEscrowCondition => "iroha.instruction.v1::escrow::AttestEscrowCondition"),
     built_in_wire_id!(escrow::ExpireConditionalEscrow => "iroha.instruction.v1::escrow::ExpireConditionalEscrow"),

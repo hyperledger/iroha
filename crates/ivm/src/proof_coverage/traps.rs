@@ -258,6 +258,10 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         SyscallTrap: [PermissionDenied],
     ),
     producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/controlled_asset_locks.rs",
+        SyscallTrap: [DecodeError, PermissionDenied, UnknownSyscall],
+    ),
+    producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/native_events.rs",
         SyscallTrap: [DecodeError, InvalidMetadata, Metered, PermissionDenied],
         LocalDeferral: [ExecutionDeferred],
@@ -265,6 +269,10 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/tlv_transport.rs",
         SyscallTrap: [NoritoInvalid],
+    ),
+    producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/uid_holding_quote.rs",
+        SyscallTrap: [DecodeError, GasCostOverflow, NotImplemented, PermissionDenied],
     ),
     // Core encodes a fee-conversion state value with the VM codec outside any run.
     producer!(

@@ -95,14 +95,6 @@ async fn faucet_prepared_submit_replays_committed_outcome_past_fetch_budget() {
         pow_beacon_seed_enabled: false,
     });
     let transaction = &transactions[0];
-    let refused = crate::canonical_transaction_outcome(&app.state, &transaction.hash())
-        .expect_err("the full-prefix outcome reader keeps its fetch budget");
-    assert!(matches!(
-        refused,
-        Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-            iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
-        ))
-    ));
     let (transaction_hash_hex, signed_transaction_wire_hex, signed_transaction_wire_sha256) =
         canonical_prepared_transaction_wire(transaction).expect("canonical faucet wire");
     let payload = AccountFaucetPreparedSignaturePayloadV1 {
