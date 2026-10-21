@@ -3,6 +3,10 @@
 
 Capture only the first genuinely promoted ABI from an ongoing maintained producer.
 No Rust/Gradle invocation, source edit, shared-output write, or app installation.
+Consumption requires the producer commit to match HEAD by default. The explicit
+--allow-source-head-drift option admits an already qualified original after HEAD
+moves; all producer evidence remains bound to its original commit. It cannot be
+used for capture and does not establish current-source or release qualification.
 """
 from pathlib import Path
 import argparse, hashlib, json, os, re, shutil, stat, struct, subprocess, tempfile
@@ -83,21 +87,26 @@ def check_symbols(data_path, root, nm):
     exports = {line.split()[-1] for line in symbols.splitlines() if line.split()}
     require(required <= exports, 'Missing current JNI/C exports: ' + ','.join(sorted(required - exports)))
 
-def validate(artifact, root, ndk):
+def validate(artifact, root, ndk, allow_source_head_drift=False):
+    require(type(allow_source_head_drift) is bool, 'Source-head drift selection must be Boolean')
     artifact, root = directory(artifact), directory(root)
     require(artifact != root and root not in artifact.parents, 'Demo artifact must be outside source')
     require(artifact.stat().st_uid == os.getuid() and stat.S_IMODE(artifact.stat().st_mode) == 0o700, 'Demo artifact directory must be owned and mode 0700')
     files = {str(x.relative_to(artifact)) for x in artifact.rglob('*') if x.is_file()}
     require(files == {'receipt.json', LIB, RAW} | EVIDENCE, 'Unexpected or incomplete demo artifact inventory')
     require(not any(x.is_symlink() for x in artifact.rglob('*')), 'Symlink in demo artifact')
-    m = document(artifact / 'receipt.json')
+    receipt_bytes = original(artifact / 'receipt.json')
+    m = json.loads(receipt_bytes)
     require(m['schema'] == SCHEMA and m['artifact_scope'] == 'physical-device-demo' and
             m['status'] == 'qualified-arm64-device-demo', 'Wrong artifact type/status')
     require(m['abi'] == ABI and m['target'] == TARGET and m['native_bridge_abi_version'] == 31 and
             m['native_signer_contract_revision'] == 7, 'Wrong native ABI/signer contract')
     require(m['source_root'] == str(root), 'Different source checkout')
-    commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
-    require(m['source_commit'] == commit, 'Device demo requires current selected source commit')
+    commit = m['source_commit']
+    require(isinstance(commit, str) and re.fullmatch('[0-9a-f]{40}', commit), 'Invalid original source commit')
+    current_head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+    require(re.fullmatch('[0-9a-f]{40}', current_head), 'Invalid current source HEAD')
+    require(allow_source_head_drift or commit == current_head, 'Device demo requires current selected source commit')
     require(m['producer_stage'] == 'arm64-promoted-full-producer-continues', 'Wrong producer boundary')
     require(set(m['evidence']) == EVIDENCE, 'Wrong evidence inventory')
     docs = {}
@@ -143,9 +152,22 @@ def validate(artifact, root, ndk):
     result = jni['result']
     require(result['nativeAvailable'] and result['malformedNativeInputRefused'] and result['oldNineFieldOutputRefused'], 'ART JNI/strict DTO probe failed')
     require(cabi['serial'] == jni['serial'], 'Physical probes must qualify the same attached device')
-    return m
+    require(subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() == current_head,
+            'Source HEAD changed during consumer validation')
+    require(original(artifact / 'receipt.json') == receipt_bytes,
+            'Artifact receipt changed during consumer validation')
+    return {**m, 'consumer_validation': {
+        'schema': 'iroha.android-device-demo-consumption.v1',
+        'artifact_receipt_sha256': digest(receipt_bytes),
+        'artifact_source_commit': commit,
+        'current_source_head': current_head,
+        'allow_source_head_drift': allow_source_head_drift,
+        'source_head_drifted': commit != current_head,
+        'scope': 'physical-device-demo-consumption; original producer evidence, not current-source or release qualification',
+    }}
 
 def capture(args):
+    require(not getattr(args, 'allow_source_head_drift', False), 'Source-head drift is consumer-only; capture is forbidden')
     producer, root = directory(args.producer), directory(args.root)
     destination = Path(args.artifact_dir)
     require(destination.is_absolute() and not destination.exists() and directory(destination.parent) == destination.parent, 'Capture requires new canonical external directory')
@@ -196,13 +218,16 @@ def capture(args):
 def main():
     p = argparse.ArgumentParser();p.add_argument('--root', required=True);p.add_argument('--ndk', required=True)
     p.add_argument('--artifact-dir', required=True);p.add_argument('--producer');p.add_argument('--cabi-receipt');p.add_argument('--jni-receipt');p.add_argument('--output-dir')
+    p.add_argument('--allow-source-head-drift', action='store_true',
+                   help='Consume a qualified original after HEAD moves, retaining its original source commit; never for capture')
     args = p.parse_args()
     if args.producer:
+        require(not args.allow_source_head_drift, 'Source-head drift is consumer-only; capture is forbidden')
         require(args.cabi_receipt and args.jni_receipt and not args.output_dir, 'Capture requires physical probe receipts')
         m = capture(args)
     else:
         require(not args.cabi_receipt and not args.jni_receipt, 'Unexpected capture arguments')
-        m = validate(args.artifact_dir, args.root, args.ndk)
+        m = validate(args.artifact_dir, args.root, args.ndk, args.allow_source_head_drift)
     if args.output_dir:
         target = Path(args.output_dir)
         build_root = directory(os.environ.get('MOBILE_SDK_ANDROID_ARTIFACT_DIR', ''))
@@ -214,6 +239,8 @@ def main():
         shutil.copyfile(Path(args.artifact_dir) / LIB, target / LIB)
         (target / 'assets/iroha').mkdir(parents=True)
         shutil.copyfile(Path(args.artifact_dir) / 'receipt.json', target / 'assets/iroha/android-device-demo-native-v1.json')
+        (target / 'assets/iroha/android-device-demo-consumption-v1.json').write_text(
+            json.dumps(m['consumer_validation'], indent=2) + '\n')
         require(digest(original(target / LIB)) == m['library']['sha256'], 'Consumer copy changed')
     print(json.dumps(m, sort_keys=True))
 if __name__ == '__main__':

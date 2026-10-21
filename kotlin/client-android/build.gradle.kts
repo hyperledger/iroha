@@ -1912,6 +1912,17 @@ val mobileSdkRepoDir = providers.gradleProperty("irohaSdkRepoDir")
 
 val deviceDemoArtifactInput = providers.environmentVariable("MOBILE_SDK_ANDROID_DEVICE_DEMO_ARTIFACT_DIR")
 val deviceDemoSelected = deviceDemoArtifactInput.isPresent
+// Explicit consumer-only HEAD drift never changes the original producer identity.
+val deviceDemoAllowSourceHeadDrift = providers.gradleProperty("irohaAndroidDeviceDemoAllowSourceHeadDrift")
+    .map { value ->
+        require(value == "true" || value == "false") {
+            "irohaAndroidDeviceDemoAllowSourceHeadDrift must be true or false"
+        }
+        value == "true"
+    }.orElse(false)
+require(!deviceDemoAllowSourceHeadDrift.get() || deviceDemoSelected) {
+    "Source HEAD drift is only available for explicit debug device-demo consumption"
+}
 
 android {
     namespace = "org.hyperledger.iroha.sdk.android"
@@ -2615,6 +2626,7 @@ tasks.matching { it.name == "mergeDebugAndroidTestJniLibFolders" }.configureEach
 // or start a second native producer; normal builds retain the all-ABI owner above.
 @DisableCachingByDefault(because = "Every device demo consumption re-admits original bytes and physical evidence")
 abstract class AdmitNativeDeviceDemoTask : DefaultTask() {
+    @get:Input abstract val allowSourceHeadDrift: Property<Boolean>
     @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val artifactDirectory: DirectoryProperty
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE)
@@ -2636,13 +2648,15 @@ abstract class AdmitNativeDeviceDemoTask : DefaultTask() {
         val output = jniOutputDirectory.get().asFile.parentFile
         require(jniOutputDirectory.get().asFile.name == "jni" &&
             assetsOutputDirectory.get().asFile == output.resolve("assets"))
-        execOperations.exec {
-            workingDir(root)
-            commandLine(python.toString(), "-I", "-S", "-B", script.absolutePath,
+        val command = mutableListOf(python.toString(), "-I", "-S", "-B", script.absolutePath,
                 "--root", root.absolutePath,
                 "--ndk", androidNdkDirectory.get().asFile.canonicalPath,
                 "--artifact-dir", artifactDirectory.get().asFile.absolutePath,
                 "--output-dir", output.absolutePath)
+        if (allowSourceHeadDrift.get()) command.add("--allow-source-head-drift")
+        execOperations.exec {
+            workingDir(root)
+            commandLine(command)
         }.assertNormalExitValue()
     }
 }
@@ -2656,6 +2670,7 @@ if (deviceDemoSelected) {
 val admitNativeDeviceDemo = tasks.register<AdmitNativeDeviceDemoTask>("admitNativeDeviceDemo") {
     description = "Admit one explicitly qualified physical ARM64 demo original; never a release/all-ABI artifact"
     dependsOn(requireAndroidArtifactDirectory)
+    allowSourceHeadDrift.set(deviceDemoAllowSourceHeadDrift)
     artifactDirectory.set(layout.dir(deviceDemoArtifactInput.map { file(it) }))
     admissionScript.set(file(irohaDir()).resolve("scripts/mobile_sdk_android_device_demo.py"))
     irohaDirectory.set(file(irohaDir()))

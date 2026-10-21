@@ -455,6 +455,86 @@ fn public_checkpoint_pages_match_original_prefix_and_replay() {
     });
 }
 
+fn large_genesis_fixture() -> CertifiedTestChain {
+    let mut config = TestChainConfig::new(World::new(), 1000);
+    config.genesis_instructions.push(
+        Log::new(
+            iroha_data_model::Level::DEBUG,
+            "signed retained genesis".repeat(8192),
+        )
+        .into(),
+    );
+    let mut chain = CertifiedTestChain::start(config).unwrap();
+    for height in 2..=4 {
+        chain.commit_at(height * 1000, Vec::new());
+    }
+    chain
+}
+
+#[test]
+fn public_checkpoint_small_page_accounts_for_larger_retained_genesis() {
+    let chain = large_genesis_fixture();
+    let frames = wires(&chain);
+    let genesis = build_proof(&chain.state().view(), 1).unwrap().block_wire;
+    let page = [&frames[2][..], &frames[3][..]];
+    let page_bytes = page.iter().map(|wire| wire.len()).sum::<usize>();
+    let resultless_genesis = decode_framed_signed_block(&genesis)
+        .unwrap()
+        .canonical_resultless_proposal()
+        .unwrap()
+        .encode_wire()
+        .unwrap();
+    assert!(resultless_genesis.len() > page_bytes);
+    let initial = call(&genesis, &frames[..3], chain.network_id(), CHAIN).unwrap();
+    let original = initial.checkpoint.clone();
+    let advanced = advance(&original, &page, chain.network_id(), CHAIN).unwrap();
+    let complete = call(&genesis, &frames, chain.network_id(), CHAIN).unwrap();
+    assert_eq!(advanced.checkpoint, complete.checkpoint);
+    assert_eq!(advanced.tip_proof_chain_json, complete.tip_proof_chain_json);
+    assert_eq!(initial.checkpoint, original);
+    let replay = advance(
+        &advanced.checkpoint,
+        &[&frames[3]],
+        chain.network_id(),
+        CHAIN,
+    )
+    .unwrap();
+    assert_eq!(replay.checkpoint, advanced.checkpoint);
+    assert_eq!(replay.tip_proof_chain_json, advanced.tip_proof_chain_json);
+}
+
+#[test]
+fn public_checkpoint_combined_inputs_preserve_stricter_caller_field_limit() {
+    let chain = large_genesis_fixture();
+    let frames = wires(&chain);
+    let genesis = build_proof(&chain.state().view(), 1).unwrap().block_wire;
+    let initial = call(&genesis, &frames[..3], chain.network_id(), CHAIN).unwrap();
+    let original = initial.checkpoint.clone();
+    let page = [&frames[2][..], &frames[3][..]];
+    let page_bytes = page.iter().map(|wire| wire.len()).sum::<usize>();
+    let limit = norito::DecodeLimits::new(usize::MAX, page_bytes, usize::MAX, usize::MAX, 64);
+    let failure = norito::with_decode_limits_scope(limit, || {
+        advance(&original, &page, chain.network_id(), CHAIN)
+    })
+    .unwrap_err();
+    let Failure::Native("checkpoint_decode", FinalityReadError::DecodeResource(resource)) = failure
+    else {
+        panic!("expected the original caller field refusal, got {failure:?}");
+    };
+    assert_eq!(
+        resource.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert!(matches!(
+        resource.error().decode_resource_error(),
+        Some(norito::core::DecodeResourceError::FieldLengthExceeded { length, limit })
+            if length > u64::try_from(page_bytes).unwrap()
+                && limit == u64::try_from(page_bytes).unwrap()
+    ));
+    assert_eq!(initial.checkpoint, original);
+    assert!(advance(&original, &page, chain.network_id(), CHAIN).is_ok());
+}
+
 #[test]
 fn public_checkpoint_pages_refuse_wrong_context_gap_fork_tamper_and_bounds() {
     let chain = fixture(0);

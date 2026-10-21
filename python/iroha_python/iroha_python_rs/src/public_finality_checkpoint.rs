@@ -331,22 +331,28 @@ fn advance(
             ));
         }
     }
-    let checkpoint =
-        iroha_data_model::sumeragi_finality::SumeragiFinalityCheckpoint::decode_canonical(
-            trusted_checkpoint,
-        )
-        .map_err(|e| Failure::Native("checkpoint_decode", e))?;
-    if checkpoint.network_id() != network
-        || checkpoint.chain_id() != chain
-        || checkpoint.height() < 2
-    {
-        return Err(Failure::Input(
-            "checkpoint differs from selected public successor context",
-        ));
-    }
-    // One enclosing input-derived allocation budget applies to the whole decoded
-    // page, rather than granting an independent maximum to every retained frame.
-    norito::core::with_decode_limits_scope(norito::canonical_decode_limits(total), || {
+    let input_bytes = trusted_checkpoint
+        .len()
+        .checked_add(total)
+        .ok_or(Failure::Input("checkpoint and proof byte count overflow"))?;
+    // Verification reauthenticates the retained checkpoint, including its signed
+    // genesis, as well as the new page. Charge both independently bounded inputs
+    // to one enclosing scope; a small page cannot bound a larger retained genesis.
+    // Individual canonical decoders and any caller's stricter scope still apply.
+    norito::core::with_decode_limits_scope(norito::canonical_decode_limits(input_bytes), || {
+        let checkpoint =
+            iroha_data_model::sumeragi_finality::SumeragiFinalityCheckpoint::decode_canonical(
+                trusted_checkpoint,
+            )
+            .map_err(|e| Failure::Native("checkpoint_decode", e))?;
+        if checkpoint.network_id() != network
+            || checkpoint.chain_id() != chain
+            || checkpoint.height() < 2
+        {
+            return Err(Failure::Input(
+                "checkpoint differs from selected public successor context",
+            ));
+        }
         let mut decoded = Vec::new();
         decoded
             .try_reserve_exact(proofs.len())
