@@ -598,6 +598,19 @@ Lane observations do not confer finality.
 
 ### KAGEMUSHA wallet peer transports
 
+`KagemushaWalletWorkerMetricsV1.snapshot()` exposes an immutable, oldest-first
+32-record diagnostic ring with cumulative completion and eviction counts. Its
+process-local monotonic microseconds separate permit waiting, worker startup,
+closure execution and post-closure join; nested calls execute inline and leave
+unentered phases null. `returned`/`threw` describe only closure completion, while
+`startFailed` means the closure was never entered. Sampling takes no worker
+permit or wallet custody. Records contain only closed lanes, paths, outcomes and
+timings; no operation inputs, owner identity or callback are exposed. Observation
+failures, including allocation failure after a joined operation, never replace
+its primary result or exception. Counter exhaustion refuses diagnostics rather
+than reusing ordinals. Consumers must bracket sampling with their own clock and
+preserve visible ring loss; nested phases must not be added to enclosing totals.
+
 `KagemushaWalletWireV1` carries the KAGEMUSHA wallet V1 bounds, domain-separated
 21 SHA-256 digest roles, including the NEW unsigned app/enrollment policy identities,
 15 signing domains, the unsigned ordinary Load receipt, envelope header validation and strict `kgm1:` text,

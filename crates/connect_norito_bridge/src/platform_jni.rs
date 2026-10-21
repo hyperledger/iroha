@@ -17,6 +17,7 @@ use iroha_data_model::{
 mod account_address;
 mod committed_transaction_inclusion;
 mod confidential_prover;
+mod detached_transaction;
 mod gpu;
 mod kagemusha_wallet_advance;
 mod kagemusha_wallet_observation;

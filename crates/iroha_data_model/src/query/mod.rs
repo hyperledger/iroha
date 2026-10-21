@@ -794,6 +794,8 @@ define_builtin_query_registry! {
         => "iroha.query.v1::iterable::nexus::FeeSponsorProgramId",
     ErasedIterQuery<crate::bond::BondRecord>
         => "iroha.query.v1::iterable::bond::BondRecord",
+    ErasedIterQuery<crate::asset::uid::AssetUidPolicyViewV1>
+        => "iroha.query.v1::iterable::asset::AssetUidPolicyViewV1",
 }
 /// Set the global query registry used to decode queries by stable wire identifier.
 ///
@@ -1193,6 +1195,8 @@ mod model {
         FeeSponsorProgramId(Vec<crate::nexus::FeeSponsorProgramId>),
         /// Batch of native bond records.
         BondRecord(Vec<crate::bond::BondRecord>),
+        /// Owner-scoped native UID policy, holdings and activity views.
+        AssetUidPolicyViewV1(Vec<crate::asset::uid::AssetUidPolicyViewV1>),
     }
     #[derive(Debug, Clone, PartialEq, Eq, Encode, IntoSchema, crate :: DeriveJsonSerialize)]
     /// Helper tuple to materialise batches into Norito collections.
@@ -1795,6 +1799,7 @@ mod model {
             try_build!(crate::oracle::DefiOracleAttestation, DefiOracleAttestation);
             try_build!(crate::escrow::AssetEscrowRecord, AssetEscrowRecord);
             try_build!(crate::bond::BondRecord, BondRecord);
+            try_build!(crate::asset::uid::AssetUidPolicyViewV1, AssetUidPolicyViewV1);
             Err(QueryWithParamsError::unsupported(query.type_name_key()))
         }
         /// Access the canonical iterable-query payload components.
@@ -1893,6 +1898,8 @@ mod model {
         AssetEscrowsByStatus,
         /// Native bond records (wire tag 31).
         BondRecord,
+        /// Owner-scoped native UID policy views (wire tag 32).
+        AssetUidPolicyViewV1,
     }
     /// Trait mapping item types to a `QueryItemKind` marker.
     ///
@@ -2040,6 +2047,9 @@ mod model {
         fn kind() -> QueryItemKind {
             QueryItemKind::FeeSponsorProgramId
         }
+    }
+    impl ItemKindTag for crate::asset::uid::AssetUidPolicyViewV1 {
+        fn kind() -> QueryItemKind { QueryItemKind::AssetUidPolicyViewV1 }
     }
     impl ItemKindTag for crate::bond::BondRecord {
         fn kind() -> QueryItemKind {
@@ -2842,6 +2852,7 @@ impl QueryOutputBatchBox {
             (Self::FeeSponsorProgram(v1), Self::FeeSponsorProgram(v2)) => v1.extend(v2),
             (Self::FeeSponsorProgramId(v1), Self::FeeSponsorProgramId(v2)) => v1.extend(v2),
             (Self::BondRecord(v1), Self::BondRecord(v2)) => v1.extend(v2),
+            (Self::AssetUidPolicyViewV1(v1), Self::AssetUidPolicyViewV1(v2)) => v1.extend(v2),
             _ => return Err(QueryOutputBatchBoxTypeMismatch),
         }
         Ok(())
@@ -2897,6 +2908,7 @@ impl QueryOutputBatchBox {
             Self::FeeSponsorProgram(v) => v.len(),
             Self::FeeSponsorProgramId(v) => v.len(),
             Self::BondRecord(v) => v.len(),
+            Self::AssetUidPolicyViewV1(v) => v.len(),
         }
     }
     /// Returns `true` if this batch column contains no rows.
@@ -4054,6 +4066,7 @@ mod json_roundtrip_tests {
             QueryItemKind::AssetEscrowsByBuyer,
             QueryItemKind::AssetEscrowsByStatus,
             QueryItemKind::BondRecord,
+            QueryItemKind::AssetUidPolicyViewV1,
         ];
         for (index, kind) in kinds.into_iter().enumerate() {
             let expected = u32::try_from(index)
@@ -4305,6 +4318,7 @@ impl_iter_queries! {
     nexus::prelude::FindFeeSponsorPrograms => crate::nexus::FeeSponsorProgram,
     nexus::prelude::FindFeeSponsorProgramIds => crate::nexus::FeeSponsorProgramId,
     bond::FindBonds => crate::bond::BondRecord,
+    asset_uid::FindAssetUidPoliciesV1 => crate::asset::uid::AssetUidPolicyViewV1,
     nexus::prelude::FindFeeSponsorProgramsBySponsor => crate::nexus::FeeSponsorProgram,
     FindTransactions => CommittedTransaction,
     FindAccountsWithAsset => crate::account::Account,
@@ -4601,6 +4615,8 @@ macro_rules! queries {
     };
 }
 include!("domain_queries.rs");
+/// Owner-scoped native UID policy views.
+pub mod asset_uid;
 pub mod sns {
     //! SNS-related query definitions.
     //!

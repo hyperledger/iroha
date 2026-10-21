@@ -18,6 +18,21 @@ class NativeSignerBridge private constructor() {
         @JvmStatic
         fun isNativeAvailable(): Boolean = nativeAvailable
 
+        /** Decode and review the exact native bytes; never trust a server-supplied digest alone. */
+        @JvmStatic
+        fun inspectDetachedTransactionScaffold(scaffold: ByteArray): org.hyperledger.iroha.sdk.tx.DetachedTransactionInspection {
+            require(scaffold.isNotEmpty() && scaffold.size <= org.hyperledger.iroha.sdk.tx.DetachedTransactionInspection.MAX_BYTES) {
+                "Transaction scaffold exceeds the native inspection bound"
+            }
+            check(nativeAvailable) { "$LIBRARY_NAME is not available in this runtime" }
+            val output = checkNotNull(nativeInspectDetachedTransactionScaffold(scaffold.copyOf())) {
+                "Native transaction inspection returned no review"
+            }
+            return org.hyperledger.iroha.sdk.tx.DetachedTransactionInspection.fromNativeJSON(output)
+        }
+
+        @JvmStatic private external fun nativeInspectDetachedTransactionScaffold(scaffold: ByteArray): ByteArray?
+
         /** Admit a complete canonical account controller through the ABI-31 Rust owner. */
         @JvmStatic
         internal fun validateAccountAddressCanonical(canonical: ByteArray) {

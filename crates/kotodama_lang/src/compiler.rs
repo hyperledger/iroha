@@ -7711,6 +7711,10 @@ impl Compiler {
                                             | syscalls::SYSCALL_VALUE_TO_STRING
                                             | syscalls::SYSCALL_BLOB_CONCAT
                                             | syscalls::SYSCALL_UTF8_VALIDATE
+                                            | syscalls::SYSCALL_ASSET_LOCK_OPEN
+                                            | syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN
+                                            | syscalls::SYSCALL_ASSET_LOCK_CANCEL
+                                            | syscalls::SYSCALL_ASSET_LOCK_EXPIRE
                                     )
                                 {
                                     // The original schema/data decoder consumes its owned

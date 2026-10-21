@@ -2586,7 +2586,7 @@ impl IVM {
     /// Unlike pointer-ABI envelopes, compiler-owned Lists may never alias code
     /// literals or INPUT. Their schema is supplied out of band and their
     /// provenance is the successful guest/host heap allocation itself.
-    pub(crate) fn ensure_owned_heap_range(&self, address: u64, len: u64) -> Result<(), VMError> {
+    pub fn ensure_owned_heap_range(&self, address: u64, len: u64) -> Result<(), VMError> {
         self.ensure_public_memory(address, len)?;
         let end = address.checked_add(len).ok_or(VMError::DecodeError)?;
         let heap_end = Memory::HEAP_START

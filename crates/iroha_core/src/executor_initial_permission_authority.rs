@@ -3033,7 +3033,7 @@ fn can_transfer_asset(
     .into();
     authority_has_permission(world, authority, &by_definition)
 }
-fn valid_contract_runtime_subject(
+pub(crate) fn valid_contract_runtime_subject(
     world: &impl WorldReadOnly,
     authority: &AccountId,
     contract_runtime_context: Option<&ContractRuntimeExecutionContext>,

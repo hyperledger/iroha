@@ -1374,7 +1374,13 @@ The native verifier authenticates the entire page before joining the exact
 original block wire and selected input/full-output proofs. The returned
 `VerifiedCommittedTransaction` includes the authenticated carrier hash/height,
 network, native `context_id`, execution commitment, executed wire hash/length,
-full output hash and immutable `promoted_checkpoint` bytes. Retain that checkpoint
+full output hash, complete `execution_context`, and immutable `promoted_checkpoint` bytes.
+The context contains the current bundle version, original Network input index, and
+the full original route: entrypoint hash, selected lane/data space, route-plan digest,
+and every ordered coordinator/participant leg. Native verification refuses missing,
+obsolete, misaligned, or differently selected context. A data-space ID does not imply
+a physical lane. Applications must compare this authenticated route with their
+independently retained original intent. Retain that checkpoint
 atomically with the accepted application result. The low-level
 `verify_committed_transaction_inclusion(...)` accepts the same proof and trust
 inputs with exact committed-query response bytes for offline consumers. Both

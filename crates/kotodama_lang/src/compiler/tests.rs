@@ -1922,6 +1922,9 @@ fn get_asset_definition_id_emits_asset_definition_syscall() {
         "expected JSON_GET_ASSET_DEFINITION_ID syscall in compiled code"
     );
 }
+#[path = "controlled_asset_lock_tests.rs"]
+mod controlled_asset_lock_tests;
+
 #[test]
 fn native_escrow_builtins_emit_escrow_syscalls() {
     let src = include_str!("fixtures/v1/c015.ko");

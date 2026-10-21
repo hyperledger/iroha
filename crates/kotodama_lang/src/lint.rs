@@ -800,6 +800,10 @@ fn lint_program_inline(program: &Program) -> Vec<LintWarning> {
     warnings
 }
 const OPAQUE_ACCESS_HINT_CALLS: &[&str] = &[
+    Builtin::AssetLockOpen.source_name(),
+    Builtin::AssetLockDrawdown.source_name(),
+    Builtin::AssetLockCancel.source_name(),
+    Builtin::AssetLockExpire.source_name(),
     Builtin::EscrowOpenOffer.source_name(),
     Builtin::EscrowAccept.source_name(),
     Builtin::EscrowMarkPaymentSent.source_name(),

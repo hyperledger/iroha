@@ -226,10 +226,11 @@ impl Execute for SettleAtomic {
         }
         // The unique settlement and escrow IDs were checked in this exclusive
         // StateTransaction, and no callback or other instruction can insert a
-        // receipt or escrow while the private asset plan applies. All remaining
-        // operations are infallible staging.
+        // receipt or escrow while the private asset plan applies. UID reserve
+        // admission still checks the complete funded occurrence before retaining
+        // each escrow; any refusal discards this whole StateTransaction.
         for opening in openings {
-            opening.record_funded(stx);
+            opening.record_funded(stx)?;
         }
         stx.world
             .settlement_receipts

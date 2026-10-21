@@ -161,6 +161,23 @@ fn response(rows: Vec<CommittedTransaction>) -> Vec<u8> {
     .unwrap()
 }
 
+fn assert_original_route_projection(projected: &json::Value, f: &Fixture) {
+    let ExecutionOutputV1::Network(output) = &f.selected.output else {
+        unreachable!()
+    };
+    let bundle = f.block.execution_context().unwrap();
+    let context = &projected["execution_context"];
+    assert_eq!(context.as_object().unwrap().len(), 3);
+    assert_eq!(context["bundle_version"], json::Value::from(bundle.version));
+    assert_eq!(
+        context["input_index"],
+        json::Value::from(output.input_index)
+    );
+    assert_eq!(
+        context["route"],
+        json::to_value(&bundle.external[output.input_index as usize]).unwrap()
+    );
+}
 #[test]
 fn native_selected_output_authenticates_real_bls_chain_and_exact_projection() {
     pyo3::Python::initialize();
@@ -188,6 +205,8 @@ fn native_selected_output_authenticates_real_bls_chain_and_exact_projection() {
         Some(hex::encode(f.block.hash().as_ref()).as_str())
     );
     assert_eq!(result["block_height"].as_u64(), Some(3));
+    assert_original_route_projection(&result, &f);
+    assert_eq!(result["execution_context"]["input_index"].as_u64(), Some(1));
     assert_eq!(
         result["executed_block_wire_len"].as_u64(),
         Some(wire.len() as u64)
@@ -430,6 +449,7 @@ fn native_selected_output_authenticates_actual_rejected_execution() {
         .verify(&f.selected, &f.proofs, &f.checkpoint_bytes())
         .unwrap();
     let result: json::Value = json::from_json(&projection).unwrap();
+    assert_original_route_projection(&result, &f);
     assert_eq!(result["result_ok"].as_bool(), Some(false));
     assert!(result["rejection_code"].as_str().is_some());
     assert_eq!(
@@ -972,6 +992,7 @@ fn native_details_receipts_share_real_accepted_rejected_and_mixed_batch_producer
             assert_eq!(promoted, query_promoted);
             assert_eq!(wire, details_wire(&f.selected));
             let projected: json::Value = json::from_json(&details).unwrap();
+            assert_original_route_projection(&projected, f);
             assert_eq!(
                 projected["result_ok"].as_bool(),
                 Some(f.selected.result().is_ok())
@@ -1126,4 +1147,91 @@ fn native_details_builder_selects_only_exact_hash_and_preserves_reader_context()
             );
         }
     });
+}
+
+
+#[test]
+fn selected_route_projection_refuses_missing_obsolete_misaligned_or_foreign_context() {
+    pyo3::Python::initialize();
+    let f = Fixture::new(false);
+    let original = f.block.execution_context().unwrap().clone();
+    assert_eq!(original.external.len(), 2);
+    // Shape checks alone are not finality tests. Each case deliberately mutates
+    // a clone without obtaining any new certificate.
+    let mut candidates = vec![None];
+    let mut changed = original.clone();
+    changed.version = 0;
+    candidates.push(Some(changed));
+    let mut changed = original.clone();
+    changed.external.pop();
+    candidates.push(Some(changed));
+    let mut changed = original.clone();
+    changed.external.push(original.external[0].clone());
+    candidates.push(Some(changed));
+    let mut changed = original.clone();
+    changed.external.swap(0, 1);
+    candidates.push(Some(changed));
+    let mut changed = original.clone();
+    changed.external[0].entrypoint_hash = original.external[1].entrypoint_hash;
+    candidates.push(Some(changed));
+    for context in candidates {
+        let mut block = (*f.block).clone();
+        block.set_execution_context(context);
+        assert!(crate::project_selected_execution_context(&block, &f.selected).is_err());
+    }
+    for input_index in [0, 2, u32::MAX] {
+        let mut selected = f.selected.clone();
+        let ExecutionOutputV1::Network(output) = &mut selected.output else {
+            unreachable!()
+        };
+        output.input_index = input_index;
+        assert!(crate::project_selected_execution_context(&f.block, &selected).is_err());
+    }
+}
+
+#[test]
+fn selected_route_projection_preserves_every_leg_and_original_digest() {
+    use iroha_data_model::block::execution_context::{
+        ExternalExecutionRouteLeg, ExternalExecutionRouteRole,
+    };
+    use iroha_model_base::topology::{DataSpaceId, LaneId};
+    pyo3::Python::initialize();
+    let f = Fixture::new(false);
+    let mut block = (*f.block).clone();
+    let mut bundle = block.execution_context().unwrap().clone();
+    let route = &mut bundle.external[1];
+    route.lane_id = LaneId::new(7);
+    route.dataspace_id = DataSpaceId::UNIVERSAL;
+    route.routing_plan_digest = Hash::new(b"original component route");
+    route.routing_plan_legs = vec![
+        ExternalExecutionRouteLeg::new(
+            LaneId::new(7),
+            DataSpaceId::UNIVERSAL,
+            ExternalExecutionRouteRole::Coordinator,
+        ),
+        ExternalExecutionRouteLeg::new(
+            LaneId::new(9),
+            DataSpaceId::new(3),
+            ExternalExecutionRouteRole::Participant,
+        ),
+    ];
+    let expected = json::to_value(route).unwrap();
+    let coordinator: json::Value =
+        json::from_json(r#"{"role":"coordinator","detail":null}"#).unwrap();
+    let participant: json::Value =
+        json::from_json(r#"{"role":"participant","detail":null}"#).unwrap();
+    assert_eq!(expected["routing_plan_legs"][0]["role"], coordinator);
+    assert_eq!(expected["routing_plan_legs"][1]["role"], participant);
+    block.set_execution_context(Some(bundle));
+    // The private helper preserves shape. The changed block has no authority.
+    let projected = crate::project_selected_execution_context(&block, &f.selected).unwrap();
+    assert_eq!(projected["input_index"].as_u64(), Some(1));
+    assert_eq!(projected["route"], expected);
+    let mut proofs = f.proofs.clone();
+    proofs[1].block_wire = block.encode_wire().unwrap();
+    assert!(
+        f.verify(&f.selected, &proofs, &f.checkpoint_bytes())
+            .is_err(),
+        "a changed original route cannot reuse the original finality certificate"
+    );
 }

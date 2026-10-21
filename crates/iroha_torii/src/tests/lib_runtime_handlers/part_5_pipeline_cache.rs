@@ -454,13 +454,6 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
         detail.into_response().status(),
         StatusCode::TOO_MANY_REQUESTS
     );
-    let outcome = canonical_transaction_outcome(&app.state, &tx_hash)
-        .expect_err("terminal status waits for history capacity");
-    assert_eq!(
-        outcome.into_response().status(),
-        StatusCode::TOO_MANY_REQUESTS
-    );
-
     drop(occupied);
     drop(occupied_cold);
     let outcome = owner

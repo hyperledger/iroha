@@ -663,12 +663,21 @@ fn ingests_and_status_reads_during_an_unlocked_proof_never_cancel_it() {
     }
     assert_eq!(request_status(id, &[1; 32]).unwrap().kind, 11);
     assert_eq!(
-        observation::observe(id, 0, &[]).unwrap_err().status,
+        crate::kagemusha_wallet_ffi::observation::observe(id, 0, &[])
+            .unwrap_err()
+            .status,
         INVALID
     );
     // Repeated exact-byte retries and early credit polls must not cancel the very proof
     // needed to make the latest credit onward-spendable.
     for _ in 0..READ_REPEATS {
+        // Telemetry reads neither reserve priority nor count as custody ingests.
+        assert_eq!(
+            crate::kagemusha_wallet_ffi::observation::observe(id, 4, &[])
+                .unwrap()
+                .kind,
+            12
+        );
         assert_eq!(retry(id, &[1; 32]).unwrap().bytes, [0, 255, 0, 7]);
         assert_eq!(
             credit(id, &[1; 32], &[2; 32]).unwrap_err().status,

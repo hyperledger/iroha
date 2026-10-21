@@ -674,6 +674,9 @@ impl Session<'_> {
             drop(key);
             output
         };
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         let expected = Protocol::new(owner.key.binding().descriptor())
             .map_err(|_| Error::Artifact)?
             .proof_length();

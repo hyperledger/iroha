@@ -2,7 +2,9 @@
 
 use std::num::NonZeroUsize;
 
-use iroha_core::{execution_attempt::ExecutionAttemptError, smartcontracts::isi::tx, state::State};
+use iroha_core::execution_attempt::ExecutionAttemptError;
+#[cfg(test)]
+use iroha_core::state::State;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{BlockHeader, SignedBlock},
@@ -197,32 +199,37 @@ pub fn signed_calls(
 
 /// Resolve a unique ordinary signed submission from exact authenticated history.
 /// Reveals and internal invocations cannot impersonate an external submission.
+///
+/// Its callers are background SoraFS forwarders with no request: the carrier is read through
+/// State/checkpoint ancestry under a background owner, retained through the projection.
+/// Every refusal, a busy history pool included, stays an error the forwarder reports as
+/// unavailable and retries on a later scan.
 pub fn exact_external_outcome(
-    state: &State,
+    app: &crate::SharedAppState,
     height: NonZeroUsize,
     hash: HashOf<BlockHeader>,
     target: &HashOf<SignedTransaction>,
-) -> Result<(BlockHeader, Option<bool>), ExecutionAttemptError<QueryExecutionFail>> {
-    let work = crate::routing::app_query_limits().max_fetch_size;
+) -> Result<(BlockHeader, Option<bool>), crate::Error> {
+    let original = crate::read_background_execution_carrier(app, height)?;
     let mut outcome = None;
     let mut duplicate = false;
-    let header = tx::visit_finalized_network_transactions(
-        state,
-        height,
-        hash,
-        work,
-        tx::transaction_history_byte_limit(work),
-        |source, result| {
-            if let TransactionEntrypoint::External(signed) = source
-                && signed.hash() == *target
-            {
-                duplicate |= outcome.replace(result.is_ok()).is_some();
-            }
-        },
-    )?;
+    let header = original
+        .owner
+        .scope(|| {
+            original
+                .carrier
+                .visit_network_transactions(hash, |source, result| {
+                    if let TransactionEntrypoint::External(signed) = source
+                        && signed.hash() == *target
+                    {
+                        duplicate |= outcome.replace(result.is_ok()).is_some();
+                    }
+                })
+        })
+        .map_err(|error| query_attempt_error(error.into()))?;
     if duplicate {
-        return Err(ExecutionAttemptError::Rejected(invalid(
-            "signed submission has multiple finalized Network sources",
+        return Err(query_attempt_error(ExecutionAttemptError::Rejected(
+            invalid("signed submission has multiple finalized Network sources"),
         )));
     }
     Ok((header, outcome))

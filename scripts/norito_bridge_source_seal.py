@@ -10,11 +10,18 @@ without pulling in unrelated workspace tools such as Kagami or test-network
 helpers. The explicit ``android-armv7-diagnostic`` profile follows the same
 authentication rules for one experimental target; it is not an Android release
 profile and does not widen the packaged target inventory.
+
+Explicit local demo builds may set ``MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG`` to an
+absolute external JSONL evidence path. Source changes are then observations
+rather than build failures; artifact/tool/configuration checks remain strict.
+This option never asserts that a concurrently edited checkout was compiled
+atomically, and grants no runtime or monetary authority.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -26,6 +33,42 @@ import stat
 import subprocess
 import sys
 from collections.abc import Iterable
+
+
+def record_demo_source_drift(label: str, selected: object, observed: object) -> bool:
+    """Record explicitly permitted demo provenance drift; default remains strict.
+
+    This is a build-only policy. It does not admit modified artifacts, tools,
+    runtime trust, signatures, or monetary authority. A start fingerprint is an
+    observation, not an assertion that a concurrently edited build was atomic.
+    """
+    configured = os.environ.get("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG")
+    if not configured:
+        return False
+    path = pathlib.Path(configured)
+    root = pathlib.Path(__file__).resolve().parents[1]
+    if (not path.is_absolute() or path.parent.resolve(strict=True) != path.parent
+            or path == root or root in path.parents):
+        raise RuntimeError("demo drift log must be an absolute external evidence path")
+    row = {
+        "schema": "iroha.demo-source-observation.v1",
+        "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "phase": label, "selected": selected, "observed": observed,
+        "policy": "warning-only provenance; exact compiled tree not asserted",
+    }
+    descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise RuntimeError("demo drift log is not an owned regular file")
+        payload = (json.dumps(row, sort_keys=True, default=str) + "\n").encode()
+        if os.write(descriptor, payload) != len(payload):
+            raise RuntimeError("demo drift evidence write was incomplete")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    print(f"WARNING: {label}; demo source observations retained at {path}", file=sys.stderr)
+    return True
 
 
 APPLE_TARGETS = (
@@ -771,9 +814,13 @@ def selected_lockfile_path(
         if root == candidate or root in candidate.parents:
             raise RuntimeError("alternate Cargo lock must be outside the source root")
         expected = canonical_cargo_lock_sha256(root)
-        if lockfile_identity(root_lock)[-1] != expected:
+        if (lockfile_identity(root_lock)[-1] != expected
+                and not record_demo_source_drift("root lock versus graph declaration",
+                                                expected, lockfile_identity(root_lock)[-1])):
             raise RuntimeError("root source Cargo lock does not match the canonical reviewed graph")
-        if lockfile_identity(candidate)[-1] != expected:
+        if (lockfile_identity(candidate)[-1] != expected
+                and not record_demo_source_drift("selected lock versus current graph declaration",
+                                                lockfile_identity(candidate)[-1], expected)):
             raise RuntimeError("external Cargo lock does not match the canonical reviewed graph")
     return candidate
 
@@ -1037,9 +1084,13 @@ def metadata(
         if (cargo_configuration is not None
                 and android_cargo_configuration(root) != cargo_configuration):
             raise RuntimeError("Android Cargo configuration changed during metadata authentication")
-        if lockfile_identity(lockfile) != lock_identity_before:
+        if (lockfile_identity(lockfile) != lock_identity_before
+                and not (lockfile == root_lock and record_demo_source_drift(
+                    "selected root lock during metadata", lock_identity_before, lockfile_identity(lockfile)))):
             raise RuntimeError("selected Cargo lock changed during metadata authentication")
-        if lockfile_identity(root_lock) != root_lock_identity_before:
+        if (lockfile_identity(root_lock) != root_lock_identity_before
+                and not record_demo_source_drift("root Cargo lock during metadata",
+                                                root_lock_identity_before, lockfile_identity(root_lock))):
             raise RuntimeError("root Cargo lock changed during metadata authentication")
     return json.loads(output)
 
@@ -1404,11 +1455,17 @@ def snapshot(
     source_fingerprint_after = fingerprint(root, inputs, lockfile)
     source_status_after = status(root, inputs, lockfile)
     source_commit_after = source_commit(root)
-    if lockfile_identity(lockfile) != lock_identity_before:
+    if (lockfile_identity(lockfile) != lock_identity_before
+            and not (lockfile == root_lock and record_demo_source_drift(
+                "selected root lock during snapshot", lock_identity_before, lockfile_identity(lockfile)))):
         raise RuntimeError("selected Cargo lock changed while authenticating the source snapshot")
-    if lockfile_identity(root_lock) != root_lock_identity_before:
+    if (lockfile_identity(root_lock) != root_lock_identity_before
+            and not record_demo_source_drift("root Cargo lock during snapshot",
+                                            root_lock_identity_before, lockfile_identity(root_lock))):
         raise RuntimeError("root Cargo lock changed while authenticating the source snapshot")
-    if source_commit_before != source_commit_after:
+    if (source_commit_before != source_commit_after
+            and not record_demo_source_drift("source commit during snapshot",
+                                            source_commit_before, source_commit_after)):
         raise RuntimeError(
             f"{platform} NoritoBridge source commit changed while authenticating "
             "the selected-source fingerprint"
@@ -1416,6 +1473,10 @@ def snapshot(
     if (
         source_status_before != source_status_after
         or source_fingerprint_before != source_fingerprint_after
+    ) and not record_demo_source_drift(
+        "source files during snapshot",
+        {"status": source_status_before, "fingerprint": source_fingerprint_before},
+        {"status": source_status_after, "fingerprint": source_fingerprint_after},
     ):
         raise RuntimeError(
             f"{platform} NoritoBridge selected source changed while authenticating "
@@ -1464,14 +1525,21 @@ def verify_snapshot(
     snapshot_path: pathlib.Path,
     lockfile_path: pathlib.Path | None = None,
 ) -> None:
-    """Reject a missing, tampered, stale, or mixed-source build snapshot."""
+    """Verify a start observation; optionally record demo source drift."""
 
     expected = snapshot_path.read_bytes()
     current = snapshot_bytes(root, platform, lockfile_path)
     if expected != current:
-        raise RuntimeError(
-            f"{platform} NoritoBridge source changed after the build started"
-        )
+        before, after = json.loads(expected), json.loads(current)
+        mutable = {"source_commit", "source_tree_dirty", "source_status", "source_fingerprint_sha256"}
+        if (not isinstance(before, dict) or not isinstance(after, dict)
+                or set(before) != set(after)
+                or any(before[key] != after[key] for key in before.keys() - mutable)):
+            raise RuntimeError("source changed: seal structure, platform, targets or Cargo configuration")
+        if not record_demo_source_drift(f"{platform} source after build start", before, after):
+            raise RuntimeError(
+                f"{platform} NoritoBridge source changed after the build started"
+            )
 
 
 def parse_args() -> argparse.Namespace:

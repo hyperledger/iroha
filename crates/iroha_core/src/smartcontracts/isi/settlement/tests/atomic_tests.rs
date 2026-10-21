@@ -1,5 +1,8 @@
 //! State-backed atomic settlement execution and reference-retention controls.
 
+#[path = "boi_clearing_tests.rs"]
+mod boi_clearing_tests;
+
 use super::*;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::query::error::FindError;

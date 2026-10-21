@@ -376,6 +376,9 @@ impl Session<'_> {
             randomness,
             config,
         )?;
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         self.checked_a_cancellable(stage, circuit, output.proof, budget, config.cancellation)
     }
     /// Prove A1 with the hard predecessor and the inline step relation.
@@ -539,6 +542,9 @@ impl Session<'_> {
             randomness,
             config,
         )?;
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         self.restore_wrapper_cancellable(
             source,
             output.proof,

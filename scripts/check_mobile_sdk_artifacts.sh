@@ -121,6 +121,7 @@ resolve_trusted_python312() {
     [[ -f "$candidate" && -x "$candidate" ]] || continue
     if ! canonical="$(
       env -i \
+        MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
         HOME=/tmp \
         PATH=/usr/bin:/bin \
         TMPDIR=/tmp \
@@ -191,6 +192,7 @@ fi
 
 run_isolated_checker_python() {
   env -i \
+        MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$CHECK_USER_HOME_DIR" \
     PATH="${CHECK_PYTHON_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$CHECK_TMPDIR" \
@@ -314,6 +316,7 @@ PY
   fi
   SOURCE_SEAL_CARGO_BINARY="$(
     env -i \
+        MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
       HOME="$CHECK_USER_HOME_DIR" \
       PATH="${SOURCE_SEAL_RUSTUP_BINARY%/*}:/usr/bin:/bin" \
       CARGO_HOME="$SOURCE_SEAL_CARGO_HOME" \
@@ -325,6 +328,7 @@ PY
   )" || return 1
   SOURCE_SEAL_RUSTC_BINARY="$(
     env -i \
+        MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
       HOME="$CHECK_USER_HOME_DIR" \
       PATH="${SOURCE_SEAL_RUSTUP_BINARY%/*}:/usr/bin:/bin" \
       CARGO_HOME="$SOURCE_SEAL_CARGO_HOME" \
@@ -336,6 +340,7 @@ PY
   )" || return 1
   SOURCE_SEAL_RUSTDOC_BINARY="$(
     env -i \
+        MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
       HOME="$CHECK_USER_HOME_DIR" \
       PATH="${SOURCE_SEAL_RUSTUP_BINARY%/*}:/usr/bin:/bin" \
       CARGO_HOME="$SOURCE_SEAL_CARGO_HOME" \
@@ -396,6 +401,7 @@ PY
 run_source_authenticated_python() {
   initialize_source_seal_tools || return 1
   env -i \
+        MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$CHECK_USER_HOME_DIR" \
     PATH="${CHECK_PYTHON_BINARY%/*}:${SOURCE_SEAL_CARGO_BINARY%/*}:${SOURCE_SEAL_RUSTC_BINARY%/*}:${SOURCE_SEAL_RUSTDOC_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$CHECK_TMPDIR" \

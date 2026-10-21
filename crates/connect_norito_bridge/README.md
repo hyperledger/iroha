@@ -59,6 +59,83 @@ The embedding app must provision signed complete artifacts/configuration; the
 unprovisioned runtime fails unavailable. Full real-wallet and physical-device
 qualification remain open.
 
+Observation selector 4 takes an empty identity and returns diagnostic UTF-8 JSON
+(`iroha.kagemusha.fold-metrics.v2`) in DATA kind 12 with zero sequence/detail. Its
+131,072-byte limit is specific to this selector; financial DATA limits do not change.
+The open, non-closing handle is still required. The call reads only the bounded
+background log, acquires no custody and does not cancel or schedule proofs. Unknown
+selectors, malformed inputs and closed handles fail explicitly.
+
+The log keeps the latest 64 `records` (fold turns) and 16 `nativeWork` entries
+(Request, Bootstrap, Credited, execution, reviewed execution, speculative Send or
+selected bridge fold calls).
+`counts.subProofs` and `nativeWorkCount` count all entries since this owner opened.
+For each oldest-first ring, total minus retained length plus one is the first
+observation number; hosts reset deduplication on owner reopen and report skipped
+entries if the ring was overwritten. `returned` means the Rust call returned `Ok`,
+never a monetary completion or custody verdict.
+
+Each row has `startedNativeMicros` and `endedNativeMicros`; the snapshot has
+`sampledNativeMicros`. These share one process-local monotonic origin, survive
+owner reopen and reset on process restart. A host brackets the observation call
+with its own monotonic clock. With the bracket converted to outward-rounded whole
+microseconds, the native-to-host offset is bounded by `[before - sampled - 1,
+after - sampled]`. Mapping an end mark adds one microsecond to the upper endpoint
+for its own truncation. These values are not wall time or a completion verdict.
+
+A core fold row ends at the core publication/report boundary, before the bridge's
+archive close, custody exit and final durability fence. Work kind `fold` ends after
+the unchanged bridge run/fence; its `foldRecordId` names the exact owner-local core
+row captured on that calling thread, never a racy latest-row lookup. Other work
+kinds have a null `foldRecordId` and end after their native operation body, before
+the outer exporter fence; the app span measures full SDK return. No-selected-work
+fold attempts are omitted, which does not establish zero waiting or cancellation
+effort. `returned` remains only call success, including on a core row whose later
+bridge fence failed; core outcomes are not rewritten.
+
+Native work rows add nested `bridgeMicros`: `scheduler_wait` includes priority
+admission, cancellation and joining existing proof work; `wallet_lock_wait` is
+owner mutex acquisition; `custody_admission` is the existing custody gate. SDK
+worker permit/start delays are separate SDK observations. These durations overlap
+the enclosing interval. Background fold publication lock wait is already included
+in its core `publish`; the work interval additionally covers initial owner wait.
+
+`admissionCount` and the last eight `admissions` on each native work row observe
+existing capacity checks, without any extra probe or changed policy. Phases are
+`before_prove`, `before_commit`, `speculation`, `intake`, `intake_memory`, `blacklist`;
+results are `passed`, `storage_shortfall`, `memory_shortfall`, `probe_failed`.
+Requirements are the existing analytic storage/memory values. Both available
+values are null for a failed probe; memory alone may remain unknown after a real
+successful probe, preserving the existing storage-only decision. Count greater
+than retained length exposes lost details; retained retries may have no check.
+These checks do not reserve or measure allocator pages.
+
+Snapshot `processScratch` reports the existing process-wide MSM scratch
+`limitBytes`, `inUseBytes`, `peakBytes`. Its peak is the maximum of independently
+sampled in-use and historical peak values, an observed lower bound on the actual
+lifetime peak during the nontransactional sample. It covers only charged kernel
+scratch, excluding input slices, retained tables, allocator overhead and worker
+stacks. `processPeakRssBytes` is a separate host process-lifetime RSS high water
+mark, or null when unavailable. Neither is a per-operation or total-Native
+allocation peak. Compare peaks only across matched fresh-process trajectories.
+
+Fixed admission storage allocates nothing in capacity/commit hooks. The fold/work
+rings reserve their bounded storage fallibly; refusal drops only diagnostics and
+clears the retained suffix while counters preserve visible loss. Poisoned log
+locks recover their observation state. JSON allocation belongs only to selector4,
+never the return path of a monetary operation.
+
+Fold `micros` retains its eight enclosing phases. Each row also has `verification`
+counter deltas (including verification/generator memo hits) and nested `engineMicros`
+for `key_import`, `key_rebuild`, `witness`, `prove`, `self_verify` and `commit`.
+The physical witness timer excludes logical source construction. Fresh-proof
+acceptance includes required accumulator decisions and immediate output construction;
+`commit` includes transition validation and durable Advance, not just storage writes.
+Do not sum nested durations with enclosing phases. No timing or counter affects
+admission, monetary results, retries, scheduling or cancellation, and none is signed
+or persisted by Native. See `kagemusha_wallet_state_v1/fold_metrics.rs` for fixed
+field names, outcomes and bounds.
+
 
 For initial enrollment, trusted native startup constructs CoreZK `EnrollmentOwnerV1`
 from the approved scheme and exact policy originals; on Apple it also selects the pinned

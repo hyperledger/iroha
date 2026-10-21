@@ -234,4 +234,8 @@ pub static DOCS: &[crate::syscalls::SyscallDoc] = &[
     crate::syscalls::SyscallDoc { number: 66065, args: "r10=&Blob(alias), r11=request_generation", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
     crate::syscalls::SyscallDoc { number: 66066, args: "r10=&Blob(alias), r11=request_generation", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
     crate::syscalls::SyscallDoc { number: 66067, args: "r10=&Blob(alias), r11=request_generation", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
+    crate::syscalls::SyscallDoc { number: 66080, args: "r10=owned public 8-word heap table [&Blob(key:1..4096 bytes), &AccountId(source), &AccountId(destination), &AssetDefinitionId, &Quantity, release_until_ms:u64, cancel_not_before_ms:u64, expires_at_ms:u64]; controller=authenticated frame", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
+    crate::syscalls::SyscallDoc { number: 66081, args: "r10=&Blob(key:1..4096 bytes), r11=&Quantity(amount), r12=&Quantity(expected_remaining); controller=authenticated frame", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
+    crate::syscalls::SyscallDoc { number: 66082, args: "r10=&Blob(key:1..4096 bytes), r11=&Quantity(expected_remaining); controller=authenticated frame", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
+    crate::syscalls::SyscallDoc { number: 66083, args: "r10=&Blob(key:1..4096 bytes); controller=authenticated frame", ret: "u64=0", gas: "asset:gas/G_sci@ivm.core/v2 + bytes" },
 ];

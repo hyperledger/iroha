@@ -199,6 +199,94 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     }
   }
 
+  func testFoldMetricsTextIsBoundedStrictUTF8WithoutInterpretingDiagnosticFields() throws {
+    let original = Data(#"{"schema":"iroha.kagemusha.fold-metrics.v1","futureDiagnostic":17}"#.utf8)
+    XCTAssertEqual(try KagemushaWalletV1.decodeFoldMetricsJSON(original), String(data: original, encoding: .utf8))
+    let maximum = Data(repeating: 0x20, count: 131_072)
+    XCTAssertEqual(try KagemushaWalletV1.decodeFoldMetricsJSON(maximum).utf8.count, maximum.count)
+    for malformed in [Data(), Data(repeating: 0x20, count: 131_073),
+                      Data([0xff]), Data([0xc0, 0xaf]), Data([0xed, 0xa0, 0x80]), Data([0xe2, 0x82])] {
+      XCTAssertThrowsError(try KagemushaWalletV1.decodeFoldMetricsJSON(malformed)) { error in
+        XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidNativeOutput)
+      }
+    }
+  }
+
+  func testFoldMetricsObservationHasOnlyItsOwnLargerDATABound() throws {
+    let driver = try KagemushaWalletNativeDriverV1()
+    func observe(selector: UInt32, count: Int) throws -> Data {
+      try driver.observation(selector: selector) { output in
+        output.pointee.status = 12
+        output.pointee.reason = -1
+        output.pointee.length = count
+        let bytes = malloc(count)!.assumingMemoryBound(to: UInt8.self)
+        bytes.initialize(repeating: 0x20, count: count)
+        output.pointee.bytes = bytes
+        return 0
+      }
+    }
+    for (selector, bound) in [5_268, 20_066, 20_066, 65_756, 131_072].enumerated() {
+      XCTAssertEqual(try observe(selector: UInt32(selector), count: bound).count, bound)
+      XCTAssertThrowsError(try observe(selector: UInt32(selector), count: bound + 1)) { error in
+        XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidNativeOutput)
+      }
+    }
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 12, sequenceLow: 0, sequenceHigh: 0,
+      detail: 0, bytes: Data(repeating: 0x20, count: 131_072))) { error in
+      XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidNativeOutput)
+    }
+  }
+
+  func testFoldMetricsObservationRejectsForeignResultMetadataAndMissingBytes() throws {
+    let driver = try KagemushaWalletNativeDriverV1()
+    for field in ["status", "reason", "platform", "sequenceLow", "sequenceHigh", "detail", "empty", "missing"] {
+      XCTAssertThrowsError(try driver.observation(selector: 4) { output in
+        output.pointee.status = field == "status" ? 29 : 12
+        output.pointee.reason = field == "reason" ? 0 : -1
+        output.pointee.platform_code = field == "platform" ? 1 : 0
+        output.pointee.sequence_low = field == "sequenceLow" ? 1 : 0
+        output.pointee.sequence_high = field == "sequenceHigh" ? 1 : 0
+        output.pointee.detail = field == "detail" ? 1 : 0
+        output.pointee.length = field == "empty" ? 0 : 1
+        if field != "missing" {
+          let bytes = malloc(1)!.assumingMemoryBound(to: UInt8.self)
+          bytes.pointee = 0x20; output.pointee.bytes = bytes
+        }
+        return 0
+      }) { error in
+        XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidNativeOutput, field)
+      }
+    }
+  }
+
+  func testFoldMetricsObservationRejectsUnknownSelectorBeforeCallingNative() throws {
+    let driver = try KagemushaWalletNativeDriverV1()
+    for selector in [UInt32(5), .max] {
+      var called = false
+      XCTAssertThrowsError(try driver.observation(selector: selector) { _ in
+        called = true; return 0
+      }) { error in
+        XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidInput)
+      }
+      XCTAssertFalse(called)
+    }
+  }
+
+  func testActualFoldMetricsObservationRefusesUnknownOwnerAndForeignIdentity() throws {
+    let driver = try KagemushaWalletNativeDriverV1()
+    XCTAssertThrowsError(try driver.observation(selector: 4) { output in
+      driver.observe(0, 4, nil, 0, output)
+    }) { error in
+      XCTAssertEqual(error as? KagemushaWalletErrorV1, .closed)
+    }
+    let foreignIdentity = Data(repeating: 1, count: 32)
+    XCTAssertThrowsError(try driver.observation(selector: 4) { output in
+      foreignIdentity.withUnsafeBytes {
+        driver.observe(0, 4, $0.bindMemory(to: UInt8.self).baseAddress, $0.count, output)
+      }
+    })
+  }
+
   func testActualNativeUnloadSelectorRefusesUnknownOwnerWithoutClaimBytes() throws {
     let driver = try KagemushaWalletNativeDriverV1()
     let input = try KagemushaWalletSetupInputV1(selector: 45, identity: Data(repeating: 9, count: 32))

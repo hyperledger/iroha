@@ -267,23 +267,38 @@ fn speculate(owner: &Arc<Owner>, job: state::SpeculativeSendJobV1) {
             };
             // The owner is used only before admission: a payment waiting for the admitted
             // proof may hold the owner.
+            let turn = state::NativeWorkTurnV1::start(state::NativeWorkKindV1::SpeculativeSend);
             let prepared = run(|| {
                 with_wallet_owner(Arc::clone(&owner), Priority::None, |wallet| {
                     wallet.prepare_speculation(&job)
                 })
             });
             drop(job);
-            if let Ok(Some(proof)) = prepared {
-                let scheduler = owner.scheduler.clone();
-                let _ = run(move || Ok(proof.prove(&scheduler)?));
-                // Folds waited while the speculation held its slot.
-                owner.background.wake();
-            }
+            let returned = match prepared {
+                Ok(Some(proof)) => {
+                    let scheduler = owner.scheduler.clone();
+                    let result = run(move || Ok(proof.prove(&scheduler)?));
+                    // Folds waited while the speculation held its slot.
+                    owner.background.wake();
+                    result.is_ok()
+                }
+                Ok(None) => true,
+                Err(_) => false,
+            };
+            owner.background.record_native_work(turn.finish(returned));
         });
 }
 pub(crate) fn execute_reviewed(id: u64, token: u64, request: &[u8]) -> Result<Response> {
     let request = request.try_into().map_err(|_| Failure::code(INVALID))?;
-    with_wallet(id, true, |wallet| wallet.execute_reviewed(token, request))
+    let owner = owner(id)?;
+    let turn = state::NativeWorkTurnV1::start(state::NativeWorkKindV1::ReviewedExecute);
+    let result = with_wallet_owner(Arc::clone(&owner), Priority::Payment, |wallet| {
+        wallet.execute_reviewed(token, request)
+    });
+    owner
+        .background
+        .record_native_work(turn.finish(result.is_ok()));
+    result
 }
 pub(crate) fn discard_review(id: u64, token: u64) -> Result<()> {
     with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| {
@@ -508,7 +523,9 @@ mod tests {
         let one = first.put(String::from("opaque-one")).unwrap();
         let two = first.put(String::from("opaque-two")).unwrap();
         assert_eq!(first.take(one).unwrap(), "opaque-one");
-        assert!(first.take(one).is_err());
+        // Swift's post-execution discard must recognize this consumed-token
+        // result without treating the still-live wallet owner as closed.
+        assert_eq!(first.take(one).unwrap_err().status, INVALID);
         assert_eq!(first.take(two).unwrap(), "opaque-two");
         assert!(first.put(String::from("later")).unwrap() > two);
         assert!(Tokens::<String>::default().take(one).is_err());
