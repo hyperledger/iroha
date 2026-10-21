@@ -2536,7 +2536,53 @@ impl NativeCheckpoints {
             // D6a: each continuation runs on a session detached and resumed between
             // fold calls; checkpoints restored before detaching keep their source.
             session = prover.resume(session.into_retained()).unwrap();
-            check_native_w_import(&prover, &plan, stage, &parity_keys[stage]);
+            let wrapper_seal = import_native_w(&prover, &plan, stage, &parity_keys[stage]);
+            if stage == 0 {
+                let wrapper_key = prover.bind_w(stage, &wrapper_seal, None).unwrap();
+                // Match the independent first W's exact source A and fold tape.
+                // Fresh proof entropy remains OS-backed; only the public fold
+                // tape is repeated so the carried Vesta claim must be identical.
+                let reproved = session
+                    .wrapper(
+                        &wrapper_key,
+                        &checkpoint,
+                        common::public_fixture_tape(252),
+                        &FoldConfig::default(),
+                        common::fresh_randomness(),
+                        ProverConfig::default(),
+                    )
+                    .unwrap();
+                assert_eq!(reproved.stage(), stage);
+                assert_ne!(
+                    reproved.proof(),
+                    self.w_proofs[stage],
+                    "fresh native W proof"
+                );
+                assert_eq!(reproved.vesta_bytes(), self.vesta[stage]);
+                let vesta = AccumulatorT::<Eq>::from_bytes(&self.vesta[stage]).unwrap();
+                let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
+                let expected_public = vec![
+                    vec![Fq::from_repr(checkpoint.instances()[0].to_repr()).unwrap()],
+                    vec![x, y],
+                    vesta
+                        .challenges()
+                        .iter()
+                        .map(|value| Fq::from_repr(value.to_repr()).unwrap())
+                        .collect(),
+                ];
+                verify_full(
+                    &source.params,
+                    wrapper_key.binding(),
+                    wrapper_key.verifying_key(),
+                    &expected_public,
+                    reproved.proof(),
+                    MemoryBudget::DEFAULT,
+                )
+                .unwrap();
+                vesta
+                    .decide(&common::vesta_params(16), MemoryBudget::DEFAULT)
+                    .unwrap();
+            }
             let wrapper = session
                 .restore_wrapper(
                     &checkpoint,
@@ -2711,7 +2757,7 @@ impl NativeCheckpoints {
         assert_eq!(terminal.incoming_vesta, source.incoming_head.vesta);
         assert_eq!(terminal.predecessor_vesta, source.predecessor.vesta);
         eprintln!(
-            "NATIVE_RECEIVE_RESTORE all5A_all4W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all9=true native_producer_retains_no_PK=true rebuilt_PK_proof_bytes_equal=true canonical_custody_all9_exact_bytes=true fresh_session_from_originals=true own_receipt_slot0_hard=true quoted_objects_soft_but_context_bound=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
+            "NATIVE_RECEIVE_RESTORE all5A_all4W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all9=true native_producer_retains_no_PK=true fresh_native_A2_verified=true fresh_native_W1_verified=true canonical_custody_all9_exact_bytes=true fresh_session_from_originals=true own_receipt_slot0_hard=true quoted_objects_soft_but_context_bound=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
         );
         terminal
     }
@@ -2750,12 +2796,12 @@ fn import_native_a(
     imported_seal
 }
 
-fn check_native_w_import(
+fn import_native_w(
     prover: &iroha_kagemusha_proof::a_relation::native::receive::Prover,
     plan: &iroha_kagemusha_proof::a_relation::native::receive::Plan,
     stage: usize,
     source_a: &iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact<Eq>,
-) {
+) -> iroha_plonk::keys::SourceAdmissionSealV2<Ep> {
     let length = iroha_plonk::Protocol::new(source_a.binding().descriptor())
         .unwrap()
         .proof_length();
@@ -2796,6 +2842,7 @@ fn check_native_w_import(
     let imported_seal = prover.import_w(stage, &original, read).unwrap();
     let imported = prover.bind_w(stage, &imported_seal, None).unwrap();
     assert_eq!(imported.verifying_key().to_bytes(), expected);
+    imported_seal
 }
 
 /// Complete genuine Receive terminal after all source owners and native restores.

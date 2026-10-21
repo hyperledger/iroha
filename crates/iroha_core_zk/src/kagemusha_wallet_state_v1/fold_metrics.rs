@@ -722,6 +722,8 @@ fn push_work(output: &mut String, work: iroha_plonk::work_metrics::WorkMetrics) 
         ("prove", work.prove),
         ("self_verify", work.self_verify),
         ("commit", work.commit),
+        ("source_restore", work.source_restore),
+        ("sigma_publish", work.sigma_publish),
     ]
     .into_iter()
     .enumerate()

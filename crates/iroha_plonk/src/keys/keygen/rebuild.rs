@@ -306,6 +306,33 @@ pub fn keygen_pk_from_vk_v2_cancellable<C: PastaCurve, Ci: Circuit<C::ScalarExt>
     cancellation: Option<&CancellationToken>,
 ) -> Result<ProvingKey<C>, RebuildError> {
     let _timer = crate::work_metrics::WorkTimer::start(crate::work_metrics::WorkPhase::KeyRebuild);
+    let profile =
+        validate_rebuild_profile_v2_cancellable(params, verifier, coset_cache, cancellation)?;
+    let synthesized = crate::frontend::synthesize_cancellable(
+        &circuit.without_witnesses(),
+        params.k(),
+        None,
+        cancellation,
+    )
+    .map_err(KeyError::from)?;
+    rebuild_checked_synthesis(
+        params,
+        synthesized,
+        verifier,
+        profile,
+        coset_cache,
+        cancellation,
+    )
+}
+
+/// Check immutable seal, verifier and parameter identities before any witness allocation.
+/// The returned profile carries no new source authority; source tables are still checked.
+pub(crate) fn validate_rebuild_profile_v2_cancellable<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    verifier: &SourceBoundViewV2<'_, C>,
+    coset_cache: CosetCachePolicy,
+    cancellation: Option<&CancellationToken>,
+) -> Result<KeygenConfigV2, RebuildError> {
     CancellationToken::checkpoint(cancellation)?;
     let descriptor = verifier.binding.descriptor();
     // PinnedParams has only transparent derivation or exact pinned-byte admission;
@@ -322,7 +349,7 @@ pub fn keygen_pk_from_vk_v2_cancellable<C: PastaCurve, Ci: Circuit<C::ScalarExt>
     {
         return Err(RebuildError::Profile);
     }
-    let profile = KeygenConfigV2 {
+    Ok(KeygenConfigV2 {
         transcript: descriptor.transcript,
         instance_mode: descriptor.instance_mode,
         proof_suffix: descriptor.proof_suffix,
@@ -334,14 +361,44 @@ pub fn keygen_pk_from_vk_v2_cancellable<C: PastaCurve, Ci: Circuit<C::ScalarExt>
         coset_cache,
         table_budget: None,
         msm_budget: MemoryBudget::DEFAULT,
-    };
-    let synthesized = crate::frontend::synthesize_cancellable(
-        &circuit.without_witnesses(),
-        params.k(),
-        None,
+    })
+}
+
+/// Reconstruct from one completed synthesis after its advice moved to a wiping owner.
+/// This repeats immutable preflight rather than trusting the caller's earlier check.
+/// Exact descriptor, fixed/selector/copy/sigma and opaque seal checks are unchanged.
+pub(crate) fn keygen_pk_from_synthesized_v2_cancellable<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    synthesized: crate::frontend::Synthesized<C::ScalarExt>,
+    verifier: &SourceBoundViewV2<'_, C>,
+    coset_cache: CosetCachePolicy,
+    cancellation: Option<&CancellationToken>,
+) -> Result<ProvingKey<C>, RebuildError> {
+    let _timer = crate::work_metrics::WorkTimer::start(crate::work_metrics::WorkPhase::KeyRebuild);
+    let profile =
+        validate_rebuild_profile_v2_cancellable(params, verifier, coset_cache, cancellation)?;
+    rebuild_checked_synthesis(
+        params,
+        synthesized,
+        verifier,
+        profile,
+        coset_cache,
         cancellation,
     )
-    .map_err(KeyError::from)?;
+}
+
+fn rebuild_checked_synthesis<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    synthesized: crate::frontend::Synthesized<C::ScalarExt>,
+    verifier: &SourceBoundViewV2<'_, C>,
+    profile: KeygenConfigV2,
+    coset_cache: CosetCachePolicy,
+    cancellation: Option<&CancellationToken>,
+) -> Result<ProvingKey<C>, RebuildError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if synthesized.tables.k() != params.k() {
+        return Err(RebuildError::Profile);
+    }
     let (fixed, selectors, permutation) = synthesized.tables.into_keygen_parts();
     let prepared = prepare_cancellable(
         params,

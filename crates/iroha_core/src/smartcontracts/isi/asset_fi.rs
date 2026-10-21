@@ -1,5 +1,7 @@
 //! FI-authenticated references, exact owner consent and sealed native off-ramps.
 
+use std::collections::BTreeMap;
+
 use super::*;
 use crate::{
     executor::ContractRuntimeExecutionContext,
@@ -154,7 +156,7 @@ impl Execute for SetAssetFiLinkV1 {
             ));
         }
         if let Some(controller) = &value.controller {
-            if !tx.world.contract_instances.contains_key(controller)
+            if tx.world.contract_instances.get(controller).is_none()
                 || tx
                     .world
                     .contract_subject_addresses

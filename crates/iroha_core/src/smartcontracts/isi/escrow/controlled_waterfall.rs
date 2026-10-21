@@ -120,15 +120,15 @@ pub(super) fn transfer(
         .map_err(|_| MathError::Overflow)?;
     let binding = asset_uid::encode(&(
         "controlled-lock-owner-waterfall-v1",
-        record,
-        beneficiary,
-        amount,
-        &policy,
-        &link,
-        &control,
-        &sweep,
-        &custody_to_fi,
-        &custody_to_beneficiary,
+        record.clone(),
+        beneficiary.clone(),
+        amount.clone(),
+        policy,
+        link.clone(),
+        control,
+        sweep.clone(),
+        custody_to_fi.clone(),
+        custody_to_beneficiary.clone(),
     ))?;
     let verified = VerifiedControlledWaterfallBatch {
         record: record.clone(),

@@ -1,16 +1,17 @@
 //! Temporary source-bound proving buffers for native A/W owners.
 //!
-//! Strict original admission remains in each family importer. The live circuit's
-//! witnessless value is DATA: reconstruction must match the previously admitted
-//! descriptor, verifier and full fixed/selector/copy/sigma source commitment.
+//! Strict original admission remains in each family importer. The actual circuit's
+//! synthesized public tables are DATA: reconstruction must match the previously
+//! admitted descriptor, verifier and full fixed/selector/copy/sigma commitment.
 //! No proving buffers survive this call, including on cancellation or failure.
 
 use iroha_pasta::{CancellationToken, PastaCurve};
 use iroha_plonk::{
-    ProverConfig, ProverOutput, ProverRandomness, Witness, create_proof_owned_with_claim,
+    ProverConfig, ProverOutput, ProverRandomness, create_proof_owned_with_claim,
     frontend::Circuit,
-    keys::{CosetCachePolicy, SourceBoundViewV2, keygen_pk_from_vk_v2_cancellable},
+    keys::{CosetCachePolicy, SourceBoundViewV2},
     pcs::ipa::PinnedParams,
+    prover::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable},
 };
 
 /// Native family classification; no failure becomes a soft incoming verdict.
@@ -36,30 +37,30 @@ pub(super) fn prove<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     config: ProverConfig,
 ) -> Result<ProverOutput<C>, Error> {
     CancellationToken::checkpoint(config.cancellation).map_err(|_| Error::Cancelled)?;
-    let source = circuit.without_witnesses();
-    let key = keygen_pk_from_vk_v2_cancellable(
+    let (key, witness) = rebuild_key_and_witness_v2_cancellable(
         params,
-        &source,
+        circuit,
         metadata,
+        instances,
         CosetCachePolicy::OnDemand,
         config.cancellation,
     )
-    .map_err(|error| {
-        if error.is_cancelled() {
-            Error::Cancelled
-        } else {
-            Error::Artifact
+    .map_err(|error| match error {
+        RebuildWitnessError::Rebuild(error) => {
+            if error.is_cancelled() {
+                Error::Cancelled
+            } else {
+                Error::Artifact
+            }
         }
-    })?;
-    drop(source);
-    let witness = Witness::from_circuit_cancellable(&key, circuit, instances, config.cancellation)
-        .map_err(|error| {
+        RebuildWitnessError::Witness(error) => {
             if error.is_cancelled() {
                 Error::Cancelled
             } else {
                 Error::Prover
             }
-        })?;
+        }
+    })?;
     #[cfg(test)]
     crate::proof_entry_probe::reached();
     let output = create_proof_owned_with_claim(params, &key, witness, randomness, config).map_err(

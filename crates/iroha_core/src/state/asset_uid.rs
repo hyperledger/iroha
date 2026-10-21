@@ -15,6 +15,7 @@ use iroha_data_model::{
 };
 use iroha_primitives::numeric::Quantity;
 
+#[path = "asset_uid/wallet_holdings.rs"]
 pub(crate) mod wallet_holdings;
 
 pub(crate) const POLICY_ROOT: &str = "asset_uid_policy_v1/";
@@ -498,10 +499,10 @@ pub(crate) fn validate_persistence(world: &impl WorldReadOnly) -> Result<(), Err
             let value: AssetUidUsageV1 = decode(bytes)?;
             if value.spend_amount > value.outgoing_amount
                 || value
-                .daily_window
-                .day_start_ms(value.day_start_ms)
-                .map_err(reject)?
-                != value.day_start_ms
+                    .daily_window
+                    .day_start_ms(value.day_start_ms)
+                    .map_err(reject)?
+                    != value.day_start_ms
                 || key != &usage_key(&value.asset_definition_id, &value.uid, value.day_start_ms)
                 || policy(world, &value.asset_definition_id, &value.uid)?
                     .is_none_or(|policy| policy.daily_window != value.daily_window)

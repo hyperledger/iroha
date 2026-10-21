@@ -95,6 +95,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 plan
             }
         };
+        let restoration = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+        );
         plan.require(marker_digest, credential, manifest)?;
         let installed = Arc::clone(&self.proofs.installed);
         let preparation = proof(PreparationV1::new(&installed))?;
@@ -103,7 +106,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &self.proofs.enrollment_certificates,
         )?;
         let prepared = proof(preparation.prepare_bootstrap(&owner, marker_digest, plan.nonce))?;
+        drop(restoration);
         let frozen = if let Some(reference) = self.archive.get(ArchiveKey::BootstrapFrozen, 32)? {
+            let _observation = iroha_plonk::work_metrics::WorkTimer::start(
+                iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+            );
             let capsule = reference
                 .as_slice()
                 .try_into()
@@ -150,10 +157,14 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             };
             let frozen =
                 proof(preparation.freeze_bootstrap(&owner, &prepared, sigma, self.proofs.budget))?;
+            let publication = iroha_plonk::work_metrics::WorkTimer::start(
+                iroha_plonk::work_metrics::WorkPhase::SigmaPublish,
+            );
             let capsule = frozen.capsule.custody_digest();
             self.archive
                 .put(ArchiveKey::Capsule(capsule), &archive::encode(&frozen)?)?;
             self.archive.put(ArchiveKey::BootstrapFrozen, &capsule)?;
+            drop(publication);
             frozen
         };
         self.commit(frozen)

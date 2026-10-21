@@ -30,6 +30,13 @@ pub enum WorkPhase {
     /// Wallet transition validation and durable Advance; an enclosing host scope that
     /// can contain proof verification, custody work and storage publication.
     Commit,
+    /// Authenticated selected-source and durable-plan reconstruction. Includes
+    /// fresh derivation and mandatory commit revalidation, not only restart.
+    /// Nested in the enclosing work/commit; not physical witness synthesis.
+    SourceRestore,
+    /// Encode and publish the frozen Sigma capsule and exact preparation mapping.
+    /// This precedes Advance and is not monetary completion or final export release.
+    SigmaPublish,
 }
 
 /// Cumulative elapsed times of this thread's native proof work.
@@ -47,6 +54,10 @@ pub struct WorkMetrics {
     pub self_verify: Duration,
     /// Transition validation and durable Advance (not a pure storage-write timer).
     pub commit: Duration,
+    /// Selected-source/plan restoration and derivation, including fresh validation.
+    pub source_restore: Duration,
+    /// Frozen Sigma capsule and preparation-mapping publication before Advance.
+    pub sigma_publish: Duration,
 }
 impl WorkMetrics {
     /// Read only this calling thread's accumulated durations.
@@ -64,6 +75,8 @@ impl WorkMetrics {
             prove: self.prove.saturating_sub(earlier.prove),
             self_verify: self.self_verify.saturating_sub(earlier.self_verify),
             commit: self.commit.saturating_sub(earlier.commit),
+            source_restore: self.source_restore.saturating_sub(earlier.source_restore),
+            sigma_publish: self.sigma_publish.saturating_sub(earlier.sigma_publish),
         }
     }
     fn record(&mut self, phase: WorkPhase, elapsed: Duration) {
@@ -74,6 +87,8 @@ impl WorkMetrics {
             WorkPhase::Prove => &mut self.prove,
             WorkPhase::SelfVerify => &mut self.self_verify,
             WorkPhase::Commit => &mut self.commit,
+            WorkPhase::SourceRestore => &mut self.source_restore,
+            WorkPhase::SigmaPublish => &mut self.sigma_publish,
         };
         *total = total.saturating_add(elapsed);
     }
@@ -83,8 +98,9 @@ thread_local! {
         key_import: Duration::ZERO, commit: Duration::ZERO,
         key_rebuild: Duration::ZERO, witness: Duration::ZERO,
         prove: Duration::ZERO, self_verify: Duration::ZERO,
+        source_restore: Duration::ZERO, sigma_publish: Duration::ZERO,
     }) };
-    static DEPTH: Cell<[u32; 6]> = const { Cell::new([0; 6]) };
+    static DEPTH: Cell<[u32; 8]> = const { Cell::new([0; 8]) };
 }
 
 /// A timer confined to its originating thread. Dropping it records observation even on
@@ -156,7 +172,7 @@ mod tests {
         assert_eq!(delta.key_rebuild, Duration::ZERO);
         assert_eq!(delta.prove, Duration::ZERO);
         assert_eq!(delta.self_verify, Duration::ZERO);
-        assert_eq!(DEPTH.with(Cell::get), [0; 6]);
+        assert_eq!(DEPTH.with(Cell::get), [0; 8]);
     }
 
     #[test]
@@ -167,12 +183,44 @@ mod tests {
             let _inner = WorkTimer::start(WorkPhase::SelfVerify);
         }
         assert_eq!(WorkMetrics::current_thread(), before);
-        assert_eq!(DEPTH.with(Cell::get), [0, 0, 0, 0, 1, 0]);
+        assert_eq!(DEPTH.with(Cell::get), [0, 0, 0, 0, 1, 0, 0, 0]);
         drop(outer);
-        assert_eq!(DEPTH.with(Cell::get), [0; 6]);
+        assert_eq!(DEPTH.with(Cell::get), [0; 8]);
         assert_eq!(
             WorkMetrics::default().since(WorkMetrics::current_thread()),
             WorkMetrics::default()
         );
     }
+
+    #[test]
+    fn restoration_and_publication_have_independent_saturating_deltas() {
+        let mut metrics = WorkMetrics::default();
+        metrics.record(WorkPhase::SourceRestore, Duration::from_micros(7));
+        metrics.record(WorkPhase::SigmaPublish, Duration::from_micros(11));
+        let before = metrics;
+        metrics.record(WorkPhase::SourceRestore, Duration::from_micros(3));
+        metrics.record(WorkPhase::SigmaPublish, Duration::from_micros(5));
+        let delta = metrics.since(before);
+        assert_eq!(delta.source_restore, Duration::from_micros(3));
+        assert_eq!(delta.sigma_publish, Duration::from_micros(5));
+        assert_eq!(delta.commit, Duration::ZERO);
+        assert_eq!(before.since(metrics), WorkMetrics::default());
+    }
+
+    #[test]
+    fn restoration_and_publication_scopes_unwind_without_leaking_depth() {
+        let before = WorkMetrics::current_thread();
+        let restored = WorkTimer::start(WorkPhase::SourceRestore);
+        let refused = || -> Result<(), ()> {
+            let _nested = WorkTimer::start(WorkPhase::SourceRestore);
+            let _publication = WorkTimer::start(WorkPhase::SigmaPublish);
+            Err(())
+        };
+        assert_eq!(refused(), Err(()));
+        assert_eq!(DEPTH.with(Cell::get), [0, 0, 0, 0, 0, 0, 1, 0]);
+        assert_eq!(WorkMetrics::current_thread().source_restore, before.source_restore);
+        drop(restored);
+        assert_eq!(DEPTH.with(Cell::get), [0; 8]);
+    }
+
 }

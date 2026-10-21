@@ -59,6 +59,9 @@ pub use rebuild::{
     RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2, SourceBoundViewV2,
     keygen_pk_from_vk_v2, keygen_pk_from_vk_v2_cancellable,
 };
+pub(crate) use rebuild::{
+    keygen_pk_from_synthesized_v2_cancellable, validate_rebuild_profile_v2_cancellable,
+};
 
 /// The protocol choices and resources of key generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

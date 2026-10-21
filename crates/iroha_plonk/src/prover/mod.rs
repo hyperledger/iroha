@@ -79,6 +79,8 @@ mod batch;
 mod lookup;
 mod multiopen;
 mod permutation;
+mod rebuild;
+pub use rebuild::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable};
 pub mod quotient;
 pub use quotient::{QuotientWorkspace, WorkspaceError};
 #[cfg(test)]
@@ -509,6 +511,8 @@ impl<F: PastaField> Drop for Witness<F> {
                 value.zeroize();
             }
         }
+        #[cfg(test)]
+        rebuild::observe_wiped_witness(&self.advice);
     }
 }
 

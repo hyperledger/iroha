@@ -594,3 +594,46 @@ fn opaque_seal_equality_checks_every_identity() {
     check::<Ep>();
     check::<Eq>();
 }
+
+#[test]
+fn combined_preparation_rechecks_a_borrowed_seal_against_exact_verifier_bytes() {
+    use crate::prover::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable};
+    fn check<C: PastaCurve>() {
+        let params = PinnedParams::<C>::derive(6).unwrap();
+        let source = Source {
+            value: Value::known(C::ScalarExt::ZERO),
+            ..Source::default()
+        };
+        let original = keygen_pk_v2(&params, &source, &config(false)).unwrap();
+        let owner = SourceBoundVerifyingKeyV2::from_proving_key(&original, None).unwrap();
+        let foreign = keygen_pk_v2(
+            &params,
+            &Source {
+                fixed: C::ScalarExt::from(8),
+                ..source.clone()
+            },
+            &config(false),
+        )
+        .unwrap();
+        // Test-only forging of private fields: public bind() already rejects this.
+        let bad_view = SourceBoundViewV2 {
+            seal: &owner.seal,
+            binding: &owner.binding,
+            key: foreign.vk(),
+        };
+        assert_eq!(
+            rebuild_key_and_witness_v2_cancellable(
+                &params,
+                &source,
+                &bad_view,
+                &[],
+                CosetCachePolicy::OnDemand,
+                None
+            )
+            .unwrap_err(),
+            RebuildWitnessError::Rebuild(RebuildError::Profile)
+        );
+    }
+    check::<Ep>();
+    check::<Eq>();
+}

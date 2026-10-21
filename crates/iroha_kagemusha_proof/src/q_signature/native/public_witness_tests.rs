@@ -295,8 +295,12 @@ fn load_signature_inverse_binds_digest_slot_order_and_original_signature() {
 }
 
 #[test]
-#[ignore = "two Load signature profiles: two k16 keygens/imports and four proofs; explicit resource handoff"]
+#[ignore = "two Load signature profiles: two k16 keygens/imports and eight proofs; explicit resource handoff"]
 fn genuine_load_signature_public_inverse_native_proof_parity() {
+    assert!(
+        !cfg!(debug_assertions),
+        "run real-family measurement with --release"
+    );
     use iroha_plonk::keys::{KeygenConfigV2, keygen_pk_from_vk_v2, keygen_pk_v2};
     for (plan, witnesses) in load_cases() {
         // A new owner makes each measured admission's public-column cache cold.
@@ -388,6 +392,19 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
         drop(original);
         let owner =
             QSignatureProverView::from_source_bound(&plan, &params, metadata.view()).unwrap();
+        // Reuse this exact strict-admitted Load Q1/Q2 fixture. No new originals
+        // or unchecked source metadata are produced by the comparison.
+        let actual = QSignatureCircuit::new(plan.clone(), witnesses.clone()).unwrap();
+        crate::rebuild_measurement::compare(
+            &format!("load_signature_q{}", plan.slots().len()),
+            &params,
+            &metadata.view(),
+            || plan.source_circuit().unwrap(),
+            &actual,
+            &plan.native_instances(&witnesses).unwrap(),
+            || {},
+        );
+        drop(actual);
         // Both pre-cut reconstruction/validation paths have now finished.
         crate::proof_entry_probe::assert_owner_cancellation(
             |token| {
@@ -497,6 +514,6 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
         );
     }
     println!(
-        "LOAD_SIGNATURE_PUBLIC_INVERSE keygens=2 strict_imports=2 proofs=4 complete_native_verification=true qualification=false"
+        "LOAD_SIGNATURE_PUBLIC_INVERSE keygens=2 strict_imports=2 proofs=8 owner_proofs=4 paired_proofs=4 complete_native_verification=true qualification=false"
     );
 }

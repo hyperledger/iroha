@@ -147,3 +147,5 @@ mod proof_entry_probe;
 mod q_sigma_owner_tests;
 #[cfg(test)]
 mod q_signature_owner_tests;
+#[cfg(test)]
+mod rebuild_measurement;

@@ -318,6 +318,17 @@ neither global nor persisted and retains no column tables. Cancellation fails
 closed, and a poisoned memo causes recomputation. This optimization changes no
 source-admission authority or proof bytes.
 
+`prover::rebuild_key_and_witness_v2_cancellable` prepares a source-bound V2
+key and witness from one actual synthesis. It checks the opaque seal and exact
+parameters before allocating witness tables, validates typed instances, moves
+advice into wiping ownership, and checks the actual descriptor and complete
+fixed/selector/copy/permutation source against the seal before constructing
+proving buffers. The existing witnessless rebuild entry point remains separate.
+Actual-source changes return `RebuildWitnessError::Rebuild`; instance, synthesis
+and witness-shape failures return `RebuildWitnessError::Witness`. Both retain
+cooperative cancellation. The result still requires normal proving and full
+self-verification; it adds no cache, authority or monetary acceptance path.
+
 On ARM64 targets other than Windows, SHA-256 source and column hashing uses the
 existing `sha2` hardware backend with runtime CPU detection and portable fallback.
 The exact fingerprint bytes and all admission checks remain unchanged. Other

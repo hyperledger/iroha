@@ -320,15 +320,15 @@ fn log_line_carries_only_fixed_names_whole_microseconds_counts_and_bytes() {
             r#""cancelledByActivity":0,"cancelledByClose":0,"discardedProveMicros":9,"#,
             r#""overlappedIngests":3},"records":["#,
             r#"{"startedNativeMicros":0,"endedNativeMicros":0,"sequence":7,"operation":"load","stage":"q","ordinal":1,"outcome":"cancelled","#,
-            r#""cause":"setup_ingest","ingests":0,"peakRssBytes":4096,"verification":{"lineage":0,"full":0,"decides":0,"batches":0,"generatorMsms":0,"generatorMsmBases":0,"reusedVerifications":0,"reusedGenerators":0},"engineMicros":{"key_import":0,"key_rebuild":0,"witness":0,"prove":0,"self_verify":0,"commit":0},"micros":{"#,
+            r#""cause":"setup_ingest","ingests":0,"peakRssBytes":4096,"verification":{"lineage":0,"full":0,"decides":0,"batches":0,"generatorMsms":0,"generatorMsmBases":0,"reusedVerifications":0,"reusedGenerators":0},"engineMicros":{"key_import":0,"key_rebuild":0,"witness":0,"prove":0,"self_verify":0,"commit":0,"source_restore":0,"sigma_publish":0},"micros":{"#,
             r#""sync_manifest":1,"read_fold":2,"fold_seed":3,"owner_replay":4,"restore":5,"#,
             r#""key_import":6,"prove":7,"publish":8}},"#,
             r#"{"startedNativeMicros":0,"endedNativeMicros":0,"sequence":7,"operation":null,"stage":null,"ordinal":2,"outcome":"failed","#,
-            r#""cause":null,"ingests":0,"peakRssBytes":null,"verification":{"lineage":0,"full":0,"decides":0,"batches":0,"generatorMsms":0,"generatorMsmBases":0,"reusedVerifications":0,"reusedGenerators":0},"engineMicros":{"key_import":0,"key_rebuild":0,"witness":0,"prove":0,"self_verify":0,"commit":0},"micros":{"sync_manifest":0,"#,
+            r#""cause":null,"ingests":0,"peakRssBytes":null,"verification":{"lineage":0,"full":0,"decides":0,"batches":0,"generatorMsms":0,"generatorMsmBases":0,"reusedVerifications":0,"reusedGenerators":0},"engineMicros":{"key_import":0,"key_rebuild":0,"witness":0,"prove":0,"self_verify":0,"commit":0,"source_restore":0,"sigma_publish":0},"micros":{"sync_manifest":0,"#,
             r#""read_fold":0,"fold_seed":0,"owner_replay":0,"restore":0,"key_import":0,"#,
             r#""prove":0,"publish":0}},"#,
             r#"{"startedNativeMicros":0,"endedNativeMicros":0,"sequence":8,"operation":"bootstrap","stage":"omega","ordinal":5,"#,
-            r#""outcome":"discarded","cause":null,"ingests":3,"peakRssBytes":8192,"verification":{"lineage":0,"full":0,"decides":0,"batches":0,"generatorMsms":0,"generatorMsmBases":0,"reusedVerifications":0,"reusedGenerators":0},"engineMicros":{"key_import":0,"key_rebuild":0,"witness":0,"prove":0,"self_verify":0,"commit":0},"micros":{"#,
+            r#""outcome":"discarded","cause":null,"ingests":3,"peakRssBytes":8192,"verification":{"lineage":0,"full":0,"decides":0,"batches":0,"generatorMsms":0,"generatorMsmBases":0,"reusedVerifications":0,"reusedGenerators":0},"engineMicros":{"key_import":0,"key_rebuild":0,"witness":0,"prove":0,"self_verify":0,"commit":0,"source_restore":0,"sigma_publish":0},"micros":{"#,
             r#""sync_manifest":2,"read_fold":2,"fold_seed":2,"owner_replay":2,"restore":2,"#,
             r#""key_import":2,"prove":2,"publish":2}}],"nativeWorkCount":0,"nativeWork":[]}"#
         )
@@ -473,6 +473,8 @@ fn maximal_public_records_fit_the_mobile_diagnostic_bound() {
         prove: Duration::MAX,
         self_verify: Duration::MAX,
         commit: Duration::MAX,
+        source_restore: Duration::MAX,
+        sigma_publish: Duration::MAX,
     };
     for _ in 0..FOLD_METRICS_RECORDS_V1 {
         metrics.record(maximum);

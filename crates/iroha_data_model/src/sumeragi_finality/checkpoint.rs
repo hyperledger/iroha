@@ -280,6 +280,36 @@ impl SumeragiFinalityVerifier {
         &self,
         tip: &SumeragiFinalityProof,
     ) -> Result<SumeragiFinalityCheckpoint, FinalityReadError> {
+        // Ordinary exporters discard the verified graph before checkpoint construction,
+        // preserving their original ownership and peak-memory behavior.
+        self.export_checkpoint_projected(tip, drop)
+            .map(|(checkpoint, ())| checkpoint)
+    }
+
+    /// Export an authenticated checkpoint together with its exact verified tip.
+    ///
+    /// Performs the same tip, certificate, retained-decision and bounds checks as
+    /// [`Self::export_checkpoint`]. The returned capability is produced by that
+    /// verification; no second decode or verification is needed to inspect its execution.
+    /// This historical capability supplies neither current authority nor freshness.
+    ///
+    /// # Errors
+    /// Exactly the original export failures, including an unavailable or non-tip prefix,
+    /// substituted decision, invalid certificate and enclosing decoder resource refusal.
+    pub fn export_checkpoint_with_tip(
+        &self,
+        tip: &SumeragiFinalityProof,
+    ) -> Result<(SumeragiFinalityCheckpoint, VerifiedSumeragiBlock), FinalityReadError> {
+        self.export_checkpoint_projected(tip, std::convert::identity)
+    }
+
+    // The only projections are the private wrappers above: discard or retain the exact
+    // native capability. Neither a checkpoint nor its tip escapes before bounds pass.
+    fn export_checkpoint_projected<T>(
+        &self,
+        tip: &SumeragiFinalityProof,
+        project: impl FnOnce(VerifiedSumeragiBlock) -> T,
+    ) -> Result<(SumeragiFinalityCheckpoint, T), FinalityReadError> {
         need(
             self.decisions.last_key_value().map(|(height, _)| *height) == Some(tip.height()),
             "checkpoint must export the authenticated tip",
@@ -289,11 +319,12 @@ impl SumeragiFinalityVerifier {
         let mut validation =
             (!norito::core::decode_limits_active()).then(EpochValidationScope::new);
         // The original witness still undergoes every certificate, prefix and decision check.
-        if let Some(validation) = validation.as_mut() {
-            self.verify_retained_decision_with_validation(tip, Some(validation))?;
+        let verified = if let Some(validation) = validation.as_mut() {
+            self.verify_retained_decision_with_validation(tip, Some(validation))?
         } else {
-            self.verify_retained_decision(tip)?;
-        }
+            self.verify_retained_decision(tip)?
+        };
+        let projected = project(verified);
         let first = tip.height().saturating_sub(2).max(1);
         let checkpoint = SumeragiFinalityCheckpoint {
             network_id: NetworkId::from_genesis_hash(self.genesis.hash()),
@@ -317,8 +348,8 @@ impl SumeragiFinalityVerifier {
         } else {
             checkpoint.validate_bounds()?;
         }
-        // The result is the same DTO, not a retained epoch workspace or current-state grant.
-        Ok(checkpoint)
+        // Neither result retains the pure epoch workspace or grants current authority.
+        Ok((checkpoint, projected))
     }
 
     /// Import an independently authenticated local checkpoint as the new trust root.

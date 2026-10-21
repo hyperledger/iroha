@@ -1,10 +1,8 @@
 //! Exact controller grants and private beneficial-holdings quotes.
 
 use super::*;
+#[path = "asset_uid_reader/same_uid.rs"]
 mod same_uid;
-pub(crate) use same_uid::same_uid_for_contract;
-#[cfg(test)]
-pub(crate) use same_uid::tests::Fixture as SameUidReaderFixture;
 use crate::executor::ContractRuntimeExecutionContext;
 use iroha_data_model::{
     asset::uid::{
@@ -15,6 +13,9 @@ use iroha_data_model::{
     smart_contract::ContractAddress,
 };
 use iroha_primitives::numeric::Quantity;
+pub(crate) use same_uid::same_uid_for_contract;
+#[cfg(test)]
+pub(crate) use same_uid::tests::Fixture as SameUidReaderFixture;
 
 pub(crate) const READER_ROOT: &str = "asset_uid_reader_v1/";
 type Error = InstructionExecutionError;

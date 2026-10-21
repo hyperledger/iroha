@@ -11,18 +11,21 @@ use core::fmt;
 
 use ff::Field;
 use iroha_pasta::{Ep, Eq, Fp, Fq, PastaField, msm::MemoryBudget};
+#[cfg(test)]
+use iroha_plonk::Witness;
 use iroha_plonk::{
     DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, VerifyError,
-    VerifyingKey, Witness, create_proof_owned,
+    VerifyingKey, create_proof_owned,
     frontend::{Circuit, Error as LayoutError},
     keys::{
         CosetCachePolicy, KeygenConfigV2, RebuildError, SourceBoundVerifyingKeyV2,
-        SourceBoundViewV2, keygen_pk_from_vk_v2_cancellable, keygen_pk_v2,
+        SourceBoundViewV2, keygen_pk_v2,
     },
     pcs::{
         ipa::{IpaError, PinnedParams},
         multiopen::MultiopenError,
     },
+    prover::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable},
     transcript::TranscriptError,
 };
 use iroha_plonk_gadgets::bytes::tape::{ByteOrder, segment_value};
@@ -1206,23 +1209,20 @@ impl<'a> QSigmaProverView<'a> {
         randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<Vec<u8>, QSigmaError> {
-        let source = circuit.without_witnesses();
-        let key = keygen_pk_from_vk_v2_cancellable(
+        // Prepared public values and the actual circuit remain independently
+        // checked against the exact admitted source before any proof is produced.
+        let (key, witness) = rebuild_key_and_witness_v2_cancellable(
             self.params,
-            &source,
+            circuit,
             &self.key,
+            &prepared.instances,
             CosetCachePolicy::OnDemand,
             config.cancellation,
         )
-        .map_err(QSigmaError::Rebuild)?;
-        drop(source);
-        let witness = Witness::from_circuit_cancellable(
-            &key,
-            circuit,
-            &prepared.instances,
-            config.cancellation,
-        )
-        .map_err(QSigmaError::Prover)?;
+        .map_err(|error| match error {
+            RebuildWitnessError::Rebuild(error) => QSigmaError::Rebuild(error),
+            RebuildWitnessError::Witness(error) => QSigmaError::Prover(error),
+        })?;
         #[cfg(test)]
         crate::proof_entry_probe::reached();
         create_proof_owned(self.params, &key, witness, randomness, config)

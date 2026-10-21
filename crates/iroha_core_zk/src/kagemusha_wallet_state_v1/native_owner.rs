@@ -195,6 +195,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         custody: &mut PreparationCustodyV1<'_>,
         bytes: &[u8],
     ) -> Result<PreparedOperationV1, Error> {
+        let _observation = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+        );
         let preparation = proof(PreparationV1::new(&self.installed))?;
         let choices = NativeChoicesV1::decode(
             bytes,

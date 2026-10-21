@@ -397,8 +397,12 @@ fn load_witness() -> crate::admin_sigma::LoadWitness {
 }
 
 #[test]
-#[ignore = "genuine Load sigma k12 plus two serialized-bus2 Q0 k16 proofs; explicit resource handoff"]
+#[ignore = "genuine Load sigma k12 plus four serialized-bus2 Q0 k16 proofs; explicit resource handoff"]
 fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
+    assert!(
+        !cfg!(debug_assertions),
+        "run real-family measurement with --release"
+    );
     use crate::admin_sigma::LoadCircuit;
     let sigma_params = PinnedParams::<Eq>::derive(12).unwrap();
     let sigma_circuit = LoadCircuit::new(&load_witness());
@@ -608,6 +612,19 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     .unwrap();
     drop(q_key);
     drop(q_original);
+    // Match QSigmaProverView::prove's exact two-bus actual circuit. Keep the
+    // strict imported owner as authority and decide its carried sigma claim.
+    let actual = original.circuit.clone().with_serialized_foreign(2).unwrap();
+    crate::rebuild_measurement::compare(
+        "load_q_sigma_serialized_buses_2",
+        prover.params(),
+        &prover.key.view(),
+        || actual.without_witnesses(),
+        &actual,
+        &original.instances,
+        || original.part.decide(&inner, MemoryBudget::DEFAULT).unwrap(),
+    );
+    drop(actual);
     crate::proof_entry_probe::assert_owner_cancellation(
         |token| {
             prover.prove(
@@ -701,6 +718,6 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     );
 
     println!(
-        "LOAD_PUBLIC_INVERSE sigma_proofs=1 q0_proofs=2 keygens=2 strict_imports=1 serialized_buses=2 selector=1 complete_native_verification=true qualification=false"
+        "LOAD_PUBLIC_INVERSE sigma_proofs=1 q0_proofs=4 owner_q0_proofs=2 paired_q0_proofs=2 keygens=2 strict_imports=1 serialized_buses=2 selector=1 complete_native_verification=true qualification=false"
     );
 }

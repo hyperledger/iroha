@@ -700,6 +700,9 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 return Ok(completion);
             }
         }
+        let restoration = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+        );
         let released = self.indexed_step(&manifest, sequence)?;
         let source_digest = released.frozen.capsule.custody_digest();
         let mut held_plan = entry
@@ -709,6 +712,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         if let Some(plan) = &held_plan {
             plan.require(&self.scheme_id, &self.wallet_id, &request, &bytes)?;
         }
+        drop(restoration);
         if held_plan
             .as_ref()
             .is_some_and(|plan| plan.source != source_digest)
@@ -729,6 +733,9 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             )?;
             held_plan = None;
         }
+        let restoration = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+        );
         let folded = self.read_fold(&released)?.map(|fold| fold.record);
         if request.kind().consumes_lineage() && folded.is_none() {
             return Err(Error::FoldRequired);
@@ -739,6 +746,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         };
         let (snapshot, map_state) =
             self.preparation_source_custody(&manifest, &released, request.kind(), folded.as_ref())?;
+        drop(restoration);
         let refresh = request.refresh();
         let (plan, planned) = if let Some(plan) = held_plan {
             (plan, None)
@@ -840,6 +848,10 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 &frozen.capsule.body().successor_state,
             )?;
             require_frozen(&request, &source_digest, &frozen)?;
+            // Observe only this pre-Advance publication; no outcome is changed.
+            let publication = iroha_plonk::work_metrics::WorkTimer::start(
+                iroha_plonk::work_metrics::WorkPhase::SigmaPublish,
+            );
             let original = archive::encode(&frozen)?;
             if original.len() > FROZEN_BOUND {
                 return Err(Error::Invalid("prepared capsule size"));
@@ -862,6 +874,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                     .capsule_plans
                     .set(&mut self.archive, capsule, &address)?;
             self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)?;
+            drop(publication);
             frozen
         };
         require_frozen(&request, &source_digest, &frozen)?;
