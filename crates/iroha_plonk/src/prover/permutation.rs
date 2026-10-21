@@ -135,7 +135,9 @@ where
         CancellationToken::checkpoint(cancellation)?;
         invert_column_cancellable(&mut modified, cancellation)?;
         // Numerators prod_j (v_j + beta DELTA^j omega^i + gamma).
-        let set_delta = delta_power;
+        // Carry public beta in the geometric recurrence, once per set.
+        // delta_power itself remains the unscaled global equality-column index.
+        let set_delta = delta_power * beta;
         modified
             .par_chunks_mut(ROWS_PER_TASK)
             .enumerate()
@@ -150,7 +152,7 @@ where
                     let mut delta_omega = column_delta * start_power;
                     for (offset, value) in out.iter_mut().enumerate() {
                         *value *=
-                            crate::norm_factor(column[start + offset] + delta_omega * beta + gamma);
+                            crate::norm_factor(column[start + offset] + delta_omega + gamma);
                         delta_omega *= omega;
                     }
                     column_delta *= <C::ScalarExt as PrimeField>::DELTA;
@@ -216,3 +218,7 @@ mod tests {
         assert_eq!(get(ColumnKindV1::Advice, 2), None);
     }
 }
+
+#[cfg(test)]
+#[path = "permutation/beta_hoist_tests.rs"]
+mod beta_hoist_tests;

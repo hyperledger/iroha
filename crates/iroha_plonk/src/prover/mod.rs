@@ -1187,7 +1187,7 @@ where
     let compiled = quotient::CompiledExpressions::compile(descriptor, true)?;
     let inputs = quotient::QuotientInputs {
         advice: &advice.polys,
-        instance: &instance.polys,
+        instance: instance.polys(),
         permutation_products: products.iter().map(|set| set.poly.as_slice()).collect(),
         lookups: lookups
             .iter()
@@ -1204,28 +1204,17 @@ where
         gamma,
         y,
     };
-    let h = if let Some(workspace) = workspace {
-        quotient::evaluate_with_workspace_cancellable(
-            pk,
-            &protocol,
-            &compiled,
-            &inputs,
-            challenges,
-            filter,
-            workspace,
-            cancellation,
-        )?
-    } else {
-        quotient::evaluate_cancellable(
-            pk,
-            &protocol,
-            &compiled,
-            &inputs,
-            challenges,
-            filter,
-            cancellation,
-        )?
-    };
+    let h = quotient::evaluate_with_bound_instances_cancellable(
+        pk,
+        &protocol,
+        &compiled,
+        &inputs,
+        &instance,
+        challenges,
+        filter,
+        workspace,
+        cancellation,
+    )?;
     // The quotient evaluations are owned by `h`; no later phase reads the
     // compiled DAG, including quotient commitments and the opening proof.
     drop(compiled);

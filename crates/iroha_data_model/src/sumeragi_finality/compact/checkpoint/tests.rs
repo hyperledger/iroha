@@ -3,7 +3,7 @@
 use super::*;
 use crate::sumeragi_finality::{SccpFinalityHeaderV1, test_fixtures::NativeFinalityFixture};
 
-fn root(fixture: &NativeFinalityFixture) -> SumeragiFinalityVerifier {
+pub(super) fn root(fixture: &NativeFinalityFixture) -> SumeragiFinalityVerifier {
     SumeragiFinalityVerifier::new(
         fixture.genesis(),
         fixture.chain_id(),
@@ -12,7 +12,7 @@ fn root(fixture: &NativeFinalityFixture) -> SumeragiFinalityVerifier {
     .unwrap()
 }
 
-fn certificate(
+pub(super) fn certificate(
     fixture: &NativeFinalityFixture,
     proof: &SumeragiFinalityProof,
 ) -> SumeragiCommitCertificateV1 {
@@ -22,7 +22,7 @@ fn certificate(
     .unwrap()
 }
 
-fn authenticated_boundary(
+pub(super) fn authenticated_boundary(
     seats: usize,
 ) -> (
     NativeFinalityFixture,

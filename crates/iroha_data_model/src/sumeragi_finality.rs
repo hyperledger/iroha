@@ -56,7 +56,9 @@ pub use certified_result::{
     committee_root, context_committee_root, result_of_preimage,
 };
 mod checkpoint;
-pub use checkpoint::{MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint};
+pub use checkpoint::{
+    MAX_FINALITY_CHECKPOINT_BYTES, SumeragiCheckpointAdvanceError, SumeragiFinalityCheckpoint,
+};
 mod compact;
 pub use compact::{
     CertifiedTransactionInclusionV1, MAX_COMMIT_CERTIFICATE_BYTES_V1, MAX_COMMIT_CHECKPOINT_BYTES,
@@ -1270,7 +1272,16 @@ impl SumeragiFinalityVerifier {
         // that reverse-binding drop order before the retained comparison on this direct path.
         drop(crypto);
         drop(proposal);
-        // Compare the checked graph in place; only new prefix insertion owns a decision copy.
+        Self::require_retained_decision(&decoded, expected)?;
+        Ok(VerifiedSumeragiBlock(decoded, self.root_scope()))
+    }
+
+    // Exact retained comparison shared by independently verified witnesses and the private
+    // producer which just inserted this very decoded graph. No external capability is accepted.
+    fn require_retained_decision(
+        decoded: &DecodedSumeragiBlock,
+        expected: &Decision,
+    ) -> Result<(), FinalityError> {
         need(
             decoded.block.hash() == expected.block_hash
                 && decoded.core_hash == expected.core_hash
@@ -1291,8 +1302,7 @@ impl SumeragiFinalityVerifier {
                     .executed_block_wire_len
                     == expected.executed_len,
             "proof differs from retained authenticated decision",
-        )?;
-        Ok(VerifiedSumeragiBlock(decoded, self.root_scope()))
+        )
     }
 
     fn decision(value: &DecodedSumeragiBlock) -> Decision {

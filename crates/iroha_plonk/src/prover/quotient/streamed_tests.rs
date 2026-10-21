@@ -994,18 +994,26 @@ fn tiny_lookup_scratch_shortfall_reuse_and_failures_both_fields() {
 /// Repeated compound fixed selectors, including a gate root also read by a
 /// lookup. This fixture activates compact planning in the full quotient path.
 #[derive(Clone, Copy)]
-struct FactoredGateBoundary;
+struct FactoredGateBoundary(bool);
 
 impl<F: PastaField> Circuit<F> for FactoredGateBoundary {
     type Config = (Vec<Column<Advice>>, Column<Fixed>);
     type FloorPlanner = SimpleFloorPlanner;
-    type Params = ();
+    type Params = bool;
 
     fn without_witnesses(&self) -> Self {
         *self
     }
 
+    fn params(&self) -> bool {
+        self.0
+    }
+
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        Self::configure_with_params(meta, true)
+    }
+
+    fn configure_with_params(meta: &mut ConstraintSystem<F>, factored: bool) -> Self::Config {
         let (advice, fixed) = <ScheduledLookups as Circuit<F>>::configure_with_params(meta, 2);
         for polynomial in 2_u64..19 {
             meta.create_gate("factored gate boundary", |cells| {
@@ -1013,6 +1021,12 @@ impl<F: PastaField> Circuit<F> for FactoredGateBoundary {
                     * cells.query_fixed(fixed, Rotation::prev());
                 let previous = cells.query_advice(advice[0], Rotation::prev());
                 let current = cells.query_advice(advice[1], Rotation::cur());
+                let selector = if factored {
+                    selector
+                } else {
+                    // Distinct fixed-only factors prevent every consecutive run.
+                    selector * F::from(polynomial + 1)
+                };
                 vec![selector * (previous + current * F::from(polynomial + 1))]
             });
         }
@@ -1032,7 +1046,7 @@ impl<F: PastaField> Circuit<F> for FactoredGateBoundary {
     }
 }
 
-fn factored_quotient_parity<C: PastaCurve>() {
+fn factored_quotient_parity<C: PastaCurve>(factored: bool) {
     let params = PinnedParams::<C>::derive(K).unwrap();
     let pools: Vec<_> = [1, 4]
         .into_iter()
@@ -1047,14 +1061,17 @@ fn factored_quotient_parity<C: PastaCurve>() {
     for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
         let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
         config.coset_cache = policy;
-        let pk = keygen_pk(&params, &FactoredGateBoundary, &config).unwrap();
+        let pk = keygen_pk(&params, &FactoredGateBoundary(factored), &config).unwrap();
         let protocol = Protocol::new(pk.binding().descriptor()).unwrap();
         let shape = protocol.shape();
         let compiled = CompiledExpressions::compile(pk.binding().descriptor(), true).unwrap();
         assert_eq!(compiled.gate_count(), 19);
         assert_eq!(shape.lookups, 3);
         let plan = GatePlan::new(&compiled);
-        assert!(plan.compiled().node_count() < compiled.node_count());
+        assert_eq!(
+            plan.compiled().node_count() < compiled.node_count(),
+            factored
+        );
         let mut columns = |count: usize| -> Vec<Vec<C::ScalarExt>> {
             (0..count)
                 .map(|_| {
@@ -1159,8 +1176,14 @@ fn factored_quotient_parity<C: PastaCurve>() {
 
 #[test]
 fn factored_gate_chunks_match_full_quotient_on_both_fields() {
-    factored_quotient_parity::<Ep>();
-    factored_quotient_parity::<Eq>();
+    factored_quotient_parity::<Ep>(true);
+    factored_quotient_parity::<Eq>(true);
+}
+
+#[test]
+fn unfactored_gate_fallback_matches_full_quotient_on_both_fields() {
+    factored_quotient_parity::<Ep>(false);
+    factored_quotient_parity::<Eq>(false);
 }
 
 /// Records every lookup-filter call, omitting terms across batch boundaries.
@@ -1331,6 +1354,152 @@ fn batched_lookup_filter_order_cancellation_unwind_and_reuse_both_fields() {
                     .collect();
                 assert_eq!(retained, pointers);
             }
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
+/// Actual quotient evaluation against the unchanged row-wise beta*x oracle.
+#[test]
+fn quotient_beta_hoist_matches_row_reference_across_tasks() {
+    fn check<C: PastaCurve>() {
+        // Four production row tasks, rather than the usual small K fixture's one.
+        let params = PinnedParams::<C>::derive(10).unwrap();
+        let circuit = ScheduledLookups(1);
+        let mut rng = ChaCha20Rng::seed_from_u64(0xB37A);
+        let pools: Vec<_> = [1, 4]
+            .into_iter()
+            .map(|workers| {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(workers)
+                    .build()
+                    .unwrap()
+            })
+            .collect();
+        for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
+            let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
+            config.coset_cache = policy;
+            let pk = keygen_pk(&params, &circuit, &config).unwrap();
+            let protocol = Protocol::new(pk.binding().descriptor()).unwrap();
+            let shape = protocol.shape();
+            assert_eq!(shape.n, 1024);
+            assert!(shape.n > ROWS_PER_TASK);
+            assert!(shape.permutation_sets > 1);
+            assert_eq!(shape.lookups, 1);
+            let compiled = CompiledExpressions::compile(pk.binding().descriptor(), true).unwrap();
+            let mut columns = |count: usize| -> Vec<Vec<C::ScalarExt>> {
+                (0..count)
+                    .map(|_| {
+                        (0..shape.n)
+                            .map(|_| C::ScalarExt::random(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            };
+            let advice = columns(shape.num_advice);
+            let instance = columns(shape.num_instance);
+            let products = columns(shape.permutation_sets);
+            let lookup = columns(3);
+            let inputs = QuotientInputs {
+                advice: &advice,
+                instance: &instance,
+                permutation_products: products.iter().map(Vec::as_slice).collect(),
+                lookups: vec![LookupPolys {
+                    product: &lookup[0],
+                    input: &lookup[1],
+                    table: &lookup[2],
+                }],
+            };
+            let challenges = [
+                (C::ScalarExt::ZERO, C::ScalarExt::ZERO, C::ScalarExt::ZERO),
+                (C::ScalarExt::ONE, C::ScalarExt::from(7), C::ScalarExt::ONE),
+                (-C::ScalarExt::ONE, C::ScalarExt::ZERO, -C::ScalarExt::ONE),
+                (
+                    C::ScalarExt::random(&mut rng),
+                    C::ScalarExt::random(&mut rng),
+                    C::ScalarExt::from(11),
+                ),
+            ];
+            let elements = workspace_elements(&pk, &protocol).unwrap();
+            let mut workspace = QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
+            for (beta, gamma, y) in challenges {
+                let challenges = Challenges {
+                    theta: C::ScalarExt::from(3),
+                    beta,
+                    gamma,
+                    y,
+                };
+                for omission in [None, Some(ConstraintTerm::PermutationProduct { set: 1 })] {
+                    let filter = OmitTerm(omission);
+                    // This oracle retains x_row and multiplies beta on every row.
+                    let expected =
+                        row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
+                            .unwrap();
+                    for pool in &pools {
+                        let actual = pool
+                            .install(|| {
+                                evaluate_with_workspace(
+                                    &pk,
+                                    &protocol,
+                                    &compiled,
+                                    &inputs,
+                                    challenges,
+                                    &filter,
+                                    &mut workspace,
+                                )
+                            })
+                            .unwrap();
+                        assert_eq!(actual, expected);
+                        assert!(workspace.is_zeroized());
+                        assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                    }
+                }
+            }
+            // Pre-cancel plus fresh retry of the actual evaluator. Active in-row
+            // cancellation remains covered by the existing complete-proof suite.
+            let challenges = Challenges {
+                theta: C::ScalarExt::from(3),
+                beta: C::ScalarExt::ZERO,
+                gamma: C::ScalarExt::ZERO,
+                y: C::ScalarExt::from(11),
+            };
+            let expected =
+                row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &AllTerms)
+                    .unwrap();
+            let cancelled = CancellationToken::new();
+            cancelled.cancel();
+            assert!(matches!(
+                evaluate_with_workspace_cancellable(
+                    &pk,
+                    &protocol,
+                    &compiled,
+                    &inputs,
+                    challenges,
+                    &AllTerms,
+                    &mut workspace,
+                    Some(&cancelled)
+                ),
+                Err(ProverError::Cancelled)
+            ));
+            assert!(workspace.is_zeroized());
+            let fresh = CancellationToken::new();
+            let actual = pools[1]
+                .install(|| {
+                    evaluate_with_workspace_cancellable(
+                        &pk,
+                        &protocol,
+                        &compiled,
+                        &inputs,
+                        challenges,
+                        &AllTerms,
+                        &mut workspace,
+                        Some(&fresh),
+                    )
+                })
+                .unwrap();
+            assert_eq!(actual, expected);
+            assert!(workspace.is_zeroized());
         }
     }
     check::<Ep>();

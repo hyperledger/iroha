@@ -2,6 +2,10 @@
 //! The real fixture is expensive and opt-in. No fabricated Omega source is admitted,
 //! and this component test does not qualify the complete terminal catalog or RAM gate.
 
+// One canonical generic implementation is compiled into this test harness.
+#[path = "../../src/rebuild_measurement.rs"]
+mod rebuild_measurement;
+
 use super::*;
 use iroha_kagemusha_proof::omega::native::{Error, Input, Layout, Program, Prover};
 use iroha_pasta::CancellationToken;
@@ -27,6 +31,16 @@ fn input(artifact: &RootedBootstrapOmega) -> Input {
 #[test]
 #[ignore = "genuine Bootstrap chain plus fresh/rebuilt k16 Omega parity; run optimized after resource handoff"]
 fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
+    bootstrap_omega_rebuild(false);
+}
+
+#[test]
+#[ignore = "actual compact Bootstrap Omega separate/fused comparison; fresh proofs; explicit host resource handoff"]
+fn actual_bootstrap_omega_separate_and_fused_rebuild_differential() {
+    bootstrap_omega_rebuild(true);
+}
+
+fn bootstrap_omega_rebuild(compare_rebuild: bool) {
     let artifact = compact_bootstrap::rooted_compact_bootstrap();
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let vesta_params = PinnedParams::<Eq>::derive(16).unwrap();
@@ -72,7 +86,9 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     )
     .unwrap();
     drop(key);
-    drop(circuit);
+    // Default fixture drops the circuit at the original boundary. The selected
+    // diagnostic retains this existing witness, never another fixture or PK.
+    let comparison_circuit = compare_rebuild.then_some(circuit);
     iroha_plonk::verify_full(
         &params,
         &artifact.binding,
@@ -181,6 +197,29 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     let bound = seal.bind(&binding, &verifier, None).unwrap();
     assert!(core::ptr::eq(bound.binding(), &raw const binding));
     assert!(core::ptr::eq(bound.verifying_key(), &raw const verifier));
+    let compared_proofs = if let Some(circuit) = comparison_circuit.as_ref() {
+        rebuild_measurement::compare(
+            "bootstrap_omega_compact_k16",
+            &params,
+            &bound,
+            || program.source_circuit().unwrap(),
+            circuit,
+            &public,
+            || {
+                artifact
+                    .source
+                    .pallas
+                    .decide(&params, MemoryBudget::DEFAULT)
+                    .unwrap();
+                folded_vesta
+                    .decide(&vesta_params, MemoryBudget::DEFAULT)
+                    .unwrap();
+            },
+        )
+    } else {
+        0
+    };
+    drop(comparison_circuit);
     let owner =
         iroha_kagemusha_proof::omega::native::ProverView::from_source_bound(&program, bound)
             .unwrap();
@@ -408,6 +447,7 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     // Owner entry/cancellation is measured in the private Omega unit. These retained
     // original observations do not replace the deferred installed-verifier M1 test.
     eprintln!(
-        "OMEGA_METADATA_REBUILD_PARITY complete_additional_outer_proofs=2 late_cancel_coverage=omega_boundary_unit fresh_proofs_distinct=true retained_original_bytes_exact=true original_read_replays=4 producer_entry_coverage=omega_boundary_unit installed_replay_coverage=core_native_exchange full_catalog=false release_qualified=false"
+        "OMEGA_METADATA_REBUILD_PARITY complete_additional_outer_proofs={} comparison_proofs={compared_proofs} late_cancel_coverage=omega_boundary_unit fresh_proofs_distinct=true retained_original_bytes_exact=true original_read_replays=4 producer_entry_coverage=omega_boundary_unit installed_replay_coverage=core_native_exchange full_catalog=false release_qualified=false",
+        2 + compared_proofs,
     );
 }

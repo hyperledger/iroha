@@ -27,10 +27,31 @@ fn omega_owner_early_and_late_cancel_then_fresh_proof_and_exact_read_only_replay
     let mut config = KeygenConfigV2::pipa_r(OmegaPlan::instance_types().to_vec());
     config.compress_selectors = false;
     config.coset_cache = CosetCachePolicy::OnDemand;
+    // Reuse this genuine source and its parameters. Both derivations retain k18
+    // trace spans and k16 replay; only the assignment capture backend differs.
+    // Compare the full plan, then ordinary key generation from each source.
+    // Retire the reference PK before creating the candidate PK.
+    let reference = program.with_checked_reference_layout_for_test().unwrap();
+    let reference_blank = reference.source_circuit().unwrap();
+    let reference_key = keygen_pk_v2(&params, &reference_blank, &config).unwrap();
+    let reference_binding = reference_key.binding().clone();
+    let reference_vk = reference_key.vk().to_bytes().to_vec();
+    let reference_original = reference_key.artifact_bytes_v2().unwrap();
+    drop(reference_key);
+    drop(reference_blank);
+    drop(reference);
+
     let key = keygen_pk_v2(&params, &blank, &config).unwrap();
     assert_eq!(key.binding(), &artifact.binding);
     assert_eq!(key.vk().to_bytes(), artifact.key.to_bytes());
+    assert_eq!(key.binding(), &reference_binding);
+    assert_eq!(key.vk().to_bytes(), reference_vk.as_slice());
     let original = key.artifact_bytes_v2().unwrap();
+    assert_eq!(
+        original, reference_original,
+        "exact original artifact bytes"
+    );
+    drop(reference_original);
     drop(key);
     drop(blank);
     let owner = Prover::from_original_artifact(

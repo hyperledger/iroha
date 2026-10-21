@@ -692,6 +692,92 @@ fn evaluate_many<F: PastaField>(
     Ok(())
 }
 
+/// Evaluates a same-owner instance prefix into existing coset workspace.
+/// The coefficient-only entry remains dense. Private owner identity is checked
+/// before any output mutation; separately supplied prefixes are never accepted.
+fn evaluate_instance_many<F: PastaField>(
+    plan: Option<&CosetFftPlan<'_, '_, F>>,
+    coefficients: &[Vec<F>],
+    source: Option<&super::advice::InstanceColumns<F>>,
+    l0: &[F],
+    values: &mut [&mut [F]],
+    cancellation: Option<&CancellationToken>,
+) -> Result<(), KeyError> {
+    CancellationToken::checkpoint(cancellation)?;
+    let Some(source) = source else {
+        return evaluate_many(plan, coefficients, values, cancellation);
+    };
+    // `polys` and prefix metadata are private inside InstanceColumns. Its
+    // immutable borrow prevents either changing during this evaluation.
+    if !core::ptr::eq(source.polys(), coefficients) {
+        return Err(KeyError::CosetIndex);
+    }
+    if !source.has_short_prefixes() {
+        return evaluate_many(plan, coefficients, values, cancellation);
+    }
+    if coefficients.len() != values.len() {
+        return Err(KeyError::Shape {
+            what: "coset columns",
+            expected: values.len(),
+            actual: coefficients.len(),
+        });
+    }
+    for (output, polynomial) in values.iter().zip(coefficients) {
+        if polynomial.len() != output.len() {
+            return Err(KeyError::Shape {
+                what: "coset coefficients",
+                expected: output.len(),
+                actual: polynomial.len(),
+            });
+        }
+        if l0.len() != output.len() {
+            return Err(KeyError::Shape {
+                what: "instance coset mask",
+                expected: output.len(),
+                actual: l0.len(),
+            });
+        }
+    }
+    if values.is_empty() {
+        return Ok(());
+    }
+    // Keep the existing workspace/plan admission even when all columns are short.
+    let plan = plan.ok_or(KeyError::CosetIndex)?;
+    let n = l0.len();
+    let mask = n - 1;
+    let mut dense_coefficients = Vec::with_capacity(coefficients.len());
+    let mut dense_values = Vec::with_capacity(values.len());
+    for (column, (polynomial, output)) in coefficients.iter().zip(values.iter_mut()).enumerate() {
+        if let Some(prefix) = source.short_prefix(column) {
+            output
+                .par_chunks_mut(1024)
+                .enumerate()
+                .try_for_each(|(chunk, output)| {
+                    CancellationToken::checkpoint(cancellation)?;
+                    for (offset, value) in output.iter_mut().enumerate() {
+                        let row = chunk * 1024 + offset;
+                        *value = prefix.iter().enumerate().fold(F::ZERO, |sum, (j, input)| {
+                            sum + *input * l0[row.wrapping_sub(j) & mask]
+                        });
+                    }
+                    Ok::<_, KeyError>(())
+                })?;
+        } else {
+            dense_coefficients.push(polynomial.as_slice());
+            dense_values.push(&mut **output);
+        }
+    }
+    // All Rayon tasks are joined. Long columns retain the existing batched FFT.
+    evaluate_many(
+        Some(plan),
+        &dense_coefficients,
+        &mut dense_values,
+        cancellation,
+    )?;
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(())
+}
+
 /// Borrows complete lookup triples without growing the field workspace.
 /// `first` is the mandatory triple; optional mask weights were reserved before
 /// the remaining columns reach this function. Partial trailing triples stay unused.
@@ -835,6 +921,71 @@ pub(super) fn evaluate_cancellable<C: PastaCurve>(
     )
 }
 
+/// Internal prover entry for prefixes captured with their exact coefficient owner.
+/// Existing coefficient-only evaluator calls cannot select this representation.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn evaluate_with_bound_instances_cancellable<C: PastaCurve>(
+    pk: &ProvingKey<C>,
+    protocol: &Protocol,
+    compiled: &CompiledExpressions<C::ScalarExt>,
+    inputs: &QuotientInputs<'_, C::ScalarExt>,
+    instances: &super::advice::InstanceColumns<C::ScalarExt>,
+    challenges: Challenges<C::ScalarExt>,
+    filter: &(impl ConstraintFilter + Sync),
+    workspace: Option<&mut QuotientWorkspace<C::ScalarExt>>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Vec<C::ScalarExt>, ProverError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if !core::ptr::eq(inputs.instance, instances.polys()) {
+        return Err(KeyError::CosetIndex.into());
+    }
+    if !instances.has_short_prefixes() {
+        return match workspace {
+            Some(workspace) => evaluate_with_workspace_cancellable(
+                pk,
+                protocol,
+                compiled,
+                inputs,
+                challenges,
+                filter,
+                workspace,
+                cancellation,
+            ),
+            None => evaluate_cancellable(
+                pk,
+                protocol,
+                compiled,
+                inputs,
+                challenges,
+                filter,
+                cancellation,
+            ),
+        };
+    }
+    let mut owned;
+    let workspace = match workspace {
+        Some(workspace) => workspace,
+        None => {
+            let bytes = workspace_elements(pk, protocol)?
+                .checked_mul(size_of::<C::ScalarExt>())
+                .ok_or(ProtocolError::Overflow)?;
+            owned = QuotientWorkspace::new(bytes);
+            &mut owned
+        }
+    };
+    evaluate_inner(
+        pk,
+        protocol,
+        compiled,
+        inputs,
+        Some(instances),
+        challenges,
+        filter,
+        workspace,
+        cancellation,
+    )
+}
+
 /// The same quotient evaluator using an exclusively borrowed reusable buffer.
 #[cfg(test)]
 pub(super) fn evaluate_with_workspace<C: PastaCurve>(
@@ -857,6 +1008,31 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
     protocol: &Protocol,
     compiled: &CompiledExpressions<C::ScalarExt>,
     inputs: &QuotientInputs<'_, C::ScalarExt>,
+    challenges: Challenges<C::ScalarExt>,
+    filter: &(impl ConstraintFilter + Sync),
+    workspace: &mut QuotientWorkspace<C::ScalarExt>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Vec<C::ScalarExt>, ProverError> {
+    evaluate_inner(
+        pk,
+        protocol,
+        compiled,
+        inputs,
+        None,
+        challenges,
+        filter,
+        workspace,
+        cancellation,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_inner<C: PastaCurve>(
+    pk: &ProvingKey<C>,
+    protocol: &Protocol,
+    compiled: &CompiledExpressions<C::ScalarExt>,
+    inputs: &QuotientInputs<'_, C::ScalarExt>,
+    instances: Option<&super::advice::InstanceColumns<C::ScalarExt>>,
     challenges: Challenges<C::ScalarExt>,
     filter: &(impl ConstraintFilter + Sync),
     workspace: &mut QuotientWorkspace<C::ScalarExt>,
@@ -962,7 +1138,14 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
             masks.l_active.as_slice(),
         );
         evaluate_many(plan.as_ref(), inputs.advice, &mut advice, cancellation)?;
-        evaluate_many(plan.as_ref(), inputs.instance, &mut instance, cancellation)?;
+        evaluate_instance_many(
+            plan.as_ref(),
+            inputs.instance,
+            instances,
+            l0,
+            &mut instance,
+            cancellation,
+        )?;
         evaluate_many(
             plan.as_ref(),
             &inputs.permutation_products,
@@ -998,6 +1181,13 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
         {
             return Err(KeyError::CosetIndex.into());
         }
+        // Carry public beta in the row recurrence once per coset. Empty
+        // permutation shapes retain the old recurrence without an extra multiply.
+        let permutation_shift = if products.is_empty() {
+            shift
+        } else {
+            beta * shift
+        };
         let mut values = SecretPolynomial::new(vec![C::ScalarExt::ZERO; n]);
         // Evaluate the shared expression DAG once per row. Retain only
         // (A + beta)(S + gamma) for each lookup; its three committed cosets
@@ -1027,7 +1217,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                     C::ScalarExt::ZERO;
                     compiled.nodes.len() * tile_plan.width
                 ]);
-                let mut x_row = shift * omega.pow_vartime([start as u64]);
+                let mut permutation_x_row = permutation_shift * omega.pow_vartime([start as u64]);
                 for (tile, out) in out.chunks_mut(tile_plan.width).enumerate() {
                     let offset = tile * tile_plan.width;
                     compiled.evaluate_tile(&bound, start + offset, tile_plan.width, &mut scratch);
@@ -1063,7 +1253,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                     (pair[1][row] - pair[0][r_last]) * l0[row],
                                 );
                             }
-                            let mut current_delta = beta * x_row;
+                            let mut current_delta = permutation_x_row;
                             for (set_index, ((set, set_columns), set_sigma)) in products
                                 .iter()
                                 .zip(permutation_columns.chunks(shape.chunk_len))
@@ -1096,7 +1286,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                 * crate::norm_factor(compressed_table + gamma);
                         }
                         *out = value;
-                        x_row *= omega;
+                        permutation_x_row *= omega;
                     }
                 }
             });
@@ -1259,3 +1449,6 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
 mod tests;
 #[cfg(test)]
 mod tile_experiment;
+
+#[cfg(test)]
+mod short_instance_tests;

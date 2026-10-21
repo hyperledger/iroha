@@ -57,6 +57,24 @@ impl SumeragiCommitCheckpointV1 {
     pub fn from_authenticated_genesis(
         native: &SumeragiFinalityVerifier,
     ) -> Result<Self, FinalityError> {
+        Self::from_authenticated_genesis_with_validation(native, None)
+    }
+
+    /// Select initial authority while borrowing exact context validation for this operation.
+    /// No source or authority verdict is retained in the workspace. An active enclosing
+    /// decoder owner keeps the original independent validation work.
+    ///
+    /// # Errors
+    /// The same root, chain-label and initial-authority errors as [`Self::from_authenticated_genesis`].
+    pub fn from_authenticated_genesis_with_validation(
+        native: &SumeragiFinalityVerifier,
+        validation: Option<&mut EpochValidationScope>,
+    ) -> Result<Self, FinalityError> {
+        let validation = if norito::core::decode_limits_active() {
+            None
+        } else {
+            validation
+        };
         need(
             matches!(
                 native.root_scope(),
@@ -80,7 +98,7 @@ impl SumeragiCommitCheckpointV1 {
             initial: initial.clone(),
             selected: initial.clone(),
         };
-        checkpoint.validate_bounds()?;
+        checkpoint.validate_bounds_with_validation(validation)?;
         Ok(checkpoint)
     }
 
@@ -116,6 +134,24 @@ impl SumeragiCommitCheckpointV1 {
     /// # Errors
     /// Rejects an empty, oversized, noncanonical or structurally malformed record.
     pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityReadError> {
+        Self::decode_canonical_with_validation(bytes, None)
+    }
+
+    /// Decode the original bounded frame while borrowing pure validation for one operation.
+    /// This does not authenticate the selected source. Sample an enclosing decoder owner
+    /// before the original input-derived decoder runs; that owner disables reuse entirely.
+    ///
+    /// # Errors
+    /// The same canonical frame, structural and resource failures as [`Self::decode_canonical`].
+    pub fn decode_canonical_with_validation(
+        bytes: &[u8],
+        validation: Option<&mut EpochValidationScope>,
+    ) -> Result<Self, FinalityReadError> {
+        let validation = if norito::core::decode_limits_active() {
+            None
+        } else {
+            validation
+        };
         need(
             !bytes.is_empty() && bytes.len() <= MAX_COMMIT_CHECKPOINT_BYTES,
             "compact checkpoint frame exceeds bound",
@@ -125,11 +161,18 @@ impl SumeragiCommitCheckpointV1 {
             norito::canonical_decode_limits(bytes.len()),
         )
         .map_err(FinalityReadError::from)?;
-        value.validate_bounds()?;
+        value.validate_bounds_with_validation(validation)?;
         Ok(value)
     }
 
     fn validate_bounds(&self) -> Result<(), FinalityError> {
+        self.validate_bounds_with_validation(None)
+    }
+
+    fn validate_bounds_with_validation(
+        &self,
+        mut validation: Option<&mut EpochValidationScope>,
+    ) -> Result<(), FinalityError> {
         need(
             !self.chain.is_empty() && self.chain.len() <= 1024,
             "compact checkpoint chain label exceeds bound",
@@ -139,8 +182,14 @@ impl SumeragiCommitCheckpointV1 {
             norito::canonical_frame_len(self).map_err(malformed)? <= MAX_COMMIT_CHECKPOINT_BYTES,
             "compact checkpoint frame exceeds bound",
         )?;
-        self.initial.validate().map_err(malformed)?;
-        self.selected.validate().map_err(malformed)?;
+        let mut validate = |context: &ValidatorEpochContextV1| {
+            validation.as_deref_mut().map_or_else(
+                || context.validate(),
+                |validation| validation.validate_context(context),
+            )
+        };
+        validate(&self.initial).map_err(malformed)?;
+        validate(&self.selected).map_err(malformed)?;
         need(
             self.initial.authorization.epoch == 0
                 && self.network == NetworkId::from_genesis_hash(self.genesis_hash)
@@ -162,7 +211,7 @@ impl SumeragiCommitCheckpointV1 {
             )?;
             if self.selected.authorization.epoch == 1 {
                 self.selected
-                    .validate_successor(&self.initial)
+                    .validate_successor_with_context_validation(&self.initial, &mut validate)
                     .map_err(malformed)?;
             }
         }
@@ -214,7 +263,29 @@ impl SumeragiCommitVerifierV1 {
         checkpoint: &SumeragiCommitCheckpointV1,
         native: &SumeragiFinalityVerifier,
     ) -> Result<Self, FinalityError> {
-        checkpoint.validate_bounds()?;
+        Self::from_trusted_epoch_checkpoint_with_validation(checkpoint, native, None)
+    }
+
+    /// Restore protected local authority with pure context work borrowed by one operation.
+    /// The exact local-source and independently selected signed-genesis trust contract of
+    /// [`Self::from_trusted_epoch_checkpoint`] is unchanged. Frame, root, complete initial
+    /// authority and successor relationships are checked on every call. An active enclosing
+    /// decoder owner ignores the workspace, even if a previous call already warmed it.
+    ///
+    /// # Errors
+    /// The same malformed layout, private root and selected-genesis failures as
+    /// [`Self::from_trusted_epoch_checkpoint`].
+    pub fn from_trusted_epoch_checkpoint_with_validation(
+        checkpoint: &SumeragiCommitCheckpointV1,
+        native: &SumeragiFinalityVerifier,
+        validation: Option<&mut EpochValidationScope>,
+    ) -> Result<Self, FinalityError> {
+        let validation = if norito::core::decode_limits_active() {
+            None
+        } else {
+            validation
+        };
+        checkpoint.validate_bounds_with_validation(validation)?;
         need(
             matches!(
                 native.root_scope(),
@@ -248,3 +319,6 @@ impl SumeragiCommitVerifierV1 {
 
 #[cfg(all(test, feature = "transparent_api"))]
 mod tests;
+
+#[cfg(all(test, feature = "transparent_api"))]
+mod validation_tests;

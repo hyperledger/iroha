@@ -25,6 +25,11 @@ use crate::cs::{
     PermutationError, Selector, TableColumn,
 };
 
+mod layout;
+
+pub(super) use layout::LayoutAssembly;
+pub use layout::LayoutTables;
+
 /// A lookup table could not be loaded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TableError {
@@ -521,6 +526,24 @@ impl<F: PastaField> Assembly<F> {
         }
     }
 
+    /// Checks usable rows and declared instance lengths before equality membership.
+    fn check_copy(
+        &self,
+        left_column: Column<Any>,
+        left_row: usize,
+        right_column: Column<Any>,
+        right_row: usize,
+    ) -> Result<(), Error> {
+        self.check_row(left_row)?;
+        self.check_row(right_row)?;
+        for (column, row) in [(left_column, left_row), (right_column, right_row)] {
+            if *column.column_type() == Any::Instance {
+                self.check_instance_row(column.index(), row)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Records a cell in the open region.
     fn touch(&mut self, column: Column<Any>, row: usize) {
         if let Some(region) = self.current_region.as_mut() {
@@ -528,12 +551,8 @@ impl<F: PastaField> Assembly<F> {
         }
     }
 
-    /// Batch-inverts pending fractions and returns the finished tables.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::RegionNesting`] when a region is still open.
-    pub fn finish(mut self) -> Result<AssignedTables<F>, Error> {
+    /// Resolves assignments and guards identically for both typed finish paths.
+    fn finish_assignments(&mut self) -> Result<(), Error> {
         iroha_pasta::CancellationToken::checkpoint(self.cancellation.as_ref())?;
         if self.current_region.is_some() {
             return Err(Error::RegionNesting);
@@ -559,6 +578,16 @@ impl<F: PastaField> Assembly<F> {
             resolve_fractions(advice, &self.advice_pending, false);
         }
         iroha_pasta::CancellationToken::checkpoint(self.cancellation.as_ref())?;
+        Ok(())
+    }
+
+    /// Batch-inverts pending fractions and returns the finished tables.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::RegionNesting`] when a region is still open.
+    pub fn finish(mut self) -> Result<AssignedTables<F>, Error> {
+        self.finish_assignments()?;
         Ok(AssignedTables {
             k: self.k,
             n: self.n,
@@ -799,13 +828,7 @@ impl<F: PastaField> Assignment<F> for Assembly<F> {
         right_column: Column<Any>,
         right_row: usize,
     ) -> Result<(), Error> {
-        self.check_row(left_row)?;
-        self.check_row(right_row)?;
-        for (column, row) in [(left_column, left_row), (right_column, right_row)] {
-            if *column.column_type() == Any::Instance {
-                self.check_instance_row(column.index(), row)?;
-            }
-        }
+        self.check_copy(left_column, left_row, right_column, right_row)?;
         self.permutation
             .copy(left_column, left_row, right_column, right_row)?;
         Ok(())

@@ -58,6 +58,19 @@ mod gap_tests;
 #[path = "batch_cap_experiment.rs"]
 mod batch_cap_experiment;
 
+#[cfg(test)]
+#[path = "finite_rhs_tests.rs"]
+mod finite_rhs_tests;
+
+#[cfg(all(
+    test,
+    target_os = "macos",
+    target_arch = "aarch64",
+    target_pointer_width = "64"
+))]
+#[path = "scheduling_experiment.rs"]
+mod scheduling_experiment;
+
 /// Largest supported window: digits must fit `i16` with magnitude `2^(c-1)`.
 pub(crate) const MAX_WINDOW: usize = 15;
 /// Smallest window considered by the planner.
@@ -262,7 +275,7 @@ impl<'a, C: PastaCurve, const SECRET: bool> Buckets<'a, C, SECRET> {
         if self.mark[b] == self.epoch {
             // Already queued in this batch: accumulate projectively.
             let signed = if neg { -*base } else { *base };
-            self.overflow[b] = self.overflow[b].add_mixed_public(&signed);
+            self.overflow[b] = self.overflow[b].add_mixed_finite(&signed);
             self.overflow_used[b] = true;
             return;
         }
@@ -454,21 +467,26 @@ fn multiply_gap_vartime<C: PastaCurve>(point: C, gap: usize) -> C {
 
 /// Mixed addition helpers on projective points used by the engine.
 pub(crate) trait EngineOps: PastaCurve {
-    /// `self + p` for an affine point `p` (complete).
-    fn add_mixed_public(&self, p: &Self::AffineExt) -> Self;
+    /// `self + p` for a nonidentity affine point `p` (complete).
+    fn add_mixed_finite(&self, p: &Self::AffineExt) -> Self;
     /// `self + (x, y)` for a non-identity affine point (complete).
     fn add_affine_coords(&self, x: Self::Base, y: Self::Base) -> Self;
 }
 
 impl<C: PastaCurve> EngineOps for C {
     #[inline]
-    fn add_mixed_public(&self, p: &Self::AffineExt) -> Self {
-        *self + *p
+    fn add_mixed_finite(&self, p: &Self::AffineExt) -> Self {
+        // insert's base contract is established by the variable/fixed-base
+        // skip flags; negation preserves a finite point.
+        crate::curve::add_mixed_finite(self, p)
     }
 
     #[inline]
     fn add_affine_coords(&self, x: Self::Base, y: Self::Base) -> Self {
-        *self + crate::curve::affine_unchecked::<C::AffineExt>(x, y)
+        // Only has=true buckets reach this path. Flush clears has on
+        // cancellation; its add/double formulas otherwise retain finite points.
+        let point = crate::curve::affine_unchecked::<C::AffineExt>(x, y);
+        crate::curve::add_mixed_finite(self, &point)
     }
 }
 

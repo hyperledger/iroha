@@ -869,7 +869,7 @@ fn equal_advice_commitments_with_different_evaluations_are_rejected() {
         &compiled,
         &QuotientInputs {
             advice: &advice.polys,
-            instance: &instance.polys,
+            instance: instance.polys(),
             permutation_products: Vec::new(),
             lookups: Vec::new(),
         },

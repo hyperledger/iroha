@@ -35,7 +35,7 @@ use rand_core_06::{CryptoRng, RngCore};
 use super::{
     IpaError,
     commit::{Secrecy, commit_cancellable},
-    evaluate_polynomial, inner_product,
+    evaluate_polynomial,
 };
 use crate::transcript::TranscriptWrite;
 
@@ -151,12 +151,9 @@ where
     p_prime[0] -= v;
     let mut f = s_blind * xi + blind;
 
-    let mut b: Vec<C::ScalarExt> = Vec::with_capacity(n);
-    let mut power = C::ScalarExt::ONE;
-    for _ in 0..n {
-        b.push(power);
-        power *= x;
-    }
+    // The folded public vector always has b_i = factor * x^i. Retain
+    // only its factor and the public power for each remaining round.
+    let mut evaluation = FoldedEvaluation::new(*x, params.k());
 
     let mut challenges = Vec::with_capacity(params.k() as usize);
     let mut g_prime = params.g().to_vec();
@@ -165,8 +162,8 @@ where
     for round in 0..params.k() as usize {
         CancellationToken::checkpoint(cancellation)?;
         let half = n >> (round + 1);
-        let value_l = inner_product(&p_prime[half..2 * half], &b[..half]);
-        let value_r = inner_product(&p_prime[..half], &b[half..2 * half]);
+        let (value_l, value_r) =
+            evaluation.cross_terms(&p_prime[..half], &p_prime[half..2 * half], cancellation)?;
         let l_randomness = C::ScalarExt::random(&mut *rng);
         let r_randomness = C::ScalarExt::random(&mut *rng);
         let l_j = (msm_secret_cancellable::<C>(
@@ -199,12 +196,8 @@ where
         for (lo, hi) in p_lo.iter_mut().zip(p_hi.iter()) {
             *lo += *hi * u_j_inv;
         }
-        let (b_lo, b_hi) = b.split_at_mut(half);
-        for (lo, hi) in b_lo.iter_mut().zip(b_hi.iter()) {
-            *lo += *hi * u_j;
-        }
+        evaluation.fold(u_j);
         p_prime.truncate(half);
-        b.truncate(half);
         fold_generators_cancellable::<C>(&mut g_prime[..2 * half], &u_j, cancellation)?;
         g_prime.truncate(half);
 
@@ -217,6 +210,60 @@ where
     transcript.write_scalar(&f);
     crate::pcs::ipa::GeneratorClaim::new(params.k(), g_prime[0], challenges)
 }
+
+/// The public evaluation vector after any number of IPA folds.
+///
+/// With current halves of length `h`, `b_i = factor * x^i`, hence the
+/// cross terms are `factor * p_hi(x)` and `factor * x^h * p_lo(x)`.
+/// Folding `b_lo += u * b_hi` multiplies the factor by `1 + u * x^h`.
+/// No inversion is needed, including when `x` or the factor is zero.
+struct FoldedEvaluation<F: Field> {
+    x: F,
+    factor: F,
+    // Ascending x^(2^i). Validated ParamsIpa bounds k, so this retains at
+    // most MAX_K public field elements, rather than n public elements.
+    powers: Vec<F>,
+}
+
+impl<F: Field> FoldedEvaluation<F> {
+    fn new(x: F, k: u32) -> Self {
+        let mut powers = Vec::with_capacity(k as usize);
+        let mut power = x;
+        for _ in 0..k {
+            powers.push(power);
+            power = power.square();
+        }
+        Self {
+            x,
+            factor: F::ONE,
+            powers,
+        }
+    }
+
+    fn cross_terms(
+        &self,
+        low: &[F],
+        high: &[F],
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<(F, F), iroha_pasta::Cancelled> {
+        CancellationToken::checkpoint(cancellation)?;
+        let power = self.powers.last().expect("one public power per IPA round");
+        let high_at_x = evaluate_polynomial(high, self.x);
+        CancellationToken::checkpoint(cancellation)?;
+        let low_at_x = evaluate_polynomial(low, self.x);
+        CancellationToken::checkpoint(cancellation)?;
+        Ok((self.factor * high_at_x, self.factor * power * low_at_x))
+    }
+
+    fn fold(&mut self, challenge: F) {
+        let power = self.powers.pop().expect("one public power per IPA round");
+        self.factor *= F::ONE + challenge * power;
+    }
+}
+
+#[cfg(test)]
+#[path = "prover/evaluation_vector_tests.rs"]
+mod evaluation_vector_tests;
 
 #[cfg(test)]
 mod tests {

@@ -17,6 +17,15 @@ mod bootstrap_objects;
 #[path = "bootstrap_omega.rs"]
 pub mod bootstrap_outer;
 mod common;
+// The same generic implementation used by genuine Q unit tests; no copied prover.
+#[path = "../src/rebuild_measurement.rs"]
+mod rebuild_measurement;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RebuildComparison {
+    Disabled,
+    A2AndW1,
+}
 /// Genuine distinct payer/receiver heads rebuilt under one compact outer key.
 #[path = "compact_catalog.rs"]
 pub mod compact_catalog;
@@ -1772,6 +1781,16 @@ fn canonical_envelope_receive_burn_owner_chain() {
 #[test]
 #[ignore = "current genuine Bootstrap, invalid original sigma, full5A4W and strict original-import/custody replay"]
 fn bootstrap_only_invalid_sigma_burn_imports_all_native_sources_and_checkpoints() {
+    bootstrap_only_invalid_sigma_burn(RebuildComparison::Disabled);
+}
+
+#[test]
+#[ignore = "one genuine full5A4W Bootstrap-burn fixture plus source-admitted A2 and W1 separate/fused proofs; explicit host resource handoff"]
+fn bootstrap_only_invalid_sigma_burn_a2_w1_rebuild_differential() {
+    bootstrap_only_invalid_sigma_burn(RebuildComparison::A2AndW1);
+}
+
+fn bootstrap_only_invalid_sigma_burn(comparison: RebuildComparison) {
     let receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
         bootstrap_outer::bootstrap_chain::BootstrapIdentity::Receiver,
     );
@@ -1784,13 +1803,20 @@ fn bootstrap_only_invalid_sigma_burn_imports_all_native_sources_and_checkpoints(
         None,
         false,
     );
-    let _ = prove_bootstrap_invalid_sigma_source(source);
+    let _ = prove_bootstrap_invalid_sigma_source_with_comparison(source, comparison);
     eprintln!(
         "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE full5A4W=true incoming_Q_soft_false=true exact_resigned_originals=true all_modes_Trivial=true consumed_root_unchanged=true adjusted_spendable_balance_zero=true no_Load_trust=true strict_original_import_and_canonical_custody_all9=true terminal_omega=false"
     );
 }
 
 fn prove_bootstrap_invalid_sigma_source(source: Source) -> AuthenticatedReceive {
+    prove_bootstrap_invalid_sigma_source_with_comparison(source, RebuildComparison::Disabled)
+}
+
+fn prove_bootstrap_invalid_sigma_source_with_comparison(
+    source: Source,
+    comparison: RebuildComparison,
+) -> AuthenticatedReceive {
     assert!(!source.accept && !source.objects_valid && !source.proofs_valid());
     assert!(!source.own.witness.insert);
     // Q0's only slot is the incoming sigma: false soft verdict, Trivial mode.
@@ -1808,7 +1834,7 @@ fn prove_bootstrap_invalid_sigma_source(source: Source) -> AuthenticatedReceive 
     assert_eq!(after.core[8] - after.lineage[14], Fp::ZERO);
     assert_eq!(after.core[16], before.core[16]);
     assert_ne!(after.lineage[16], before.lineage[16]);
-    prove_receive_owner_chain(source)
+    prove_receive_owner_chain_with_comparison(source, comparison)
         .expect("complete native Receive terminal and canonical custody")
 }
 
@@ -2358,12 +2384,15 @@ impl NativeCheckpoints {
         self,
         source: &Source,
         terminal_public: &[Fp],
+        comparison: RebuildComparison,
     ) -> iroha_kagemusha_proof::a_relation::native::receive::Terminal {
         use iroha_kagemusha_proof::a_relation::native::receive as native;
         let (plan, inputs) = native_inputs(source);
         let a: [_; native::A_STAGE_COUNT] = self.a.try_into().ok().unwrap();
         let w: [_; native::A_STAGE_COUNT - 1] = self.w.try_into().ok().unwrap();
         let parity_keys = a.clone();
+        let mut compared_proofs = 0usize;
+        let mut compared_families = 0usize;
         native_source_factory_checks::assert_factories(
             plan.context(),
             &PinnedParams::<Ep>::derive(16).unwrap(),
@@ -2539,6 +2568,72 @@ impl NativeCheckpoints {
             let wrapper_seal = import_native_w(&prover, &plan, stage, &parity_keys[stage]);
             if stage == 0 {
                 let wrapper_key = prover.bind_w(stage, &wrapper_seal, None).unwrap();
+                if comparison == RebuildComparison::A2AndW1 {
+                    // Rebuild the already checked A1's exact public fold using
+                    // the public API that native private_fold::wrapper invokes.
+                    // This fold/input construction is outside the comparison's
+                    // preparation cut, and performs no key generation/import.
+                    let vparams = common::vesta_params(16);
+                    let source_a = &parity_keys[stage];
+                    let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+                        source_a.binding().encoded(),
+                        &[source_a.key().to_bytes().to_vec()],
+                        vparams.clone(),
+                    )
+                    .unwrap();
+                    let source_public = vec![checkpoint.instances().to_vec()];
+                    let (fold, vesta) = terminal
+                        .read(
+                            0,
+                            &source_public,
+                            checkpoint.proof(),
+                            &FoldConfig::default(),
+                        )
+                        .unwrap()
+                        .create(common::public_fixture_tape(252), &FoldConfig::default())
+                        .unwrap();
+                    assert_eq!(vesta.to_bytes(), self.vesta[stage]);
+                    let actual = WCircuit::new(
+                        plan.context(),
+                        stage,
+                        source_a.binding().clone(),
+                        vparams.clone(),
+                        vec![source_a.key().kagemusha_digest(source_a.binding()).unwrap()],
+                        iroha_kagemusha_proof::omega::OmegaWitness {
+                            key: source_a.key().clone(),
+                            instances: checkpoint.instances().to_vec(),
+                            length: u32::try_from(checkpoint.proof().len()).unwrap(),
+                            proof: checkpoint.proof().to_vec(),
+                            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(
+                                fold,
+                            ),
+                        },
+                    )
+                    .unwrap();
+                    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
+                    let public = vec![
+                        vec![Fq::from_repr(checkpoint.instances()[0].to_repr()).unwrap()],
+                        vec![x, y],
+                        vesta
+                            .challenges()
+                            .iter()
+                            .map(|u| Fq::from_repr(u.to_repr()).unwrap())
+                            .collect(),
+                    ];
+                    compared_proofs += rebuild_measurement::compare(
+                        "receive_bootstrap_burn_w1_k16",
+                        &source.params,
+                        &wrapper_key,
+                        || {
+                            plan.wrapper_source(stage, source_a.binding(), source_a.key())
+                                .unwrap()
+                        },
+                        &actual,
+                        &public,
+                        || vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap(),
+                    );
+                    compared_families += 1;
+                }
                 // Match the independent first W's exact source A and fold tape.
                 // Fresh proof entropy remains OS-backed; only the public fold
                 // tape is repeated so the carried Vesta claim must be identical.
@@ -2664,6 +2759,30 @@ impl NativeCheckpoints {
                     native_public,
                     "fresh proof retains the exact source statement"
                 );
+                if comparison == RebuildComparison::A2AndW1 {
+                    // Reuse the production-returned A2 circuit/public statement
+                    // and already imported exact A2 seal. No additional fixture,
+                    // keygen or authority constructor is introduced.
+                    assert_eq!(reproved.pallas_bytes(), self.pallas[stage + 1]);
+                    let pallas = AccumulatorT::<Ep>::from_bytes(&reproved.pallas_bytes()).unwrap();
+                    let vesta = AccumulatorT::<Eq>::from_bytes(&wrapper.vesta_bytes()).unwrap();
+                    let vparams = common::vesta_params(16);
+                    compared_proofs += rebuild_measurement::compare(
+                        "receive_bootstrap_burn_a2_k16",
+                        &vparams,
+                        &native_key,
+                        || native_circuit.without_witnesses(),
+                        &native_circuit,
+                        std::slice::from_ref(&native_public),
+                        || {
+                            pallas
+                                .decide(&source.params, MemoryBudget::DEFAULT)
+                                .unwrap();
+                            vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap();
+                        },
+                    );
+                    compared_families += 1;
+                }
             }
             let native_tables = synthesize(
                 &native_circuit,
@@ -2756,6 +2875,19 @@ impl NativeCheckpoints {
         assert_eq!(terminal.pallas.to_bytes(), *self.pallas.last().unwrap());
         assert_eq!(terminal.incoming_vesta, source.incoming_head.vesta);
         assert_eq!(terminal.predecessor_vesta, source.predecessor.vesta);
+        if comparison != RebuildComparison::Disabled {
+            assert_eq!(
+                compared_families, 2,
+                "both A2 and W1 comparisons must complete"
+            );
+            assert!(
+                compared_proofs >= 4,
+                "selected comparison must not be silently skipped"
+            );
+            eprintln!(
+                "RECEIVE_REBUILD_DIFFERENTIAL family={comparison:?} additional_proofs={compared_proofs} full_native_chain_restored=true complete=true phone_p95=false"
+            );
+        }
         eprintln!(
             "NATIVE_RECEIVE_RESTORE all5A_all4W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all9=true native_producer_retains_no_PK=true fresh_native_A2_verified=true fresh_native_W1_verified=true canonical_custody_all9_exact_bytes=true fresh_session_from_originals=true own_receipt_slot0_hard=true quoted_objects_soft_but_context_bound=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
         );
@@ -3076,6 +3208,13 @@ pub(crate) fn authenticated_receive_from_wallets(
 }
 
 fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
+    prove_receive_owner_chain_with_comparison(source, RebuildComparison::Disabled)
+}
+
+fn prove_receive_owner_chain_with_comparison(
+    source: Source,
+    comparison: RebuildComparison,
+) -> Option<AuthenticatedReceive> {
     let source = Arc::new(source);
     preflight_owner_shapes(&source);
     let (first_fold, pallas) = create_fold(
@@ -3102,6 +3241,12 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
     };
     let native_capacity = source.plan.context().object_specs()[4].capacity
         == u32::try_from(MAX_OMEGA_RAW_BYTES).unwrap();
+    if comparison != RebuildComparison::Disabled {
+        assert!(
+            native_capacity,
+            "comparison requires the genuine full-capacity native fixture"
+        );
+    }
     if native_capacity {
         assert_native_first_relation(&source, &first);
     }
@@ -3337,7 +3482,7 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
     let artifact = (key.binding().clone(), key.vk().clone());
     drop(key);
     let (binding, key) = artifact;
-    let terminal = native_capacity.then(|| native.check(&source, &public[0]));
+    let terminal = native_capacity.then(|| native.check(&source, &public[0], comparison));
     eprintln!(
         "RECEIVE_OWNER_CHAIN stages={} accepted_credit={} original_sources_bound=true final_catalog=false release_qualified=false",
         source.plan.context().stage_count(),

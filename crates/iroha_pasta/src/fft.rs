@@ -191,18 +191,34 @@ impl<F: PastaField> CosetFftPlan<'_, '_, F> {
             );
             bit_reverse_scale::<_, true>(column, self.domain.k, None, cancellation);
         } else {
+            // Two k16 columns otherwise occupy only half of a four-worker pool.
+            // Keep the disjoint outer tasks and let their existing kernels split
+            // within the same pool. Other public shapes retain column scheduling.
+            let cooperative =
+                self.domain.k == 16 && columns.len() == 2 && rayon::current_num_threads() == 4;
             columns
                 .par_iter_mut()
                 .zip(sources.par_iter())
                 .for_each(|(column, source)| {
-                    dif_from::<_, false>(
-                        source,
-                        column,
-                        &self.domain.forward,
-                        self.powers,
-                        cancellation,
-                    );
-                    bit_reverse_scale::<_, false>(column, self.domain.k, None, cancellation);
+                    if cooperative {
+                        dif_from::<_, true>(
+                            source,
+                            column,
+                            &self.domain.forward,
+                            self.powers,
+                            cancellation,
+                        );
+                        bit_reverse_scale::<_, true>(column, self.domain.k, None, cancellation);
+                    } else {
+                        dif_from::<_, false>(
+                            source,
+                            column,
+                            &self.domain.forward,
+                            self.powers,
+                            cancellation,
+                        );
+                        bit_reverse_scale::<_, false>(column, self.domain.k, None, cancellation);
+                    }
                 });
         }
         CancellationToken::checkpoint(cancellation)?;
@@ -796,7 +812,13 @@ fn dif_pass4<F: PastaField, const PARALLEL: bool>(
         }
     };
     let blocks = n / block;
-    if !PARALLEL || n < PARALLEL_MIN || blocks >= rayon::current_num_threads() * 4 {
+    // A quarter no larger than the minimum inner chunk cannot split. Expose
+    // independent blocks instead of running one inner task per serial block.
+    if !PARALLEL
+        || n < PARALLEL_MIN
+        || blocks >= rayon::current_num_threads() * 4
+        || m <= 256
+    {
         let run = |blk: &mut [F]| {
             let (q0, rest) = blk.split_at_mut(m);
             let (q1, rest) = rest.split_at_mut(m);

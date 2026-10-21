@@ -18,6 +18,21 @@ pub struct ResourceUsage {
     pub peak_rss_bytes: u64,
 }
 
+/// Raw process instruction counters; validity is checked by the public probe.
+pub(crate) struct ProcessInstructionCounters {
+    pub process_id: u32,
+    pub process_start_abstime: u64,
+    pub instructions: u64,
+}
+
+/// An unavailable process instruction counter, without a numeric substitute.
+pub(crate) enum InstructionCounterError {
+    #[cfg(any(test, not(all(target_os = "macos", target_arch = "aarch64"))))]
+    Unsupported,
+    #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+    OperatingSystem(Option<i32>),
+}
+
 /// The `RLIMIT_AS` pair; `None` means unlimited.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AddressSpaceLimit {
@@ -205,6 +220,38 @@ mod unix {
         clock_ns(libc::CLOCK_PROCESS_CPUTIME_ID)
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub fn process_instructions()
+    -> Result<super::ProcessInstructionCounters, super::InstructionCounterError> {
+        let process_id = std::process::id();
+        let pid = libc::pid_t::try_from(process_id)
+            .map_err(|_| super::InstructionCounterError::OperatingSystem(None))?;
+        // SAFETY: rusage_info_v4 contains only integer fields and an integer
+        // array, so zero initializes a valid, exclusively owned output buffer.
+        let mut usage: libc::rusage_info_v4 = unsafe { core::mem::zeroed() };
+        // SAFETY: flavor V4 writes exactly a rusage_info_v4. The API typedef
+        // makes the buffer parameter *mut rusage_info_t (a void-pointer type),
+        // but it receives the address of the struct, not an indirect buffer.
+        // The typed buffer remains aligned, writable and alive for this call.
+        let status = unsafe {
+            libc::proc_pid_rusage(
+                pid,
+                libc::RUSAGE_INFO_V4,
+                (&raw mut usage).cast::<libc::rusage_info_t>(),
+            )
+        };
+        if status != 0 {
+            return Err(super::InstructionCounterError::OperatingSystem(
+                std::io::Error::last_os_error().raw_os_error(),
+            ));
+        }
+        Ok(super::ProcessInstructionCounters {
+            process_id,
+            process_start_abstime: usage.ri_proc_start_abstime,
+            instructions: usage.ri_instructions,
+        })
+    }
+
     pub fn resource_usage() -> Option<ResourceUsage> {
         // SAFETY: an all-zero `rusage` is a valid value of this plain C struct.
         let mut usage: libc::rusage = unsafe { core::mem::zeroed() };
@@ -336,6 +383,19 @@ pub fn resource_usage() -> Option<ResourceUsage> {
     #[cfg(not(unix))]
     {
         None
+    }
+}
+
+/// Process-wide retired instructions on the supported diagnostic host.
+pub(crate) fn process_instructions() -> Result<ProcessInstructionCounters, InstructionCounterError>
+{
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        unix::process_instructions()
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        Err(InstructionCounterError::Unsupported)
     }
 }
 

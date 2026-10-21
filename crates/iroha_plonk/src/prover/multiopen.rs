@@ -89,7 +89,10 @@ impl<F: PastaField> Opened<'_, F> {
         };
         if shape.committed_instances {
             for query in &descriptor.instance_queries {
-                write(indexed(&self.instance.polys, query.column)?, query.rotation);
+                write(
+                    indexed(self.instance.polys(), query.column)?,
+                    query.rotation,
+                );
             }
         }
         for query in &descriptor.advice_queries {
@@ -131,7 +134,7 @@ impl<F: PastaField> Opened<'_, F> {
             blind: F::ONE,
         };
         Ok(match slot.kind {
-            SlotKind::Instance => default(indexed(&self.instance.polys, slot.index)?),
+            SlotKind::Instance => default(indexed(self.instance.polys(), slot.index)?),
             SlotKind::Advice => SlotPolynomial {
                 coeffs: indexed(&self.advice.polys, slot.index)?,
                 blind: *indexed(&self.advice.blinds, slot.index)?,

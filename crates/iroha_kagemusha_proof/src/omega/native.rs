@@ -134,6 +134,31 @@ impl Program {
         Ok(program)
     }
 
+    // Test-only comparison with the ordinary assignment backend. The returned
+    // program retains the same catalog/parameters and grants no source authority.
+    #[cfg(test)]
+    pub(crate) fn with_checked_reference_layout_for_test(&self) -> Result<Self, Error> {
+        let mut reference = self.clone();
+        reference.layout = layout::derive_reference(&reference.source_circuit()?)?;
+        match (&self.layout, &reference.layout) {
+            (
+                Layout::Secondary { spans, schedule },
+                Layout::Secondary {
+                    spans: reference_spans,
+                    schedule: reference_schedule,
+                },
+            ) => {
+                assert_eq!(spans, reference_spans, "exact compact lane spans");
+                assert_eq!(
+                    schedule, reference_schedule,
+                    "complete secondary range plan"
+                );
+            }
+            _ => panic!("compiled catalog comparison requires two secondary layouts"),
+        }
+        Ok(reference)
+    }
+
     /// Pin the complete installed terminal A key list in its authenticated catalog order.
     /// Pins the complete key catalog in the compiled source in this exact authenticated order.
     /// # Errors

@@ -158,8 +158,17 @@ impl ValidatorEpochContextV1 {
     /// # Errors
     /// Rejects epoch/height gaps, changed mode/network, or relabeled retained credentials.
     pub fn validate_successor(&self, previous: &Self) -> Result<(), String> {
-        self.validate()?;
-        previous.validate()?;
+        self.validate_successor_with_context_validation(previous, &mut |context| context.validate())
+    }
+    // The callback must validate each complete exact context; only model-owned operation
+    // workspaces may reuse successful validation. The relationship checks always run.
+    pub(crate) fn validate_successor_with_context_validation(
+        &self,
+        previous: &Self,
+        validate: &mut impl FnMut(&Self) -> Result<(), String>,
+    ) -> Result<(), String> {
+        validate(self)?;
+        validate(previous)?;
         self.validate_successor_relationship(previous)
     }
     // Pure relationships shared by fully checked epoch owners. Every caller must first

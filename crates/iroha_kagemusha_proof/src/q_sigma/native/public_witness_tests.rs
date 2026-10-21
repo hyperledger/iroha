@@ -615,7 +615,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     // Match QSigmaProverView::prove's exact two-bus actual circuit. Keep the
     // strict imported owner as authority and decide its carried sigma claim.
     let actual = original.circuit.clone().with_serialized_foreign(2).unwrap();
-    crate::rebuild_measurement::compare(
+    let paired_proofs = crate::rebuild_measurement::compare(
         "load_q_sigma_serialized_buses_2",
         prover.params(),
         &prover.key.view(),
@@ -718,6 +718,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     );
 
     println!(
-        "LOAD_PUBLIC_INVERSE sigma_proofs=1 q0_proofs=4 owner_q0_proofs=2 paired_q0_proofs=2 keygens=2 strict_imports=1 serialized_buses=2 selector=1 complete_native_verification=true qualification=false"
+        "LOAD_PUBLIC_INVERSE sigma_proofs=1 q0_proofs={} owner_q0_proofs=2 paired_q0_proofs={paired_proofs} keygens=2 strict_imports=1 serialized_buses=2 selector=1 complete_native_verification=true qualification=false",
+        2 + paired_proofs,
     );
 }

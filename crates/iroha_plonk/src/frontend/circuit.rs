@@ -8,7 +8,7 @@
 use iroha_pasta::PastaField;
 
 use super::{
-    assignment::{Assembly, AssignedTables, Error},
+    assignment::{Assembly, AssignedTables, Error, LayoutAssembly, LayoutTables},
     layouter::{FloorPlanner, Layouter},
 };
 use crate::cs::ConstraintSystem;
@@ -110,6 +110,40 @@ pub fn synthesize_cancellable<F: PastaField, C: Circuit<F>>(
     assigned?;
     let tables = assembly.finish()?;
     Ok(Synthesized { cs, tables })
+}
+
+/// Captures fixed values and occupancy with the same circuit and floor planner.
+///
+/// Like [`synthesize`] with no instances, advice values are not retained. Copy
+/// endpoints are fully checked, but unused permutation cycles are not built.
+/// The result is layout data only, never a keygen or prover input.
+///
+/// # Errors
+/// The same configuration, assignment and finish errors as ordinary synthesis.
+pub fn synthesize_layout<F: PastaField, C: Circuit<F>>(
+    circuit: &C,
+    k: u32,
+) -> Result<LayoutTables<F>, Error> {
+    synthesize_layout_cancellable(circuit, k, None)
+}
+
+/// Captures layout with ordinary assignment and operation cancellation checks.
+///
+/// # Errors
+/// As [`synthesize_layout`], or [`Error::Cancelled`].
+pub fn synthesize_layout_cancellable<F: PastaField, C: Circuit<F>>(
+    circuit: &C,
+    k: u32,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<LayoutTables<F>, Error> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let (cs, config) = configure(circuit)?;
+    let mut assembly = LayoutAssembly::new(&cs, k, cancellation)?;
+    let assigned =
+        C::FloorPlanner::synthesize(&mut assembly, circuit, config, cs.constants().to_vec());
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    assigned?;
+    assembly.finish()
 }
 
 #[cfg(test)]

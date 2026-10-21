@@ -1,7 +1,9 @@
 //! Transaction-bound ordinary finality custody, independent of the wallet's global tip.
 use super::*;
 use crate::kagemusha_wallet_state_v1::finality_read_error;
-use iroha_data_model::sumeragi_finality::{SumeragiFinalityCheckpoint, SumeragiFinalityProof};
+use iroha_data_model::sumeragi_finality::{
+    SumeragiCheckpointAdvanceError, SumeragiFinalityCheckpoint, SumeragiFinalityProof,
+};
 const SESSION_MAX: usize = MAX_FINALITY_CHECKPOINT_BYTES + 1024;
 
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -46,7 +48,7 @@ impl Session {
     }
 }
 fn next_checkpoint(
-    mut verifier: SumeragiFinalityVerifier,
+    verifier: SumeragiFinalityVerifier,
     previous: Option<&SumeragiFinalityCheckpoint>,
     candidate: &SumeragiFinalityProof,
 ) -> Result<(SumeragiFinalityCheckpoint, VerifiedSumeragiBlock, bool), Error> {
@@ -79,17 +81,24 @@ fn next_checkpoint(
             }
         }
     };
-    if needs_contiguous_verification {
-        verifier.verify(candidate).map_err(|error| {
-            finality_read_error(error, Error::Proof("Unload cursor continuity"))
-        })?;
-    }
-    // Initial admission has dropped its decoded block before export starts. Reuse
-    // the capability from export's own full verification, avoiding two live decoded
-    // candidate graphs while retaining the exact checkpoint and every native check.
-    let (checkpoint, decision) = verifier
-        .export_checkpoint_with_tip(candidate)
-        .map_err(|error| finality_read_error(error, Error::Proof("Unload cursor checkpoint")))?;
+    let (checkpoint, decision) = if needs_contiguous_verification {
+        // One exact native producer owns the candidate through continuity and bounded export.
+        // Active cumulative decoder owners retain the original two-attempt admission recipe.
+        verifier
+            .advance_checkpoint_with_tip(candidate)
+            .map_err(|error| match error {
+                SumeragiCheckpointAdvanceError::Verify(original) => {
+                    finality_read_error(original, Error::Proof("Unload cursor continuity"))
+                }
+                SumeragiCheckpointAdvanceError::Export(original) => {
+                    finality_read_error(original, Error::Proof("Unload cursor checkpoint"))
+                }
+            })?
+    } else {
+        verifier
+            .export_checkpoint_with_tip(candidate)
+            .map_err(|error| finality_read_error(error, Error::Proof("Unload cursor checkpoint")))?
+    };
     Ok((checkpoint, decision, true))
 }
 
@@ -252,6 +261,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let (verifier, previous) = self.selected_unload_cursor(&manifest, &transaction, &digest)?;
         let (checkpoint, decision, changed) =
             next_checkpoint(verifier, previous.as_ref(), &candidate)?;
+        // The returned checkpoint owns its exact tip; the input wire copies are
+        // no longer needed during inclusion, encoding or durable publication.
+        drop(candidate);
+        drop(previous);
         // The HTTP locator may be later than the actual transaction. Retain inclusion
         // atomically with this prefix so a later cursor can never discard its evidence.
         // unload_original_digest already validated the claim and its owner scope.
@@ -267,6 +280,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &self.proofs.genesis,
             &decision,
         )?;
+        // Inclusion retained only compact confirmation data. Release the decoded
+        // block before checkpoint encoding, archive writes and manifest publication.
+        drop(decision);
         if !changed {
             if confirmed {
                 self.publish_manifest(selected, &manifest)?;
@@ -367,6 +383,38 @@ mod tests {
         assert!(next_checkpoint(verifier, Some(&checkpoint), &changed).is_err());
     }
 
+    #[test]
+    fn unload_cursor_advance_preserves_refusal_category_and_exact_retry() {
+        let mut native = NativeFinalityFixture::start("unload-advance-refusal");
+        let genesis = native.verifier();
+        let previous = native.checkpoint();
+        let block = native.block_with_submitted_work(native.next_header());
+        let candidate = native.certify(block);
+        let original = norito::encode_canonical(&candidate).unwrap();
+        let expected = native.checkpoint();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || {
+            next_checkpoint(genesis.clone(), Some(&previous), &candidate)
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        let mut invalid = candidate.clone();
+        invalid.committee[0].proof_of_possession[0] ^= 1;
+        assert!(matches!(
+            next_checkpoint(genesis.clone(), Some(&previous), &invalid),
+            Err(Error::Proof("Unload cursor continuity"))
+        ));
+        assert_eq!(norito::encode_canonical(&candidate).unwrap(), original);
+        let (retried, decision, changed) =
+            next_checkpoint(genesis, Some(&previous), &candidate).unwrap();
+        assert!(changed);
+        assert_eq!(retried, expected);
+        assert_eq!(
+            decision.block().encode_wire().unwrap(),
+            candidate.block_wire
+        );
+    }
+
     /// Host diagnostic for the removed redundant native-finality work; no device SLA claim.
     #[test]
     #[ignore = "host timing diagnostic; run explicitly with --ignored --nocapture"]
@@ -394,6 +442,7 @@ mod tests {
                 let decision = if old_path {
                     // Reproduce the original caller's full checkpoint import followed by
                     // a separate tip verification, with exactly the same genuine BLS input.
+                    drop(decision);
                     let restored = SumeragiFinalityVerifier::from_trusted_checkpoint(
                         &checkpoint,
                         &native.network_id(),

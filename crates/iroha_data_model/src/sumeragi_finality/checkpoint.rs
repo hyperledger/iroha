@@ -5,6 +5,20 @@
 //! operator-selected local checkpoint). A peer response must never become its own checkpoint.
 use super::*;
 
+/// The original failure stage of a consumed prefix advance and bounded checkpoint export.
+///
+/// Each variant retains its original typed decoder, allocator or finality cause. This is a
+/// local operation error, not a serialized proof or a capability to export an unchecked tip.
+#[derive(Debug, thiserror::Error)]
+pub enum SumeragiCheckpointAdvanceError {
+    /// The candidate failed the unchanged contiguous native proof verification.
+    #[error("checkpoint continuity: {0}")]
+    Verify(#[source] FinalityReadError),
+    /// The authenticated tip failed the retained-decision or checkpoint export bounds.
+    #[error("checkpoint export: {0}")]
+    Export(#[source] FinalityReadError),
+}
+
 /// Maximum canonical checkpoint: one signed genesis, one current proof and bounded committees.
 pub const MAX_FINALITY_CHECKPOINT_BYTES: usize = 2 * MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024;
 
@@ -303,6 +317,57 @@ impl SumeragiFinalityVerifier {
         self.export_checkpoint_projected(tip, std::convert::identity)
     }
 
+    /// Consume this selected prefix, authenticate its exact next proof and export its checkpoint.
+    ///
+    /// The sole candidate borrow supplies both the native verification and retained wire bytes.
+    /// All parent, schedule, certificate and availability checks run through [`Self::verify`].
+    /// Its decoded decision is compared to the inserted commitment before bounded export, and
+    /// neither checkpoint nor capability escapes if export fails. Consuming the prefix prevents
+    /// a failed export from exposing partially advanced state. No supplied verified capability
+    /// or untrusted checkpoint can authorize export through this entry.
+    ///
+    /// Without an enclosing decoder owner this operation retains the first verified graph,
+    /// avoiding a second decode and native verification of the same immutable candidate.
+    /// An active owner keeps the original independent verification/export recipe and all its
+    /// cumulative charges and refusal ordering. Historical authentication grants no freshness.
+    ///
+    /// # Errors
+    /// Preserves the original contiguous-verification and export failure stages, including
+    /// exact decoder/allocator causes. Same-height witnesses must use retained verification.
+    pub fn advance_checkpoint_with_tip(
+        mut self,
+        tip: &SumeragiFinalityProof,
+    ) -> Result<(SumeragiFinalityCheckpoint, VerifiedSumeragiBlock), SumeragiCheckpointAdvanceError>
+    {
+        // Sample before verify enters its finite intrinsic decoder scopes. An enclosing
+        // owner must observe both original attempts, including second-pass refusals.
+        let active_owner = norito::core::decode_limits_active();
+        let verified = self
+            .verify(tip)
+            .map_err(SumeragiCheckpointAdvanceError::Verify)?;
+        if active_owner {
+            drop(verified);
+            return self
+                .export_checkpoint_with_tip(tip)
+                .map_err(SumeragiCheckpointAdvanceError::Export);
+        }
+        let checkpoint = (|| -> Result<_, FinalityReadError> {
+            need(
+                self.decisions.last_key_value().map(|(height, _)| *height) == Some(tip.height()),
+                "checkpoint must export the authenticated tip",
+            )?;
+            let expected = self
+                .decisions
+                .get(&tip.height())
+                .ok_or_else(|| FinalityError("decision is outside authenticated prefix".into()))?;
+            Self::require_retained_decision(&verified.0, expected)?;
+            let mut validation = EpochValidationScope::new();
+            self.capture_checkpoint(tip, Some(&mut validation))
+        })()
+        .map_err(SumeragiCheckpointAdvanceError::Export)?;
+        Ok((checkpoint, verified))
+    }
+
     // The only projections are the private wrappers above: discard or retain the exact
     // native capability. Neither a checkpoint nor its tip escapes before bounds pass.
     fn export_checkpoint_projected<T>(
@@ -325,6 +390,18 @@ impl SumeragiFinalityVerifier {
             self.verify_retained_decision(tip)?
         };
         let projected = project(verified);
+        let checkpoint = self.capture_checkpoint(tip, validation.as_mut())?;
+        // Neither result retains the pure epoch workspace or grants current authority.
+        Ok((checkpoint, projected))
+    }
+
+    // Private capture has only the complete retained verifier and contiguous native producer
+    // above as callers. It accepts no capability, unchecked public flag or alternate source.
+    fn capture_checkpoint(
+        &self,
+        tip: &SumeragiFinalityProof,
+        validation: Option<&mut EpochValidationScope>,
+    ) -> Result<SumeragiFinalityCheckpoint, FinalityReadError> {
         let first = tip.height().saturating_sub(2).max(1);
         let checkpoint = SumeragiFinalityCheckpoint {
             network_id: NetworkId::from_genesis_hash(self.genesis.hash()),
@@ -343,13 +420,12 @@ impl SumeragiFinalityVerifier {
                 .collect(),
             tip: tip.clone(),
         };
-        if let Some(validation) = validation.as_mut() {
+        if let Some(validation) = validation {
             checkpoint.validate_bounds_with_validation(Some(validation))?;
         } else {
             checkpoint.validate_bounds()?;
         }
-        // Neither result retains the pure epoch workspace or grants current authority.
-        Ok((checkpoint, projected))
+        Ok(checkpoint)
     }
 
     /// Import an independently authenticated local checkpoint as the new trust root.
@@ -531,6 +607,8 @@ impl SumeragiFinalityVerifier {
     }
 }
 
+#[cfg(all(test, feature = "transparent_api"))]
+mod advance_tests;
 #[cfg(all(test, feature = "transparent_api"))]
 mod epoch_validation_tests;
 #[cfg(all(test, feature = "transparent_api"))]
