@@ -939,6 +939,9 @@ private object NativeBridgeBuildContract {
             "NORITO_BRIDGE_SEAL_CARGO_TARGET_DIR" to
                 tools.cargoTargetDirectory.toString(),
         ).apply {
+            System.getenv("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG")?.takeIf { it.isNotEmpty() }?.let {
+                put("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG", it)
+            }
             if (tools.cargoConfiguration != null) {
                 put("NORITO_BRIDGE_SEAL_CARGO_INVOCATION_DIR", tools.cargoInvocationDirectory.toString())
             }
@@ -1341,7 +1344,9 @@ abstract class CompileNativeBridgeTask @Inject constructor(
                         "TMPDIR" to tools.temporaryDirectory.absolutePath,
                         "LANG" to "C.UTF-8",
                         "LC_ALL" to "C.UTF-8",
-                    ),
+                    ) + listOfNotNull(System.getenv("MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG")
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { "MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG" to it }).toMap(),
                 )
                 commandLine(*command.toTypedArray())
             }.assertNormalExitValue()

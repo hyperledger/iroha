@@ -8114,6 +8114,10 @@ fn fixed_builtin_message(builtin: Builtin) -> Option<FixedBuiltinMessage> {
         Builtin::SetAssetHoldingLimit => M::Static(
             "ledger::asset::set_holding_limit expects (AccountId, AssetDefinitionId, Option<quantity>)",
         ),
+        Builtin::AssetLockOpen => M::SourceNameSuffix(" expects (bytes, AccountId, AccountId, AssetDefinitionId, quantity, int, int, int)"),
+        Builtin::AssetLockDrawdown => M::SourceNameSuffix(" expects (bytes, quantity, quantity)"),
+        Builtin::AssetLockCancel => M::SourceNameSuffix(" expects (bytes, quantity)"),
+        Builtin::AssetLockExpire => M::SourceNameSuffix(" expects (bytes)"),
         Builtin::AccountRecoveryPropose => {
             M::Static("ledger::account::recovery::propose expects (string, AccountId, int)")
         }

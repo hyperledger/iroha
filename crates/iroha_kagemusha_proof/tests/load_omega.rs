@@ -44,3 +44,16 @@ fn common_bootstrap_load_catalog_rebinds_every_proof_and_key_from_bls_receipt() 
     common_bootstrap_load_catalog_rebinds_every_proof_and_key(&fixture);
     assert_eq!(rebuilds.load(std::sync::atomic::Ordering::Relaxed), 2);
 }
+
+/// Accounting helpers are tested only in this harness, not every fixture consumer.
+#[path = "common/proof_fixtures/native_load_measurement_tests.rs"]
+mod native_load_measurement_tests;
+
+#[test]
+#[ignore = "two fresh genuine native Load terminal proofs; component resource diagnostic, not M3 or catalog qualification"]
+fn native_load_terminal_resources_from_bls_receipt() {
+    load_chain::native_load_measurement::measure(
+        || first_load_fixture(1),
+        ordinary_load_receipt::first_capture,
+    );
+}

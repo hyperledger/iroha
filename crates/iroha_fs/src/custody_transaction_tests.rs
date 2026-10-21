@@ -276,3 +276,92 @@ fn unwinding_closes_the_transaction_without_an_exit_observation() {
         "no transaction stays open"
     );
 }
+
+#[test]
+fn tree_scope_refusal_restores_complete_walks_before_an_ordinary_result_leaves() {
+    for target_is_root in [true, false] {
+        for refuse_at_entry in [true, false] {
+            for inner_error in [true, false] {
+                let (_temporary, root, slot) = custody();
+                let target = if target_is_root { &root } else { &slot };
+                let path = target.path().to_path_buf();
+                let mut expected = None;
+                let result = custody_transaction(|| {
+                    root.join_custody_transaction()?;
+                    // Both exact chains have already been used, so the old implementation
+                    // would consolidate their next ordinary revalidation.
+                    slot.revalidate()?;
+                    root.read_tree_scope(|tree| {
+                        let mut entered = false;
+                        if refuse_at_entry {
+                            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+                        }
+                        let checked = tree.read_scope(target, |_reader| {
+                            entered = true;
+                            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+                            if inner_error {
+                                Err(io::Error::other("inner semantic error"))
+                            } else {
+                                Ok(())
+                            }
+                        });
+                        assert_eq!(entered, !refuse_at_entry);
+                        let refused = checked.unwrap_err();
+                        expected = Some((refused.kind(), refused.to_string()));
+                        // A fresh tree refusal must end consolidation immediately, including
+                        // when its caller catches the error instead of propagating it.
+                        let before = CustodyWorkV1::current_thread();
+                        let next = target.revalidate().expect_err(
+                            "the failed native tree observation must restore complete walks",
+                        );
+                        assert_eq!(next.kind(), refused.kind());
+                        assert_eq!(next.to_string(), refused.to_string());
+                        assert_eq!(
+                            CustodyWorkV1::current_thread().since(before).ancestry_walks,
+                            1
+                        );
+                        let nested = custody_transaction(|| target.revalidate()).unwrap_err();
+                        assert_eq!(nested.kind(), refused.kind());
+                        assert_eq!(nested.to_string(), refused.to_string());
+                        if inner_error {
+                            Err(io::Error::other("outer semantic error"))
+                        } else {
+                            Ok(())
+                        }
+                    })
+                });
+                let refused = result.unwrap_err();
+                assert_eq!(Some((refused.kind(), refused.to_string())), expected);
+                // The root/suffix exit still overrides success and typed body failure, and
+                // restoring the same owners permits a later ordinary retry.
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+                assert_eq!(root.read("sentinel", 64).unwrap().as_slice(), b"sentinel");
+                assert_eq!(slot.read("record", 64).unwrap().as_slice(), b"record");
+            }
+        }
+    }
+}
+
+#[test]
+fn complete_walk_refusal_keeps_consolidation_disabled_after_original_owner_restoration() {
+    let (_temporary, root, slot) = custody();
+    let (_other_temporary, other, _) = custody();
+    let refused = custody_transaction(|| {
+        root.join_custody_transaction()?;
+        slot.revalidate()?;
+        // An unjoined owner uses a fresh complete walk inside this transaction.
+        fs::set_permissions(other.path(), fs::Permissions::from_mode(0o755))?;
+        let original = other.revalidate().unwrap_err();
+        assert_eq!(original.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(walks(|| root.revalidate().unwrap()), 1);
+        fs::set_permissions(other.path(), fs::Permissions::from_mode(0o700))?;
+        other.revalidate()?;
+        assert_eq!(walks(|| slot.revalidate().unwrap()), 1);
+        assert_eq!(slot.read("record", 64)?.as_slice(), b"record");
+        Err::<(), _>(io::Error::other("retained semantic error"))
+    })
+    .unwrap_err();
+    assert_eq!(refused.to_string(), "retained semantic error");
+    assert_eq!(walks(|| root.revalidate().unwrap()), 1);
+    other.revalidate().unwrap();
+}

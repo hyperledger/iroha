@@ -45013,6 +45013,8 @@ impl SnapshotNexusRuntime {
 mod retail_contract_state_snapshot;
 #[path = "state/retail_daily_limit_state.rs"]
 pub(crate) mod retail_daily_limit_state;
+#[path = "state/asset_uid.rs"]
+pub(crate) mod asset_uid;
 pub(crate) mod deserialize {
     use iroha_model_base::domain::DomainId;
     use iroha_model_base::peer::PeerId;

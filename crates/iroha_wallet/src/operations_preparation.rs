@@ -333,8 +333,12 @@ impl Retained {
         config: &Config,
         recipe: ReadRecipe<'_>,
     ) -> Result<(Self, Option<TerminalRead>)> {
-        journal.verify_native_inventory()?;
-        journal.read_native_scope(|reader| {
+        // Terminal eligibility was decided before the wallet's own finite LIMITS scope.
+        // Original callers keep their literal native recipe, including inherited decoders.
+        let consolidated = matches!(&recipe, ReadRecipe::Terminal(_));
+        #[cfg(test)]
+        let consolidated = consolidated && !ORIGINAL_TERMINAL_CUSTODY.with(std::cell::Cell::get);
+        let read = |reader: &mut iroha_operation_journal::NativeJournalReadScope<'_, '_>| {
             let (retain, previous_request, previous_retirement, previous_custody_plan) =
                 match recipe {
                     ReadRecipe::Original => (false, None, None, None),
@@ -468,7 +472,13 @@ impl Retained {
                 },
                 retained,
             ))
-        })
+        };
+        if consolidated {
+            journal.read_native_inventory_scope(read)
+        } else {
+            journal.verify_native_inventory()?;
+            journal.read_native_scope(read)
+        }
     }
     pub(super) fn verify_selection(
         &self,
@@ -942,3 +952,20 @@ mod byte_frame_tests;
 #[cfg(test)]
 #[path = "operations_preparation_scope_tests.rs"]
 mod scope_tests;
+
+// Test-only literal previous Terminal boundary; the record body and all native producers are shared.
+#[cfg(test)]
+thread_local! {
+    static ORIGINAL_TERMINAL_CUSTODY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+#[cfg(test)]
+pub(in crate::operations) fn with_original_terminal_custody<T>(read: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            ORIGINAL_TERMINAL_CUSTODY.with(|value| value.set(self.0));
+        }
+    }
+    let _reset = Reset(ORIGINAL_TERMINAL_CUSTODY.with(|value| value.replace(true)));
+    read()
+}

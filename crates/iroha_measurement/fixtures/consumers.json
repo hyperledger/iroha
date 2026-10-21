@@ -46,6 +46,21 @@
       ]
     },
     {
+      "dependency": "dev-dependencies",
+      "manifest": "crates/iroha_kagemusha_proof/Cargo.toml",
+      "package": "iroha_kagemusha_proof",
+      "sites": [
+        {
+          "path": "crates/iroha_kagemusha_proof/tests/common/proof_fixtures/native_load_measurement.rs",
+          "use": "Test-only genuine native single-terminal Load diagnostic: fallible process CPU and absolute kernel lifetime RSS at actual API boundaries; no measurement in production admission."
+        },
+        {
+          "path": "crates/iroha_kagemusha_proof/tests/common/proof_fixtures/native_load_measurement_tests.rs",
+          "use": "Accounting regression tests with injected process snapshots; registered only by the load_omega integration target."
+        }
+      ]
+    },
+    {
       "package": "iroha_plonk",
       "manifest": "crates/iroha_plonk/Cargo.toml",
       "dependency": "dev-dependencies",

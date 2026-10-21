@@ -305,6 +305,7 @@ pub fn keygen_pk_from_vk_v2_cancellable<C: PastaCurve, Ci: Circuit<C::ScalarExt>
     coset_cache: CosetCachePolicy,
     cancellation: Option<&CancellationToken>,
 ) -> Result<ProvingKey<C>, RebuildError> {
+    let _timer = crate::work_metrics::WorkTimer::start(crate::work_metrics::WorkPhase::KeyRebuild);
     CancellationToken::checkpoint(cancellation)?;
     let descriptor = verifier.binding.descriptor();
     // PinnedParams has only transparent derivation or exact pinned-byte admission;

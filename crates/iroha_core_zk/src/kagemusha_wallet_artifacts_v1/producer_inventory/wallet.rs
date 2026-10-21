@@ -828,6 +828,9 @@ pub(super) fn revalidate_stage<'a, C: iroha_pasta::PastaCurve>(
     config: ReadConfig,
     cancellation: Option<&iroha_pasta::CancellationToken>,
 ) -> Result<SourceBoundViewV2<'a, C>, WalletSourcesErrorV1> {
+    let _timer = iroha_plonk::work_metrics::WorkTimer::start(
+        iroha_plonk::work_metrics::WorkPhase::KeyImport,
+    );
     iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
     if view.binding().n() > config.maximum_rows {
         return Err(Error::Inventory.into());

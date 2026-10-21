@@ -366,6 +366,19 @@ if TYPE_CHECKING:
         def from_json(cls, payload: str, *, chain_discriminant: int) -> Instruction: ...
 
         @classmethod
+        def ensure_alias(
+            cls,
+            intent_json: str,
+            acquisition_json: str,
+            quote_guard_json: str,
+            *,
+            chain_discriminant: int,
+        ) -> Instruction:
+            """Build only EnsureAlias from exact typed V1 intent, lease, and quote JSON."""
+
+            ...
+
+        @classmethod
         def from_norito_bytes(cls, payload: bytes) -> Instruction: ...
 
         @staticmethod

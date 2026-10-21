@@ -301,7 +301,7 @@ fn classify_exact_orderbook_entrypoint_outcome(
     }
 }
 fn inspect_indexed_orderbook_transaction(
-    state: &iroha_core::state::State,
+    state: &SharedAppState,
     transaction_hash: &HashOf<SignedTransaction>,
     block_height: NonZeroUsize,
     expected_block_hash: HashOf<BlockHeader>,
@@ -1136,7 +1136,7 @@ fn observe_orderbook_transaction_in_one_finalized_view(
             (None, _) => OrderbookAuthoritativeTransactionOutcomeV1::Absent,
             (Some(_), None) => OrderbookAuthoritativeTransactionOutcomeV1::Unavailable,
             (Some(_), Some((height, expected))) => {
-                inspect_indexed_orderbook_transaction(&state.state, hash, height, expected)
+                inspect_indexed_orderbook_transaction(state, hash, height, expected)
             }
         });
     let current = state.state.view();
@@ -2225,5 +2225,123 @@ mod tests {
             validate_orderbook_telemetry_channel_page(&channel_page, finalized_cursor, 4, None,),
             Err(SorafsOrderbookFinalizedTelemetryErrorV1::InvalidChannelPage)
         );
+    }
+
+    // Native height-501 control for the forwarders' shared reader: the exact indexed outcome
+    // is read through State/checkpoint ancestry under a background owner, not left unavailable.
+    #[test]
+    fn indexed_orderbook_outcome_reads_past_fetch_budget_through_checkpoint_ancestry() {
+        use crate::tests_runtime_handlers::{
+            checked_torii_test_ed25519_keypair, past_fetch_budget_history_fixture,
+            past_fetch_budget_transaction, world_with_account,
+        };
+        use iroha_core::execution_attempt::ExecutionAttemptError;
+        use iroha_data_model::{ValidationFail, query::error::QueryExecutionFail};
+
+        let key = checked_torii_test_ed25519_keypair(0x26, "past-budget orderbook submitter");
+        let authority = AccountId::new(key.public_key().clone());
+        let (app, transactions, chain) = past_fetch_budget_history_fixture(
+            iroha_core::sumeragi::test_chain::TestChainConfig::new(
+                world_with_account(&authority),
+                1_000,
+            ),
+            |network| {
+                vec![
+                    past_fetch_budget_transaction(
+                        network,
+                        &key,
+                        vec![
+                            iroha_data_model::isi::Log::new(
+                                iroha_data_model::level::Level::INFO,
+                                "orderbook forwarder past the fetch budget".into(),
+                            )
+                            .into(),
+                        ],
+                    ),
+                    past_fetch_budget_transaction(
+                        network,
+                        &key,
+                        vec![
+                            iroha_data_model::isi::Unregister::domain(
+                                iroha_model_base::domain::DomainId::try_new(
+                                    "missing_orderbook_domain",
+                                    "universal",
+                                )
+                                .unwrap(),
+                            )
+                            .into(),
+                        ],
+                    ),
+                ]
+            },
+            &[true, false],
+        );
+        let height = NonZeroUsize::new(501).unwrap();
+        let block_hash = chain.committed(501).block().hash();
+        let work = crate::routing::app_query_limits().max_fetch_size;
+        // The full-prefix visitor the forwarders used before still refuses 501.
+        assert!(matches!(
+            iroha_core::smartcontracts::isi::tx::visit_finalized_network_transactions(
+                &app.state,
+                height,
+                block_hash,
+                work,
+                iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
+                |_, _| {},
+            ),
+            Err(ExecutionAttemptError::Rejected(
+                QueryExecutionFail::GasBudgetExceeded
+            ))
+        ));
+        let available = app.query_fanout_inflight.available_bytes();
+        for (transaction, expected) in transactions.iter().zip([
+            OrderbookAuthoritativeTransactionOutcomeV1::Applied,
+            OrderbookAuthoritativeTransactionOutcomeV1::Rejected,
+        ]) {
+            let hash = transaction.hash();
+            let (header, outcome) =
+                crate::canonical_history::exact_external_outcome(&app, height, block_hash, &hash)
+                    .expect("the forwarder reader serves a receipt past the full-prefix budget");
+            assert_eq!(header.height().get(), 501);
+            assert_eq!(
+                outcome,
+                Some(expected == OrderbookAuthoritativeTransactionOutcomeV1::Applied)
+            );
+            assert_eq!(
+                inspect_indexed_orderbook_transaction(&app, &hash, height, block_hash),
+                expected
+            );
+            assert_eq!(app.query_fanout_inflight.available_bytes(), available);
+        }
+        let hash = transactions[0].hash();
+        // A busy history pool is a refusal the forwarder reports as unavailable and retries.
+        let mut held = Vec::new();
+        while let Ok(reservation) = crate::try_acquire_new_query_fanout_memory(&app) {
+            held.push(reservation);
+        }
+        assert!(!held.is_empty());
+        assert!(matches!(
+            crate::canonical_history::exact_external_outcome(&app, height, block_hash, &hash),
+            Err(crate::Error::Query(ValidationFail::QueryFailed(
+                QueryExecutionFail::CapacityLimit
+            )))
+        ));
+        assert_eq!(
+            inspect_indexed_orderbook_transaction(&app, &hash, height, block_hash),
+            OrderbookAuthoritativeTransactionOutcomeV1::Unavailable
+        );
+        drop(held);
+        // A request owner in scope is refused, never borrowed by the background reader.
+        let foreign = crate::history_producer::HistoryProducerOwner::for_test();
+        assert_eq!(
+            foreign
+                .scope(|| inspect_indexed_orderbook_transaction(&app, &hash, height, block_hash)),
+            OrderbookAuthoritativeTransactionOutcomeV1::Unavailable
+        );
+        assert_eq!(
+            inspect_indexed_orderbook_transaction(&app, &hash, height, block_hash),
+            OrderbookAuthoritativeTransactionOutcomeV1::Applied
+        );
+        assert_eq!(app.query_fanout_inflight.available_bytes(), available);
     }
 }

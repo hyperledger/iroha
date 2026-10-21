@@ -175,7 +175,14 @@ fn frozen_body(
     previous: Option<&FrozenTransition>,
     effect: KagemushaWalletEffectV1,
 ) -> (KagemushaWalletCredentialV1, KagemushaWalletRecoveryBodyV1) {
-    let credential = credential();
+    frozen_body_for_credential(&credential(), previous, effect)
+}
+
+fn frozen_body_for_credential(
+    credential: &KagemushaWalletCredentialV1,
+    previous: Option<&FrozenTransition>,
+    effect: KagemushaWalletEffectV1,
+) -> (KagemushaWalletCredentialV1, KagemushaWalletRecoveryBodyV1) {
     let mut c = fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
         .body()
         .clone();
@@ -289,7 +296,7 @@ fn frozen_body(
     if kind == KagemushaWalletOperationKindV1::Send {
         c.retained_inputs = vec![request_input];
     }
-    (credential, c)
+    (*credential, c)
 }
 
 pub(super) fn frozen(
@@ -539,6 +546,8 @@ impl ArchiveStore for MemoryArchive {
 }
 
 pub(super) struct TestCustody {
+    credential: KagemushaWalletCredentialV1,
+    enrollment: KagemushaWalletMarkerV1,
     checkpoint: Option<([u8; 32], Vec<u8>)>,
     status: SlotStatus,
     retained: BTreeMap<[u8; 32], Retained<KagemushaWalletCompletionRecordV1>>,
@@ -577,9 +586,29 @@ impl TestCustody {
     }
 
     fn new() -> Self {
+        Self::for_enrollment(&credential(), &enrollment())
+    }
+
+    fn for_enrollment(
+        credential: &KagemushaWalletCredentialV1,
+        enrollment: &KagemushaWalletMarkerV1,
+    ) -> Self {
+        credential.validate().expect("selected credential");
+        enrollment.validate().expect("selected enrollment marker");
+        assert_eq!(enrollment.scheme_id, credential.body.scheme_id);
+        assert_eq!(enrollment.asset_digest, credential.body.asset_digest);
+        assert_eq!(enrollment.wallet_id, credential.body.wallet_id);
+        assert_eq!(enrollment.payment_key, credential.body.payment_key);
+        let KagemushaWalletMarkerStateV1::Enrollment { enrollment_id, .. } = enrollment.state
+        else {
+            panic!("selected marker must be enrollment");
+        };
+        assert_eq!(enrollment_id, credential.body.enrollment_id);
         Self {
+            credential: *credential,
+            enrollment: *enrollment,
             checkpoint: None,
-            status: SlotStatus::Enrollment(marker_record(enrollment(), [0; 32])),
+            status: SlotStatus::Enrollment(marker_record(*enrollment, [0; 32])),
             retained: BTreeMap::new(),
             tombstones: BTreeMap::new(),
             pending: None,
@@ -788,7 +817,7 @@ impl Custody for TestCustody {
         }
         if self.pause {
             self.pending = Some(request.clone());
-            let mut marker = enrollment();
+            let mut marker = self.enrollment;
             marker.generation = capsule.body().statement.sequence * 2 + 1;
             marker.state = capsule.head_marker_state();
             self.status = SlotStatus::Pending(marker_record(marker, [0; 32]));
@@ -797,7 +826,7 @@ impl Custody for TestCustody {
             });
         }
         let body = owner.receipt_body(capsule, &digest)?;
-        let signing = signer(&credential());
+        let signing = signer(&self.credential);
         let message =
             kagemusha_wallet_signing_message_v1(KagemushaWalletSigningDomainV1::Receipt, &body);
         let signature: Signature = signing.sign(&message);
@@ -814,7 +843,7 @@ impl Custody for TestCustody {
             frame: record.to_canonical_bytes().expect("frame"),
             record,
         };
-        let mut marker = enrollment();
+        let mut marker = self.enrollment;
         marker.generation = capsule.body().statement.sequence * 2 + 2;
         marker.state = capsule.head_marker_state();
         self.status = SlotStatus::Released(marker_record(marker, retained.completion_digest));
@@ -3306,6 +3335,342 @@ fn retry_authenticates_released_before_index_and_preserves_pending_historical_re
         Some(Completion::Pending)
     );
     assert_eq!(w.custody.signatures, signatures);
+}
+
+/// A released Receive is irreversible even if publishing its permanent credit, step and
+/// operation indexes fails. The existing mock proof owner exercises coordinator ordering;
+/// the Payment/companion are canonical fixtures and completion receipts use real P-256.
+#[test]
+fn receive_credit_step_and_operation_publish_atomically_after_lost_acknowledgement() {
+    for after_publication in [false, true] {
+        let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
+        let payer: KagemushaWalletPayerCompanionV1 = fixture("KagemushaWalletPayerCompanionV1");
+        payer.check_payment(&payment).unwrap();
+        payer
+            .payer_credential
+            .verify(
+                &fixture("KagemushaWalletSchemeV1"),
+                &enrollment_issuer(&payer.payer_credential),
+            )
+            .unwrap();
+        let identity = payment.digests().unwrap();
+        let signed_request = payment.signed_request().unwrap();
+        let request_original =
+            fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
+                .body()
+                .retained_inputs
+                .iter()
+                .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
+                .unwrap()
+                .bytes
+                .clone();
+        let request: KagemushaWalletRequestV1 = archive::decode(&request_original).unwrap();
+        assert_eq!(request.signed(), signed_request);
+        request.verify(&fixture("KagemushaWalletSchemeV1")).unwrap();
+        let receiver = request.receiver_credential;
+        assert_eq!(
+            receiver.body.wallet_id,
+            signed_request.body.receiver_wallet_id
+        );
+        assert_eq!(
+            payer.payer_credential.body.wallet_id,
+            signed_request.body.payer_wallet_id
+        );
+        assert_ne!(receiver.body.wallet_id, signed_request.body.payer_wallet_id);
+        receiver
+            .verify(
+                &fixture("KagemushaWalletSchemeV1"),
+                &enrollment_issuer(&receiver),
+            )
+            .unwrap();
+        // The vector supplies the genuine receiver challenge/key binding. Recompute
+        // its transcript, enrollment and wallet identities before selecting custody.
+        let all = vectors();
+        let binding = all["digests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| {
+                row["role"].as_str() == Some("enrollment-key-binding")
+                    && row["object"].as_str()
+                        == Some("receiver App Attest enrollment assertion client data")
+            })
+            .unwrap();
+        assert_eq!(binding["stand_in_proof"].as_bool(), Some(false));
+        let transcript = hex::decode(binding["body_hex"].as_str().unwrap()).unwrap();
+        assert_eq!(transcript.len(), 32 + 65);
+        let challenge: [u8; 32] = transcript[..32].try_into().unwrap();
+        assert_eq!(
+            transcript,
+            kagemusha_wallet_enrollment_key_transcript_v1(&challenge, &receiver.body.payment_key)
+        );
+        assert_eq!(
+            hex::encode(kagemusha_wallet_enrollment_key_binding_v1(
+                &challenge,
+                &receiver.body.payment_key,
+            )),
+            binding["digest_hex"].as_str().unwrap()
+        );
+        assert_eq!(
+            kagemusha_wallet_enrollment_id_v1(&challenge, &receiver.body.payment_key),
+            receiver.body.enrollment_id
+        );
+        assert_eq!(
+            kagemusha_wallet_id_v1(
+                &receiver.body.scheme_id,
+                &receiver.body.asset_digest,
+                &receiver.body.payment_key,
+                &receiver.body.enrollment_id,
+            ),
+            receiver.body.wallet_id
+        );
+        let marker = KagemushaWalletMarkerV1 {
+            version: KAGEMUSHA_WALLET_VERSION_V1,
+            scheme_id: receiver.body.scheme_id,
+            asset_digest: receiver.body.asset_digest,
+            wallet_id: receiver.body.wallet_id,
+            payment_key: receiver.body.payment_key,
+            generation: 0,
+            state: KagemushaWalletMarkerStateV1::Enrollment {
+                challenge_digest: challenge,
+                enrollment_id: receiver.body.enrollment_id,
+            },
+        };
+        marker.validate().unwrap();
+        let (_, body) = frozen_body_for_credential(
+            &receiver,
+            None,
+            KagemushaWalletEffectV1::Bootstrap {
+                enrollment_id: receiver.body.enrollment_id,
+                enrollment_marker: marker.marker_digest().unwrap(),
+            },
+        );
+        let boot = FrozenTransition {
+            credential: receiver,
+            capsule: seal_body(body),
+        };
+        boot.validate().unwrap();
+        let mut archive = MemoryArchive::new();
+        archive.scheme = receiver.body.scheme_id;
+        archive.wallet = receiver.body.wallet_id;
+        let mut w = Coordinator::new(
+            TestCustody::for_enrollment(&receiver, &marker),
+            archive,
+            TestProofs::default(),
+            receiver.body.scheme_id,
+            receiver.body.wallet_id,
+        )
+        .unwrap();
+        w.commit(boot.clone()).unwrap();
+        let before = w.snapshot().unwrap();
+        let amount = signed_request.body.amount;
+        let expected_balance = before.balance.checked_add(amount).unwrap();
+        let (_, mut body) = frozen_body_for_credential(
+            &receiver,
+            Some(&boot),
+            KagemushaWalletEffectV1::Receive {
+                credit_id: identity.credit_id,
+                payer_wallet_id: signed_request.body.payer_wallet_id,
+                amount,
+            },
+        );
+        body.successor_state.core.balance = expected_balance;
+        body.statement.successor = body.successor_state.commitment().unwrap();
+        body.operation_id = body.statement.operation_id(&body.wallet_id).unwrap();
+        body.output = KagemushaWalletOutputDescriptorV1::for_transition(
+            &body.statement,
+            &body.proof_digest().unwrap(),
+            &body.payment_digest,
+        )
+        .unwrap();
+        for input in &mut body.retained_inputs {
+            input.bytes = match input.role {
+                KagemushaWalletRetainedInputRoleV1::Request => request_original.clone(),
+                KagemushaWalletRetainedInputRoleV1::Payment => {
+                    payment.to_canonical_bytes().unwrap()
+                }
+                KagemushaWalletRetainedInputRoleV1::Credential => {
+                    payer.payer_credential.to_canonical_bytes().unwrap()
+                }
+                KagemushaWalletRetainedInputRoleV1::CertificateSet => {
+                    archive::encode(&payer.certificates).unwrap()
+                }
+                _ => panic!("unexpected Receive original"),
+            };
+        }
+        let receive = FrozenTransition {
+            credential: receiver,
+            capsule: seal_body(body),
+        };
+        receive.validate().unwrap();
+        let operation = receive.capsule.body().operation_id;
+        let sequence = receive.capsule.body().statement.sequence;
+        let replay = OperationRequestV1 {
+            request_id: [0xc9; 32],
+            action: OperationActionV1::Receive {
+                payment: payment.to_canonical_bytes().unwrap(),
+                payer_credential: payer.payer_credential.to_canonical_bytes().unwrap(),
+                certificates: archive::encode(&payer.certificates).unwrap(),
+            },
+        };
+        // Existing simulator-only helper selects the exact request mapping, not completion.
+        w.retain_collected_receive_test_request(replay.clone(), &receive)
+            .unwrap();
+        assert_eq!(
+            w.retry_request(&replay.request_id).unwrap(),
+            RequestStatusV1::Preparing
+        );
+        assert_eq!(w.retry(&operation).unwrap(), None);
+        let signatures = w.custody.signatures;
+        let advance_checks = w.proofs.advance_checks.load(Ordering::SeqCst);
+        let preparations = w.proofs.preparations.load(Ordering::SeqCst);
+        let preparation_proofs = w.proofs.preparation_proofs.load(Ordering::SeqCst);
+        w.custody.fail_publication = Some(after_publication);
+
+        let error = w.commit(receive.clone()).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Provider(ProviderError::Invalid { field })
+                if field == if after_publication {
+                    "test publication after commit"
+                } else {
+                    "test publication before commit"
+                }
+        ));
+        assert!(matches!(w.status().unwrap(), SlotStatus::Released(_)));
+        assert_eq!(w.custody.signatures, signatures + 1);
+        assert_eq!(
+            w.proofs.advance_checks.load(Ordering::SeqCst),
+            advance_checks + 1
+        );
+        let retained = w.custody.retained.get(&operation).unwrap().clone();
+        retained
+            .record
+            .verify(&receive.credential, &receive.capsule)
+            .unwrap();
+        let exact = Completion::Complete(retained.record.output.clone());
+
+        // Inspect the selected roots directly: neither observation may synchronize the tail.
+        let (selected, manifest) = w.manifest().unwrap();
+        let step = manifest
+            .steps
+            .get(&mut w.archive, &manifest::sequence_key(sequence))
+            .unwrap();
+        let locator = manifest.operations.get(&mut w.archive, &operation).unwrap();
+        let credit = w.indexed_credit(&manifest, &identity.credit_id).unwrap();
+        assert_eq!(step.is_some(), after_publication);
+        assert_eq!(locator.is_some(), after_publication);
+        assert_eq!(credit.is_some(), after_publication);
+        assert_eq!(
+            manifest.indexed,
+            Some(if after_publication {
+                sequence
+            } else {
+                before.sequence
+            })
+        );
+        if let Some(bytes) = step {
+            let step: manifest::StepEntry = archive::decode(&bytes).unwrap();
+            assert_eq!(step.operation, operation);
+            assert_eq!(step.capsule, retained.capsule_digest);
+            assert_eq!(step.selected_generation, retained.selected_generation);
+            assert_eq!(step.completion, retained.completion_digest);
+            assert_eq!(step.kind, KagemushaWalletOperationKindV1::Receive);
+            assert!(!step.collected);
+        }
+        if let Some(locator) = locator {
+            assert_eq!(locator, manifest::sequence_key(sequence));
+        }
+        let expected_credit = ConsumedCredit {
+            payment_digest: identity.payment,
+            amount,
+            sequence,
+        };
+        if let Some(credit) = credit {
+            assert_eq!(credit, expected_credit);
+        }
+
+        // Both exact retry APIs may recover the durable original before indexing completes.
+        assert_eq!(w.retry(&operation).unwrap(), Some(exact.clone()));
+        assert_eq!(
+            w.retry_request(&replay.request_id).unwrap(),
+            RequestStatusV1::Outcome(exact.clone())
+        );
+        assert_eq!(w.manifest().unwrap().0, selected);
+        w.custody.unavailable = true;
+        assert!(matches!(
+            w.retry(&operation),
+            Err(Error::Provider(ProviderError::Unavailable(_)))
+        ));
+        assert!(matches!(
+            w.retry_request(&replay.request_id),
+            Err(Error::Provider(ProviderError::Unavailable(_)))
+        ));
+        w.custody.unavailable = false;
+
+        let mut w =
+            Coordinator::new(w.custody, w.archive, w.proofs, w.scheme_id, w.wallet_id).unwrap();
+        let (_, recovered) = w.manifest().unwrap();
+        assert_eq!(recovered.indexed, Some(sequence));
+        assert_eq!(
+            recovered
+                .operations
+                .get(&mut w.archive, &operation)
+                .unwrap(),
+            Some(manifest::sequence_key(sequence).to_vec())
+        );
+        let step = w.step_entry(&recovered, sequence).unwrap();
+        assert_eq!(step.operation, operation);
+        assert_eq!(step.capsule, retained.capsule_digest);
+        assert_eq!(step.selected_generation, retained.selected_generation);
+        assert_eq!(step.completion, retained.completion_digest);
+        assert_eq!(step.kind, KagemushaWalletOperationKindV1::Receive);
+        assert!(!step.collected);
+        assert_eq!(
+            w.indexed_credit(&recovered, &identity.credit_id).unwrap(),
+            Some(expected_credit)
+        );
+        let recovered_snapshot = w.snapshot().unwrap();
+        assert_eq!(recovered_snapshot.sequence, sequence);
+        assert_eq!(recovered_snapshot.balance, expected_balance);
+        assert_eq!(
+            recovered_snapshot.owned_balance,
+            before.owned_balance.checked_add(amount).unwrap()
+        );
+        assert_eq!(recovered_snapshot.folded_balance, None);
+        assert!(matches!(
+            w.credit_status(&identity.credit_id, &identity.payment),
+            Err(Error::FoldRequired)
+        ));
+
+        assert_eq!(w.commit(receive).unwrap(), exact);
+        assert_eq!(w.execute(replay.clone()).unwrap(), exact);
+        assert_eq!(w.retry(&operation).unwrap(), Some(exact.clone()));
+        assert_eq!(
+            w.retry_request(&replay.request_id).unwrap(),
+            RequestStatusV1::Outcome(exact)
+        );
+        assert_eq!(w.snapshot().unwrap(), recovered_snapshot);
+        assert_eq!(
+            w.consumed_credit(&identity.credit_id, &identity.payment)
+                .unwrap(),
+            Some(expected_credit)
+        );
+        assert_eq!(
+            w.custody.retained.get(&operation).unwrap().frame,
+            retained.frame
+        );
+        assert_eq!(w.custody.signatures, signatures + 1);
+        assert_eq!(
+            w.proofs.advance_checks.load(Ordering::SeqCst),
+            advance_checks + 1
+        );
+        assert_eq!(w.proofs.preparations.load(Ordering::SeqCst), preparations);
+        assert_eq!(
+            w.proofs.preparation_proofs.load(Ordering::SeqCst),
+            preparation_proofs
+        );
+    }
 }
 
 #[test]

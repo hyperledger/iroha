@@ -62,6 +62,24 @@ final class KagemushaWalletNativeLeaseV1Tests: XCTestCase {
     XCTAssertNoThrow(try KagemushaWalletInstalledRuntimeV1.requireNoUnreleasedAdmissions())
     try lease.close(); XCTAssertEqual(driver.ids, [71, 71])
   }
+  func testClosedWalletRefusesFoldMetricsAndInvalidObservationInputsStayInvalid() throws {
+    let cleanup = CloseDriver([0])
+    let lease = KagemushaWalletNativeLeaseV1(owner: 93, driver: cleanup, platformOwner: PlatformLifetime())
+    let wallet = KagemushaWalletV1(lease: lease, driver: try KagemushaWalletNativeDriverV1())
+    try wallet.close()
+    XCTAssertThrowsError(try wallet.foldMetricsJSON()) { error in
+      XCTAssertEqual(error as? KagemushaWalletErrorV1, .closed)
+    }
+    XCTAssertThrowsError(try wallet.observeProjection(selector: 4, identity: Data([1]))) { error in
+      XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidInput)
+    }
+    for selector in [UInt32(5), .max] {
+      XCTAssertThrowsError(try wallet.observeProjection(selector: selector)) { error in
+        XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidInput)
+      }
+    }
+    XCTAssertEqual(cleanup.ids, [93])
+  }
   func testEveryNonzeroStatusIncludingNoOwnerIsNotAReleaseAcknowledgement() throws {
     for status in [Int32(-1), -2, -4, -5] {
       let driver = CloseDriver([status, 0])

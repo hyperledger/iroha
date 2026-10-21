@@ -8,8 +8,9 @@
 //! operation, fold turn or credit read ([`KagemushaWalletVerificationCountsV1::observe`]) is
 //! the verification work it did.
 //!
-//! The counts are never serialized, persisted, signed or returned through the FFI, and no
-//! wallet, verifier, admission, readiness or retry decision reads them.
+//! Fold diagnostics may return bounded, observation-only count deltas through the FFI.
+//! Counts are never persisted or signed, and no wallet, verifier, admission, readiness or
+//! retry decision reads them.
 
 use std::cell::Cell;
 

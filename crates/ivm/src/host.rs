@@ -1181,6 +1181,10 @@ pub const fn registered_host_syscall_gas_formula(number: u32) -> Option<HostSysc
             | syscalls::SYSCALL_ACCOUNT_RECOVERY_APPROVE
             | syscalls::SYSCALL_ACCOUNT_RECOVERY_CANCEL
             | syscalls::SYSCALL_ACCOUNT_RECOVERY_FINALIZE
+            | syscalls::SYSCALL_ASSET_LOCK_OPEN
+            | syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN
+            | syscalls::SYSCALL_ASSET_LOCK_CANCEL
+            | syscalls::SYSCALL_ASSET_LOCK_EXPIRE
     ) {
         return Some(HostSyscallGasFormula::ConservativeEnvelope);
     }

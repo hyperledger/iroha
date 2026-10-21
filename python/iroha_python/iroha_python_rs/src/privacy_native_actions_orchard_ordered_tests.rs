@@ -366,10 +366,15 @@ mod orchard_ordered {
             "orchard-ordered-call-bytes"
         );
         let plan = calls(&context);
-        context.metadata.insert(
-            "padding".parse().unwrap(),
-            Json::new("x".repeat(PRIVACY_NATIVE_ACTION_MAX_DISPATCH_REQUEST_BYTES_V1)),
+        // Include JSON string quotes in the per-value cap; framing exceeds the request cap.
+        let padding =
+            Json::try_new("x".repeat(PRIVACY_NATIVE_ACTION_MAX_DISPATCH_REQUEST_BYTES_V1 - 2))
+                .expect("padding stays within the native JSON value limit");
+        assert_eq!(
+            padding.get().len(),
+            PRIVACY_NATIVE_ACTION_MAX_DISPATCH_REQUEST_BYTES_V1
         );
+        context.metadata.insert("padding".parse().unwrap(), padding);
         assert_eq!(
             build_signed_orchard_note_action_with_contract_calls_v1(
                 context,

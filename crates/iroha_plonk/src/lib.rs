@@ -135,6 +135,7 @@ pub mod transcript;
 pub mod verification_attempt;
 pub mod verification_counters;
 pub mod verifier;
+pub mod work_metrics;
 
 pub use check::{CheckFailure, CheckMode, CheckReport};
 pub use cs::{

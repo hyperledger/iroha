@@ -1722,6 +1722,9 @@ fn prove_a(
 ) -> Result<(Vec<u8>, FoldInput<Eq>), Error> {
     let public = [public.to_vec()];
     let output = super::proving::prove(&plan.vesta, key, circuit, &public, randomness, config)?;
+    let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+        iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+    );
     iroha_plonk::verifier::verify_full_cancellable(
         &plan.vesta,
         key.binding(),

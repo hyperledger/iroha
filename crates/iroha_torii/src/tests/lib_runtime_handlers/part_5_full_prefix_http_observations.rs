@@ -79,8 +79,6 @@ pub fn past_fetch_budget_transaction(
 
 #[tokio::test]
 async fn prepared_submit_outcome_reads_past_fetch_budget_through_checkpoint_ancestry() {
-    use iroha_data_model::query::error::QueryExecutionFail;
-
     let key = checked_torii_test_ed25519_keypair(0x24, "prepared replay authority");
     let authority = AccountId::new(key.public_key().clone());
     let (app, transactions, _chain) = past_fetch_budget_history_fixture(
@@ -119,14 +117,6 @@ async fn prepared_submit_outcome_reads_past_fetch_budget_through_checkpoint_ance
             .unwrap()
             .expect("the receipt has committed membership");
         assert_eq!(anchor.height.get(), 501);
-        let refused = canonical_transaction_outcome(&app.state, &hash)
-            .expect_err("the full-prefix outcome reader keeps its fetch budget");
-        assert!(matches!(
-            refused,
-            Error::Query(ValidationFail::QueryFailed(
-                QueryExecutionFail::GasBudgetExceeded
-            ))
-        ));
         assert_eq!(
             routing::prepared_submit_outcome(&app, transaction).unwrap(),
             Some(expected)

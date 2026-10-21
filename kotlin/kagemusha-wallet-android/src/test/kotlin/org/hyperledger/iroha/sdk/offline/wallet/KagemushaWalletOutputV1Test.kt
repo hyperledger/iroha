@@ -67,8 +67,43 @@ class KagemushaWalletOutputV1Test {
         assertEquals(3,value.original(65_756)[0].toInt()); invalid { value.original(20_066) }
         invalid { KagemushaWalletObservationReplyV1(1,-1,0,0,0,0,byteArrayOf(1)) }
         invalid { KagemushaWalletObservationReplyV1(12,-1,0,1,0,0,byteArrayOf(1)) }
-        invalid { KagemushaWalletObservationReplyV1(12,-1,0,0,0,0,ByteArray(65_757)) }
+        invalid { KagemushaWalletObservationReplyV1(12,-1,0,0,0,0,ByteArray(131_073)) }
         val failure = assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletObservationReplyV1(-2,-1,0,0,0,0,byteArrayOf()).original(5268) }
         assertEquals(-2,failure.status)
+    }
+
+    @Test fun foldDiagnosticsHaveAnIndependent128KiBBoundAndStrictUtf8() {
+        val json = """{"schema":"iroha.kagemusha.fold-metrics.v1","records":[],"nativeWork":[]}"""
+        val original = json.toByteArray()
+        assertEquals(json, KagemushaWalletFoldMetricsV1.decode(original))
+        val maximum = ByteArray(131_072) { ' '.code.toByte() }
+        val reply = KagemushaWalletObservationReplyV1(12,-1,0,0,0,0,maximum)
+        maximum.fill(0)
+        assertEquals(131_072, KagemushaWalletFoldMetricsV1.decode(reply.original(131_072)).length)
+        for (existingMaximum in listOf(5268,20_066,65_756)) invalid { reply.original(existingMaximum) }
+        for (malformed in listOf(byteArrayOf(), ByteArray(131_073),
+            byteArrayOf(0xc0.toByte(),0xaf.toByte()), byteArrayOf(0xe2.toByte(),0x82.toByte()),
+            byteArrayOf(0xed.toByte(),0xa0.toByte(),0x80.toByte()), byteArrayOf(0xff.toByte()))) {
+            val failure = invalid { KagemushaWalletFoldMetricsV1.decode(malformed) }
+            assertEquals(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT, failure.status)
+        }
+        invalid { KagemushaWalletCallV1(1,-1,0,0,0,0,ByteArray(131_072)) }
+    }
+
+    @Test fun diagnosticReplyCannotSmuggleMonetaryStatusSequenceOrPlatformGeometry() {
+        val bytes = "{}".toByteArray()
+        invalid { KagemushaWalletObservationReplyV1(12,-1,0,0,1,0,bytes) }
+        invalid { KagemushaWalletObservationReplyV1(12,-1,0,0,0,1,bytes) }
+        invalid { KagemushaWalletObservationReplyV1(12,0,0,0,0,0,bytes) }
+        invalid { KagemushaWalletObservationReplyV1(12,-1,1,0,0,0,bytes) }
+        invalid { KagemushaWalletObservationReplyV1(1,-1,0,0,0,0,bytes) }
+        invalid { KagemushaWalletObservationReplyV1(-2,-1,0,0,0,0,bytes) }
+    }
+
+    @Test fun diagnosticObservationKeepsTheSameUnavailableAndClosedOwnerFence() {
+        val wallet = KagemushaWalletV1(0)
+        assertEquals(-2, assertFailsWith<KagemushaWalletExceptionV1> { wallet.foldMetricsJSON() }.status)
+        wallet.close()
+        assertFailsWith<IllegalStateException> { wallet.foldMetricsJSON() }
     }
 }

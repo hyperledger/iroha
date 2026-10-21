@@ -191,14 +191,20 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         val retained = requestId.copyOf()
         return KagemushaWalletPreparedLoadV1.observation(observeProjection(3, retained), retained)
     }
+    /** Read bounded Native fold/work diagnostics as exact UTF-8 JSON, without advancing custody.
+     * Diagnostics confer no readiness, completion or payment authority. Bracket this observation
+     * with the caller's monotonic clock before mapping Native's process-local timing fields. */
+    fun foldMetricsJSON(): String = KagemushaWalletFoldMetricsV1.decode(observeProjection(4))
+
     private fun observeProjection(selector: Int, identity: ByteArray = byteArrayOf()): ByteArray {
         val input = identity.copyOf()
-        require(selector in 0..3 && if (selector == 0) input.isEmpty() else input.size == 32 && input.any { it != 0.toByte() })
+        require(selector in 0..4 && if (selector == 0 || selector == 4) input.isEmpty() else input.size == 32 && input.any { it != 0.toByte() })
         val owner = handle() // same close/deletion fence as every ordinary owner operation
         val result = try { KagemushaWalletNativeWorkerV1.shared.run { KagemushaWalletObservationNativeV1.observe(owner, selector, input) } }
             catch (_: LinkageError) { throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE) }
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
-        return result.original(intArrayOf(5268, 20_066, 20_066, 65_756)[selector])
+        return result.original(intArrayOf(5268, 20_066, 20_066, 65_756,
+            KagemushaWalletFoldMetricsV1.MAX_ORIGINAL_BYTES)[selector])
     }
     private fun call(operation: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf()): KagemushaWalletCallV1 {
         val value = KagemushaWalletNativeCallsV1.call(handle(), operation, first.copyOf(), second.copyOf())

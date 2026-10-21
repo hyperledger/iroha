@@ -83,9 +83,12 @@ pub use custody::{
 pub use fee_claims::{FEE_CLAIM_MAX_BYTES_V1, FinalizedPayoutEvidence, RetainedFeeClaim};
 pub use fold_custody::FoldCustodyV1;
 pub use fold_metrics::{
-    FOLD_METRICS_RECORDS_V1, FOLD_METRICS_SCHEMA_V1, FoldCallClassV1, FoldCancelCauseV1,
-    FoldCountsV1, FoldMetricsV1, FoldObserverV1, FoldOutcomeV1, FoldPhaseV1, FoldStageV1,
-    FoldSubProofV1,
+    FOLD_METRICS_MAX_BYTES_V1, FOLD_METRICS_RECORDS_V1, FOLD_METRICS_SCHEMA_V1, FoldCallClassV1,
+    FoldCancelCauseV1, FoldCountsV1, FoldMetricsV1, FoldObserverV1, FoldOutcomeV1, FoldPhaseV1,
+    FoldStageV1, FoldSubProofV1, NATIVE_ADMISSION_RECORDS_V1, NativeAdmissionPhaseV1,
+    NativeAdmissionResultV1, NativeAdmissionV1, NativeAdmissionsV1, NativeBridgeMetricsV1,
+    NativeBridgePhaseV1, NativeBridgeTimerV1, NativeWorkKindV1, NativeWorkRecordV1,
+    NativeWorkTurnV1,
 };
 pub use folding::{FoldJobV1, FoldStatus, FoldTurnStatusV1, LineageCache, ProvedFoldV1};
 pub use index::{IndexRoot, ObjectStore, ObjectWorkspace};
@@ -725,6 +728,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     /// Invalid proofs/inputs, conflicting replay, missing fold or unavailable custody reject
     /// before mutation. Once Advance selects a head its own Pending/Released rule applies.
     pub fn commit(&mut self, frozen: FrozenTransition) -> Result<Completion, Error> {
+        let _timer = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::Commit,
+        );
         let _payment = self.scheduler.payment();
         frozen.validate()?;
         let c = &frozen.capsule;
@@ -794,7 +800,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         // Design §5.3: a fresh transition checks this phone again before it commits. Retained
         // and duplicate outcomes above never depend on current capacity.
-        self.require_runtime_capacity()?;
+        self.require_runtime_capacity(NativeAdmissionPhaseV1::BeforeCommit)?;
         let predecessor = manifest
             .indexed
             .map(|sequence| self.indexed_step(&manifest, sequence))

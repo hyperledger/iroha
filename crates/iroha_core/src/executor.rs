@@ -244,6 +244,8 @@ enum NativeQueryAccess {
     Account(AccountId),
     /// Exact account identity or direct permissions eligible for scoped DPN enrollment checks.
     EnrollmentAccount(AccountId),
+    /// Private UID membership and aggregate activity for an exact asset's owner.
+    AssetUidOwner(AssetDefinitionId),
     /// Ledger-wide state requiring the genesis-issued read root.
     AllLedger,
 }
@@ -381,6 +383,12 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
 fn native_iterable_query_access(
     query: &QueryWithParams,
 ) -> Result<NativeQueryAccess, ValidationFail> {
+    if query.item == QueryItemKind::AssetUidPolicyViewV1 {
+        let query = decode_native_iterable_payload_exact::<
+            data_model_query::asset_uid::FindAssetUidPoliciesV1,
+        >(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
+        return Ok(NativeQueryAccess::AssetUidOwner(query.asset_definition_id));
+    }
     macro_rules! payload_for {
         ($item:ty, $kind:ident) => {{ (query.item == QueryItemKind::$kind).then_some(query.query_payload.as_slice()) }};
     }
@@ -738,6 +746,18 @@ fn validate_builtin_native_query_permission(
     let enrollment_query = matches!(&access, NativeQueryAccess::EnrollmentAccount(_));
     match access {
         NativeQueryAccess::Registered => Ok(()),
+        NativeQueryAccess::AssetUidOwner(definition) => {
+            let asset = world.asset_definition(&definition).map_err(|_| {
+                ValidationFail::NotPermitted("UID policy asset is not available to the requester".into())
+            })?;
+            if asset.owned_by() == authority {
+                Ok(())
+            } else {
+                Err(ValidationFail::NotPermitted(
+                    "only the exact asset-definition owner may query UID policies".into(),
+                ).into())
+            }
+        }
         NativeQueryAccess::AllLedger => has_global()?
             .then_some(())
             .ok_or_else(|| {
@@ -8263,6 +8283,11 @@ impl Executor {
             &instruction,
             contract_runtime_context,
         )?;
+        if let Some(result) = crate::smartcontracts::isi::escrow::controlled::execute_instruction(
+            &instruction, authority, state_transaction, contract_runtime_context,
+        ) {
+            return result.map_err(ValidationFail::InstructionFailed);
+        }
         trace!("Running instruction execution");
         let instr_id = instruction.id();
         let result = match self {
@@ -8320,6 +8345,11 @@ impl Executor {
             instruction,
             contract_runtime_context,
         )?;
+        if let Some(result) = crate::smartcontracts::isi::escrow::controlled::execute_instruction(
+            instruction, authority, state_transaction, contract_runtime_context,
+        ) {
+            return result.map_err(ValidationFail::InstructionFailed);
+        }
         trace!("Running borrowed instruction execution");
         let instr_id = instruction.id();
         let result = match self {
@@ -10824,6 +10854,38 @@ mod tests {
     }
     fn checked_account_id() -> AccountId {
         AccountId::new(checked_keypair().public_key().clone())
+    }
+    #[test]
+    fn native_uid_queries_require_exact_asset_owner_even_with_global_read() {
+        use iroha_data_model::query::{asset_uid::FindAssetUidPoliciesV1, parameters::QueryParams};
+        let fixture = initial_batch_fixture();
+        let owner = fixture.source.clone();
+        let participant = fixture.delegate.clone();
+        let definition = fixture.asset_definition.clone();
+        let state = state_for_testing(fixture.world);
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+        let mut tx = block.transaction();
+        for uid in [None, Some([7; 32])] {
+            let envelope = QueryWithParams {
+                query: (),
+                query_payload: FindAssetUidPoliciesV1 { asset_definition_id: definition.clone(), uid }.encode(),
+                item: QueryItemKind::AssetUidPolicyViewV1,
+                predicate_bytes: Vec::new(),
+                selector_bytes: Vec::new(),
+                params: QueryParams::default(),
+            };
+            let request = QueryRequest::Start(envelope);
+            validate_builtin_native_query_permission(tx.world(), &owner, &request, 0)
+                .expect("exact asset owner may read UID policy");
+            assert!(validate_builtin_native_query_permission(tx.world(), &participant, &request, 0).is_err());
+            tx.world.account_permissions.insert(participant.clone(), BTreeSet::from([
+                executor_permission::query::CanReadAllLedgerData.into(),
+                executor_permission::query::CanReadAccountData { account: owner.clone() }.into(),
+            ]));
+            assert!(validate_builtin_native_query_permission(tx.world(), &participant, &request, 0).is_err(),
+                "general read grants must not reveal cross-participant UID linkage");
+            tx.world.account_permissions.remove(participant.clone());
+        }
     }
     #[test]
     fn native_settlement_receipt_query_uses_exact_payer_read_access() {

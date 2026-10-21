@@ -14557,7 +14557,7 @@ fn classify_exact_appeal_finance_entrypoint_outcome(
     }
 }
 fn inspect_indexed_appeal_finance_transaction(
-    state: &iroha_core::state::State,
+    state: &SharedAppState,
     transaction_hash: &HashOf<SignedTransaction>,
     block_height: NonZeroUsize,
     expected_block_hash: HashOf<BlockHeader>,
@@ -14623,7 +14623,7 @@ fn observe_appeal_finance_finalized_state(
             (None, _) => AppealFinanceAuthoritativeTransactionOutcomeV1::Absent,
             (Some(_), None) => AppealFinanceAuthoritativeTransactionOutcomeV1::Unavailable,
             (Some(_), Some((height, expected))) => {
-                inspect_indexed_appeal_finance_transaction(&state.state, hash, height, expected)
+                inspect_indexed_appeal_finance_transaction(state, hash, height, expected)
             }
         });
     let current = state.state.view();
@@ -16885,7 +16885,7 @@ fn reconcile_sorafs_repair_transaction(
     reconcile_sorafs_repair_transaction_in_view(&view, request, finalized_cursor)
 }
 fn inspect_indexed_repair_transaction(
-    state: &iroha_core::state::State,
+    state: &SharedAppState,
     transaction_hash: &HashOf<SignedTransaction>,
     block_height: NonZeroUsize,
     expected_block_hash: HashOf<BlockHeader>,
@@ -16935,7 +16935,7 @@ fn observe_exact_sorafs_repair_transaction(
         (None, _) => RepairAuthoritativeTransactionOutcomeV1::Absent,
         (Some(_), None) => RepairAuthoritativeTransactionOutcomeV1::Unavailable,
         (Some(_), Some((height, expected))) => {
-            inspect_indexed_repair_transaction(&state.state, transaction_hash, height, expected)
+            inspect_indexed_repair_transaction(state, transaction_hash, height, expected)
         }
     };
     let current = state.state.view();

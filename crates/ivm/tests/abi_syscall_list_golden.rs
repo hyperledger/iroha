@@ -238,6 +238,10 @@ fn abi_syscall_list_matches_golden() {
         S::SYSCALL_ACCOUNT_RECOVERY_APPROVE,
         S::SYSCALL_ACCOUNT_RECOVERY_CANCEL,
         S::SYSCALL_ACCOUNT_RECOVERY_FINALIZE,
+        S::SYSCALL_ASSET_LOCK_OPEN,
+        S::SYSCALL_ASSET_LOCK_DRAWDOWN,
+        S::SYSCALL_ASSET_LOCK_CANCEL,
+        S::SYSCALL_ASSET_LOCK_EXPIRE,
     ];
     // END GENERATED ABI V1 SYSCALL LIST
     let actual = ivm::syscalls::abi_syscall_list();

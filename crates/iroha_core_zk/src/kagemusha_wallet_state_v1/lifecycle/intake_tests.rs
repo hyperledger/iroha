@@ -388,6 +388,8 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
                 + 2 * crate::kagemusha_wallet_state_v1::lifecycle::INTAKE_DRAFT_BYTES as u64
     );
     let before = footprint(&wallet);
+    let queries = wallet.custody.resource_queries;
+    let observation = NativeWorkTurnV1::start(NativeWorkKindV1::Execute);
     wallet.custody.resources.storage_bytes = required - 1;
     wallet.custody.resources.memory_bytes = Some(u64::MAX);
     assert!(matches!(
@@ -415,6 +417,29 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
     wallet.require_intake_memory().unwrap();
     wallet.custody.resources.memory_bytes = None;
     wallet.require_intake_capacity().unwrap();
+    let observed = observation.finish(true).admissions;
+    assert_eq!(
+        wallet.custody.resource_queries,
+        queries + 7,
+        "observation adds no probe"
+    );
+    assert_eq!(observed.count, 7);
+    let rows: Vec<_> = observed.records.iter().flatten().collect();
+    assert_eq!(
+        rows.iter().map(|row| row.result).collect::<Vec<_>>(),
+        vec![
+            NativeAdmissionResultV1::StorageShortfall,
+            NativeAdmissionResultV1::ProbeFailed,
+            NativeAdmissionResultV1::MemoryShortfall,
+            NativeAdmissionResultV1::MemoryShortfall,
+            NativeAdmissionResultV1::Passed,
+            NativeAdmissionResultV1::Passed,
+            NativeAdmissionResultV1::Passed,
+        ]
+    );
+    assert_eq!(rows[1].available, None);
+    assert_eq!(rows[3].phase, NativeAdmissionPhaseV1::IntakeMemory);
+    assert_eq!(rows[6].available.unwrap().memory_bytes, None);
     assert_eq!(footprint(&wallet), before);
 }
 

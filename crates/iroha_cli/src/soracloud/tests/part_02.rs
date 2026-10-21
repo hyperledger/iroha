@@ -281,9 +281,22 @@ fn generated_kotodama_contract_fixtures_compile_with_canonical_v1_surface() {
         ("hayahi-app", hayahi_app_contract_ko("hayahi_api")),
         ("split-app-vault", split_app_vault_contract_ko("travel_ops")),
     ] {
-        kotodama_lang::compiler::Compiler::new()
+        let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(&source)
             .unwrap_or_else(|error| panic!("{name} Kotodama fixture must compile: {error:?}"));
+        let interface = ivm::ProgramMetadata::parse(&program)
+            .expect("generated contract metadata")
+            .contract_interface
+            .expect("generated contract interface");
+        assert!(!interface.entrypoints.is_empty(), "{name} has no entrypoints");
+        for entrypoint in interface.entrypoints {
+            assert_eq!(
+                entrypoint.authorization,
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
+                "{name} entrypoint {} must declare public scaffold access",
+                entrypoint.name
+            );
+        }
     }
 }
 #[test]

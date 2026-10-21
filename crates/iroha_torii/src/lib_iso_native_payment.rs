@@ -173,24 +173,21 @@ fn canonical_iso_business_with_reader<T>(
     Ok(Some(outcome))
 }
 
-fn canonical_iso_business(
-    state: &CoreState,
+// The projection worker has no request: it reads the original business carrier under its own
+// background owner, through the same State/checkpoint ancestry as the lifecycle twin below.
+fn canonical_iso_business_in_background(
+    app: &SharedAppState,
     request: &iso20022_bridge::IsoNativePaymentRequest,
 ) -> Result<Option<CanonicalIsoBusinessOutcome>, Error> {
-    let work = routing::app_query_limits().max_fetch_size;
     canonical_iso_business_with_reader(
-        state,
+        &app.state,
         request,
-        |height| {
-            state
-                .read_finalized_execution_carrier(
-                    height,
-                    work,
-                    iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
-                )
-                .map_err(crate::canonical_history::query_attempt_error)
+        |height| read_background_execution_carrier(app, height),
+        |original, locator| {
+            original
+                .owner
+                .scope(|| canonical_iso_business_from_carrier(request, locator, &original.carrier))
         },
-        |carrier, locator| canonical_iso_business_from_carrier(request, locator, carrier),
     )
 }
 

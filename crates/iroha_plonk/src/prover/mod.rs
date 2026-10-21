@@ -607,6 +607,7 @@ impl<F: PastaField> Witness<F> {
         C: PastaCurve<ScalarExt = F>,
         Ci: Circuit<F>,
     {
+        let _timer = crate::work_metrics::WorkTimer::start(crate::work_metrics::WorkPhase::Witness);
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let descriptor = pk.binding().descriptor();
         check_instances(descriptor, instances)?;
@@ -1029,6 +1030,7 @@ where
     C::Base: PoseidonField,
     P: lookup::LookupPermutation<C::ScalarExt>,
 {
+    let _timer = crate::work_metrics::WorkTimer::start(crate::work_metrics::WorkPhase::Prove);
     let cancellation = config.cancellation;
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let witness = input.witness();

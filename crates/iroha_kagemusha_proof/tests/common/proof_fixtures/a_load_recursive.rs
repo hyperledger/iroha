@@ -14,3 +14,7 @@ pub mod bootstrap_outer;
 mod common;
 
 include!("a_load_recursive_body.rs");
+
+/// Test-only public-call resource observations; never production admission.
+#[path = "native_load_measurement.rs"]
+pub mod native_load_measurement;

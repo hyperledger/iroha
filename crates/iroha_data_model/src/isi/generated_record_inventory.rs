@@ -64,6 +64,26 @@ macro_rules! record_inventory {
 
 record_inventory! {
 record!(
+    open_controlled_asset_lock_v1,
+    crate::isi::escrow_control::OpenControlledAssetLockV1,
+    "iroha_data_model::isi::escrow_control::OpenControlledAssetLockV1"
+);
+record!(
+    drawdown_controlled_asset_lock_v1,
+    crate::isi::escrow_control::DrawdownControlledAssetLockV1,
+    "iroha_data_model::isi::escrow_control::DrawdownControlledAssetLockV1"
+);
+record!(
+    cancel_controlled_asset_lock_v1,
+    crate::isi::escrow_control::CancelControlledAssetLockV1,
+    "iroha_data_model::isi::escrow_control::CancelControlledAssetLockV1"
+);
+record!(
+    expire_controlled_asset_lock_v1,
+    crate::isi::escrow_control::ExpireControlledAssetLockV1,
+    "iroha_data_model::isi::escrow_control::ExpireControlledAssetLockV1"
+);
+record!(
     kagemusha_wallet_ledger_v1,
     crate::isi::kagemusha_wallet::KagemushaWalletLedgerV1,
     "iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1"
@@ -151,6 +171,11 @@ record!(
     asset_transfer_control_set_asset_holding_limit,
     crate::isi::asset_transfer_control::SetAssetHoldingLimit,
     "iroha_data_model::isi::asset_transfer_control::SetAssetHoldingLimit"
+);
+record!(
+    asset_uid_set_asset_uid_policy_v1,
+    crate::isi::asset_uid::SetAssetUidPolicyV1,
+    "iroha_data_model::isi::asset_uid::SetAssetUidPolicyV1"
 );
 record!(
     asset_transfer_control_set_asset_transfer_availability,

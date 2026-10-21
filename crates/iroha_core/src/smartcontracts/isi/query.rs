@@ -772,6 +772,14 @@ impl SortableQueryOutput for AssetEscrowRecord {
         bounded_bare_encoded_len(&self.id, limit)
     }
 }
+impl SortableQueryOutput for iroha_data_model::asset::uid::AssetUidPolicyViewV1 {
+    type TiebreakKey = [u8; 32];
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> { None }
+    fn tiebreak_key(&self) -> Self::TiebreakKey { self.policy.uid }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> {
+        bounded_bare_encoded_len(&self.policy.uid, limit)
+    }
+}
 type QueryAttemptError = crate::execution_attempt::ExecutionAttemptError<Error>;
 
 // Transport projection is used only after leaving consensus execution.

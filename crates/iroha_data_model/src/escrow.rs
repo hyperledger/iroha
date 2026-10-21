@@ -1,5 +1,7 @@
 //! Generic asset escrow records and identifiers.
 
+pub mod control;
+
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
 use crate::{account::AccountId, asset::AssetDefinitionId};
 use core::num::{NonZeroU32, NonZeroU64};

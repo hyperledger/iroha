@@ -261,6 +261,7 @@ impl_direct_instruction_box!(crate::isi::asset_transfer_control::SetAssetTransfe
 impl_direct_instruction_box!(crate::isi::asset_transfer_control::SetAssetTransferControl);
 impl_direct_instruction_box!(crate::isi::asset_transfer_control::SetAssetHoldingLimit);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::ActivateRetailDailyLimitV1);
+impl_direct_instruction_box!(crate::isi::asset_uid::SetAssetUidPolicyV1);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::BindRetailIdentityV1);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::RetailMonetaryMovementV1);
 impl_direct_instruction_box!(
@@ -432,6 +433,10 @@ impl_direct_instruction_box!(crate::isi::escrow::ExpireConditionalEscrow);
 impl_direct_instruction_box!(crate::isi::escrow::DrawdownAssetLock);
 impl_direct_instruction_box!(crate::isi::escrow::CancelAssetLock);
 impl_direct_instruction_box!(crate::isi::escrow::ExpireAssetLock);
+impl_direct_instruction_box!(crate::isi::escrow_control::OpenControlledAssetLockV1);
+impl_direct_instruction_box!(crate::isi::escrow_control::DrawdownControlledAssetLockV1);
+impl_direct_instruction_box!(crate::isi::escrow_control::CancelControlledAssetLockV1);
+impl_direct_instruction_box!(crate::isi::escrow_control::ExpireControlledAssetLockV1);
 // Allow direct boxing of SoraNet VPN lease escrow instructions.
 impl_direct_instruction_box!(crate::isi::vpn::OpenVpnLeaseEscrow);
 impl_direct_instruction_box!(crate::isi::vpn::SettleVpnLease);
@@ -1990,6 +1995,7 @@ pub mod contract_alias;
 pub mod defi;
 /// Ledger-managed asset escrow instructions.
 pub mod escrow;
+pub mod escrow_control;
 /// Hidden-function-backed identifier policy instructions.
 pub mod identifier;
 /// KAGEMUSHA wallet ledger boundary.
@@ -2021,6 +2027,8 @@ mod registry_install;
 /// Repo settlement instructions.
 pub mod repo;
 pub mod retail_daily_limit;
+/// Additive identity-wide asset holding and activity policy.
+pub mod asset_uid;
 /// Runtime upgrade instructions and payloads.
 pub mod runtime_upgrade;
 /// Real-world asset lot instructions.
@@ -2890,6 +2898,7 @@ pub mod prelude {
         retail_daily_limit::{
             ActivateRetailDailyLimitV1, BindRetailIdentityV1, RetailMonetaryMovementV1,
         },
+        asset_uid::SetAssetUidPolicyV1,
         rwa::{
             ForceTransferRwa, FreezeRwa, HoldRwa, MergeRwas, RedeemRwa, RegisterRwa, ReleaseRwa,
             RwaInstructionBox, SetRwaControls, TransferRwa, UnfreezeRwa,

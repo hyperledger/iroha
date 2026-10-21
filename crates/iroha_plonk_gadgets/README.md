@@ -71,9 +71,12 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
   columns (10 width-1 range lookups into one 15-bit column `V`, `2^15` rows,
   `k >= 16`; a top sublimb of `w < 15` bits is looked up as `v` and as
   `2^(15-w) v`; operands on block row 0, running sums on rows 1-6); the
-  `C`/`Q` lookup inputs have degree 3 and the `U` inputs degree 2 against
-  fixed degree-1 tables, giving norm argument degrees 10 and 8 respectively;
-  arithmetic gates have degree 3. The carry-bound memo is re-checked by
+  standalone configuration uses six fixed pattern columns, with degree-2
+  inputs and norm argument degree 8 against the fixed degree-1 table.
+  The shared configuration retains four fixed pattern columns: `C`/`Q`
+  inputs have degree 3 (norm degree 10), and unmerged `U` inputs have
+  degree 2 (norm degree 8). Arithmetic gates have degree 3. The carry-bound
+  memo is re-checked by
   `ff_carry_memo_bounds_hold_for_every_modulus`.
 - `ecc` (M3): native Pasta ECC for in-circuit verifiers, Pallas in `Fp`
   (`PallasChip`) and Vesta in `Fq` (`VestaChip`), on 10 advice columns (4

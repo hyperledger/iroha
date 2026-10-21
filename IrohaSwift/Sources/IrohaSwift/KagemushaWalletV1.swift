@@ -129,8 +129,8 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   }
   /// Read bounded DATA from the existing Native owner; no observation creates a monetary intent.
   func observeProjection(selector: UInt32, identity: Data = Data()) throws -> Data {
-    guard (0...3).contains(selector),
-      selector == 0 ? identity.isEmpty : (identity.count == 32 && identity.contains(where: { $0 != 0 }))
+    guard (0...4).contains(selector),
+      (selector == 0 || selector == 4) ? identity.isEmpty : (identity.count == 32 && identity.contains(where: { $0 != 0 }))
     else { throw KagemushaWalletErrorV1.invalidInput }
     let owner = try handle()
     return try driver.observation(selector: selector) { result in
@@ -143,6 +143,20 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   public func metadata() throws -> KagemushaWalletMetadataV1 {
     let result = try observeProjection(selector: 0)
     return try .init(result)
+  }
+  /// Read bounded public Native fold/work diagnostics without scheduling or changing custody.
+  /// This is strict UTF-8 from Native's JSON observation, never payment or readiness authority.
+  /// Native timestamps have one process-local origin; consumers must bracket this observation
+  /// with their own monotonic clock rather than treating polling time as completion time.
+  public func foldMetricsJSON() throws -> String {
+    try Self.decodeFoldMetricsJSON(observeProjection(selector: 4))
+  }
+  static let foldMetricsMaximumBytes = 131_072
+  static func decodeFoldMetricsJSON(_ bytes: Data) throws -> String {
+    guard !bytes.isEmpty, bytes.count <= foldMetricsMaximumBytes,
+      let text = String(data: bytes, encoding: .utf8)
+    else { throw KagemushaWalletErrorV1.invalidNativeOutput }
+    return text
   }
   /// Observe a completed local request through its retained Native operation mapping.
   public func releasedOutput(requestId: Data) throws -> KagemushaWalletReleasedOutputV1 {
@@ -365,20 +379,11 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   public func executeReviewed(_ review: KagemushaWalletReviewV1, requestId: Data) throws -> KagemushaWalletCallV1 {
     guard requestId.count == 32, requestId.contains(where: { $0 != 0 }) else { throw KagemushaWalletErrorV1.invalidInput }
     let handle = try handle(), token = try review.consume(origin: self)
-    do {
+    return try KagemushaWalletReviewedExecutionV1.run(execute: {
       return try driver.result { out in requestId.withUnsafeBytes {
         driver.executeReviewed(handle, token, $0.bindMemory(to: UInt8.self).baseAddress, out)
       }}.completion()
-    } catch {
-      let primary=error
-      // Consumed Native tokens return closed. This acknowledges no unused review,
-      // never release of the owner or permission to repeat a debit.
-      let status=driver.discardReview(handle,token)
-      if status != 0 && status != -2 {
-        do { try close() } catch { throw error }
-      }
-      throw primary
-    }
+    }, discard: { driver.discardReview(handle, token) }, close: close)
   }
   /// Worker-only discard; it creates no intent, signature, proof or debit.
   public func discardReview(_ review: KagemushaWalletReviewV1) throws {
@@ -616,7 +621,7 @@ final class KagemushaWalletNativeDriverV1: @unchecked Sendable {
   /// or global setup output bound is reinterpreted to carry these larger public originals.
   func observation(selector: UInt32, _ action: (UnsafeMutablePointer<Output>) -> Int32) throws -> Data {
     return try KagemushaWalletNativeWorkerV1.perform {
-      let caps = [5_268, 20_066, 20_066, 65_756]
+      let caps = [5_268, 20_066, 20_066, 65_756, KagemushaWalletV1.foldMetricsMaximumBytes]
       guard Int(selector) < caps.count else { throw KagemushaWalletErrorV1.invalidInput }
       var value = Output()
       let status = action(&value)
