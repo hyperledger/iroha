@@ -50,6 +50,12 @@ fn query_fanout_pool_may_be_smaller_than_the_general_body_cap() {
 }
 #[test]
 fn query_fanout_aggregate_capacity_does_not_expand_per_query_phase() {
+    let expected_working_set = 48_000_000;
+    // Derive the phase from the fixed per-query ceiling and current protocol
+    // geometry, independently of the aggregate capacity varied below.
+    let expected_phase = (expected_working_set
+        - defaults::torii::QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1)
+        / defaults::torii::QUERY_FANOUT_PREBODY_UNITS_V1;
     for (aggregate, expected_slots) in [(64_000_000, 1), (512_000_000, 8), (1_024_000_000, 16)] {
         let mut table = base_table();
         table
@@ -69,14 +75,14 @@ fn query_fanout_aggregate_capacity_does_not_expand_per_query_phase() {
             torii.max_content_len.get(),
         )
         .expect("parsed configuration admits a complete working set");
-        assert_eq!(working_set, 48_000_000);
+        assert_eq!(working_set, expected_working_set);
         assert_eq!(
             defaults::torii::app_api_routed_read_route_body_phase_bytes(
                 aggregate,
                 ceiling,
                 torii.max_content_len.get(),
             ),
-            Some(2_562_487),
+            Some(expected_phase),
             "aggregate capacity changes concurrency, not one query's phase limit"
         );
         let ingress_pool = aggregate / defaults::torii::QUERY_MEMORY_INGRESS_POOL_DIVISOR_V1;

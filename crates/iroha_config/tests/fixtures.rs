@@ -390,6 +390,7 @@ fn ivm_banner_defaults_enabled() {
 fn torii_max_content_len_defaults_to_sixty_four_megabytes() {
     let config = load_config_from_fixtures("minimal_with_trusted_peers.toml")
         .expect("config should be valid");
+    let expected_working_set = 48_000_000;
     assert_eq!(
         config.torii.max_content_len.0,
         defaults::torii::MAX_CONTENT_LEN.0,
@@ -401,15 +402,20 @@ fn torii_max_content_len_defaults_to_sixty_four_megabytes() {
     );
     assert_eq!(
         config.torii.query_fanout_max_working_set_bytes.get(),
-        48_000_000
+        expected_working_set
     );
+    // Keep the expected phase tied to current protocol geometry instead of a
+    // byte count that becomes stale when the fixed overhead changes.
+    let expected_phase = (expected_working_set
+        - defaults::torii::QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1)
+        / defaults::torii::QUERY_FANOUT_PREBODY_UNITS_V1;
     assert_eq!(
         defaults::torii::app_api_routed_read_route_body_phase_bytes(
             config.torii.query_fanout_max_retained_bytes.get(),
             config.torii.query_fanout_max_working_set_bytes.get(),
             config.torii.max_content_len.get(),
         ),
-        Some(2_562_487),
+        Some(expected_phase),
         "minimal configs must retain the per-query phase when aggregate concurrency increases"
     );
 }
