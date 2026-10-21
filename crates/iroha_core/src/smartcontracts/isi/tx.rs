@@ -1986,6 +1986,10 @@ pub fn visit_committed_transaction_page(
 /// callback borrows its input and result from that same authenticated carrier.
 /// Bytes cover source frames; callers must separately bound their retained display
 /// rows. Coordinates, exclusive resume and budget-exhaustion behavior are unchanged.
+/// `completed_block` reports a public block height only after every remaining
+/// transaction in that authenticated carrier has been visited, including empty
+/// carriers. It is never called for a carrier refused by the budget or stopped
+/// partway through by the transaction visitor.
 /// This API must not be used for consensus metering or as a portable finality proof.
 ///
 /// # Errors
@@ -1996,6 +2000,7 @@ pub fn visit_borrowed_committed_transaction_page(
     resume: Option<TransactionHistoryPosition>,
     max_projection_work: u64,
     max_history_bytes: u64,
+    mut completed_block: impl FnMut(u64),
     mut visitor: impl FnMut(
         &TransactionEntrypoint,
         &TransactionResult,
@@ -2057,6 +2062,7 @@ pub fn visit_borrowed_committed_transaction_page(
                     return Ok(ControlFlow::Break(()));
                 }
             }
+            completed_block(height.get() as u64);
             Ok(ControlFlow::Continue(()))
         },
     );
@@ -3236,6 +3242,7 @@ pub(crate) mod tests {
             None,
             1_000,
             TRANSACTION_HISTORY_MAX_BYTES,
+            |_| {},
             |_, _, _, _| ControlFlow::Continue(()),
         )
         .expect_err("borrowed display history must reject a self-consistent changed output");
@@ -3268,11 +3275,13 @@ pub(crate) mod tests {
         reset_canonical_network_projection_calls_for_test();
         view.kura().reset_canonical_query_reads_for_test();
         let mut actual = Vec::new();
+        let mut completed = Vec::new();
         let end = visit_borrowed_committed_transaction_page(
             &view,
             None,
             1_000,
             TRANSACTION_HISTORY_MAX_BYTES,
+            |height| completed.push(height),
             |input, result, position, block| {
                 assert!(std::ptr::eq(
                     input,
@@ -3296,6 +3305,10 @@ pub(crate) mod tests {
         assert_eq!(end, TransactionHistoryPageEnd::Exhausted);
         assert_eq!(actual, expected);
         assert_eq!(
+            completed,
+            (1..=view.height() as u64).rev().collect::<Vec<_>>()
+        );
+        assert_eq!(
             canonical_network_projection_calls_for_test(),
             0,
             "display history must not construct unused transaction proof DTOs"
@@ -3304,6 +3317,22 @@ pub(crate) mod tests {
             view.kura().canonical_query_reads_for_test().0,
             view.height(),
             "each carrier is authenticated once for all of its borrowed rows"
+        );
+
+        let mut stopped_completions = Vec::new();
+        let stopped = visit_borrowed_committed_transaction_page(
+            &view,
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |height| stopped_completions.push(height),
+            |_, _, _, _| ControlFlow::Break(()),
+        )
+        .expect("early stop");
+        assert!(matches!(stopped, TransactionHistoryPageEnd::Stopped(_)));
+        assert!(
+            stopped_completions.is_empty(),
+            "a partially visited block is never complete"
         );
 
         let mut actual = Vec::new();
@@ -3315,6 +3344,7 @@ pub(crate) mod tests {
                 resume,
                 1_000,
                 TRANSACTION_HISTORY_MAX_BYTES,
+                |_| {},
                 |input, result, position, _| {
                     actual.push((input.clone(), result.clone(), position));
                     page_len += 1;
@@ -3350,6 +3380,7 @@ pub(crate) mod tests {
                     None,
                     work,
                     bytes,
+                    |_| {},
                     |_, _, _, _| panic!("invalid budget cannot visit"),
                 ),
                 Err(QueryExecutionFail::FetchSizeTooBig)
@@ -3358,9 +3389,14 @@ pub(crate) mod tests {
         view.kura().history_checkpoints().clear();
         view.kura().reset_canonical_query_reads_for_test();
         assert_eq!(
-            visit_borrowed_committed_transaction_page(&view, None, 1_000, 1, |_, _, _, _| panic!(
-                "source bytes must be prepaid"
-            ),)
+            visit_borrowed_committed_transaction_page(
+                &view,
+                None,
+                1_000,
+                1,
+                |_| {},
+                |_, _, _, _| panic!("source bytes must be prepaid"),
+            )
             .unwrap(),
             TransactionHistoryPageEnd::OutOfReach
         );
@@ -3371,6 +3407,7 @@ pub(crate) mod tests {
                 TransactionHistoryPosition::new(3, 0),
                 1,
                 TRANSACTION_HISTORY_MAX_BYTES,
+                |_| {},
                 |_, _, _, _| panic!("one source cannot reach the cold deep page"),
             )
             .unwrap(),
@@ -3387,6 +3424,7 @@ pub(crate) mod tests {
                 resume,
                 5,
                 TRANSACTION_HISTORY_MAX_BYTES,
+                |_| {},
                 |_, _, position, _| {
                     assert!(previous.is_none_or(|prior| position < prior));
                     previous = Some(position);
@@ -3416,6 +3454,7 @@ pub(crate) mod tests {
             None,
             1_000,
             TRANSACTION_HISTORY_MAX_BYTES,
+            |_| {},
             |_, _, _, _| ControlFlow::Continue(()),
         )
         .expect_err("borrowed rows still require authenticated exact originals");

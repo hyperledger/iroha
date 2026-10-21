@@ -1075,11 +1075,23 @@ fn decode_position(
     token: &str,
     allocation_bytes: usize,
 ) -> Result<Vec<u64>, CursorError> {
-    let position: Vec<u64> =
-        cursor::decode(token, spec.tag, digest, spec.positioned, allocation_bytes)?
-            .iter()
-            .map(|value| value.as_u64().ok_or(CursorError::Malformed))
-            .collect::<Result<_, _>>()?;
+    let values = cursor::decode(token, spec.tag, digest, spec.positioned, allocation_bytes)?;
+    // Account-history scans may finish between complete public blocks without
+    // seeing an account movement. Null coordinates name that block boundary,
+    // never a hidden transaction or movement inside it.
+    if spec.tag == super::specs::ACCOUNT_HISTORY.tag
+        && matches!(values.as_slice(), [_, Value::Null, Value::Null])
+    {
+        let height = values[0]
+            .as_u64()
+            .filter(|height| *height > 0)
+            .ok_or(CursorError::Malformed)?;
+        return Ok(vec![height]);
+    }
+    let position: Vec<u64> = values
+        .iter()
+        .map(|value| value.as_u64().ok_or(CursorError::Malformed))
+        .collect::<Result<_, _>>()?;
     if position.first() == Some(&0) {
         return Err(CursorError::Malformed);
     }
@@ -1454,6 +1466,7 @@ impl Prepared<'_> {
     pub(crate) fn resume_position(&self) -> Option<Position> {
         self.after_position
             .as_ref()
+            .filter(|position| position.len() >= 2)
             .map(|position| (position[0], position[1]))
     }
 
@@ -1461,7 +1474,37 @@ impl Prepared<'_> {
     pub(crate) fn resume_subrow_position(&self) -> Option<(u64, u64, u64)> {
         self.after_position
             .as_ref()
+            .filter(|position| position.len() == 3)
             .map(|position| (position[0], position[1], position[2]))
+    }
+
+    /// Account history continues strictly below this completely scanned public block.
+    pub(crate) fn resume_before_block(&self) -> Option<u64> {
+        self.after_position
+            .as_ref()
+            .filter(|position| position.len() == 1)
+            .map(|position| position[0])
+    }
+
+    /// Preserve bounded scan progress without disclosing hidden subrow coordinates.
+    pub(crate) fn block_boundary_page(
+        &self,
+        items: Vec<Map>,
+        height: u64,
+    ) -> Result<RowPage, CollectionError> {
+        if self.spec.tag != super::specs::ACCOUNT_HISTORY.tag || height == 0 {
+            return Err(cursor_error(CursorError::Malformed));
+        }
+        Ok(RowPage {
+            items,
+            next_cursor: Some(cursor::encode(
+                self.spec.tag,
+                &self.digest,
+                &[Value::from(height), Value::Null, Value::Null],
+                self.bytes.scratch_bytes,
+            )?),
+            total: None,
+        })
     }
 
     /// Encode the last examined subrow without skipping remaining rows in its output.
@@ -2880,6 +2923,59 @@ mod tests {
                 "retired event field {retired}"
             );
         }
+    }
+
+    #[test]
+    fn account_history_block_boundaries_preserve_query_scope_without_hidden_positions() {
+        let spec = &super::super::specs::ACCOUNT_HISTORY;
+        let query = ListQuery::new().filter(field("asset_definition_id").eq("coin"));
+        let prepared = prepare(spec, "alice", &query, &LIMITS).unwrap();
+        let page = prepared.block_boundary_page(Vec::new(), 70).unwrap();
+        let token = page.next_cursor.unwrap();
+        let values = cursor::decode(&token, spec.tag, &prepared.digest, 3, 16 * 1024).unwrap();
+        assert_eq!(values, [Value::from(70_u64), Value::Null, Value::Null]);
+        let next = query.clone().cursor(token.clone());
+        let resumed = prepare(spec, "alice", &next, &LIMITS).unwrap();
+        assert_eq!(resumed.resume_before_block(), Some(70));
+        assert_eq!(resumed.resume_position(), None);
+        assert_eq!(resumed.resume_subrow_position(), None);
+        assert!(prepare(spec, "bob", &next, &LIMITS).is_err());
+        assert!(
+            prepare(
+                spec,
+                "alice",
+                &ListQuery::new().cursor(token.clone()),
+                &LIMITS
+            )
+            .is_err()
+        );
+        assert!(
+            prepare(
+                &ACCOUNT_TRANSACTIONS,
+                "alice",
+                &ListQuery::new().cursor(token),
+                &LIMITS
+            )
+            .is_err()
+        );
+        assert!(prepared.block_boundary_page(Vec::new(), 0).is_err());
+        for values in [
+            vec![Value::from(0_u64), Value::Null, Value::Null],
+            vec![Value::from(70_u64), Value::from(1_u64), Value::Null],
+            vec![Value::from(70_u64), Value::Null, Value::from(1_u64)],
+        ] {
+            let token = cursor::encode(spec.tag, &prepared.digest, &values, 16 * 1024).unwrap();
+            assert!(prepare(spec, "alice", &query.clone().cursor(token), &LIMITS).is_err());
+        }
+        let event_query = ListQuery::new();
+        let events = prepare(
+            &super::super::specs::CONTRACT_EVENTS,
+            "",
+            &event_query,
+            &LIMITS,
+        )
+        .unwrap();
+        assert!(events.block_boundary_page(Vec::new(), 70).is_err());
     }
 
     #[test]

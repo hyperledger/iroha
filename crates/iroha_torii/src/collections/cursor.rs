@@ -1,7 +1,9 @@
 //! Opaque keyset cursors.
 //!
 //! A cursor is `base64url(version | collection tag | query digest[16] |
-//! canonical JSON array of the last row's sort values)`. The digest binds the
+//! canonical JSON array of the last row's sort values)`. Account history may
+//! instead use `[public_block_height, null, null]` after completely scanning a
+//! block; it never exposes hidden transaction or movement coordinates. The digest binds the
 //! collection path (account or asset definition), filter, sort and aggregate
 //! so a cursor cannot be replayed against another query; positions are plain keyset values, so cursors never expire and need
 //! no server state. A forged position only moves the caller within rows the

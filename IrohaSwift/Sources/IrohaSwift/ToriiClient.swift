@@ -23263,6 +23263,23 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
         return request
     }
 
+    /// Fetch a bounded original proof for the complete retained checkpoint.
+    /// This is transport only; `ValidationFeeFinalityV1.verify` authenticates it.
+    public func getValidationFeePolicyProof(checkpoint: Data,
+                                            canonicalAuth: ToriiCanonicalRequestAuth) async throws -> Data {
+        let body = try ValidationFeeFinalityV1.request(checkpoint: checkpoint)
+        let request = try makeCanonicalAccountRequest(path: "/v1/validation-fee/policy/current/proof",
+            method: .post, body: body,
+            headers: ["Content-Type": "application/x-norito", "Accept": "application/x-norito",
+                      "Cache-Control": "no-cache, no-store"], canonicalAuth: canonicalAuth)
+        let (data, response) = try await sendBoundedResponse(request, context: "validation fee policy proof",
+            maximumBytes: ValidationFeeFinalityV1.maximumProofBytes)
+        try ensureStatus(response, equals: 200, responseBody: data)
+        try ensureResponseMediaType(response, equals: "application/x-norito")
+        guard !data.isEmpty else { throw ToriiClientError.invalidPayload("Validation fee proof is empty.") }
+        return data
+    }
+
     private func sendBoundedResponse(
         _ request: URLRequest,
         context: String,
