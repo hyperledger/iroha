@@ -123,10 +123,11 @@ Queue expiry, native AMX time deadlines and CT5 remain separate required control
 simulator's wall-stamped payloads alone do not establish final-payment restart progress.
 External customer credits use durable application inbox/outbox handling; their
 database effects are not claimed to be atomic with ledger settlement. The current
-resource contract's carrier/block inequality holds numerically and X.2's contract
-relations are closed; X.2 still needs four-validator exact/one-over,
-inconsistent-parameter and recovery evidence, and F.4 owns committed policy
-coherence. No compatibility aliases, dummy movements or relaxed fixed proof caps
+resource contract's carrier/block inequality holds numerically. X.2's resource
+agreement is qualified on its recorded four-validator candidate, including
+exact/one-over transactions, inconsistent parameters, restart and startup refusals.
+X.2 remains in progress on F.2 and P.1; X.4 owns actual maximum native-proof
+delivery, and F.4 owns the remaining committed-policy and carrier coherence. No compatibility aliases, dummy movements or relaxed fixed proof caps
 close these milestones.
 
 ## Architecture and build

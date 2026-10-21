@@ -2318,6 +2318,21 @@ mod tests {
             stale_signature,
             "mutating header should stale existing signature"
         );
+        let authentication_error =
+            iroha_data_model::sumeragi_finality::authenticated_genesis(&block.0)
+                .expect_err("the changed proposal's original signature must not authenticate");
+        assert!(matches!(
+            &authentication_error,
+            iroha_data_model::sumeragi_finality::GenesisReadError::Invalid(_)
+        ));
+        let original_wire = block
+            .0
+            .canonical_wire()
+            .expect("the stale signed proposal remains encodable")
+            .as_framed()
+            .to_vec();
+        let attempts_before = super::genesis_preexecution_count();
+        let signings_before = super::genesis_signing_count();
         let error = super::populate_genesis_results(
             &block,
             &genesis_account,
@@ -2327,9 +2342,34 @@ mod tests {
             None,
         )
         .expect_err("strict preexecution must reject the stale proposal signature");
+        // SNS bootstrap authenticates the original before State construction. Match
+        // that typed rejection and its original cause, not a later verifier's prose.
         assert!(
-            format!("{error:#}").contains("must be signed with genesis private key"),
-            "the strict verifier must reject the stale signature before execution: {error:#}"
+            matches!(
+                error.downcast_ref::<iroha_core::sns::SnsError>(),
+                Some(iroha_core::sns::SnsError::BadRequest(message))
+                    if message == &format!("invalid SNS bootstrap genesis: {authentication_error}")
+            ),
+            "strict bootstrap must retain the original authentication rejection: {error:#}"
+        );
+        assert_eq!(
+            super::genesis_preexecution_count(),
+            attempts_before + 1,
+            "the strict validation attempt must not retry or rebind the proposal"
+        );
+        assert_eq!(
+            super::genesis_signing_count(),
+            signings_before,
+            "rejecting an unauthenticated proposal must not sign replacement bytes"
+        );
+        assert_eq!(
+            block.0.canonical_wire().unwrap().as_framed(),
+            original_wire.as_slice(),
+            "rejection must preserve the exact original proposal and stale signature"
+        );
+        assert!(
+            !block.0.has_results(),
+            "rejection must not synthesize execution results"
         );
         // A new DA alias changes the actual staged policy. A refreshed signature
         // alone must still reject the old policy commitment. Only this fixture's

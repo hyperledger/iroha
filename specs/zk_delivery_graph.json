@@ -1685,7 +1685,7 @@
       ],
       "status": "in_progress",
       "evidence": {
-        "source": "5d63ed789acb8ad9bd2d9db968a9b36920746450 plus the X.2 working-tree changes as of 2026-10-19 15:00 JST (dist/zk-delivery-handoff/claude/x2/logs/final-changed-files.sha256; final four-validator source fingerprint d73bda338f33ffc0...), after an independent verification and a confirmation of the repair round (claude/x2/verify.md, claude/x2/confirm.md). The four-validator run reaches the network and commits the exact-cap transaction on all four validators; the run fails on Torii's status route (finding G24), which is being fixed.",
+        "source": "The four-validator resource-agreement qualification uses captured HEAD 7d47f1e405fa98636f7d541df8067222f104770b and the source bytes recorded in dist/zk-delivery-handoff/reports/codex-g24-takeover-2026-10-20/x2-qualification-06/source-manifest.json. Before the network test, the same captured source passed the 45 original Core/Torii gates, four genesis regression controls and one peer-lifecycle cleanup regression. Its new core_api binary passed the construction-only genesis control before the matched release iroha3d was built; receipt.json, artifacts.json and source-observations.json in that directory bind the successful exact test to its binaries and unchanged source boundaries. The fixture explicitly funds its finite full-details query read; protocol caps and production defaults remain unchanged. Earlier component commands below retain their recorded 2026-10-19 source attribution. X.2 remains in_progress while F.2 and P.1 are incomplete; X.4 retains actual maximum native-proof delivery.",
         "paths": [
           "crates/iroha_sumeragi/src/machine/sync.rs",
           "crates/irohad/src/main.rs",
@@ -1695,7 +1695,11 @@
           "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
           "crates/iroha_core/src/resource_coherence.rs",
           "integration_tests/tests/resource_policy_network.rs",
-          "specs/zk_resource_contract.json"
+          "specs/zk_resource_contract.json",
+          "crates/iroha_core/src/state/canonical_history/committed_outcome.rs",
+          "crates/iroha_core/src/kura/history_checkpoints/finite.rs",
+          "crates/iroha_torii/src/lib_pipeline_handlers.rs",
+          "crates/iroha_test_network/src/lib/peer_runtime_tests.rs"
         ],
         "commands": [
           {
@@ -1723,8 +1727,8 @@
             "outcome": "passed"
           },
           {
-            "command": "dist/zk-delivery-handoff/claude/x2/scratch/run_g2_resource_policy.sh",
-            "outcome": "failed"
+            "command": "/Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/venvs/native-js-recipe-py312/bin/python /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/reports/codex-g24-takeover-2026-10-20/run_x2_final06_candidate.py --source /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/reports/codex-g24-takeover-2026-10-20/x2-final06-source --manifest /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/reports/codex-g24-takeover-2026-10-20/x2-final06-source-manifest.json --target-dir /Users/takemiyamakoto/devstuff/iroha/target/codex-g24-x2-final06-20261021 --run-dir /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/reports/codex-g24-takeover-2026-10-20/x2-qualification-06 --jobs 6",
+            "outcome": "passed"
           }
         ],
         "acceptance": [
@@ -1750,8 +1754,8 @@
           },
           {
             "clause": "Exact/one-over and inconsistent-parameter tests agree across peers.",
-            "state": "unmet",
-            "proof": "`dist/zk-delivery-handoff/claude/x2/scratch/run_g2_resource_policy.sh` runs integration_tests/tests/resource_policy_network.rs on four validators from a same-source daemon. Every inconsistent-parameter step is rejected or applied identically on all peers, and the exact-cap 10,485,760-byte transaction commits on all four validators in view 0. The status route then answers every read with a retryable 429 because it decodes the whole committed block within a per-request budget (finding G24, being fixed), so the test's exact/one-over commit, restart and startup-refusal steps have not completed."
+            "state": "met",
+            "proof": "The exact resource_policy_network::four_validators_agree_on_resource_policy_bounds_and_coherence test in integration_tests/tests/resource_policy_network.rs passed on four validators using the source and binaries recorded in dist/zk-delivery-handoff/reports/codex-g24-takeover-2026-10-20/x2-qualification-06/receipt.json. It verifies identical rejected outcomes and unchanged policy for incoherent proposals, coherent tightening in both instruction orders, Applied status and full committed details for the 10,485,760-byte transaction, pre-admission refusal of 10,485,761 bytes on every validator, matching tip hashes, all-validator restart with the same policy, three one-under local startup refusals and final rejoin/progress. The fixture uses a finite signed Log gas allowance and a 24 MiB local HTTP query source phase: max_content_len 25,165,824 bytes, query working set 387,049,026 bytes and aggregate budget 516,065,368 bytes. Fixed proof, transaction and block caps are unchanged. This closes the resource-agreement item only; genuine maximum native-proof delivery remains X.4."
           }
         ]
       }

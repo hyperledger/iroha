@@ -261,6 +261,80 @@ mod shutdown_tests {
             .expect("already-exited child should be treated as graceful during shutdown race");
     }
     #[tokio::test]
+    async fn reaping_terminated_runs_drains_tasks_before_releasing_lifecycle_ownership() {
+        let env = Environment::new();
+        let peer = NetworkPeer::builder().build(&env);
+        for run_num in 1..=2 {
+            let refusal = format!("expected startup refusal {run_num}");
+            {
+                let mut stderr = peer.stderr_live.lock().expect("stderr lock");
+                stderr.reset(run_num);
+                stderr.push_line(&refusal);
+            }
+            let (shutdown_tx, _shutdown_rx) = oneshot::channel();
+            let (fatal_tx, mut fatal_rx) = watch::channel(false);
+            let (draining_tx, draining_rx) = oneshot::channel();
+            let (release_tx, release_rx) = oneshot::channel();
+            let drained = Arc::new(AtomicBool::new(false));
+            let task_drained = Arc::clone(&drained);
+            let mut tasks = JoinSet::new();
+            tasks.spawn(async move {
+                fatal_rx.changed().await.expect("cleanup wakes the task");
+                assert!(*fatal_rx.borrow());
+                draining_tx.send(()).expect("report pending drain");
+                release_rx.await.expect("release retained task");
+                task_drained.store(true, Ordering::Relaxed);
+            });
+            {
+                let mut slot = peer.run.lock().await;
+                assert!(slot.is_none(), "the prior run must be fully reaped");
+                *slot = Some(PeerRun {
+                    tasks,
+                    shutdown: shutdown_tx,
+                    fatal_tx,
+                    // There is no OS child: this models the retained owner after exit.
+                    pid: None,
+                    #[cfg(unix)]
+                    broker_child: None,
+                    #[cfg(unix)]
+                    broker_shutdown: None,
+                });
+            }
+            peer.is_running.store(false, Ordering::Relaxed);
+            assert!(peer.run.lock().await.is_some());
+            let cleanup = peer.shutdown_if_started();
+            tokio::pin!(cleanup);
+            tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::select! {
+                    _ = &mut cleanup => panic!("cleanup returned before the retained task drained"),
+                    started = draining_rx => started.expect("cleanup started draining"),
+                }
+            })
+            .await
+            .expect("cleanup must wake retained tasks promptly");
+            assert!(
+                peer.run.try_lock().is_err(),
+                "restart ownership must remain locked until task drainage completes"
+            );
+            assert!(!drained.load(Ordering::Relaxed));
+            release_tx.send(()).expect("complete retained task");
+            assert!(
+                tokio::time::timeout(Duration::from_secs(1), cleanup)
+                    .await
+                    .expect("cleanup must finish after task drainage")
+            );
+            assert!(drained.load(Ordering::Relaxed));
+            assert!(!peer.is_running());
+            assert!(peer.run.lock().await.is_none());
+            assert_eq!(peer.process_id().await, None);
+            assert!(
+                peer.stderr_preview()
+                    .is_some_and(|text| text.contains(&refusal))
+            );
+            assert!(!peer.shutdown_if_started().await);
+        }
+    }
+    #[tokio::test]
     async fn log_drain_exits_on_shutdown_notify() {
         let dir = tempdir().expect("tempdir");
         let log_path = dir.path().join("stdout.log");
@@ -443,7 +517,9 @@ mod sora_profile_tests {
         nexus.insert("routing_policy".into(), toml::Value::Table(policy));
         let mut table = Table::new();
         table.insert("nexus".into(), toml::Value::Table(nexus));
-        assert!(!typed_sora_profile_requirements(&table).expect("canonical default routing policy"));
+        assert!(
+            !typed_sora_profile_requirements(&table).expect("canonical default routing policy")
+        );
     }
 }
 #[cfg(test)]

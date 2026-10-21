@@ -518,16 +518,28 @@ def test_ram_lfe_budgets_are_derived_and_open_ones_carry_no_number() -> None:
 
 
 def test_open_items_are_reconciled_when_their_task_is_implemented() -> None:
-    # X.2 stays open until its four-validator agreement run passes on a same-source daemon;
+    # X.2's four-validator resource-agreement item is closed by its same-source run;
     # the native maximum proof is X.4's open item and the carrier source is F.4's.
-    assert_fails(CONTRACT, "task X.2 is recorded implemented", {**TASKS, "X.2": "implemented"})
+    assert problems(CONTRACT, {**TASKS, "X.2": "implemented"}) == []
+
+    def reopened(contract: dict) -> None:
+        relation(contract, "transaction_cap_fits_block_payload")["open"] = {
+            "owner": "X.2",
+            "summary": "A newly opened resource-agreement requirement must be reconciled.",
+        }
+
+    assert_fails(
+        edited(reopened),
+        "task X.2 is recorded implemented",
+        {**TASKS, "X.2": "implemented"},
+    )
     assert_fails(CONTRACT, "task X.4 is recorded implemented", {**TASKS, "X.4": "implemented"})
     assert_fails(CONTRACT, "task F.4 is recorded implemented", {**TASKS, "F.4": "implemented"})
     # I.1 implemented its declared design: nothing of it is open any more.
     assert problems(CONTRACT, {**TASKS, "I.1": "implemented"}) == []
     assert_fails(CONTRACT, "task C.3 is recorded implemented", {**TASKS, "C.3": "implemented"})
     # A status that is not `implemented` keeps the open items valid.
-    assert problems(CONTRACT, {**TASKS, "X.2": "in_progress"}) == []
+    assert problems(edited(reopened), {**TASKS, "X.2": "in_progress"}) == []
 
 
 def test_declared_items_are_not_yet_implemented_and_state_their_requirements() -> None:

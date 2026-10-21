@@ -565,6 +565,13 @@ fn refused_at_startup(
             .any(|name| logs.contains(name) || started.contains(name)),
         "the startup refusal must name {names:?}: {started}"
     );
+    // Process exit clears the running flag but retains the run owner and its tasks.
+    // Reap that verified refusal before the next startup scenario reuses this peer.
+    rt.block_on(peer.shutdown_if_started());
+    ensure!(
+        rt.block_on(peer.process_id()).is_none(),
+        "the refused startup retained its peer run owner"
+    );
     Ok(())
 }
 
