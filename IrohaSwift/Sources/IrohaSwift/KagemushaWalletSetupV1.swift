@@ -79,16 +79,16 @@ struct KagemushaWalletSetupInputV1 {
     switch selector {
     case 0, 4, 6, 15, 18, 19, 20, 24, 27, 38, 43, 47, 48, 49, 50, 51, 52: limits = [0, 0, 0]
     case 53: limits = [256 * 1024, 0, 0]
-    case 21, 22: limits = [21_024, 0, 0]
+    case 21, 22: limits = [21_092, 0, 0]
     case 23: limits = [36 * 1024 * 1024, 0, 0]
     case 25: limits = [32 * 1024 * 1024, 1024, 0]
-    case 26: limits = [21_024, 16_384, 0]
+    case 26: limits = [21_092, 16_384, 0]
     case 45: limits = [16_384, 0, 0]
     case 29, 30, 33, 35, 37, 46: limits = [65_536, 0, 0]
     case 34, 36: limits = [65_536, 36 * 1024 * 1024, 0]
     case 2: limits = [0, 1_024, 512]
-    case 3, 8...10, 12...14, 16...17, 41, 42, 54, 55: limits = [10_000, 0, 0]
-    case 39, 40, 44: limits = [10_000, 10_000, 0]
+    case 3, 8...10, 12...14, 16...17, 41, 42, 54, 55: limits = [10_034, 0, 0]
+    case 39, 40, 44: limits = [10_034, 10_034, 0]
     case 5: limits = [512, 512, 0]
     default: throw KagemushaWalletErrorV1.invalidInput
     }

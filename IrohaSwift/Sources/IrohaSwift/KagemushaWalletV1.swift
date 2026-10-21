@@ -303,7 +303,7 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   /// Authenticate the fully folded Send source before fresh hardware UI confirmation. Native
   /// completes the receiver's open Request with this wallet's account and next send ordinal.
   public func reviewSend(request: Data, destinationAccountOriginal: Data) throws -> KagemushaWalletReviewV1 {
-    guard !request.isEmpty, request.count <= 10_000,
+    guard !request.isEmpty, request.count <= 10_034,
       !destinationAccountOriginal.isEmpty, destinationAccountOriginal.count <= 4_096
     else { throw KagemushaWalletErrorV1.invalidInput }
     return try review(selector: 1, amount: .init(low: 0, high: 0), first: request,
@@ -337,7 +337,7 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
     guard amount.low != 0 || amount.high != 0, (quote == nil) == (certificates == nil),
       (quote == nil) == (chargeBeneficiary == nil),
       quote.map({ !$0.isEmpty && $0.count <= 1_024 }) ?? true,
-      certificates.map({ !$0.isEmpty && $0.count <= 10_000 }) ?? true,
+      certificates.map({ !$0.isEmpty && $0.count <= 10_034 }) ?? true,
       chargeBeneficiary.map({ !$0.isEmpty && $0.count <= 4_096 }) ?? true else { throw KagemushaWalletErrorV1.invalidInput }
     let companion: Data
     if let certificates, let chargeBeneficiary {
@@ -478,13 +478,13 @@ struct KagemushaWalletOperationInputV1 {
     let limits: [Int]
     switch selector {
     case 0: limits = [512, 256 * 1024, 0]
-    case 2: limits = [10_000, 1_024, 10_000]
-    case 3, 4: limits = [1_024, 10_000, 0]
-    case 5: limits = [65_536 * 34 + 512, 10_000, 0]
-    case 6: limits = [512, 10_000, 0]
-    case 7: limits = [8_192, 10_000, 0]
+    case 2: limits = [10_034, 1_024, 10_034]
+    case 3, 4: limits = [1_024, 10_034, 0]
+    case 5: limits = [65_536 * 34 + 512, 10_034, 0]
+    case 6: limits = [512, 10_034, 0]
+    case 7: limits = [8_192, 10_034, 0]
     case 9: limits = [0, 0, 0]
-    case 10: limits = [10_000, 2_048, 0]
+    case 10: limits = [10_034, 2_048, 0]
     default: throw KagemushaWalletErrorV1.invalidInput
     }
     let nonzero = amount.low != 0 || amount.high != 0
@@ -621,7 +621,7 @@ final class KagemushaWalletNativeDriverV1: @unchecked Sendable {
   /// or global setup output bound is reinterpreted to carry these larger public originals.
   func observation(selector: UInt32, _ action: (UnsafeMutablePointer<Output>) -> Int32) throws -> Data {
     return try KagemushaWalletNativeWorkerV1.perform {
-      let caps = [5_268, 20_066, 20_066, 65_756, KagemushaWalletV1.foldMetricsMaximumBytes]
+      let caps = [5_268, 20_134, 20_134, 65_756, KagemushaWalletV1.foldMetricsMaximumBytes]
       guard Int(selector) < caps.count else { throw KagemushaWalletErrorV1.invalidInput }
       var value = Output()
       let status = action(&value)
@@ -800,13 +800,13 @@ func kagemushaWalletOutputBoundV1(_ status: Int32) -> Int {
   case 28: return 1024
   case 37: return 1028
   case 38: return 73_740
-  case 31: return 21_024
+  case 31: return 21_092
   case 33, 42, 44, 45, 49: return 32
-  case 47: return 10_092
+  case 47: return 10_126
   case 53: return 254
   case 54: return 32
   case 55, 56, 58: return 0
   case 57: return 16
-  default: return 10_000
+  default: return 10_034
   }
 }

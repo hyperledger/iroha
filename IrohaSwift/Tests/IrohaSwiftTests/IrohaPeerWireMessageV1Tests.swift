@@ -15,7 +15,7 @@ final class IrohaPeerWireMessageV1Tests: XCTestCase {
         )
         XCTAssertEqual(
             IrohaPeerWireKindV1.allCases.map(\.maximumWalletFrameBytes),
-            [14_112, 12_064, 10_000, 2_048, 10_000]
+            [14_146, 12_098, 10_034, 2_048, 10_034]
         )
         XCTAssertEqual(IrohaPeerWireProfileV1.kagemushaWalletV1.requiredSchemaVersion, 1)
         // Zero, the retired Offer (1) and Lineage (7) tags, and anything past them are refused.
@@ -26,17 +26,17 @@ final class IrohaPeerWireMessageV1Tests: XCTestCase {
     }
 
     func testWireLimitHardCeilingsRejectLargerAllocationPolicies() {
-        XCTAssertEqual(IrohaPeerWireLimitsV1.maximumWalletProfileBytes, 14_112)
+        XCTAssertEqual(IrohaPeerWireLimitsV1.maximumWalletProfileBytes, 14_146)
         XCTAssertTrue(IrohaPeerWireLimitsV1.areValid(
-            maximumCanonicalBytes: 14_112,
-            maximumWalletEncodedBytes: 14_112
+            maximumCanonicalBytes: 14_146,
+            maximumWalletEncodedBytes: 14_146
         ))
         XCTAssertFalse(IrohaPeerWireLimitsV1.areValid(
             maximumCanonicalBytes: 14_113,
-            maximumWalletEncodedBytes: 14_112
+            maximumWalletEncodedBytes: 14_146
         ))
         XCTAssertFalse(IrohaPeerWireLimitsV1.areValid(
-            maximumCanonicalBytes: 14_112,
+            maximumCanonicalBytes: 14_146,
             maximumWalletEncodedBytes: 14_113
         ))
     }
@@ -264,10 +264,10 @@ final class IrohaPeerWireMessageV1Tests: XCTestCase {
     }
 
     func testProfileAndCanonicalLimitsAreEnforcedBeforeAllocation() throws {
-        XCTAssertEqual(IrohaPeerWireLimitsV1.peerV1.maximumWalletEncodedBytes, 14_112)
+        XCTAssertEqual(IrohaPeerWireLimitsV1.peerV1.maximumWalletEncodedBytes, 14_146)
         let boundaryCanonical = irohaPeerWalletStructuralEnvelopeV1(
             kind: .credited,
-            frameBytes: 10_000
+            frameBytes: 10_034
         )
         let boundary = try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
@@ -275,7 +275,7 @@ final class IrohaPeerWireMessageV1Tests: XCTestCase {
             schemaVersion: 1,
             canonicalPayload: boundaryCanonical
         )
-        XCTAssertEqual(boundary.encodedBody.count, 10_000)
+        XCTAssertEqual(boundary.encodedBody.count, 10_034)
         XCTAssertEqual(try IrohaPeerWireMessageV1.decode(boundary.encoded), boundary)
         XCTAssertThrowsError(try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
@@ -283,22 +283,22 @@ final class IrohaPeerWireMessageV1Tests: XCTestCase {
             schemaVersion: 1,
             canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
                 kind: .credited,
-                frameBytes: 10_001
+                frameBytes: 10_035
             )
         )) { error in
             XCTAssertEqual(
                 error as? IrohaPeerWireMessageErrorV1,
-                .canonicalLengthOutOfRange(actual: 10_001, maximum: 10_000)
+                .canonicalLengthOutOfRange(actual: 10_035, maximum: 10_034)
             )
         }
 
-        // The Payment carrier is its envelope's 10,000-byte bound plus the 2,048-byte payer
+        // The Payment carrier is its envelope's 10,034-byte bound plus the 2,048-byte payer
         // companion and the 16-byte KWPYPC1 header.
         let maximumPayment = try IrohaPeerWalletPaymentV1(
-            paymentEnvelope: irohaPeerWalletStructuralEnvelopeV1(kind: .payment, frameBytes: 10_000),
+            paymentEnvelope: irohaPeerWalletStructuralEnvelopeV1(kind: .payment, frameBytes: 10_034),
             payerCompanion: irohaPeerWalletPayerCompanionV1(count: IrohaPeerWalletPaymentV1.maximumCompanionBytes)
         ).encode()
-        XCTAssertEqual(maximumPayment.count, 12_064)
+        XCTAssertEqual(maximumPayment.count, 12_098)
         let paymentBoundary = try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
             kind: .payment,
@@ -314,7 +314,7 @@ final class IrohaPeerWireMessageV1Tests: XCTestCase {
         )) { error in
             XCTAssertEqual(
                 error as? IrohaPeerWireMessageErrorV1,
-                .canonicalLengthOutOfRange(actual: 12_065, maximum: 12_064)
+                .canonicalLengthOutOfRange(actual: 12_099, maximum: 12_098)
             )
         }
 

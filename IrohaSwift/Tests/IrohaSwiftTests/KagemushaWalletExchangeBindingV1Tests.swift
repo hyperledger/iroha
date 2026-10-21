@@ -107,7 +107,7 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
     func testPaymentProofRolesAreBoundedBeforeExchangeBinding() throws {
         let wire = KagemushaWalletWireV1.self
         let request = envelope(.request, requestFields())
-        for (sigma, omega) in [(0, 0), (3_520, 0), (0, 5_086), (3_520, 5_086)] {
+        for (sigma, omega) in [(0, 0), (3_520, 0), (0, 5_120), (3_520, 5_120)] {
             let payment = envelope(.payment, paymentWithProofVectors(
                 sigma: proofVector(count: sigma), omega: proofVector(count: omega)))
             XCTAssertLessThanOrEqual(payment.count, wire.messageMaximumBytes)

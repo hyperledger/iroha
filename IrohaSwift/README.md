@@ -454,8 +454,8 @@ retired encrypted-Ask kind 4 is rejected.
 
 The three user-visible codes are Request, Payment and Receipt (Credited), in that order.
 Request uses the `KWRQAC1` carrier with its destination-account original; Payment uses
-`KWPYPC1` with its exact payer companion. Their respective payload bounds are 14,112
-and 12,064 bytes; each envelope remains bounded at 10,000 bytes. Native authenticates
+`KWPYPC1` with its exact payer companion. Their respective payload bounds are 14,146
+and 12,098 bytes; each envelope remains bounded at 10,034 bytes. Native authenticates
 both originals when `receiveWithCompanion(requestId:payment:companion:)` receives the Payment.
 `paymentCompanion(payment:)` uses setup selector 55; `verifiedDelivery(sendRequestId:credited:)`
 uses selector 54 to verify receipt evidence separately from the later ArchiveSent operation.

@@ -1044,9 +1044,9 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
             envelopes.payment,
             payerCompanion: Data(repeating: 0xcd, count: IrohaPeerWalletPaymentV1.maximumCompanionBytes))
         XCTAssertEqual(request.encoded.count, IrohaPeerNfcV1.maximumMessageBytes)
-        XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 14_196)
+        XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 14_230)
         XCTAssertEqual(payment.encoded.count, IrohaPeerNfcV1.maximumPaymentMessageBytes)
-        XCTAssertEqual(IrohaPeerNfcV1.maximumPaymentMessageBytes, 84 + 12_064)
+        XCTAssertEqual(IrohaPeerNfcV1.maximumPaymentMessageBytes, 84 + 12_098)
 
         // The exact-size fixture must not relax the independent proof-role limit.
         XCTAssertThrowsError(try IrohaPeerKagemushaWalletAdapterV1.wrap(
@@ -1081,7 +1081,7 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         )) {
             XCTAssertEqual(
                 $0 as? IrohaPeerWireMessageErrorV1,
-                .canonicalLengthOutOfRange(actual: 12_065, maximum: 12_064)
+                .canonicalLengthOutOfRange(actual: 12_099, maximum: 12_098)
             )
         }
         XCTAssertThrowsError(try IrohaPeerWireMessageV1(

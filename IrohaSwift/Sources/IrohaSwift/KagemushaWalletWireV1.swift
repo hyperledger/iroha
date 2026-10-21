@@ -237,20 +237,20 @@ public enum KagemushaWalletWireV1 {
   /// Maximum complete canonical envelope frame for SessionControl.
   public static let sessionMaximumBytes = 2_048
   /// Maximum complete canonical envelope frame for Request, Payment, Credited and PolicyData.
-  public static let messageMaximumBytes = 10_000
+  public static let messageMaximumBytes = 10_034
   /// Maximum canonical payer companion (`KagemushaWalletPayerCompanionV1`: the payer credential
   /// and its issuer certificate set) that travels beside a Payment, mirroring the Rust
   /// `KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1`. Native decodes and checks it at Receive.
   public static let payerCompanionMaximumBytes = 2_048
   /// `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs.
   public static let paymentFixedBytes = 1_394
-  /// Joint budget of the Ω transport proof and σ_send: `10,000 − F_payment`.
+  /// Joint budget of the Ω transport proof and σ_send: `10,034 − F_payment`.
   /// Native additionally checks each exact proof length against its frozen verifying key.
   public static let paymentProofBudgetBytes = messageMaximumBytes - paymentFixedBytes
   /// Source role maximum for a Payment's σ_send proof.
   public static let paymentSigmaProofCapBytes = 3_520
   /// Source role maximum for a Payment's Ω predecessor transport proof.
-  public static let paymentOmegaProofCapBytes = 5_086
+  public static let paymentOmegaProofCapBytes = 5_120
   /// Bytes of a Credited::Receive envelope other than its σ proof.
   public static let creditedReceiveFixedBytes = 679
   /// Available σ bytes in a complete Credited::Receive envelope.
@@ -258,7 +258,7 @@ public enum KagemushaWalletWireV1 {
   /// `F_status`: the bytes of a Credited::Status envelope frame other than its Ω(h) transport
   /// proof, with the fixed 32-sibling credit opening.
   public static let creditedStatusFixedBytes = 2_188
-  /// Cap of the Ω transport proof so that Credited::Status fits: `10,000 − F_status`.
+  /// Cap of the Ω transport proof so that Credited::Status fits: `10,034 − F_status`.
   public static let lineageProofCapBytes = messageMaximumBytes - creditedStatusFixedBytes
   /// Maximum σ entries of the verifying-key allowlist: one per operation (8), and Send also once
   /// per supported nonzero enabled-controls mask (3).
@@ -279,7 +279,7 @@ public enum KagemushaWalletWireV1 {
   public static let signingMessageBytes = 32
   /// Maximum complete `kgm1:` text of a session-bounded envelope (2_736).
   public static let sessionTextMaximumBytes = constantTextMaximumBytes(sessionMaximumBytes)
-  /// Maximum complete `kgm1:` text of a message-bounded envelope (13_339).
+  /// Maximum complete `kgm1:` text of a message-bounded envelope (13_384).
   public static let messageTextMaximumBytes = constantTextMaximumBytes(messageMaximumBytes)
   /// Norito frame name of the single peer-message envelope; its schema hash is derived from it.
   public static let envelopeFrameName =

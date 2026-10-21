@@ -27,23 +27,23 @@ final class IrohaPeerWalletPaymentV1Tests: XCTestCase {
     func testCarrierAndEnvelopeBoundsAreIndependent() throws {
         XCTAssertEqual(IrohaPeerWalletPaymentV1.headerBytes, 16)
         XCTAssertEqual(IrohaPeerWalletPaymentV1.maximumCompanionBytes, 2_048)
-        XCTAssertEqual(IrohaPeerWalletPaymentV1.maximumBytes, 12_064)
-        XCTAssertEqual(IrohaPeerWireKindV1.payment.maximumWalletFrameBytes, 12_064)
+        XCTAssertEqual(IrohaPeerWalletPaymentV1.maximumBytes, 12_098)
+        XCTAssertEqual(IrohaPeerWireKindV1.payment.maximumWalletFrameBytes, 12_098)
         for count in [1, 2_048] {
-            let value = try IrohaPeerWalletPaymentV1(paymentEnvelope: payment(10_000),
+            let value = try IrohaPeerWalletPaymentV1(paymentEnvelope: payment(10_034),
                 payerCompanion: Data(repeating: 0x71, count: count))
             XCTAssertEqual(try IrohaPeerWalletPaymentV1.decode(value.encode()), value)
         }
-        let maximum = try IrohaPeerKagemushaWalletAdapterV1.wrap(payment(10_000),
+        let maximum = try IrohaPeerKagemushaWalletAdapterV1.wrap(payment(10_034),
             payerCompanion: Data(repeating: 0x71, count: 2_048), compressionPolicy: .disabled)
-        XCTAssertEqual(maximum.canonicalPayload.count, 12_064)
-        XCTAssertEqual(maximum.encoded.count, 12_148)
+        XCTAssertEqual(maximum.canonicalPayload.count, 12_098)
+        XCTAssertEqual(maximum.encoded.count, 12_182)
         XCTAssertEqual(try IrohaPeerWireMessageV1.decode(maximum.encoded), maximum)
         for count in [0, 2_049] {
             XCTAssertThrowsError(try IrohaPeerWalletPaymentV1(paymentEnvelope: payment(),
                 payerCompanion: Data(repeating: 1, count: count)))
         }
-        for envelope in [Data(), payment(10_001),
+        for envelope in [Data(), payment(10_035),
                          irohaPeerWalletStructuralEnvelopeV1(kind: .request, payload: Data([1]))] {
             XCTAssertThrowsError(try IrohaPeerWalletPaymentV1(paymentEnvelope: envelope,
                 payerCompanion: Data([1])))
@@ -56,7 +56,7 @@ final class IrohaPeerWalletPaymentV1Tests: XCTestCase {
             payerCompanion: irohaPeerWalletPayerCompanionV1()).encode()
         var bad = [envelope, Data(), Data(original.prefix(15)), Data(original.dropLast()), original + Data([0])]
         var wrongMagic = original; wrongMagic[0] ^= 1; bad.append(wrongMagic)
-        for (offset, value) in [(8, UInt32(0)), (8, UInt32(10_001)), (8, UInt32.max),
+        for (offset, value) in [(8, UInt32(0)), (8, UInt32(10_035)), (8, UInt32.max),
                                 (12, UInt32(0)), (12, UInt32(2_049)), (12, UInt32.max)] {
             var bytes = original
             for index in 0..<4 { bytes[offset + index] = UInt8(truncatingIfNeeded: value >> (24 - index * 8)) }
@@ -98,7 +98,7 @@ final class IrohaPeerWalletPaymentV1Tests: XCTestCase {
     }
 
     func testAnimatedQrPreservesBothOriginals() throws {
-        let envelope = payment(10_000), companion = irohaPeerWalletPayerCompanionV1(count: 2_048)
+        let envelope = payment(10_034), companion = irohaPeerWalletPayerCompanionV1(count: 2_048)
         let message = try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope, payerCompanion: companion)
         let session = IrohaPeerQRScanSessionV1(expectedProfile: .kagemushaWalletV1,
             expectedKind: .payment, expectedSchemaVersion: 1)

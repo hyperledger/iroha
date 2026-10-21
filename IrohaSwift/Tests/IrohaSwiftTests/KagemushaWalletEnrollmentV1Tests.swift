@@ -26,7 +26,7 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
       XCTAssertThrowsError(try reply.completion())
       XCTAssertThrowsError(try KagemushaWalletCallV1(status:Int32(status),sequenceLow:0,sequenceHigh:0,detail:0,bytes:reply.bytes))
     }
-    XCTAssertThrowsError(try KagemushaWalletCallV1(status:1,sequenceLow:0,sequenceHigh:0,detail:0,bytes:Data(count:10001)))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status:1,sequenceLow:0,sequenceHigh:0,detail:0,bytes:Data(count:10035)))
     XCTAssertThrowsError(try KagemushaWalletCallV1(status:25,sequenceLow:7,sequenceHigh:0,detail:0,bytes:Data(count:262145)))
     XCTAssertThrowsError(try KagemushaWalletCallV1(status:19,sequenceLow:7,sequenceHigh:0,detail:0,bytes:Data(count:160)))
   }

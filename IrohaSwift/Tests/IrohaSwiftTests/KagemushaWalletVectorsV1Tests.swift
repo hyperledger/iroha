@@ -101,9 +101,9 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(try int(bounds, "message_text_max_bytes"), Wire.messageTextMaximumBytes)
     XCTAssertEqual(try string(bounds, "text_prefix"), Wire.textPrefix)
     XCTAssertEqual(Wire.sessionMaximumBytes, 2_048)
-    XCTAssertEqual(Wire.messageMaximumBytes, 10_000)
+    XCTAssertEqual(Wire.messageMaximumBytes, 10_034)
     XCTAssertEqual(Wire.sessionTextMaximumBytes, 2_736)
-    XCTAssertEqual(Wire.messageTextMaximumBytes, 13_339)
+    XCTAssertEqual(Wire.messageTextMaximumBytes, 13_384)
     XCTAssertEqual(try int(bounds, "lineage_max_bytes"), Wire.messageMaximumBytes)
     // Exact σ and Ω lengths come from the frozen verifying-key allowlist and must fit
     // their complete carrying envelopes.
@@ -126,25 +126,25 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(try int(bounds, "payment_fixed_bytes"), Wire.paymentFixedBytes)
     XCTAssertEqual(try int(bounds, "payment_proof_budget_bytes"), Wire.paymentProofBudgetBytes)
     XCTAssertEqual(Wire.paymentFixedBytes, 1_394)
-    XCTAssertEqual(Wire.paymentProofBudgetBytes, 8_606)
+    XCTAssertEqual(Wire.paymentProofBudgetBytes, 8_640)
     XCTAssertEqual(try int(bounds, "sigma_proof_cap_bytes"), Wire.paymentSigmaProofCapBytes)
     XCTAssertEqual(try int(bounds, "omega_proof_cap_bytes"), Wire.paymentOmegaProofCapBytes)
     XCTAssertEqual(Wire.paymentSigmaProofCapBytes, 3_520)
-    XCTAssertEqual(Wire.paymentOmegaProofCapBytes, 5_086)
+    XCTAssertEqual(Wire.paymentOmegaProofCapBytes, 5_120)
     XCTAssertEqual(Wire.paymentSigmaProofCapBytes + Wire.paymentOmegaProofCapBytes, Wire.paymentProofBudgetBytes)
     XCTAssertEqual(try int(bounds, "credited_receive_fixed_bytes"), Wire.creditedReceiveFixedBytes)
     XCTAssertEqual(
       try int(bounds, "credited_receive_proof_budget_bytes"), Wire.creditedReceiveProofBudgetBytes)
     XCTAssertEqual(Wire.creditedReceiveFixedBytes, 679)
-    XCTAssertEqual(Wire.creditedReceiveProofBudgetBytes, 9_321)
+    XCTAssertEqual(Wire.creditedReceiveProofBudgetBytes, 9_355)
     XCTAssertEqual(
       Wire.creditedReceiveFixedBytes + Wire.creditedReceiveProofBudgetBytes, Wire.messageMaximumBytes)
     XCTAssertTrue(try string(bounds, "proof_caps").contains("credited_receive_proof_budget_bytes"))
-    // Credited::Status carries Ω(h) and the fixed 32-sibling opening: F_status + Ω cap = 10,000.
+    // Credited::Status carries Ω(h) and the fixed 32-sibling opening: F_status + Ω cap = 10,034.
     XCTAssertEqual(try int(bounds, "credited_status_fixed_bytes"), Wire.creditedStatusFixedBytes)
     XCTAssertEqual(try int(bounds, "lineage_proof_cap_bytes"), Wire.lineageProofCapBytes)
-    XCTAssertEqual(Wire.lineageProofCapBytes, 7_812)
-    XCTAssertEqual(Wire.creditedStatusFixedBytes + Wire.lineageProofCapBytes, 10_000)
+    XCTAssertEqual(Wire.lineageProofCapBytes, 7_846)
+    XCTAssertEqual(Wire.creditedStatusFixedBytes + Wire.lineageProofCapBytes, 10_034)
     XCTAssertTrue(try string(bounds, "proof_caps").contains("lineage_proof_cap_bytes"))
     XCTAssertEqual(try int(bounds, "verifying_key_entries_max"), Wire.verifyingKeyEntriesMaximum)
     XCTAssertEqual(Wire.verifyingKeyEntriesMaximum, 11)
@@ -193,10 +193,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(Wire.unpaddedBase64URLLength(3), 4)
     XCTAssertEqual(Wire.unpaddedBase64URLLength(2_048), 2_731)
     XCTAssertEqual(Wire.unpaddedBase64URLLength(10_000), 13_334)
+    XCTAssertEqual(Wire.unpaddedBase64URLLength(10_034), 13_379)
     XCTAssertNil(Wire.unpaddedBase64URLLength(-1))
     XCTAssertNil(Wire.unpaddedBase64URLLength(Int.max))
     XCTAssertEqual(Wire.textMaximumBytes(forFrameBytes: 2_048), 2_736)
     XCTAssertEqual(Wire.textMaximumBytes(forFrameBytes: 10_000), 13_339)
+    XCTAssertEqual(Wire.textMaximumBytes(forFrameBytes: 10_034), 13_384)
     XCTAssertEqual(Wire.textMaximumBytes(forFrameBytes: 0), 5)
     XCTAssertNil(Wire.textMaximumBytes(forFrameBytes: -1))
     XCTAssertNil(Wire.textMaximumBytes(forFrameBytes: Int.max))
@@ -221,8 +223,8 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
         XCTAssertEqual(kind.maximumFrameBytes, 2_048)
         XCTAssertEqual(kind.maximumTextBytes, 2_736)
       case .request, .payment, .credited, .policyData:
-        XCTAssertEqual(kind.maximumFrameBytes, 10_000)
-        XCTAssertEqual(kind.maximumTextBytes, 13_339)
+        XCTAssertEqual(kind.maximumFrameBytes, 10_034)
+        XCTAssertEqual(kind.maximumTextBytes, 13_384)
       }
     }
     XCTAssertEqual(KagemushaWalletMessageKindV1.allCases.map(\.rawValue), [2, 3, 4, 5, 6])
@@ -687,8 +689,8 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     }
     // The byte cap applies before any header parsing.
     assertWireError(
-      try Wire.validateEnvelope(Data(repeating: 0, count: 10_001), expectedSchemeID: Data(scheme)),
-      .encodedSizeExceeded(actual: 10_001, maximum: 10_000))
+      try Wire.validateEnvelope(Data(repeating: 0, count: 10_035), expectedSchemeID: Data(scheme)),
+      .encodedSizeExceeded(actual: 10_035, maximum: 10_034))
   }
 
   func testEnvelopeStructuralRejections() throws {
@@ -2271,19 +2273,19 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testTextBoundIsCheckedBeforeAnyOtherRule() throws {
     let maximum = "kgm1:" + String(repeating: "A", count: Wire.messageTextMaximumBytes - 5)
-    XCTAssertEqual(maximum.utf8.count, 13_339)
-    XCTAssertEqual(try Wire.decodeText(maximum), Data(repeating: 0, count: 10_000))
+    XCTAssertEqual(maximum.utf8.count, 13_384)
+    XCTAssertEqual(try Wire.decodeText(maximum), Data(repeating: 0, count: 10_034))
     assertWireError(
       try Wire.decodeText(maximum + "A"),
-      .encodedSizeExceeded(actual: 13_340, maximum: 13_339))
+      .encodedSizeExceeded(actual: 13_385, maximum: 13_384))
     assertWireError(
-      try Wire.decodeText("XXXX:" + String(repeating: "=", count: 13_335)),
-      .encodedSizeExceeded(actual: 13_340, maximum: 13_339))
+      try Wire.decodeText("XXXX:" + String(repeating: "=", count: 13_380)),
+      .encodedSizeExceeded(actual: 13_385, maximum: 13_384))
     let scheme = [UInt8](repeating: 0x11, count: 32)
-    let overCap = try sizedEnvelope(kind: .payment, scheme: scheme, frameBytes: 10_001)
+    let overCap = try sizedEnvelope(kind: .payment, scheme: scheme, frameBytes: 10_035)
     assertWireError(
       try Wire.decodeEnvelopeText(Wire.encodeText(overCap), expectedSchemeID: Data(scheme)),
-      .encodedSizeExceeded(actual: 13_340, maximum: 13_339))
+      .encodedSizeExceeded(actual: 13_385, maximum: 13_384))
     let overSession = try sizedEnvelope(kind: .sessionControl, scheme: scheme, frameBytes: 2_049)
     let overSessionText = Wire.encodeText(overSession)
     XCTAssertEqual(overSessionText.utf8.count, 2_737)

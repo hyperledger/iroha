@@ -42,14 +42,14 @@ public struct KagemushaWalletReleasedOutputV1: Sendable {
   public let peerOriginal: Data?
   init(_ original: Data) throws {
     let bytes = [UInt8](original)
-    guard (67...20_066).contains(bytes.count), Array(bytes[0..<8]) == [75,87,82,79,86,49,0,0],
+    guard (67...20_134).contains(bytes.count), Array(bytes[0..<8]) == [75,87,82,79,86,49,0,0],
       let family = Kind(rawValue: bytes[8]), bytes[9..<41].contains(where: { $0 != 0 })
     else { throw KagemushaWalletErrorV1.invalidNativeOutput }
     func u32(_ at: Int) -> UInt32 { var result: UInt32 = 0; for i in 0..<4 { result |= UInt32(bytes[at+i]) << (8*i) }; return result }
     func u64(_ at: Int) -> UInt64 { var result: UInt64 = 0; for i in 0..<8 { result |= UInt64(bytes[at+i]) << (8*i) }; return result }
     let originalLength = Int(u32(57)), peerLength = Int(u32(62)), peerTag = bytes[61]
     let expectedPeer: UInt8 = family == .send ? 3 : (family == .receive ? 4 : 0)
-    guard (1...10_000).contains(originalLength), peerLength <= 10_000,
+    guard (1...10_034).contains(originalLength), peerLength <= 10_034,
       bytes.count == 66 + originalLength + peerLength, peerTag == expectedPeer,
       (peerTag == 0) == (peerLength == 0)
     else { throw KagemushaWalletErrorV1.invalidNativeOutput }

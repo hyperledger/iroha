@@ -108,7 +108,7 @@ struct KagemushaWalletReviewInputV1 {
     let nonzero = amount.low != 0 || amount.high != 0
     switch selector {
     case 1:
-      guard !nonzero, !first.isEmpty, first.count <= 10_000,
+      guard !nonzero, !first.isEmpty, first.count <= 10_034,
         !second.isEmpty, second.count <= 4_096
       else { throw KagemushaWalletErrorV1.invalidInput }
     case 8:

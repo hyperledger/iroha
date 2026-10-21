@@ -6,7 +6,7 @@ public struct KagemushaWalletOpenOriginalsV1: Sendable {
   let originals: [Data]
   public init(credential: Data, enrollmentCertificates: Data, account: Data, assetScope: Data) throws {
     let values = [credential, enrollmentCertificates, account, assetScope]
-    guard zip(values, [1_024, 10_000, 4_096, 1_024]).allSatisfy({ !$0.0.isEmpty && $0.0.count <= $0.1 })
+    guard zip(values, [1_024, 10_034, 4_096, 1_024]).allSatisfy({ !$0.0.isEmpty && $0.0.count <= $0.1 })
     else { throw KagemushaWalletErrorV1.invalidInput }
     originals = values
   }
