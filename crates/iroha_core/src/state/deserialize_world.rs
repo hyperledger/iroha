@@ -9283,6 +9283,24 @@ fn parse_world(
             message: error.to_string(),
         }
     })?;
+    super::asset_fi::validate_persistence(&world.view()).map_err(|error| {
+        json::Error::InvalidField {
+            field: "world.smart_contract_state.asset_fi_v1".to_owned(),
+            message: error.to_string(),
+        }
+    })?;
+    super::asset_uid_enrollment::validate_persistence(&world.view()).map_err(|error| {
+        json::Error::InvalidField {
+            field: "world.smart_contract_state.asset_uid_enrollment_v1".to_owned(),
+            message: error.to_string(),
+        }
+    })?;
+    super::asset_uid_reader::validate_persistence(&world.view()).map_err(|error| {
+        json::Error::InvalidField {
+            field: "world.smart_contract_state.asset_uid_reader_v1".to_owned(),
+            message: error.to_string(),
+        }
+    })?;
     super::retail_daily_limit_state::validate_persistence(&mut world).map_err(|message| {
         json::Error::InvalidField {
             field: "world.smart_contract_state.retail_day_v1".to_owned(),

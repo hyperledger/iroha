@@ -88,6 +88,7 @@ internal static class ToriiContractManifestJson
         "DomainView",
         "NftView",
         "QueryPage",
+        "AssetUidHoldingQuote",
         "AxtDescriptor",
         "AxtAnchoredSpendV1",
         "ProofBlob",
@@ -927,6 +928,12 @@ internal static class ToriiContractManifestJson
                             $"StatePage<{pair[0].TypeName}, {pair[1].TypeName}, {children[0].ListCapacity}>",
                             null, null, null);
                     }
+                    else if (product.Name == "kotodama::AssetUidHoldingQuote")
+                    {
+                        if (!IsExactUidHoldingQuote(product.Fields, childTypeNames))
+                            throw new JsonException($"{context} contains a forged UID holding quote schema.");
+                        result = new RenderedType("AssetUidHoldingQuote", null, null, null);
+                    }
                     else if (IsCoreQueryViewName(product.Name))
                     {
                         if (!IsExactCoreQueryView(product, childTypeNames))
@@ -1156,8 +1163,15 @@ internal static class ToriiContractManifestJson
             && childTypeNames.SequenceEqual(expectedTypes, StringComparer.Ordinal);
     }
 
+    private static bool IsExactUidHoldingQuote(IReadOnlyList<string> fields, IReadOnlyList<string> types)
+    {
+        return fields.SequenceEqual(new[] { "asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow" }, StringComparer.Ordinal)
+            && types.SequenceEqual(new[] { "AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity" }, StringComparer.Ordinal);
+    }
+
     private static bool IsExactDurableBuiltinProduct(string name, IReadOnlyList<string> fields, IReadOnlyList<string> types)
     {
+        if (name == "kotodama::AssetUidHoldingQuote") return IsExactUidHoldingQuote(fields, types);
         if (IsCoreQueryViewName(name))
             return IsExactCoreQueryView(new ToriiEntrypointStructTypeNodeV1 { Name = name, Fields = fields }, types);
         if (name != "kotodama::QueryPage") return !name.StartsWith("kotodama::", StringComparison.Ordinal);
@@ -2419,7 +2433,7 @@ internal static class ToriiContractManifestJson
         var parts = value.Split("::", StringSplitOptions.None);
         if (parts.Length == 2)
         {
-            if (parts[0] == "kotodama") return IsCoreQueryViewName(value) || value is "kotodama::QueryPage" or "kotodama::StatePage";
+            if (parts[0] == "kotodama") return IsCoreQueryViewName(value) || value is "kotodama::QueryPage" or "kotodama::StatePage" or "kotodama::AssetUidHoldingQuote";
             return parts.All(IsCanonicalTypeDeclarationIdentifier);
         }
         if (parts.Length == 4 && parts[0] == "local")

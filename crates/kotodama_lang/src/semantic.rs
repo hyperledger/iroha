@@ -7657,6 +7657,22 @@ fn query_helper_accepts_arg(builtin: Builtin, ty: &Type) -> bool {
         _ => false,
     }
 }
+fn asset_uid_holding_quote_type() -> Type {
+    Type::Struct {
+        name: "kotodama::AssetUidHoldingQuote".to_owned(),
+        fields: Arc::from(vec![
+            ("asset_definition_id".to_owned(), Type::AssetDefinitionId),
+            ("account_id".to_owned(), Type::AccountId),
+            ("policy_revision".to_owned(), Type::Int),
+            ("beneficial_holdings".to_owned(), Type::Quantity),
+            (
+                "holding_limit".to_owned(),
+                Type::Option(Box::new(Type::Quantity)),
+            ),
+            ("required_overflow".to_owned(), Type::Quantity),
+        ]),
+    }
+}
 fn core_query_view_type(builtin: Builtin) -> Option<Type> {
     let (name, fields) = match builtin {
         Builtin::QueryGetAccount | Builtin::QueryPageAccounts => (
@@ -8114,10 +8130,17 @@ fn fixed_builtin_message(builtin: Builtin) -> Option<FixedBuiltinMessage> {
         Builtin::SetAssetHoldingLimit => M::Static(
             "ledger::asset::set_holding_limit expects (AccountId, AssetDefinitionId, Option<quantity>)",
         ),
+        Builtin::FiLinkRevision => M::SourceNameSuffix(" expects (AssetDefinitionId, AccountId, AccountId)"),
+        Builtin::AssetSameUid => M::SourceNameSuffix(" expects (AssetDefinitionId, AccountId, AccountId)"),
         Builtin::AssetLockOpen => M::SourceNameSuffix(" expects (bytes, AccountId, AccountId, AssetDefinitionId, quantity, int, int, int)"),
         Builtin::AssetLockDrawdown => M::SourceNameSuffix(" expects (bytes, quantity, quantity)"),
         Builtin::AssetLockCancel => M::SourceNameSuffix(" expects (bytes, quantity)"),
         Builtin::AssetLockExpire => M::SourceNameSuffix(" expects (bytes)"),
+        Builtin::AssetUidHoldingQuote => M::SourceNameSuffix(" expects (AssetDefinitionId, AccountId, quantity)"),
+        Builtin::TransferToLinkedFi => M::SourceNameSuffix(" expects (AssetDefinitionId, AccountId, quantity, int, int)"),
+        Builtin::AssetLockDrawdownWaterfall => M::SourceNameSuffix(" expects (bytes, quantity, quantity, int, int)"),
+        Builtin::AssetLockCancelWaterfall => M::SourceNameSuffix(" expects (bytes, quantity, int, int)"),
+        Builtin::AssetLockExpireWaterfall => M::SourceNameSuffix(" expects (bytes, int, int)"),
         Builtin::AccountRecoveryPropose => {
             M::Static("ledger::account::recovery::propose expects (string, AccountId, int)")
         }
@@ -8298,6 +8321,7 @@ fn fixed_builtin_arg_accepts(builtin: Builtin, index: usize, descriptor: &str, t
 fn fixed_builtin_result_type(descriptor: &str) -> Type {
     let option = |payload| Type::Option(Box::new(payload));
     match descriptor {
+        "AssetUidHoldingQuote" => asset_uid_holding_quote_type(),
         "()" => Type::Unit,
         "AccountId" => Type::AccountId,
         "Json" => Type::Json,
@@ -13254,6 +13278,7 @@ fn convert_type_expr_inner(
                 "AccountId" => Type::AccountId,
                 "AssetDefinitionId" => Type::AssetDefinitionId,
                 "AssetId" => Type::AssetId,
+                "AssetUidHoldingQuote" => asset_uid_holding_quote_type(),
                 "DomainId" => Type::DomainId,
                 "Name" => Type::Name,
                 "Json" => Type::Json,

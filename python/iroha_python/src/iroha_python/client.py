@@ -5926,6 +5926,7 @@ _KOTODAMA_RESERVED_DECLARATION_IDENTIFIERS = frozenset(
         "DomainView",
         "NftView",
         "QueryPage",
+        "AssetUidHoldingQuote",
         "AxtDescriptor",
         "AxtAnchoredSpendV1",
         "ProofBlob",
@@ -6197,6 +6198,12 @@ def _kotodama_v1_state_map_key_type_name(type_name: str) -> Optional[str]:
     return type_name[len("StateMap<"):key[0]] if key is not None else None
 
 
+# A fixed controller quote, intentionally not an enumerable QueryPage item.
+_UID_HOLDING_QUOTE_LAYOUT = (
+    ["asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow"],
+    ["AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity"],
+)
+
 _CORE_QUERY_VIEW_LAYOUTS = {
     "kotodama::AccountView": (["id", "metadata"], ["AccountId", "Json"]),
     "kotodama::AssetView": (["id", "amount"], ["AssetId", "quantity"]),
@@ -6268,7 +6275,8 @@ def _canonical_state_key_type(value: str) -> bool:
 
 
 def _exact_durable_builtin_product(name: str, fields: list[str], types: list[str]) -> bool:
-    expected = _CORE_QUERY_VIEW_LAYOUTS.get(name)
+    expected = (_UID_HOLDING_QUOTE_LAYOUT if name == "kotodama::AssetUidHoldingQuote"
+                else _CORE_QUERY_VIEW_LAYOUTS.get(name))
     if expected is not None:
         return fields == expected[0] and types == expected[1]
     if name != "kotodama::QueryPage":
@@ -6587,6 +6595,7 @@ _RESERVED_ENTRYPOINT_STRUCT_NAMES = frozenset(
         "kotodama::NftView",
         "kotodama::QueryPage",
         "kotodama::StatePage",
+        "kotodama::AssetUidHoldingQuote",
     }
 )
 
@@ -6897,7 +6906,12 @@ class EntrypointValueTypeV1:
                 if not isinstance(descriptor, EntrypointStructTypeNodeV1):
                     raise ValueError("invalid struct node")
                 child_names = [child["text"] for child in children]
-                if descriptor.name in _CORE_QUERY_VIEW_LAYOUTS:
+                if descriptor.name == "kotodama::AssetUidHoldingQuote":
+                    fields, types = _UID_HOLDING_QUOTE_LAYOUT
+                    if list(descriptor.fields) != fields or child_names != types:
+                        raise ValueError("forged reserved UID holding quote")
+                    result = {"text": "AssetUidHoldingQuote"}
+                elif descriptor.name in _CORE_QUERY_VIEW_LAYOUTS:
                     expected_fields, expected_children = _CORE_QUERY_VIEW_LAYOUTS[descriptor.name]
                     if (
                         list(descriptor.fields) != expected_fields
@@ -9547,219 +9561,6 @@ class TriggerCompletionList:
                 TriggerCompletionRecord.from_payload(item) for item in raw_completions
             ),
         )
-
-
-@dataclass(frozen=True)
-class SumeragiEvidencePenaltyDetails:
-    """Canonical block height that applied the consensus penalty."""
-
-    height: int
-
-
-@dataclass(frozen=True)
-class SumeragiEvidencePendingPenaltyStatus:
-    """Penalty lifecycle state for evidence awaiting a committed outcome."""
-
-    status: Literal["pending"]
-    details: None
-
-
-@dataclass(frozen=True)
-class SumeragiEvidenceAppliedPenaltyStatus:
-    """Penalty lifecycle state for evidence applied in a committed block."""
-
-    status: Literal["applied"]
-    details: SumeragiEvidencePenaltyDetails
-
-
-SumeragiEvidencePenaltyStatus = Union[
-    SumeragiEvidencePendingPenaltyStatus,
-    SumeragiEvidenceAppliedPenaltyStatus,
-]
-
-
-def _parse_sumeragi_evidence_penalty_status(
-    payload: Any,
-) -> SumeragiEvidencePenaltyStatus:
-    context = "sumeragi evidence penalty_status"
-    if not isinstance(payload, Mapping):
-        raise TypeError(f"{context} must be an object")
-    _require_wire_fields(
-        payload,
-        required=("status", "details"),
-        context=context,
-    )
-    status = payload["status"]
-    if not isinstance(status, str):
-        raise TypeError(f"{context}.status must be a string")
-    if status == "pending":
-        if payload["details"] is not None:
-            raise TypeError(f"{context}.details must be null when status is pending")
-        return SumeragiEvidencePendingPenaltyStatus(status="pending", details=None)
-    if status != "applied":
-        raise ValueError(f"{context}.status must be pending or applied")
-    details = payload["details"]
-    if not isinstance(details, Mapping):
-        raise TypeError(f"{context}.details must be an object")
-    _require_wire_fields(
-        details,
-        required=("height",),
-        context=f"{context}.details",
-    )
-    typed_details = SumeragiEvidencePenaltyDetails(
-        height=_require_u64(details["height"], f"{context}.details.height")
-    )
-    return SumeragiEvidenceAppliedPenaltyStatus(
-        status="applied",
-        details=typed_details,
-    )
-
-
-@dataclass(frozen=True)
-class SumeragiEvidenceOffender:
-    """Original signer index and peer resolved from authenticated historical state."""
-
-    signer: int
-    peer_id: str
-
-
-@dataclass(frozen=True)
-class SumeragiEvidenceRecord:
-    """Exact native evidence audit projection returned by `/v1/sumeragi/evidence`."""
-
-    kind: Literal["NativeSumeragiEvidence"]
-    class_: Literal["proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates"]
-    instance: str
-    height: int
-    epoch: int
-    context_id: str
-    authority_generation: str
-    offenders: Tuple[SumeragiEvidenceOffender, ...]
-    safety_violation: bool
-    native_frame_hash: str
-    recorded_height: int
-    recorded_view: int
-    recorded_ms: int
-    consensus_admitted_height: int
-    penalty_status: SumeragiEvidencePenaltyStatus
-
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "SumeragiEvidenceRecord":
-        if not isinstance(payload, Mapping):
-            raise TypeError("sumeragi evidence record must be an object")
-        context = "sumeragi evidence record"
-        _require_wire_fields(payload, required=(
-            "kind", "class", "instance", "height", "epoch", "context_id",
-            "authority_generation", "offenders", "safety_violation", "native_frame_hash",
-            "recorded_height", "recorded_view", "recorded_ms", "consensus_admitted_height", "penalty_status",
-        ), context=context)
-        if payload["kind"] != "NativeSumeragiEvidence":
-            raise ValueError(f"{context}.kind must be NativeSumeragiEvidence")
-        evidence_class = payload["class"]
-        if not isinstance(evidence_class, str) or evidence_class not in {
-            "proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates",
-        }:
-            raise ValueError(f"{context}.class must identify a native signed artifact class")
-
-        def hash32(field_name: str) -> str:
-            value = payload[field_name]
-            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-                raise ValueError(f"{context}.{field_name} must be exactly 32 lowercase hexadecimal bytes")
-            return value
-
-        raw_offenders = payload["offenders"]
-        # Different-view CommitQC conflicts do not attribute individual signers.
-        permits_unattributed_safety_violation = (
-            evidence_class == "conflicting_certificates"
-            and payload["safety_violation"] is True
-        )
-        if (
-            not isinstance(raw_offenders, list)
-            or len(raw_offenders) > 1024
-            or (not raw_offenders and not permits_unattributed_safety_violation)
-        ):
-            raise ValueError(
-                f"{context}.offenders must contain between 1 and 1024 entries, "
-                "or be empty for a conflicting-certificate safety violation"
-            )
-        offenders = []
-        peers: set[str] = set()
-        previous_signer = -1
-        for index, offender in enumerate(raw_offenders):
-            offender_context = f"{context}.offenders[{index}]"
-            if not isinstance(offender, Mapping):
-                raise TypeError(f"{offender_context} must be an object")
-            _require_wire_fields(offender, required=("signer", "peer_id"), context=offender_context)
-            signer = _require_u64(offender["signer"], f"{offender_context}.signer")
-            if signer > 1023 or signer <= previous_signer:
-                raise ValueError(f"{offender_context}.signer must increase strictly within 0..1023")
-            peer_id = offender["peer_id"]
-            # This checks the canonical BLS-normal literal shape, not cryptographic admission.
-            if not isinstance(peer_id, str) or re.fullmatch(r"ea0130[0-9A-F]{96}", peer_id) is None:
-                raise ValueError(f"{offender_context}.peer_id must be a canonical BLS-normal public key")
-            if peer_id in peers:
-                raise ValueError(f"{offender_context}.peer_id must be unique")
-            peers.add(peer_id)
-            previous_signer = signer
-            offenders.append(SumeragiEvidenceOffender(signer, peer_id))
-        safety_violation = payload["safety_violation"]
-        if not isinstance(safety_violation, bool):
-            raise TypeError(f"{context}.safety_violation must be a boolean")
-        return cls(
-            kind="NativeSumeragiEvidence",
-            class_=cast(Literal["proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates"], evidence_class),
-            instance=hash32("instance"), height=_require_u64(payload["height"], f"{context}.height"),
-            epoch=_require_u64(payload["epoch"], f"{context}.epoch"),
-            context_id=hash32("context_id"), authority_generation=hash32("authority_generation"),
-            offenders=tuple(offenders), safety_violation=safety_violation, native_frame_hash=hash32("native_frame_hash"),
-            recorded_height=_require_u64(payload["recorded_height"], f"{context}.recorded_height"),
-            recorded_view=_require_u64(payload["recorded_view"], f"{context}.recorded_view"),
-            recorded_ms=_require_u64(payload["recorded_ms"], f"{context}.recorded_ms"),
-            consensus_admitted_height=_require_u64(payload["consensus_admitted_height"], f"{context}.consensus_admitted_height"),
-            penalty_status=_parse_sumeragi_evidence_penalty_status(payload["penalty_status"]),
-        )
-
-
-@dataclass(frozen=True)
-class SumeragiEvidenceListPage:
-    """Paginated evidence snapshot from `/v1/sumeragi/evidence`."""
-
-    items: List[SumeragiEvidenceRecord]
-    total: int
-
-    @classmethod
-    def from_payload(
-        cls,
-        payload: Mapping[str, Any],
-        *,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> "SumeragiEvidenceListPage":
-        if not isinstance(payload, Mapping):
-            raise TypeError("sumeragi evidence payload must be an object")
-        _require_wire_fields(
-            payload,
-            required=("total", "items"),
-            context="sumeragi evidence payload",
-        )
-        items_payload = payload["items"]
-        if not isinstance(items_payload, list):
-            raise TypeError("sumeragi evidence `items` must be a list")
-        total = _require_u64(payload["total"], "sumeragi evidence payload.total")
-        items = [SumeragiEvidenceRecord.from_payload(entry) for entry in items_payload]
-        if len(items) > limit:
-            raise ValueError(
-                f"sumeragi evidence payload.items must contain at most {limit} records"
-            )
-        if total < len(items):
-            raise ValueError(
-                "sumeragi evidence payload.total must cover the returned items"
-            )
-        if items and total < offset + len(items):
-            raise ValueError(
-                "sumeragi evidence payload.total must cover offset plus returned items"
-            )
-        return cls(items=items, total=total)
 
 
 _MAX_NATIVE_AMX_GROUP_SOURCES = 4096

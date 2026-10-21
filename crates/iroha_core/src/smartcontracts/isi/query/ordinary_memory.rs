@@ -688,6 +688,10 @@ enum AdmittedIterableSource {
     ActiveTriggerIds,
     /// Owner-scoped exact-asset UID policies.
     AssetUidPolicies,
+    /// Exact owner-private FI relationship.
+    AssetFiLink,
+    /// Exact owner-private mandatory enrollment status.
+    AssetUidEnrollment,
 }
 impl AdmittedIterableSource {
     fn for_item(item: iroha_data_model::query::QueryItemKind) -> Option<Self> {
@@ -698,6 +702,8 @@ impl AdmittedIterableSource {
             QueryItemKind::Trigger => Some(Self::Triggers),
             QueryItemKind::TriggerId => Some(Self::ActiveTriggerIds),
             QueryItemKind::AssetUidPolicyViewV1 => Some(Self::AssetUidPolicies),
+            QueryItemKind::AssetUidEnrollmentViewV1 => Some(Self::AssetUidEnrollment),
+            QueryItemKind::AssetFiRelationshipViewV1 => Some(Self::AssetFiLink),
             _ => None,
         }
     }
@@ -755,6 +761,8 @@ fn iterable_query_name(
         QueryItemKind::FeeSponsorProgramId => "FindFeeSponsorProgramIds",
         QueryItemKind::BondRecord => "FindBonds",
         QueryItemKind::AssetUidPolicyViewV1 => "FindAssetUidPoliciesV1",
+        QueryItemKind::AssetUidEnrollmentViewV1 => "FindAssetUidEnrollmentV1",
+        QueryItemKind::AssetFiRelationshipViewV1 => "FindAssetFiLinkV1",
     }
 }
 fn ensure_world_state_start_shape(
@@ -841,6 +849,8 @@ fn admitted_source_has_pass_predicate(
     }
     match source {
         AdmittedIterableSource::AssetUidPolicies => pass_shape!(iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1, iroha_data_model::asset::uid::AssetUidPolicyViewV1),
+        AdmittedIterableSource::AssetFiLink => pass_shape!(iroha_data_model::query::asset_fi::FindAssetFiLinkV1, iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1),
+        AdmittedIterableSource::AssetUidEnrollment => pass_shape!(iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1, iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1),
         AdmittedIterableSource::Peers => pass_shape!(FindPeers, PeerId),
         AdmittedIterableSource::AccountIds => pass_shape!(FindAccountIds, AccountId),
         AdmittedIterableSource::Triggers => pass_shape!(FindTriggers, Trigger),
@@ -2329,6 +2339,7 @@ mod tests {
                 iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1 {
                     asset_definition_id: iroha_data_model::asset::AssetDefinitionId::from_uuid_bytes([0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0x48,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8,0xa8]).unwrap(),
                     uid: None,
+            wallet_account_id: None,
                 }.encode(),
                 peer_params(),
             ),

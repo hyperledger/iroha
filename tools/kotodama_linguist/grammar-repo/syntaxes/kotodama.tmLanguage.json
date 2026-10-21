@@ -430,7 +430,7 @@
     "types": {
       "patterns": [
         {
-          "match": "\\b(?:int|decimal|quantity|bool|string|bytes|Json|AccountId|AssetDefinitionId|AssetId|DomainId|Name|NftId|DataSpaceId|Option|Result|List|ListError|NumericError|StateMap|StateCursor|StatePage|Secret|AccountView|AssetView|AssetDefinitionView|DomainView|NftView|QueryPage|Rounding)\\b",
+          "match": "\\b(?:int|decimal|quantity|bool|string|bytes|Json|AccountId|AssetDefinitionId|AssetId|DomainId|Name|NftId|DataSpaceId|Option|Result|List|ListError|NumericError|StateMap|StateCursor|StatePage|Secret|AccountView|AssetView|AssetDefinitionView|DomainView|NftView|QueryPage|AssetUidHoldingQuote|Rounding)\\b",
           "name": "support.type.kotodama"
         }
       ]

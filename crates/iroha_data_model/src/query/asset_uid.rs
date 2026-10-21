@@ -1,5 +1,5 @@
 //! Owner-scoped native UID policy queries with normal stored cursor pagination.
-use crate::asset::AssetDefinitionId;
+use crate::{account::AccountId, asset::AssetDefinitionId};
 use derive_more::Display;
 
 queries! {
@@ -17,5 +17,9 @@ queries! {
         pub asset_definition_id: AssetDefinitionId,
         /// Exact identity filter. Absent enumerates the asset's complete roster.
         pub uid: Option<[u8; 32]>,
+        /// Optional exact wallet whose holdings are requested in the selected UID.
+        /// Requires `uid: Some`; native reciprocal membership must match.
+        /// This selector does not grant authority to read another owner's policy.
+        pub wallet_account_id: Option<AccountId>,
     }
 }

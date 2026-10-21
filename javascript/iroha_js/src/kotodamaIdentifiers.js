@@ -77,6 +77,7 @@ export const KOTODAMA_V1_DECLARATION_RESERVED = Object.freeze([
   "DomainView",
   "NftView",
   "QueryPage",
+  "AssetUidHoldingQuote",
   "AxtDescriptor",
   "AxtAnchoredSpendV1",
   "ProofBlob",
@@ -201,7 +202,7 @@ export function isCanonicalKotodamaStructName(value) {
   if (value.includes("__kotodama_link_")) return false;
   const parts = value.split("::");
   if (parts.length === 2) {
-    if (parts[0] === "kotodama") return ["AccountView", "AssetView", "AssetDefinitionView", "DomainView", "NftView", "QueryPage", "StatePage"].includes(parts[1]);
+    if (parts[0] === "kotodama") return ["AccountView", "AssetView", "AssetDefinitionView", "DomainView", "NftView", "QueryPage", "StatePage", "AssetUidHoldingQuote"].includes(parts[1]);
     return parts.every((part) => isCanonicalKotodamaIdentifier(part, { typeDeclaration: true }));
   }
   if (parts.length === 4 && parts[0] === "local") {

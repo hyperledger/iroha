@@ -1924,6 +1924,12 @@ fn get_asset_definition_id_emits_asset_definition_syscall() {
 }
 #[path = "controlled_asset_lock_tests.rs"]
 mod controlled_asset_lock_tests;
+#[path = "uid_holding_quote_tests.rs"]
+mod uid_holding_quote_tests;
+#[path = "fi_link_revision_tests.rs"]
+mod fi_link_revision_tests;
+#[path = "same_uid_tests.rs"]
+mod same_uid_tests;
 
 #[test]
 fn native_escrow_builtins_emit_escrow_syscalls() {
@@ -8321,3 +8327,6 @@ fn literal_scalar_and_tuple_map_keys_keep_exact_canonical_child_hints() {
     assert_eq!(dynamic.access_hints_complete, Some(false));
     assert!(!dynamic.access_hints_skipped.is_empty());
 }
+
+#[path = "tests/fi_waterfall.rs"]
+mod fi_waterfall;

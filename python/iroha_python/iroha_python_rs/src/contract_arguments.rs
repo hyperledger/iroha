@@ -65,10 +65,10 @@ pub(super) fn encode(request: ArgumentEncodingRequest<'_>) -> Result<Option<Vec<
     let _guard = ChainDiscriminantGuard::enter(request.chain_discriminant);
     let verified = ivm::verify_contract_artifact(request.artifact)
         .map_err(|error| format!("invalid contract artifact: {error}"))?;
-    if verified.code_hash.as_ref() != expected_code {
+    if verified.code_hash.as_ref() != &expected_code {
         return Err("contract artifact does not match expected_code_hash_hex".into());
     }
-    if verified.abi_hash.as_ref() != expected_abi {
+    if verified.abi_hash.as_ref() != &expected_abi {
         return Err("contract artifact does not match expected_abi_hash_hex".into());
     }
     let entrypoint = verified

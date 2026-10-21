@@ -137,6 +137,36 @@ impl Journal {
         })
     }
 
+    /// Only the original first upload attempt and this recovery's immutable evidence may exist.
+    pub(super) fn require_expiry_recovery_entries(
+        &self,
+        maximum: usize,
+        expected_last: Option<u64>,
+    ) -> Result<()> {
+        self.with_custody(|| {
+            let mut proofs = std::collections::BTreeSet::new();
+            for name in self.directory.entries(maximum)? {
+                let name = name.to_str().ok_or_else(|| eyre!("non-UTF8 expiry journal entry"))?;
+                let proof = name.strip_prefix("expiry-proof-").and_then(|name| name.strip_suffix(".json"));
+                if let Some(raw) = proof {
+                    let height = raw.parse::<u64>()?;
+                    if raw != format!("{height:010}") || height == 0 || height > 100_000 {
+                        return Err(eyre!("expiry proof filename is not a bounded canonical height"));
+                    }
+                    proofs.insert(height);
+                } else if !matches!(name, "lock" | "plan.json" | "attempt-0000.json" | "expiry-root.json" | "validity-window-elapsed.json") {
+                    return Err(eyre!("later attempts, execution evidence or unknown entries prohibit initial-upload expiry recovery"));
+                }
+            }
+            if proofs.iter().enumerate().any(|(index, height)| *height != index as u64 + 1)
+                || expected_last.is_some_and(|last| proofs.len() as u64 != last)
+            {
+                return Err(eyre!("retained expiry proof files are not the exact contiguous prefix"));
+            }
+            Ok(())
+        })
+    }
+
     pub(super) fn read<T: JsonDeserialize>(&self, name: &str) -> Result<T> {
         self.with_custody(|| {
             validate_name(name)?;

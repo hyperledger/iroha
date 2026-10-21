@@ -11,8 +11,16 @@ mod contract_calls;
 pub(crate) mod contract_event;
 mod native_events;
 mod controlled_asset_locks;
+mod controlled_waterfall;
+mod linked_fi;
+#[cfg(test)]
+#[path = "host/native_fi_waterfall_tests.rs"]
+mod native_fi_waterfall_tests;
+mod fi_link_revision;
+mod same_uid;
 mod prepared_verifying_key_memo;
 mod tlv_transport;
+mod uid_holding_quote;
 
 use super::cache::PreparedContractCache;
 #[cfg(feature = "telemetry")]
@@ -159,6 +167,13 @@ include!("host/contract_state_namespace.rs");
 const OPAQUE_SYSTEM_CONTRACT_STATE_PREFIXES: &[&str] = &[
     crate::smartcontracts::isi::escrow::controlled::STATE_ROOT,
     crate::state::retail_daily_limit_state::POLICY_ROOT,
+    crate::state::asset_fi::FI_ROOT,
+    crate::state::asset_fi::ATTESTATION_ROOT,
+    crate::state::asset_fi::LINK_ROOT,
+    crate::state::asset_uid_enrollment::ENROLLMENT_ROOT,
+    crate::state::asset_uid_enrollment::SYSTEM_ROOT,
+    crate::state::asset_uid_reader::READER_ROOT,
+
     crate::state::asset_uid::POLICY_ROOT,
     crate::state::asset_uid::BINDING_ROOT,
     crate::state::asset_uid::USAGE_ROOT,
@@ -1556,6 +1571,51 @@ pub trait QueryStateRefOps {
         &self,
         definition_id: &AssetDefinitionId,
     ) -> Result<AssetBalancePolicy, ivm::VMError>;
+    /// Read the exact beneficial-holdings projection for an owner-granted controller.
+    ///
+    /// Every inspected UID member and escrow row consumes the same query budget.
+    ///
+    /// # Errors
+    ///
+    /// Returns a VM error when the active controller or owner grant is invalid,
+    /// the native policy is absent, or the deterministic query budget is exhausted.
+    /// Local allocation refusals retain their original deferred-execution owner.
+    fn uid_holding_quote(
+        &self,
+        authority: &AccountId,
+        context: &ContractRuntimeExecutionContext,
+        definition: &AssetDefinitionId,
+        account: &AccountId,
+        incoming: &Quantity,
+        budget: QueryExecutionBudget,
+    ) -> Result<
+        (iroha_data_model::asset::uid::AssetUidHoldingQuoteV1, QueryExecutionStats),
+        ivm::VMError,
+    >;
+    /// Read an exact current owner-approved FI-link revision after expected-FI equality.
+    ///
+    /// # Errors
+    /// Returns the original local deferral or deterministic authority, relationship,
+    /// canonical-decoding or shared-budget refusal. This is not a transfer grant.
+    fn fi_link_revision(
+        &self,
+        authority: &AccountId,
+        context: &ContractRuntimeExecutionContext,
+        definition: &AssetDefinitionId,
+        account: &AccountId,
+        expected_fi: &AccountId,
+        budget: QueryExecutionBudget,
+    ) -> Result<(u64, QueryExecutionStats), ivm::VMError>;
+    /// Compare exact current native retail memberships under the owner's reader grant.
+    ///
+    /// # Errors
+    /// Rejects absent/nonretail/invalid membership, foreign frame or revoked grant;
+    /// preserves canonical decode and local resource refusal provenance.
+    fn same_uid(
+        &self, authority: &AccountId, context: &ContractRuntimeExecutionContext,
+        definition: &AssetDefinitionId, source: &AccountId, destination: &AccountId,
+        budget: QueryExecutionBudget,
+    ) -> Result<(bool, QueryExecutionStats), ivm::VMError>;
     /// Load an asset definition's exact incarnation and require that it was
     /// already live at the beginning of this block.
     ///
@@ -2272,6 +2332,34 @@ impl QueryStateRefOps for QueryStateRef<'_, '_, '_> {
                 .map(|definition| definition.balance_scope_policy())
                 .map_err(|_| ivm::VMError::DecodeError),
         }
+    }
+    fn uid_holding_quote(
+        &self,
+        authority: &AccountId,
+        context: &ContractRuntimeExecutionContext,
+        definition: &AssetDefinitionId,
+        account: &AccountId,
+        incoming: &Quantity,
+        budget: QueryExecutionBudget,
+    ) -> Result<
+        (iroha_data_model::asset::uid::AssetUidHoldingQuoteV1, QueryExecutionStats),
+        ivm::VMError,
+    > {
+        self.read_uid_holding_quote(authority, context, definition, account, incoming, budget)
+    }
+    fn fi_link_revision(
+        &self, authority: &AccountId, context: &ContractRuntimeExecutionContext,
+        definition: &AssetDefinitionId, account: &AccountId, expected_fi: &AccountId,
+        budget: QueryExecutionBudget,
+    ) -> Result<(u64, QueryExecutionStats), ivm::VMError> {
+        self.read_fi_link_revision(authority, context, definition, account, expected_fi, budget)
+    }
+    fn same_uid(
+        &self, authority: &AccountId, context: &ContractRuntimeExecutionContext,
+        definition: &AssetDefinitionId, source: &AccountId, destination: &AccountId,
+        budget: QueryExecutionBudget,
+    ) -> Result<(bool, QueryExecutionStats), ivm::VMError> {
+        self.read_same_uid(authority, context, definition, source, destination, budget)
     }
     fn stable_axt_asset_incarnation(
         &self,
@@ -9897,6 +9985,9 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                 | ivm::syscalls::SYSCALL_QUERY_GET_CONTRACT_INSTANCE
                 | ivm::syscalls::SYSCALL_RESOLVE_ACCOUNT_ALIAS
                 | ivm::syscalls::SYSCALL_GET_ACCOUNT_BALANCE
+                | ivm::syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE
+                | ivm::syscalls::SYSCALL_ASSET_FI_LINK_REVISION
+                | ivm::syscalls::SYSCALL_ASSET_SAME_UID
                 | ivm::syscalls::SYSCALL_SUBSCRIPTION_BILL
                 | ivm::syscalls::SYSCALL_SUBSCRIPTION_RECORD_USAGE
         ) {
@@ -10278,6 +10369,17 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                 ivm::syscalls::SYSCALL_TRANSFER_V1_BATCH_APPLY => {
                     self.apply_fastpq_batch_from_tlv(vm)
                 }
+                ivm::syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE => {
+                    self.execute_uid_holding_quote(vm, number)
+                }
+                ivm::syscalls::SYSCALL_TRANSFER_TO_LINKED_FI => self.transfer_to_linked_fi(vm),
+                ivm::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL
+                | ivm::syscalls::SYSCALL_ASSET_LOCK_CANCEL_WATERFALL
+                | ivm::syscalls::SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL => {
+                    self.controlled_asset_lock_with_waterfall(vm, number)
+                }
+                ivm::syscalls::SYSCALL_ASSET_FI_LINK_REVISION => self.execute_fi_link_revision(vm, number),
+                ivm::syscalls::SYSCALL_ASSET_SAME_UID => self.execute_same_uid(vm, number),
                 ivm::syscalls::SYSCALL_ASSET_LOCK_OPEN
                 | ivm::syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN
                 | ivm::syscalls::SYSCALL_ASSET_LOCK_CANCEL

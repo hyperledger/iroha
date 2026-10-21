@@ -1401,8 +1401,8 @@ gas = "32 + 1 per schema byte + value quote + 1 per UTF-8 output byte"
 [[syscall]]
 number = "0x010220"
 args = "r10=owned public 8-word heap table [&Blob(key:1..4096 bytes), &AccountId(source), &AccountId(destination), &AssetDefinitionId, &Quantity, release_until_ms:u64, cancel_not_before_ms:u64, expires_at_ms:u64]; controller=authenticated frame"
-ret = "u64=0"
-gas = "G_sci + bytes"
+ret = "r10=&AccountId(protocol escrow custody derived from actual network, controller-scoped lock ID, and asset definition)"
+gas = "G_sci + bytes + 1 per complete encoded AccountId return TLV byte"
 
 [[syscall]]
 number = "0x010221"
@@ -1421,3 +1421,45 @@ number = "0x010223"
 args = "r10=&Blob(key:1..4096 bytes); controller=authenticated frame"
 ret = "u64=0"
 gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010224"
+args = "r10=&AssetDefinitionId, r11=&AccountId, r12=&Quantity(incoming); exact active controller and asset-owner reader grant required"
+ret = "r10=owned public six-word AssetUidHoldingQuote heap table [asset_definition_id:&AssetDefinitionId, account_id:&AccountId, policy_revision:&Int(exact u64), beneficial_holdings:&Quantity, holding_limit:Option<Quantity> sum handle, required_overflow:&Quantity]"
+gas = "G_scq + query items + source and encoded response bytes"
+
+[[syscall]]
+number = "0x010225"
+args = "r10=&AssetDefinitionId, r11=&AccountId, r12=&Quantity(amount), r13=policy_revision:u64, r14=link_revision:u64; authenticated controller; current owner-approved FI is native-derived"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010226"
+args = "r10=&Blob(key:1..4096 bytes), r11=&Quantity(amount), r12=&Quantity(expected_remaining), r13=policy_revision:u64, r14=link_revision:u64; authenticated controller; native derives beneficiary, FI and atomic split"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010227"
+args = "r10=&Blob(key:1..4096 bytes), r11=&Quantity(expected_remaining), r12=policy_revision:u64, r13=link_revision:u64; authenticated controller; native derives original payer, FI and atomic split"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010228"
+args = "r10=&Blob(key:1..4096 bytes), r11=policy_revision:u64, r12=link_revision:u64; authenticated controller; native derives original payer, authoritative remainder, FI and atomic split"
+ret = "u64=0"
+gas = "G_sci + bytes"
+
+[[syscall]]
+number = "0x010229"
+args = "r10=&AssetDefinitionId, r11=&AccountId, r12=&AccountId(expected_fi); exact active link controller, enabled owner grant, expected-FI equality and current native FI/attestation revisions required"
+ret = "r10=&Int(exact current nonzero u64 link revision); no FI identity or reference returned"
+gas = "G_scq + query items + source and encoded response bytes"
+
+[[syscall]]
+number = "0x01022A"
+args = "r10=&AssetDefinitionId, r11=&AccountId(source), r12=&AccountId(destination); exact active frame and current asset-owner reader grant; both exact native retail memberships/policies required, institutional or unknown operands fail"
+ret = "r10=0|1 (bool); false only for two valid distinct retail UIDs; no UID or roster returned"
+gas = "G_scq + query items + source and canonical response bytes"

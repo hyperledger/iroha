@@ -41,7 +41,7 @@ const LEAF_TYPE_NAMES = new Map([
   ["Blob", "bytes"],
 ]);
 
-import { CORE_QUERY_VIEWS } from "./kotodamaProducts.js";
+import { CORE_QUERY_VIEWS, UID_HOLDING_QUOTE } from "./kotodamaProducts.js";
 
 function fail(context, message) {
   rejectError(TypeError, `${context} ${message}`);
@@ -270,7 +270,8 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
     let result;
     switch (node.kind) {
       case "Struct": {
-        const reserved = CORE_QUERY_VIEWS.get(node.value.name);
+        const reserved = node.value.name === UID_HOLDING_QUOTE.name
+          ? UID_HOLDING_QUOTE : CORE_QUERY_VIEWS.get(node.value.name);
         if (reserved !== undefined) {
           if (
             stringify(node.value.fields) !== stringify(reserved.fields) ||
@@ -279,7 +280,8 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
           ) {
             fail(context, (TEXT_CONTAINS_A + "forged reserved query-view schema"));
           }
-          result = { canonicalName: node.value.name.slice("kotodama::".length), coreView: node.value.name.slice("kotodama::".length) };
+          result = { canonicalName: node.value.name.slice("kotodama::".length) };
+          if (CORE_QUERY_VIEWS.has(node.value.name)) result.coreView = result.canonicalName;
         } else if (node.value.name === "kotodama::StatePage") {
           const [items, next] = childValues;
           const pair = items?.elementChildren;

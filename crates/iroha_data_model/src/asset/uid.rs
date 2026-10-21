@@ -1,5 +1,5 @@
 //! Additive identity-wide policy for public, globally scoped numeric assets.
-use super::AssetDefinitionId;
+use super::{AssetDefinitionId, AssetId};
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId};
 use iroha_primitives::numeric::Quantity;
 use iroha_schema::IntoSchema;
@@ -125,11 +125,13 @@ pub struct AssetUidPolicyV1 {
     pub holding_limit: Option<Quantity>,
     /// Calendar selection, immutable after the first policy installation.
     pub daily_window: AssetUidDailyWindowV1,
-    /// Maximum outgoing activity in one selected calendar day.
-    ///
-    /// Escrow funding counts once; settlement/refund does not count again.
-    /// Updating this policy never resets its previously consumed usage.
-    pub daily_limit: Option<Quantity>,
+    /// Maximum customer spending in the selected calendar day. Generic transfers
+    /// and first escrow funding count once; native retained releases/refunds and
+    /// exact owner-approved linked-FI off-ramps do not consume spending again.
+    pub daily_spend_limit: Option<Quantity>,
+    /// Optional separate gross outgoing ceiling, including linked-FI off-ramps.
+    /// Updating either ceiling never resets previously consumed calendar usage.
+    pub daily_outgoing_limit: Option<Quantity>,
 }
 
 impl AssetUidPolicyV1 {
@@ -198,8 +200,43 @@ pub struct AssetUidUsageV1 {
     pub daily_window: AssetUidDailyWindowV1,
     /// UTC milliseconds since Unix epoch at the start of the selected day.
     pub day_start_ms: u64,
-    /// Gross activity consumed during that day.
-    pub amount: Quantity,
+    /// Customer spending consumed during that day.
+    pub spend_amount: Quantity,
+    /// Gross outgoing amount, including approved linked-FI off-ramps.
+    pub outgoing_amount: Quantity,
+}
+
+/// Holdings of one explicitly requested wallet at its parent UID view's cut.
+///
+/// `pending_incoming` is contingent custody and is excluded from `total`.
+/// Absence of this product is not a zero-balance result.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::asset::uid::AssetUidWalletHoldingsV1")]
+pub struct AssetUidWalletHoldingsV1 {
+    /// Exact requested native UID wallet, never every wallet in the UID.
+    pub account_id: AccountId,
+    /// Fully scoped bucket. Native UID policies currently require Global scope.
+    pub asset_id: AssetId,
+    /// Actual liquid balance in this wallet's exact bucket.
+    pub spendable: Quantity,
+    /// Actual custody held for this payer by unresolved native escrows.
+    pub locked: Quantity,
+    /// Checked `spendable + locked`, excluding contingent incoming custody.
+    pub total: Quantity,
+    /// Actual active conditional custody naming this wallet as buyer before expiry.
+    pub pending_incoming: Quantity,
 }
 
 /// Owner-authorized view of one UID at one captured native ledger state.
@@ -222,10 +259,15 @@ pub struct AssetUidPolicyViewV1 {
     pub policy: AssetUidPolicyV1,
     /// Wallet balances plus unresolved native escrow reserves.
     pub beneficial_holdings: Quantity,
+    /// Exact requested wallet only; absent when no wallet was requested.
+    /// All four amounts share this parent row's ledger time and height.
+    pub wallet_holdings: Option<AssetUidWalletHoldingsV1>,
     /// UTC instant of this view's selected calendar-day start.
     pub day_start_ms: u64,
-    /// Gross activity consumed in the selected calendar day.
-    pub daily_usage: Quantity,
+    /// Customer spending consumed in the selected calendar day.
+    pub daily_spend_usage: Quantity,
+    /// Gross outgoing amount consumed in the selected calendar day.
+    pub daily_outgoing_usage: Quantity,
     /// Authenticated ledger time of the captured view.
     pub ledger_time_ms: u64,
     /// Captured committed ledger height.
@@ -291,3 +333,10 @@ mod tests {
         );
     }
 }
+
+#[path = "uid_reader.rs"]
+mod reader;
+pub use reader::{AssetUidHoldingQuoteV1, AssetUidPolicyReaderV1};
+
+#[cfg(test)]
+mod wallet_holdings_tests;

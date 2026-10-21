@@ -371,7 +371,7 @@ fn emit_installed_encoder_fixture() {
     let abi_hash = &original.abi_hash;
     let expected_arguments_hex = hex::encode(expected);
     let changed_arguments_hex = hex::encode(different);
-    let record = norito::json::json!({
+    let record = norito::json!({
         "schema": "iroha.python.contract-argument-fixture.v1",
         "artifact_hex": artifact_hex,
         "code_hash": code_hash,

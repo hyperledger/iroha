@@ -1,6 +1,10 @@
 //! Exact controller grants and private beneficial-holdings quotes.
 
 use super::*;
+mod same_uid;
+pub(crate) use same_uid::same_uid_for_contract;
+#[cfg(test)]
+pub(crate) use same_uid::tests::Fixture as SameUidReaderFixture;
 use crate::executor::ContractRuntimeExecutionContext;
 use iroha_data_model::{
     asset::uid::{

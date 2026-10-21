@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import requests
 from blake3 import blake3
+from iroha_python.crypto import Ed25519KeyPair
 
 # These source-level request tests use a separate package name to isolate Python
 # helpers. Native SDK imports still require the installed iroha-native wheel.
@@ -48,6 +49,13 @@ Payment = settlement_module.Payment
 ContractCallIntent = client_module.ContractCallIntent
 ToriiClient = client_module.ToriiClient
 VerifiedCommittedTransaction = client_module.VerifiedCommittedTransaction
+
+
+def _account_address(seed: int) -> str:
+    """Canonical account fixture from a synthetic key for chain discriminant 753."""
+    return Ed25519KeyPair.from_private_key(bytes([seed]) * 32).account_id(
+        discriminant=753,
+    )
 
 
 def _route_projection(transaction_hash: str = "11" * 32):
@@ -440,14 +448,14 @@ def test_signed_role_scoped_escrow_queries_use_native_query_payloads(
     records = [
         {
             "id": "escrow-locked",
-            "seller": "seller@payments",
-            "buyer": "buyer@payments",
+            "seller": _account_address(0x22),
+            "buyer": _account_address(0x33),
             "status": {"status": "Locked", "value": None},
         },
         {
             "id": "escrow-released",
-            "seller": "seller@payments",
-            "buyer": "buyer@payments",
+            "seller": _account_address(0x22),
+            "buyer": _account_address(0x33),
             "status": {"status": "Released", "value": None},
         },
     ]
@@ -462,15 +470,15 @@ def test_signed_role_scoped_escrow_queries_use_native_query_payloads(
     client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     seller_records = client.list_asset_escrows_by_seller(
-        seller="seller@payments",
-        authority="authority@payments",
+        seller=_account_address(0x22),
+        authority=_account_address(0x11),
         network_id=NETWORK_ID,
         private_key_hex="11" * 32,
         status="Locked",
     )
     buyer_records = client.list_asset_escrows_by_buyer(
-        buyer="buyer@payments",
-        authority="authority@payments",
+        buyer=_account_address(0x33),
+        authority=_account_address(0x11),
         network_id=NETWORK_ID,
         private_key=b"\x11" * 32,
         escrow_id="escrow-released",
@@ -517,25 +525,25 @@ def test_public_query_helpers_reject_raw_network_bytes_before_native_dispatch(
     calls = (
         lambda: client.get_asset_escrow(
             escrow_id="escrow",
-            authority="authority@payments",
+            authority=_account_address(0x11),
             network_id=raw_network_id,
             private_key=b"\x11" * 32,
         ),
         lambda: client.list_asset_escrows_by_seller(
-            seller="seller@payments",
-            authority="authority@payments",
+            seller=_account_address(0x22),
+            authority=_account_address(0x11),
             network_id=raw_network_id,
             private_key=b"\x11" * 32,
         ),
         lambda: client.list_asset_escrows_by_buyer(
-            buyer="buyer@payments",
-            authority="authority@payments",
+            buyer=_account_address(0x33),
+            authority=_account_address(0x11),
             network_id=raw_network_id,
             private_key=b"\x11" * 32,
         ),
         lambda: client.get_verified_committed_transaction(
             transaction_hash="11" * 32,
-            authority="authority@payments",
+            authority=_account_address(0x11),
             network_id=raw_network_id,
             native_finality_proof_chain_json="[]",
             expected_chain="trusted-chain", trusted_checkpoint=b"trusted-checkpoint",
@@ -629,7 +637,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
             "executed_block_wire_hash": "55" * 32,
             "executed_block_wire_len": 123,
             "entrypoint_kind": "External",
-            "authority": "authority@payments",
+            "authority": _account_address(0x44),
             "signer_public_key_hex": "44" * 32,
             "metadata": {"walkthrough": "availability"},
             "executable": {"Instructions": []},
@@ -656,7 +664,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
 
     verified = client.get_verified_committed_transaction(
         transaction_hash=transaction_hash,
-        authority="authority@payments",
+        authority=_account_address(0x44),
         network_id=NETWORK_ID,
         native_finality_proof_chain_json="[native-proof]",
         expected_chain="trusted-chain", trusted_checkpoint=b"trusted-checkpoint",
@@ -668,7 +676,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
     assert verified.block_height == 7
     assert verified.output_hash == output_hash
     assert verified.entrypoint_kind == "External"
-    assert verified.authority == "authority@payments"
+    assert verified.authority == _account_address(0x44)
     assert verified.signer_public_key_hex == "44" * 32
     assert verified.metadata == {"walkthrough": "availability"}
     assert verified.executable == {"Instructions": []}
@@ -684,6 +692,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
         "expected_network_id": NETWORK_ID,
         "expected_chain": "trusted-chain",
         "trusted_checkpoint": b"trusted-checkpoint",
+        "expected_chain_discriminant": 753,
     })]
     assert verified.executed_block_wire_hash == "55" * 32
     assert verified.executed_block_wire_len == 123
