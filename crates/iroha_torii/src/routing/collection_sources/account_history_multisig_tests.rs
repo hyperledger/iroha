@@ -358,8 +358,9 @@ async fn account_history_multisig_waits_for_quorum_and_retains_occurrence_identi
 async fn account_history_sparse_pages_advance_by_public_blocks_without_losing_movements() {
     let mut fixture = MultisigHistoryFixture::new(1);
     let first = fixture.occurrence(0x71, vec![fixture.transfer(1), fixture.transfer(2)], None);
-    let oldest = fixture.submit(false, vec![first.propose]);
+    let oldest = fixture.submit(false, vec![first.propose.clone(), fixture.approval(&first)]);
     assert!(oldest.succeeded);
+    fixture.assert_balances(7, 3);
     // These committed carriers contain real activity belonging to another
     // account, so no recipient movement can serve as their continuation.
     for index in 0..16 {
@@ -374,7 +375,12 @@ async fn account_history_sparse_pages_advance_by_public_blocks_without_losing_mo
         assert!(fixture.submit(false, updates.into()).succeeded);
     }
     let last = fixture.occurrence(0x72, vec![fixture.transfer(3), fixture.transfer(4)], None);
-    assert!(fixture.submit(false, vec![last.propose]).succeeded);
+    assert!(
+        fixture
+            .submit(false, vec![last.propose.clone(), fixture.approval(&last)])
+            .succeeded
+    );
+    fixture.assert_balances(0, 10);
     let expected = fixture.incoming(1).await;
     assert_eq!(expected.len(), 4);
     let scope = fixture.recipient.to_string();
