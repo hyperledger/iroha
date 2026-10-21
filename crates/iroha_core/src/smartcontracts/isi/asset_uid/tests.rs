@@ -108,7 +108,8 @@ impl Fixture {
             accounts: BTreeSet::from([self.first.clone(), self.second.clone()]),
             holding_limit: Some(cap.into()),
             daily_window: iroha_data_model::asset::uid::AssetUidDailyWindowV1::UtcDay,
-            daily_limit: Some(daily.into()),
+            daily_spend_limit: Some(daily.into()),
+            daily_outgoing_limit: None,
         }
     }
     fn configure(&self, tx: &mut StateTransaction<'_, '_>, revision: u64, cap: u32, daily: u32) {
@@ -481,7 +482,7 @@ fn uid_query_rows_enumerate_exact_asset_with_committed_time_and_custody() {
     let selected = asset_uid::views(tx.world(), &f.definition, Some(&[7; 32]), 1_000, 1).unwrap();
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].beneficial_holdings, Quantity::from(50_u32));
-    assert_eq!(selected[0].daily_usage, Quantity::from(30_u32));
+    assert_eq!(selected[0].daily_spend_usage, Quantity::from(30_u32));
     assert_eq!(selected[0].policy.revision, 1);
     assert_eq!(selected[0].policy.accounts.len(), 2);
     assert_eq!(selected[0].day_start_ms, 0);
@@ -663,12 +664,13 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
             .expect_err("payer cannot bypass controller cancellation");
         run(
             &mut tx,
-            CancelControlledAssetLockV1 { cancel }.into(),
+            CancelControlledAssetLockV1 { cancel, waterfall: None }.into(),
             Some(&context),
         )
         .expect_err("immutable refund window is not open");
         let draw: InstructionBox = DrawdownControlledAssetLockV1 {
             drawdown: drawdown.clone(),
+            waterfall: None,
         }
         .into();
         run(&mut tx, draw.clone(), None).expect_err("unframed wrapper denied");
@@ -695,7 +697,7 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
             .expect_err("generic expiry is not controller invocation");
         let result = run(
             &mut tx,
-            ExpireControlledAssetLockV1 { expiry }.into(),
+            ExpireControlledAssetLockV1 { expiry, waterfall: None }.into(),
             Some(&context),
         );
         assert_eq!(
@@ -713,3 +715,7 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
         block.commit_world_overlay_for_testing().unwrap();
     }
 }
+
+mod enrollment;
+mod fi_link;
+mod controlled_waterfall;

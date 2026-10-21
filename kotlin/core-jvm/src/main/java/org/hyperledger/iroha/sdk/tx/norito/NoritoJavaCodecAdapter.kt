@@ -42,6 +42,10 @@ class NoritoJavaCodecAdapter @JvmOverloads constructor(
         }
     }
 
+    /** Complete canonical Norito FeePaymentIntent archive, including its schema and checksum. */
+    fun encodeFeePaymentIntent(value: org.hyperledger.iroha.sdk.core.model.FeePaymentIntent): ByteArray =
+        adapter.encodeFeePaymentIntent(value)
+
     /** Canonical proof-free frame committed by each action's ordered intent. */
     fun orderedIntentProjection(payload: TransactionPayload): ByteArray = adapter.orderedIntentProjection(payload)
 

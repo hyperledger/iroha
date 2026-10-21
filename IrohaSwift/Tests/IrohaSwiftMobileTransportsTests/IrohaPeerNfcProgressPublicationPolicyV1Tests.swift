@@ -85,6 +85,37 @@ final class IrohaPeerNfcProgressPublicationPolicyV1Tests: XCTestCase {
         XCTAssertEqual(policy.attempt(for: .tagDetected), 3)
     }
 
+    func testLostAndRestoredContactRemainVisibleWhenExactPaymentStagesAreAlreadyPublished() {
+        var events: [IrohaPeerNfcProgressEventV1] = []
+        let reporter = IrohaPeerNfcReaderProgressReporterV1 { events.append($0) }
+
+        reporter.emit(.tagDetected)
+        reporter.emit(.contactEstablished)
+        reporter.emit(.requestRead)
+        reporter.emit(.contactEstablished) // The exchange selects again on the same contact.
+        reporter.emit(.paymentCommitted)
+        reporter.emit(.contactLost)
+        reporter.emit(.contactLost)
+        reporter.emit(.tagDetected)
+        reporter.emit(.contactEstablished) // A retained payment/receipt skips a new Request.
+        reporter.emit(.requestRead)
+        reporter.emit(.paymentCommitted)
+        reporter.emit(.contactLost)
+        reporter.emit(.tagDetected)
+        reporter.emit(.contactEstablished)
+        reporter.emit(.ackPersisted)
+        reporter.emit(.complete)
+        reporter.invalidate()
+        reporter.emit(.contactLost) // A retired reader cannot replace its completed UI.
+
+        XCTAssertEqual(events.map(\.stage), [
+            .tagDetected, .contactEstablished, .requestRead, .paymentCommitted, .contactLost,
+            .tagDetected, .contactEstablished, .contactLost,
+            .tagDetected, .contactEstablished, .ackPersisted, .complete,
+        ])
+        XCTAssertEqual(events.map(\.attempt), [1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3])
+    }
+
     func testInvalidationDrainsOldProgressAndSuppressesItAfterRestart() {
         let eventsLock = NSLock()
         var oldStages: [IrohaPeerNfcProgressStageV1] = []

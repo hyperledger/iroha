@@ -355,6 +355,109 @@ async fn account_history_multisig_waits_for_quorum_and_retains_occurrence_identi
 }
 
 #[tokio::test]
+async fn account_history_sparse_pages_advance_by_public_blocks_without_losing_movements() {
+    let mut fixture = MultisigHistoryFixture::new(1);
+    let first = fixture.occurrence(0x71, vec![fixture.transfer(1), fixture.transfer(2)], None);
+    let oldest = fixture.submit(false, vec![first.propose]);
+    assert!(oldest.succeeded);
+    // These committed carriers contain real activity belonging to another
+    // account, so no recipient movement can serve as their continuation.
+    for index in 0..16 {
+        let updates = ["history_gap_a", "history_gap_b", "history_gap_c"].map(|name| {
+            iroha_data_model::isi::SetKeyValue::account(
+                AccountId::new(fixture.first.public_key().clone()),
+                name.parse().unwrap(),
+                norito::json::Value::from(index),
+            )
+            .into()
+        });
+        assert!(fixture.submit(false, updates.into()).succeeded);
+    }
+    let last = fixture.occurrence(0x72, vec![fixture.transfer(3), fixture.transfer(4)], None);
+    assert!(fixture.submit(false, vec![last.propose]).succeeded);
+    let expected = fixture.incoming(1).await;
+    assert_eq!(expected.len(), 4);
+    let scope = fixture.recipient.to_string();
+    let limits = collection_limits();
+    let visibility = DataspaceReadVisibility::all_for_tests();
+    for (current_visibility, expected_rows) in [
+        (&visibility, expected.as_slice()),
+        (&DataspaceReadVisibility::default(), &[]),
+    ] {
+        for limit in [1, 10] {
+            let base = ListQuery::new().limit(limit).filter(
+                field("direction")
+                    .eq("incoming")
+                    .and(field("block_height").gte(oldest.height)),
+            );
+            let mut query = base.clone();
+            let mut rows = Vec::new();
+            let mut cursors = BTreeSet::new();
+            let mut empty_pages = 0;
+            let mut finished = false;
+            for _ in 0..64 {
+                let prepared =
+                    collections::prepare(&specs::ACCOUNT_HISTORY, &scope, &query, &limits).unwrap();
+                let page = account_subrow_page(
+                    fixture.chain.state(),
+                    &prepared,
+                    &fixture.recipient,
+                    None,
+                    current_visibility,
+                    8,
+                )
+                .expect("bounded sparse movement page");
+                if page.items.is_empty() && page.next_cursor.is_some() {
+                    empty_pages += 1;
+                }
+                rows.extend(page.items);
+                let Some(cursor) = page.next_cursor else {
+                    finished = true;
+                    break;
+                };
+                assert!(
+                    cursors.insert(cursor.clone()),
+                    "every continuation must advance"
+                );
+                let next = base.clone().cursor(cursor);
+                let resumed =
+                    collections::prepare(&specs::ACCOUNT_HISTORY, &scope, &next, &limits).unwrap();
+                if resumed.resume_before_block().is_some() {
+                    assert!(
+                        resumed.resume_subrow_position().is_none(),
+                        "no hidden subrow position"
+                    );
+                }
+                query = next;
+            }
+            assert!(finished, "bounded pages must reach native exhaustion");
+            assert!(
+                empty_pages > 0,
+                "the fixture must cross an empty middle page"
+            );
+            assert_eq!(
+                rows, expected_rows,
+                "all movements, in order, exactly once for limit {limit}"
+            );
+        }
+    }
+    let query = ListQuery::new();
+    let prepared = collections::prepare(&specs::ACCOUNT_HISTORY, &scope, &query, &limits).unwrap();
+    assert!(
+        account_subrow_page(
+            fixture.chain.state(),
+            &prepared,
+            &fixture.recipient,
+            None,
+            &visibility,
+            1,
+        )
+        .is_err(),
+        "a carrier that cannot fit the budget must not invent progress"
+    );
+}
+
+#[tokio::test]
 async fn account_history_multisig_failed_inner_transfer_never_credits() {
     let mut fixture = MultisigHistoryFixture::new(2);
     let occurrence = fixture.occurrence(3, vec![fixture.transfer(99)], None);

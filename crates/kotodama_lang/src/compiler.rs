@@ -7715,6 +7715,13 @@ impl Compiler {
                                             | syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN
                                             | syscalls::SYSCALL_ASSET_LOCK_CANCEL
                                             | syscalls::SYSCALL_ASSET_LOCK_EXPIRE
+                                            | syscalls::SYSCALL_ASSET_UID_HOLDING_QUOTE
+                                            | syscalls::SYSCALL_TRANSFER_TO_LINKED_FI
+                                            | syscalls::SYSCALL_ASSET_LOCK_DRAWDOWN_WATERFALL
+                                            | syscalls::SYSCALL_ASSET_LOCK_CANCEL_WATERFALL
+                                            | syscalls::SYSCALL_ASSET_LOCK_EXPIRE_WATERFALL
+                                            | syscalls::SYSCALL_ASSET_FI_LINK_REVISION
+                                            | syscalls::SYSCALL_ASSET_SAME_UID
                                     )
                                 {
                                     // The original schema/data decoder consumes its owned

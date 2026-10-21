@@ -1,5 +1,4 @@
 //! Typed projection of controller-authorized beneficial holdings into Kotodama values.
-// TODO: Register this module with the metered native reader after the coherent ICL1 gate.
 
 use super::*;
 use crate::state::asset_uid_reader::AssetUidHoldingQuoteError;

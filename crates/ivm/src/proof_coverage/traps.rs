@@ -259,12 +259,28 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     ),
     producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/controlled_asset_locks.rs",
-        SyscallTrap: [DecodeError, PermissionDenied, UnknownSyscall],
+        SyscallTrap: [DecodeError, GasCostOverflow, PermissionDenied, UnknownSyscall],
+    ),
+    producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/controlled_waterfall.rs",
+        SyscallTrap: [PermissionDenied, UnknownSyscall],
+    ),
+    producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/fi_link_revision.rs",
+        SyscallTrap: [DecodeError, GasCostOverflow, NotImplemented, PermissionDenied],
+    ),
+    producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/linked_fi.rs",
+        SyscallTrap: [PermissionDenied],
     ),
     producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/native_events.rs",
         SyscallTrap: [DecodeError, InvalidMetadata, Metered, PermissionDenied],
         LocalDeferral: [ExecutionDeferred],
+    ),
+    producer!(
+        "crates/iroha_core/src/smartcontracts/ivm/host/same_uid.rs",
+        SyscallTrap: [DecodeError, NotImplemented, PermissionDenied],
     ),
     producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/tlv_transport.rs",

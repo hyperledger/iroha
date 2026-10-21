@@ -5765,6 +5765,8 @@ dependencies = [
  "iroha_version",
  "iroha_zkp_halo2",
  "ivm",
+ "ivm_abi",
+ "kotodama_lang",
  "norito",
  "once_cell",
  "pyo3",

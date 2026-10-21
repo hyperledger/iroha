@@ -196,7 +196,7 @@ impl QueryExecutionBudget {
         }
         Ok(())
     }
-    fn remaining_bytes(self, items: u64, bytes: u64) -> Result<u64, Error> {
+    pub(crate) fn remaining_bytes(self, items: u64, bytes: u64) -> Result<u64, Error> {
         self.ensure(items, bytes)?;
         let cap_remaining = self
             .max_bytes
@@ -244,7 +244,7 @@ impl QueryExecutionStats {
     pub const fn processed_bytes(self) -> u64 {
         self.processed_bytes
     }
-    fn record_item<T: SerializePayload>(
+    pub(crate) fn record_item<T: SerializePayload>(
         &mut self,
         value: &T,
         budget: Option<QueryExecutionBudget>,
@@ -271,7 +271,7 @@ impl QueryExecutionStats {
             .ok_or(Error::GasBudgetExceeded)?;
         budget.ensure(self.processed_items, self.processed_bytes)
     }
-    fn record_response<T: NoritoSerialize>(
+    pub(crate) fn record_response<T: NoritoSerialize>(
         &mut self,
         value: &T,
         budget: Option<QueryExecutionBudget>,
@@ -305,7 +305,7 @@ impl QueryExecutionStats {
             .ok_or(Error::GasBudgetExceeded)?;
         budget.ensure(self.processed_items, self.processed_bytes)
     }
-    fn record_preflighted_item(
+    pub(crate) fn record_preflighted_item(
         &mut self,
         encoded: u64,
         budget: Option<QueryExecutionBudget>,
@@ -8526,4 +8526,18 @@ mod tests {
         &[&[1], &[0]]
     );
     include!("query_find_transaction_test.rs");
+}
+
+impl SortableQueryOutput for iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1 {
+    type TiebreakKey = ();
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> { None }
+    fn tiebreak_key(&self) -> Self::TiebreakKey { () }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> { bounded_bare_encoded_len(&(), limit) }
+}
+
+impl SortableQueryOutput for iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1 {
+    type TiebreakKey = ();
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> { None }
+    fn tiebreak_key(&self) -> Self::TiebreakKey { () }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> { bounded_bare_encoded_len(&(), limit) }
 }

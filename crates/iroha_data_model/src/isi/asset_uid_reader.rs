@@ -1,6 +1,6 @@
 //! Explicit asset-owner authority for private contract holdings quotes.
 
-use super::*;
+use crate::isi::*;
 use crate::smart_contract::ContractAddress;
 
 isi! {
@@ -32,20 +32,20 @@ impl<'a> norito::core::DecodeFromSlice<'a> for SetAssetUidPolicyReaderV1 {
         let flags = norito::core::effective_decode_flags()
             .unwrap_or_else(norito::core::default_encode_flags);
         let mut offset = 0;
-        let asset_definition_id = super::decode_aos_canonical_field::<AssetDefinitionId>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
+        let asset_definition_id = crate::isi::decode_aos_canonical_field::<AssetDefinitionId>(
+            crate::isi::read_aos_field(bytes, &mut offset, flags)?,
             flags,
         )?;
-        let controller = super::decode_aos_canonical_field::<ContractAddress>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
+        let controller = crate::isi::decode_aos_canonical_field::<ContractAddress>(
+            crate::isi::read_aos_field(bytes, &mut offset, flags)?,
             flags,
         )?;
-        let revision = super::decode_aos_canonical_field::<u64>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
+        let revision = crate::isi::decode_aos_canonical_field::<u64>(
+            crate::isi::read_aos_field(bytes, &mut offset, flags)?,
             flags,
         )?;
-        let enabled = super::decode_aos_canonical_field::<bool>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
+        let enabled = crate::isi::decode_aos_canonical_field::<bool>(
+            crate::isi::read_aos_field(bytes, &mut offset, flags)?,
             flags,
         )?;
         if offset != bytes.len() {

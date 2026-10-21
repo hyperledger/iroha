@@ -259,3 +259,234 @@ fn controlled_waterfall_obeys_link_changes_and_fi_revocation_after_opening() {
     );
     assert_eq!(f.holdings(&tx), Quantity::from(50_u32));
 }
+
+fn retained_waterfall_refund_to_closed_payer(expire: bool) {
+    use iroha_data_model::{
+        asset::{AssetTransferAvailability, uid_enrollment::AssetUidSystemAccountV1},
+        escrow::AssetEscrowStatus,
+        isi::{
+            asset_transfer_control::{SetAssetHoldingLimit, SetAssetTransferAvailability},
+            asset_uid_enrollment::{ActivateAssetUidEnrollmentV1, SetAssetUidSystemAccountV1},
+            escrow::{CancelAssetLock, ExpireAssetLock},
+            escrow_control::{CancelControlledAssetLockV1, ExpireControlledAssetLockV1},
+        },
+    };
+    let (f, state) = fixture(40, 10);
+    let context = super::fi_link::controller(&f, &state);
+    let label = if expire {
+        "retained-split-expiry"
+    } else {
+        "retained-split-cancel"
+    };
+    state
+        .block(header(1, 999))
+        .commit_world_overlay_for_testing()
+        .unwrap();
+    let id;
+    {
+        let mut block = state.block(header(2, 1_000));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::new(label));
+        f.configure(&mut tx, 1, 50, 30);
+        configure_link(&f, &mut tx, &context);
+        SetAssetUidSystemAccountV1 {
+            account: AssetUidSystemAccountV1 {
+                asset_definition_id: f.definition.clone(),
+                account_id: f.owner.clone(),
+                revision: 1,
+                enabled: true,
+            },
+        }
+        .execute(&f.owner, &mut tx)
+        .unwrap();
+        ActivateAssetUidEnrollmentV1 {
+            asset_definition_id: f.definition.clone(),
+        }
+        .execute(&f.owner, &mut tx)
+        .unwrap();
+        id = open(&f, &mut tx, &context, &f.first, 30, label);
+        // Existing ownership is 50, including the reserve. The owner-approved
+        // current cap requires exactly 10 to the FI and 20 back to this payer.
+        f.configure(&mut tx, 2, 40, 30);
+        SetAssetTransferAvailability {
+            account_id: f.first.clone(),
+            asset_definition_id: f.definition.clone(),
+            expected_revision: 0,
+            incoming: AssetTransferAvailability::Disabled,
+            outgoing: AssetTransferAvailability::Disabled,
+            reason: Some("closed payer after opening".into()),
+        }
+        .execute(&f.owner, &mut tx)
+        .unwrap();
+        SetAssetHoldingLimit {
+            account_id: f.first.clone(),
+            asset_definition_id: f.definition.clone(),
+            holding_limit: Some(Quantity::zero()),
+        }
+        .execute(&f.owner, &mut tx)
+        .unwrap();
+        assert_eq!(f.balance(&tx, &f.first), Quantity::from(10_u32));
+        assert_eq!(f.holdings(&tx), Quantity::from(50_u32));
+        tx.apply();
+        block.commit_world_overlay_for_testing().unwrap();
+    }
+    let mut block = state.block(header(3, 3_000));
+    let mut tx = block.transaction_for_fastpq_testing(Hash::new(format!("{label}-settle")));
+    let original = tx.world.asset_escrows.get(&id).unwrap().clone();
+    assert_eq!(original.seller, f.first);
+    let waterfall = Some(AssetLockWaterfallSettlementV1 {
+        expected_policy_revision: 2,
+        expected_link_revision: 2,
+    });
+    let instruction: InstructionBox = if expire {
+        ExpireControlledAssetLockV1 {
+            expiry: ExpireAssetLock::new(id),
+            waterfall,
+        }
+        .into()
+    } else {
+        CancelControlledAssetLockV1 {
+            cancel: CancelAssetLock::new(id, 30_u32),
+            waterfall,
+        }
+        .into()
+    };
+    run(&mut tx, &context, instruction.clone()).expect(
+        "split retained-payer refund keeps the receiver-control exemption in the aggregate",
+    );
+    assert_eq!(f.balance(&tx, &f.first), Quantity::from(30_u32));
+    assert_eq!(f.balance(&tx, &f.second), Quantity::from(10_u32));
+    assert_eq!(f.balance(&tx, &f.payee), Quantity::from(10_u32));
+    assert_eq!(f.balance(&tx, &original.custody), Quantity::zero());
+    assert_eq!(f.holdings(&tx), Quantity::from(40_u32));
+    let terminal = tx.world.asset_escrows.get(&id).unwrap().clone();
+    assert_eq!(terminal.seller, original.seller);
+    assert_eq!(terminal.custody, original.custody);
+    assert_eq!(
+        terminal.status,
+        if expire {
+            AssetEscrowStatus::Expired
+        } else {
+            AssetEscrowStatus::Cancelled
+        }
+    );
+    assert!(terminal.remaining_amount.is_zero());
+    assert_eq!(terminal.closed_at_ms, Some(3_000));
+    let usage = asset_uid::views(tx.world(), &f.definition, Some(&[7; 32]), 3_000, 3)
+        .unwrap()
+        .remove(0);
+    assert_eq!(usage.daily_spend_usage, Quantity::from(30_u32));
+    assert_eq!(usage.daily_outgoing_usage, Quantity::from(30_u32));
+    run(&mut tx, &context, instruction).expect_err("the exact retained remainder is consumed once");
+    assert_eq!(tx.world.asset_escrows.get(&id), Some(&terminal));
+    assert_eq!(f.balance(&tx, &f.first), Quantity::from(30_u32));
+    assert_eq!(f.balance(&tx, &f.payee), Quantity::from(10_u32));
+    f.transfer(&mut tx, &f.owner, &f.first, 1)
+        .expect_err("ordinary third-party incoming remains closed");
+    f.transfer(&mut tx, &f.first, &f.payee, 1)
+        .expect_err("ordinary outgoing remains closed after the retained refund");
+}
+
+#[test]
+fn controlled_waterfall_cancel_preserves_exact_retained_payer_cap_exemption() {
+    retained_waterfall_refund_to_closed_payer(false);
+}
+
+#[test]
+fn controlled_waterfall_expiry_preserves_exact_retained_payer_cap_exemption() {
+    retained_waterfall_refund_to_closed_payer(true);
+}
+
+#[test]
+fn controlled_waterfall_still_checks_combined_fi_destination_cap() {
+    use iroha_data_model::isi::{
+        asset_transfer_control::SetAssetHoldingLimit, error::AssetTransferAdmissionError,
+    };
+    let (f, state) = fixture(40, 10);
+    let context = super::fi_link::controller(&f, &state);
+    state
+        .block(header(1, 999))
+        .commit_world_overlay_for_testing()
+        .unwrap();
+    let mut block = state.block(header(2, 1_000));
+    let mut tx = block.transaction_for_fastpq_testing(Hash::new("aggregate-fi-cap-preserved"));
+    f.configure(&mut tx, 1, 50, 0);
+    configure_link(&f, &mut tx, &context);
+    let id = open(&f, &mut tx, &context, &f.owner, 30, "fi-cap-split");
+    f.configure(&mut tx, 2, 20, 0);
+    // Each independently prepared FI credit is 30. Only the aggregate sees 60.
+    let mut cap = SetAssetHoldingLimit {
+        account_id: f.payee.clone(),
+        asset_definition_id: f.definition.clone(),
+        holding_limit: Some(Quantity::from(50_u32)),
+    };
+    cap.clone().execute(&f.owner, &mut tx).unwrap();
+    let original = tx.world.asset_escrows.get(&id).unwrap().clone();
+    let error = run(&mut tx, &context, draw(id, 30, 2))
+        .expect_err("two different source policies cannot evade the common FI destination cap");
+    assert!(matches!(
+        error,
+        iroha_data_model::executor::ValidationFail::InstructionFailed(
+            Error::AssetTransferAdmission(AssetTransferAdmissionError::HoldingLimitExceeded(_))
+        )
+    ));
+    assert_eq!(tx.world.asset_escrows.get(&id), Some(&original));
+    assert_eq!(f.balance(&tx, &f.first), Quantity::from(40_u32));
+    assert_eq!(f.balance(&tx, &f.payee), Quantity::zero());
+    assert_eq!(f.balance(&tx, &original.custody), Quantity::from(30_u32));
+    let usage = asset_uid::views(tx.world(), &f.definition, Some(&[7; 32]), 1_000, 2)
+        .unwrap()
+        .remove(0);
+    assert_eq!(usage.daily_spend_usage, Quantity::zero());
+    assert_eq!(usage.daily_outgoing_usage, Quantity::zero());
+    cap.holding_limit = Some(Quantity::from(60_u32));
+    cap.execute(&f.owner, &mut tx).unwrap();
+    run(&mut tx, &context, draw(id, 30, 2)).expect("the exact combined FI limit is sufficient");
+    assert_eq!(f.balance(&tx, &f.payee), Quantity::from(60_u32));
+    assert_eq!(f.balance(&tx, &f.first), Quantity::from(10_u32));
+    assert_eq!(f.balance(&tx, &original.custody), Quantity::zero());
+    assert_eq!(f.holdings(&tx), Quantity::from(20_u32));
+}
+
+#[test]
+fn controlled_waterfall_new_beneficiary_keeps_ordinary_destination_cap() {
+    use iroha_data_model::isi::{
+        asset_transfer_control::SetAssetHoldingLimit, error::AssetTransferAdmissionError,
+    };
+    let (f, state) = fixture(40, 10);
+    let context = super::fi_link::controller(&f, &state);
+    state
+        .block(header(1, 999))
+        .commit_world_overlay_for_testing()
+        .unwrap();
+    let mut block = state.block(header(2, 1_000));
+    let mut tx = block.transaction_for_fastpq_testing(Hash::new("nonpayer-cap-preserved"));
+    f.configure(&mut tx, 1, 80, 0);
+    configure_link(&f, &mut tx, &context);
+    let id = open(&f, &mut tx, &context, &f.owner, 30, "new-beneficiary-cap");
+    let mut cap = SetAssetHoldingLimit {
+        account_id: f.first.clone(),
+        asset_definition_id: f.definition.clone(),
+        holding_limit: Some(Quantity::from(40_u32)),
+    };
+    cap.clone().execute(&f.owner, &mut tx).unwrap();
+    let original = tx.world.asset_escrows.get(&id).unwrap().clone();
+    assert_ne!(original.seller, f.first);
+    let error = run(&mut tx, &context, draw(id, 30, 1))
+        .expect_err("native custody alone does not grant the retained-payer exemption");
+    assert!(matches!(
+        error,
+        iroha_data_model::executor::ValidationFail::InstructionFailed(
+            Error::AssetTransferAdmission(AssetTransferAdmissionError::HoldingLimitExceeded(_))
+        )
+    ));
+    assert_eq!(tx.world.asset_escrows.get(&id), Some(&original));
+    assert_eq!(f.balance(&tx, &f.first), Quantity::from(40_u32));
+    assert_eq!(f.balance(&tx, &original.custody), Quantity::from(30_u32));
+    cap.holding_limit = Some(Quantity::from(70_u32));
+    cap.execute(&f.owner, &mut tx).unwrap();
+    run(&mut tx, &context, draw(id, 30, 1))
+        .expect("ordinary beneficiary cap still admits its boundary");
+    assert_eq!(f.balance(&tx, &f.first), Quantity::from(70_u32));
+    assert_eq!(f.balance(&tx, &f.payee), Quantity::zero());
+    assert_eq!(f.holdings(&tx), Quantity::from(80_u32));
+}

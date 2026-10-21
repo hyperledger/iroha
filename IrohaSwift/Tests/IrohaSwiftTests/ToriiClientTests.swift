@@ -13988,6 +13988,54 @@ data: {"category":"Pipeline","event":"Transaction","hash":"\(Self.pipelineHash)"
         XCTAssertNotNil(object["provenance"] as? [String: Any])
     }
 
+    func testUidHoldingQuoteExactBoundaryAndDurableProduct() throws {
+        let fields = ["asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow"]
+        let types = ["AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity"]
+        func leaf(_ kind: String) -> String { "{\"kind\":\"Leaf\",\"value\":{\"kind\":\"\(kind)\",\"value\":null}}" }
+        func product(_ name: String, _ names: [String]) -> String {
+            let names = names.map { "\"\($0)\"" }.joined(separator: ",")
+            return "{\"kind\":\"Struct\",\"value\":{\"name\":\"\(name)\",\"fields\":[\(names)]}}"
+        }
+        let option = "{\"kind\":\"Option\",\"value\":null}"
+        let quote = [product("kotodama::AssetUidHoldingQuote", fields), leaf("AssetDefinitionId"), leaf("AccountId"), leaf("Int"), leaf("Quantity"), option, leaf("Quantity"), leaf("Quantity")]
+        func decode(_ nodes: [String]) throws -> ToriiEntrypointValueTypeV1 {
+            try JSONDecoder().decode(ToriiEntrypointValueTypeV1.self, from: Data("{\"nodes\":[\(nodes.joined(separator: ","))]}".utf8))
+        }
+        let decoded = try decode(quote)
+        XCTAssertEqual(decoded.canonicalTypeName, "AssetUidHoldingQuote")
+        XCTAssertEqual(decoded.wordCount, 6)
+        XCTAssertEqual(try decode([option] + quote).canonicalTypeName, "Option<AssetUidHoldingQuote>")
+        for index in fields.indices {
+            var names = fields; names[index] = "forged_\(index)"
+            XCTAssertThrowsError(try decode([product("kotodama::AssetUidHoldingQuote", names)] + quote.dropFirst()))
+        }
+        for index in [1, 2, 3, 4, 6, 7] {
+            var nodes = quote; nodes[index] = leaf("Bool")
+            XCTAssertThrowsError(try decode(nodes))
+        }
+        var reordered = quote; reordered.swapAt(1, 2)
+        XCTAssertThrowsError(try decode(reordered))
+        var required = quote; required.remove(at: 5)
+        XCTAssertThrowsError(try decode(required))
+        XCTAssertThrowsError(try decode([product("kotodama::QueryPage", ["items", "next_offset"]), "{\"kind\":\"List\",\"value\":{\"capacity\":64}}"] + quote + [option, leaf("Int")]))
+        func durable(_ names: [String], _ children: [String]) -> String {
+            "kotodama::AssetUidHoldingQuote{" + zip(names, children).map { "\($0): \($1)" }.joined(separator: ", ") + "}"
+        }
+        func state(_ type: String) throws {
+            let data = try JSONSerialization.data(withJSONObject: ["events": [], "enum_types": [], "permissions": [], "states": [["name": "stored", "type_name": type]]])
+            _ = try JSONDecoder().decode(ToriiContractManifest.self, from: data)
+            _ = try JSONEncoder().encode(ToriiContractStateDescriptor(name: "stored", typeName: type))
+        }
+        XCTAssertNoThrow(try state(durable(fields, types)))
+        for index in fields.indices {
+            var names = fields; names[index] = "forged_\(index)"
+            XCTAssertThrowsError(try state(durable(names, types)))
+            var children = types; children[index] = "bool"
+            XCTAssertThrowsError(try state(durable(fields, children)))
+        }
+        XCTAssertThrowsError(try state("kotodama::QueryPage{items: List<\(durable(fields, types)), 64>, next_offset: Option<int>}"))
+    }
+
     func testEntrypointSchemaUsesOneFlatPreorderTapeAndExactReservedNames() throws {
         func leaf(_ kind: String) -> String {
             "{\"kind\":\"Leaf\",\"value\":{\"kind\":\"\(kind)\",\"value\":null}}"

@@ -958,7 +958,14 @@ fn execute_prepared_collection_local(
                 .map(|app| crate::resolve_tx_history_allowed_asset_definition_id(app))
                 .transpose()?
                 .flatten();
-            return account_subrow_page(state, prepared, &account, allowed.as_ref(), visibility);
+            return account_subrow_page(
+                state,
+                prepared,
+                &account,
+                allowed.as_ref(),
+                visibility,
+                app_query_limits().max_fetch_size,
+            );
         }
         CollectionTarget::ContractActivity => {
             return transaction_page(
@@ -1081,13 +1088,16 @@ fn execute_prepared_collection_local(
 /// Borrow the input/result from each authenticated carrier: display rows do not
 /// need the proof-bearing query DTO, its per-row encoding, or cloned instructions.
 /// The third cursor coordinate keeps multiple movements from one transaction on
-/// separate pages; only caller-visible movements may provide a continuation.
+/// separate pages. A partial carrier continues after a caller-visible movement;
+/// a completely scanned carrier may continue at its public block boundary, so
+/// sparse/hidden stretches remain reachable without exposing their row positions.
 fn account_subrow_page(
     state: &Arc<CoreState>,
     prepared: &collections::Prepared<'_>,
     account: &AccountId,
     allowed_definition: Option<&AssetDefinitionId>,
     visibility: &DataspaceReadVisibility,
+    work: u64,
 ) -> Result<RowPage> {
     use iroha_core::smartcontracts::isi::tx::{
         TransactionHistoryPageEnd, TransactionHistoryPosition, transaction_history_byte_limit,
@@ -1096,6 +1106,18 @@ fn account_subrow_page(
     let after = prepared.resume_subrow_position();
     // Revisit the cursor transaction, then skip movements at or above its
     // exclusive coordinate. A transaction-only cursor would lose its tail.
+    let block_resume = prepared
+        .resume_before_block()
+        .map(|height| {
+            TransactionHistoryPosition::new(height, 0).ok_or_else(|| {
+                Error::from(CollectionError::new(
+                    "invalid_cursor",
+                    "cursor",
+                    "invalid history block boundary",
+                ))
+            })
+        })
+        .transpose()?;
     let resume = after
         .map(|(height, index, _)| {
             index
@@ -1109,7 +1131,8 @@ fn account_subrow_page(
                     ))
                 })
         })
-        .transpose()?;
+        .transpose()?
+        .or(block_resume);
     let (lowest, highest) = prepared.height_range();
     if lowest > highest {
         return prepared.subrow_page(Vec::new(), None).map_err(Into::into);
@@ -1131,11 +1154,12 @@ fn account_subrow_page(
     let mut items = Vec::new();
     let mut last_visible = None;
     let mut below_range = false;
+    let mut scan_budget_spent = false;
     let mut expansion_exceeded = false;
     let mut projection_error = None;
     let mut scanned = 0u64;
     let account_literal = account.to_string();
-    let work = app_query_limits().max_fetch_size;
+    let mut completed_block = None;
     let mut multisig_budget =
         MultisigHistoryBudget::new(work, transaction_history_byte_limit(work));
     let end = visit_borrowed_committed_transaction_page(
@@ -1143,6 +1167,7 @@ fn account_subrow_page(
         resume,
         work,
         transaction_history_byte_limit(work),
+        |height| completed_block = Some(height),
         |entrypoint, result, position, block| {
             let transaction = BorrowedNetworkTransaction {
                 entrypoint,
@@ -1150,6 +1175,7 @@ fn account_subrow_page(
                 result,
             };
             if scanned >= work {
+                scan_budget_spent = true;
                 return std::ops::ControlFlow::Break(());
             }
             if position.height() < lowest {
@@ -1192,6 +1218,7 @@ fn account_subrow_page(
                     continue;
                 }
                 if scanned >= work {
+                    scan_budget_spent = true;
                     return std::ops::ControlFlow::Break(());
                 }
                 scanned += 1;
@@ -1236,6 +1263,21 @@ fn account_subrow_page(
             "one transaction's movement projection exceeds the page's raw-row scan budget",
         )
         .into());
+    }
+    // The borrowed visitor charges complete carriers before visiting them and
+    // reports completion only after their last transaction. Public Explorer
+    // block headers expose these heights independently of transaction visibility.
+    // Never publish an internal transaction/movement position from hidden work.
+    if (matches!(
+        end,
+        TransactionHistoryPageEnd::BudgetSpent(_) | TransactionHistoryPageEnd::OutOfReach
+    ) || scan_budget_spent)
+        && let Some(height) = completed_block
+        && last_visible.is_none_or(|(visible_height, _, _)| visible_height >= height)
+    {
+        return prepared
+            .block_boundary_page(items, height)
+            .map_err(Into::into);
     }
     let continuation = match end {
         TransactionHistoryPageEnd::Exhausted => None,
@@ -1289,7 +1331,14 @@ pub(crate) fn account_history_rows_between(
             ..ListQuery::default()
         };
         let prepared = collections::prepare(&specs::ACCOUNT_HISTORY, &scope, &query, &limits)?;
-        let page = account_subrow_page(state, &prepared, account, allowed_definition, visibility)?;
+        let page = account_subrow_page(
+            state,
+            &prepared,
+            account,
+            allowed_definition,
+            visibility,
+            app_query_limits().max_fetch_size,
+        )?;
         rows.extend(page.items);
         match page.next_cursor {
             Some(next) => cursor = Some(next),

@@ -27,9 +27,17 @@ export const CORE_QUERY_VIEWS = new Map([
   ],
 ]);
 
+/** Fixed controller quote; deliberately excluded from enumerable core query views. */
+export const UID_HOLDING_QUOTE = Object.freeze({
+  name: "kotodama::AssetUidHoldingQuote",
+  fields: Object.freeze(["asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow"]),
+  children: Object.freeze(["AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity"]),
+});
+
 /** Validate a durable product after recursively validating each field type. */
 export function isExactDurableBuiltinProduct(name, fields, types) {
-  const product = CORE_QUERY_VIEWS.get(name);
+  if (name === UID_HOLDING_QUOTE.name && types.length !== UID_HOLDING_QUOTE.children.length) return false;
+  const product = name === UID_HOLDING_QUOTE.name ? UID_HOLDING_QUOTE : CORE_QUERY_VIEWS.get(name);
   if (product) return fields.length === product.fields.length && fields.every((field, index) => field === product.fields[index] && types[index] === product.children[index]);
   if (name !== "kotodama::QueryPage") return !name.startsWith("kotodama::");
   if (fields.length !== 2 || fields[0] !== "items" || fields[1] !== "next_offset" || types[1] !== "Option<int>") return false;

@@ -423,6 +423,7 @@ object ContractManifestJsonParser {
         "DomainView",
         "NftView",
         "QueryPage",
+        "AssetUidHoldingQuote",
         "AxtDescriptor",
         "AxtAnchoredSpendV1",
         "ProofBlob",
@@ -1202,6 +1203,7 @@ object ContractManifestJsonParser {
                         struct.name == "kotodama::QueryPage" -> children.firstOrNull()?.listElementCoreViewName
                             ?.let { RenderedType("QueryPage<$it>") }
                             ?: RenderedType("struct QueryPage")
+                        struct.name == "kotodama::AssetUidHoldingQuote" -> RenderedType("AssetUidHoldingQuote")
                         isCoreQueryViewName(struct.name) ->
                             RenderedType(struct.name.removePrefix("kotodama::"), coreViewName = struct.name.removePrefix("kotodama::"))
                         else -> RenderedType("struct ${struct.name}")
@@ -1275,11 +1277,25 @@ object ContractManifestJsonParser {
         else -> null
     }
 
+    // Kept separate from coreQueryViewShape so the quote cannot become a QueryPage row.
+    private val uidHoldingQuoteShape = listOf(
+        "asset_definition_id" to "AssetDefinitionId", "account_id" to "AccountId",
+        "policy_revision" to "int", "beneficial_holdings" to "quantity",
+        "holding_limit" to "Option<quantity>", "required_overflow" to "quantity",
+    )
+
     private fun coreQueryViewRange(nodes: List<EntrypointValueTypeNodeV1>, start: Int): CoreViewRange? {
+        val name = nodes.getOrNull(start)?.structValue?.name ?: return null
+        val expected = coreQueryViewShape(name) ?: return null
+        return exactFixedProductEnd(nodes, start, expected)?.let(::CoreViewRange)
+    }
+
+    private fun exactFixedProductEnd(
+        nodes: List<EntrypointValueTypeNodeV1>, start: Int, expected: List<Pair<String, String>>,
+    ): Int? {
         val root = nodes.getOrNull(start)
         if (root?.kind != EntrypointValueTypeNodeKindV1.STRUCT) return null
         val struct = root.structValue ?: return null
-        val expected = coreQueryViewShape(struct.name) ?: return null
         if (struct.fields != expected.map { it.first }) return null
         var cursor = start + 1
         for ((_, type) in expected) {
@@ -1290,11 +1306,12 @@ object ContractManifestJsonParser {
             val node = nodes.getOrNull(cursor++) ?: return null
             if (node.kind != EntrypointValueTypeNodeKindV1.LEAF || node.leafKind?.let(::canonicalLeafName) != leaf) return null
         }
-        return if (subtreeEnd(nodes, start) == cursor) CoreViewRange(cursor) else null
+        return if (subtreeEnd(nodes, start) == cursor) cursor else null
     }
 
     private fun exactDurableBuiltinProduct(name: String, fields: List<String>, types: List<String>): Boolean {
-        coreQueryViewShape(name)?.let { return fields == it.map { item -> item.first } && types == it.map { item -> item.second } }
+        val fixedShape = if (name == "kotodama::AssetUidHoldingQuote") uidHoldingQuoteShape else coreQueryViewShape(name)
+        fixedShape?.let { return fields == it.map { item -> item.first } && types == it.map { item -> item.second } }
         if (name != "kotodama::QueryPage") return !name.startsWith("kotodama::")
         if (fields != listOf("items", "next_offset") || types.size != 2 || types[1] != "Option<int>") return false
         // Recursive parsing has already validated the exact nested view shape.
@@ -1315,6 +1332,10 @@ object ContractManifestJsonParser {
         nodes.forEachIndexed { start, node ->
             if (node.kind != EntrypointValueTypeNodeKindV1.STRUCT) return@forEachIndexed
             val struct = node.structValue ?: return false
+            if (struct.name == "kotodama::AssetUidHoldingQuote") {
+                if (exactFixedProductEnd(nodes, start, uidHoldingQuoteShape) == null) return false
+                return@forEachIndexed
+            }
             if (isCoreQueryViewName(struct.name)) {
                 if (coreQueryViewRange(nodes, start) == null) return false
                 return@forEachIndexed
@@ -1709,7 +1730,7 @@ object ContractManifestJsonParser {
         if (value.length > 1024 || value.any { it.code > 127 } || value.contains("__kotodama_link_")) return false
         val parts = value.split("::")
         if (parts.size == 2) {
-            if (parts[0] == "kotodama") return isCoreQueryViewName(value) || value == "kotodama::QueryPage" || value == "kotodama::StatePage"
+            if (parts[0] == "kotodama") return isCoreQueryViewName(value) || value == "kotodama::QueryPage" || value == "kotodama::StatePage" || value == "kotodama::AssetUidHoldingQuote"
             return parts.all(::canonicalTypeDeclarationIdentifier)
         }
         if (parts.size == 4 && parts[0] == "local") {

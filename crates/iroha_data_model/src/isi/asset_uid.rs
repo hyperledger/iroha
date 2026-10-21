@@ -61,7 +61,8 @@ mod tests {
             accounts: BTreeSet::from([account.clone()]),
             holding_limit: Some(100_u32.into()),
             daily_window: AssetUidDailyWindowV1::UtcDay,
-            daily_limit: Some(20_u32.into()),
+            daily_spend_limit: Some(20_u32.into()),
+            daily_outgoing_limit: None,
         };
         assert!(policy.validate_shape().is_ok());
         let instruction = SetAssetUidPolicyV1 {
@@ -100,7 +101,8 @@ mod tests {
             uid: policy.uid,
             daily_window: policy.daily_window,
             day_start_ms: 86_400_000,
-            amount: 7_u32.into(),
+            spend_amount: 7_u32.into(),
+            outgoing_amount: 9_u32.into(),
         };
         assert_eq!(
             norito::decode_canonical::<AssetUidUsageV1>(&norito::encode_canonical(&usage).unwrap())
@@ -112,3 +114,7 @@ mod tests {
         assert!(invalid.validate_shape().is_err());
     }
 }
+
+#[path = "asset_uid_reader.rs"]
+mod reader;
+pub use reader::SetAssetUidPolicyReaderV1;

@@ -208,6 +208,12 @@ sealed class FeePaymentIntent private constructor(
         }
     }
 
+    /** Payer, exact sponsor revision and gas bound without quote-populated charge maxima. */
+    fun payerSelection(): FeePaymentIntent = when (this) {
+        is Authority -> Authority(emptyList(), gasLimit)
+        is Sponsor -> Sponsor(programId, programRevision, emptyList(), gasLimit)
+    }
+
     /** True only when a quote preserves the exact payer, revision, and signed gas bound. */
     fun hasSamePayerAndGasBound(other: FeePaymentIntent): Boolean {
         if (gasLimit != other.gasLimit) return false

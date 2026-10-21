@@ -30,7 +30,11 @@ let configuredArtifactDirectory = ProcessInfo.processInfo.environment[
 let configuredLocalUnitArtifactDirectory = ProcessInfo.processInfo.environment[
     "MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR"
 ]
-let selectedArtifactDirectory = configuredLocalUnitArtifactDirectory ?? configuredArtifactDirectory
+// Explicit physical iOS Debug input; never a reviewed Release artifact.
+let configuredDeviceDemoArtifactDirectory = ProcessInfo.processInfo.environment[
+    "MOBILE_SDK_APPLE_DEVICE_DEMO_ARTIFACT_DIR"
+]
+let selectedArtifactDirectory = configuredDeviceDemoArtifactDirectory ?? configuredLocalUnitArtifactDirectory ?? configuredArtifactDirectory
 let requireExternalArtifactInput = ProcessInfo.processInfo.environment[
     "MOBILE_SDK_REQUIRE_EXTERNAL_APPLE_ARTIFACT"
 ]
@@ -43,6 +47,10 @@ else {
     )
 }
 let requireExternalArtifact = requireExternalArtifactInput == "1"
+if configuredDeviceDemoArtifactDirectory != nil,
+    requireExternalArtifact || configuredArtifactDirectory != nil || configuredLocalUnitArtifactDirectory != nil {
+    fatalError("error: physical-device demo artifacts cannot enter an external/release or local-unit corridor.")
+}
 if configuredLocalUnitArtifactDirectory != nil,
     requireExternalArtifact || configuredArtifactDirectory != nil {
     fatalError("error: local-unit artifacts cannot enter an external/release artifact corridor.")
@@ -159,6 +167,71 @@ func localUnitSHA256(_ url: URL) -> String? {
         }
     } catch { return nil }
     return digest.finalize().map { String(format: "%02x", $0) }.joined()
+}
+
+func validateDeviceDemoArtifact(
+    at artifactRoot: URL,
+    libraries: [[String: Any]],
+    manifest: [String: Any]
+) -> String? {
+    let identifier = "ios-arm64"
+    guard manifest["schema"] as? String == "iroha.norito-bridge-device-demo-artifact.v1",
+        manifest["artifact_scope"] as? String == "physical-device-demo",
+        manifest["purpose"] as? String == "physical-ios-debug",
+        manifest["native_bridge_abi_version"] as? Int == requiredBridgeAbiVersion,
+        manifest["target_triple"] as? String == "aarch64-apple-ios",
+        manifest["source_root"] as? String == repositoryDirectory.path,
+        let commit = manifest["source_commit"] as? String, commit.count == 40,
+        libraries.count == 1, let library = libraries.first,
+        library["LibraryIdentifier"] as? String == identifier,
+        library["LibraryPath"] as? String == "libNoritoBridge.a",
+        library["BinaryPath"] == nil || library["BinaryPath"] as? String == "libNoritoBridge.a",
+        library["HeadersPath"] as? String == "Headers",
+        library["SupportedArchitectures"] as? [String] == ["arm64"],
+        library["SupportedPlatform"] as? String == "ios",
+        library["SupportedPlatformVariant"] == nil,
+        let hashes = manifest["hashes"] as? [String: String], Set(hashes.keys) == Set([identifier]),
+        localUnitSHA256(artifactRoot.appendingPathComponent(identifier + "/libNoritoBridge.a")) == hashes[identifier],
+        let evidence = manifest["evidence"] as? [String: String],
+        Set(evidence.keys) == Set(["producer-launch.json", "producer-record.json", "cargo-messages.jsonl",
+                                  "pqcrypto-normalization.json", "consumer", "source-observation.json"])
+    else { return "error: physical-device demo metadata or archive is not exact." }
+    let git = Process(); let output = Pipe()
+    git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    git.arguments = ["-C", repositoryDirectory.path, "rev-parse", "HEAD"]
+    git.standardOutput = output
+    do { try git.run(); git.waitUntilExit() }
+    catch { return "error: unable to observe the selected source commit." }
+    guard git.terminationStatus == 0,
+        String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) == commit
+    else { return "error: physical-device demo source commit differs from the selected checkout." }
+    for (name, hash) in evidence {
+        guard localUnitSHA256(artifactRoot.appendingPathComponent("evidence/" + name)) == hash
+        else { return "error: physical-device demo evidence changed: \(name)." }
+    }
+    guard let receiptData = try? Data(contentsOf: artifactRoot.appendingPathComponent("evidence/producer-record.json")),
+        let receipt = (try? JSONSerialization.jsonObject(with: receiptData)) as? [String: Any],
+        receipt["status"] as? String == "ios-device-staged-full-producer-continues",
+        receipt["sourceCommit"] as? String == commit,
+        receipt["sourceRoot"] as? String == repositoryDirectory.path,
+        receipt["archiveSha256"] as? String == hashes[identifier],
+        let launchData = try? Data(contentsOf: artifactRoot.appendingPathComponent("evidence/producer-launch.json")),
+        let launch = (try? JSONSerialization.jsonObject(with: launchData)) as? [String: Any],
+        launch["sourceCommit"] as? String == commit,
+        launch["sourceRoot"] as? String == repositoryDirectory.path
+    else { return "error: physical-device demo producer origin differs." }
+    let headers = [
+        "NoritoBridge.h": "crates/connect_norito_bridge/include/NoritoBridge.h",
+        "connect_norito_bridge.h": "crates/connect_norito_bridge/include/connect_norito_bridge.h",
+        "module.modulemap": "crates/connect_norito_bridge/module.modulemap.template"
+    ]
+    for (name, source) in headers {
+        guard let sourceHash = localUnitSHA256(repositoryDirectory.appendingPathComponent(source)),
+            localUnitSHA256(artifactRoot.appendingPathComponent(identifier + "/Headers/" + name)) == sourceHash
+        else { return "error: physical-device demo header differs from current source: \(name)." }
+    }
+    return nil
 }
 
 func validateLocalUnitArtifact(
@@ -327,6 +400,18 @@ func validateBridgeArtifact(at artifactRoot: URL) -> String? {
     else {
         return "error: NoritoBridge.xcframework is missing readable ABI-bound artifact metadata."
     }
+    if configuredDeviceDemoArtifactDirectory != nil {
+        #if os(macOS)
+        guard !requireExternalArtifact,
+            dictionary["CFBundlePackageType"] as? String == "XFWK",
+            dictionary["XCFrameworkFormatVersion"] as? String == "1.0",
+            canonicalExistingFilesystemPath(artifactRoot.path) == artifactRoot.path
+        else { return "error: physical-device demo artifact path is not canonical." }
+        return validateDeviceDemoArtifact(at: artifactRoot, libraries: libraries, manifest: manifest)
+        #else
+        return "error: physical-device demo artifacts require a macOS build host."
+        #endif
+    }
     if configuredLocalUnitArtifactDirectory != nil {
         #if os(macOS)
         guard !requireExternalArtifact,
@@ -406,6 +491,10 @@ var swiftSettings: [SwiftSetting] = [
     .define("IROHASWIFT_BRIDGE_REQUIRED"),
     .define("IROHASWIFT_BRIDGE_PRESENT")
 ]
+if configuredDeviceDemoArtifactDirectory != nil {
+    swiftSettings.append(.define("IROHASWIFT_DEVICE_DEMO_ARTIFACT"))
+    swiftSettings.append(.define("IROHASWIFT_DEVICE_DEMO_DEBUG", .when(configuration: .debug)))
+}
 if configuredLocalUnitArtifactDirectory != nil {
     swiftSettings.append(.define("IROHASWIFT_LOCAL_UNIT_ARTIFACT"))
     swiftSettings.append(.define("IROHASWIFT_LOCAL_UNIT_DEBUG", .when(configuration: .debug)))

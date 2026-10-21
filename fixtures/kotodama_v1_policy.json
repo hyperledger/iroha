@@ -31,7 +31,8 @@
     "AssetDefinitionView",
     "DomainView",
     "NftView",
-    "QueryPage"
+    "QueryPage",
+    "AssetUidHoldingQuote"
   ],
   "dynamic_access_hints": {
     "state_map_key_types": [

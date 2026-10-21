@@ -251,6 +251,10 @@ final class IrohaPeerNfcAsyncSignalV1: @unchecked Sendable {
 public enum IrohaPeerNfcProgressStageV1: String, CaseIterable, Sendable {
     case phase1SessionActive = "phase1_session_active"
     case tagDetected = "tag_detected"
+    /// The selected application answered successfully on this contact attempt.
+    case contactEstablished = "contact_established"
+    /// The reader is polling again; any previous contact is no longer live.
+    case contactLost = "contact_lost"
     case requestRead = "request_read"
     case readerEnded = "reader_ended"
     case ownerAuthRequested = "owner_auth_requested"
@@ -262,7 +266,8 @@ public enum IrohaPeerNfcProgressStageV1: String, CaseIterable, Sendable {
     case complete = "complete"
 }
 
-/// Typed monotonic progress published by the IPM1 CoreNFC reader.
+/// Typed progress published by the IPM1 CoreNFC reader. Contact observations may
+/// repeat across radio attempts; durable value-boundary stages remain single-shot.
 public struct IrohaPeerNfcProgressEventV1: Equatable, Sendable {
     public let trace: String
     public let stage: IrohaPeerNfcProgressStageV1
@@ -297,12 +302,18 @@ public struct IrohaPeerNfcProgressEventV1: Equatable, Sendable {
 /// single-shot even when CoreNFC retries callbacks.
 struct IrohaPeerNfcProgressPublicationPolicyV1: Sendable {
     private var emittedStages: Set<String> = []
+    private var contactStages: Set<IrohaPeerNfcProgressStageV1> = []
     private var tagDetectionCount = 0
 
     mutating func attempt(for stage: IrohaPeerNfcProgressStageV1) -> Int? {
         if stage == .tagDetected {
             tagDetectionCount += 1
+            contactStages.removeAll()
             return tagDetectionCount
+        }
+        if stage == .contactEstablished || stage == .contactLost {
+            guard contactStages.insert(stage).inserted else { return nil }
+            return max(tagDetectionCount, 1)
         }
         guard emittedStages.insert(stage.rawValue).inserted else { return nil }
         return max(tagDetectionCount, 1)

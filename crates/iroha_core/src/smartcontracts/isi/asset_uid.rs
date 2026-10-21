@@ -30,7 +30,7 @@ impl Execute for SetAssetUidPolicyV1 {
                 "asset UID policy requires a Global asset definition",
             ));
         }
-        for limit in [value.holding_limit.as_ref(), value.daily_limit.as_ref()]
+        for limit in [value.holding_limit.as_ref(), value.daily_spend_limit.as_ref(), value.daily_outgoing_limit.as_ref()]
             .into_iter()
             .flatten()
         {
@@ -65,6 +65,11 @@ impl Execute for SetAssetUidPolicyV1 {
         let mut writes = Vec::new();
         for account in &value.accounts {
             stx.world.account(account)?;
+            if crate::state::asset_fi::fi(stx.world(), &value.asset_definition_id, account)?.is_some()
+                || crate::state::asset_uid_enrollment::system(stx.world(), &value.asset_definition_id, account)?.is_some()
+            {
+                return Err(reject("retail UID membership cannot overlap institutional enrollment"));
+            }
             if stx
                 .world
                 .asset_escrows
@@ -119,6 +124,11 @@ impl crate::smartcontracts::ValidQuery
         iroha_data_model::query::error::QueryExecutionFail,
     > {
         use iroha_data_model::query::error::QueryExecutionFail;
+        if self.wallet_account_id.is_some() {
+            return Err(QueryExecutionFail::Conversion(
+                "wallet holdings require the admitted native query source".into(),
+            ));
+        }
         let ledger_time_ms = state.authenticated_query_ledger_time_ms().ok_or_else(|| {
             QueryExecutionFail::Conversion(
                 "UID policy query requires authenticated ledger time".into(),

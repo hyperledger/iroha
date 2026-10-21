@@ -102,3 +102,16 @@ across routes; restricted assets use the quoted dataspace's exact `AssetId` buck
 Cumulative principal and fees never merge different dataspace balances or substitute
 parent currency. Missing accounts, definitions, inaccessible routes, and malformed
 reads fail; only typed absence of the exact requested holding means zero.
+
+Initial single-chunk upload recovery has one explicit additional terminal disposition:
+`ValidityWindowElapsed`. `reconcile_initial_upload_expiry` requires only the first
+`register_bytes_finalize` attempt, no subsequent attempt or execution evidence, and
+independently pinned original public genesis bytes. It verifies every contiguous
+Global certified full block from height one, rejects any original signed transaction
+hash in history, and requires the certified block time to strictly exceed every
+original signed TTL. Exact global status must be absent before and after the scan.
+The original plan, genesis and canonical proof bytes remain in the locked journal;
+inspection reauthenticates them before a slot can prepare a successor. Old resume
+refuses the retired plan. No `Applied`, `Rejected` or `Expired` transaction status,
+failed marker, or deployment receipt is synthesized. Bounds or unavailable history
+leave the original journal pending.

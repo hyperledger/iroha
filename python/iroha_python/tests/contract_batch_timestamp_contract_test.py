@@ -74,6 +74,7 @@ def boundary(monkeypatch):
         authority_fee_payment=lambda **kwargs: {"payer": "authority", "value": kwargs},
     )
     monkeypatch.setitem(sys.modules, tx.__name__, tx)
+    _load_source(tx, "crypto.py", {"_require_chain_discriminant"})
     _load_source(tx, "_validation.py", {
         "_optional_uint", "_normalize_mapping_payload", "_normalize_json_value",
     })
@@ -94,9 +95,10 @@ def boundary(monkeypatch):
     )
     _load_source(client_module, "client.py", set(), {"ToriiClient": {
         "_transaction_draft", "_submit_transaction_draft_result", "_sign_transaction_draft",
-        "call_contract_batch_and_wait",
+        "call_contract_batch_and_wait", "_require_chain_discriminant",
     }})
-    client = client_module.ToriiClient( chain_discriminant=753)
+    client = client_module.ToriiClient()
+    client._chain_discriminant = 753
     network_id = object()
     client._native_transaction_account_id = lambda value, context: value
     client._require_local_signing_context = lambda context: types.SimpleNamespace(network_id=network_id)
@@ -132,6 +134,7 @@ def test_contract_batch_stages_timestamp_before_actual_submission(boundary, crea
     assert args == (boundary.network_id, "exact-account", b"\x11" * 32)
     assert signed["creation_time_ms"] == (1_700_000_001_125 if creation_time_ms is None else creation_time_ms)
     assert len(boundary.clock_calls) == (1 if creation_time_ms is None else 0)
+    assert signed["chain_discriminant"] == 753
     assert signed["nonce"] is None
     assert signed["ttl_ms"] == 60_000
     assert signed["entries"] == [boundary.instruction]

@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 hex = { workspace = true }
 
 [dev-dependencies]
+iroha = { workspace = true, features = ["test-fixtures"] }
 tempfile = { workspace = true }
 iroha_config = { workspace = true }
 kotodama_lang = { workspace = true }

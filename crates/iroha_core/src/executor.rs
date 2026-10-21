@@ -246,6 +246,8 @@ enum NativeQueryAccess {
     EnrollmentAccount(AccountId),
     /// Private UID membership and aggregate activity for an exact asset's owner.
     AssetUidOwner(AssetDefinitionId),
+    /// Exact asset owner or wallet owner; never global/public ledger read.
+    AssetFiOwner(AssetDefinitionId, AccountId),
     /// Ledger-wide state requiring the genesis-issued read root.
     AllLedger,
 }
@@ -387,6 +389,14 @@ fn native_iterable_query_access(
         let query = decode_native_iterable_payload_exact::<
             data_model_query::asset_uid::FindAssetUidPoliciesV1,
         >(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
+        return Ok(NativeQueryAccess::AssetUidOwner(query.asset_definition_id));
+    }
+    if query.item == QueryItemKind::AssetFiRelationshipViewV1 {
+        let query = decode_native_iterable_payload_exact::<data_model_query::asset_fi::FindAssetFiLinkV1>(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
+        return Ok(NativeQueryAccess::AssetFiOwner(query.asset_definition_id, query.account_id));
+    }
+    if query.item == QueryItemKind::AssetUidEnrollmentViewV1 {
+        let query = decode_native_iterable_payload_exact::<data_model_query::asset_uid_enrollment::FindAssetUidEnrollmentV1>(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
         return Ok(NativeQueryAccess::AssetUidOwner(query.asset_definition_id));
     }
     macro_rules! payload_for {
@@ -746,6 +756,13 @@ fn validate_builtin_native_query_permission(
     let enrollment_query = matches!(&access, NativeQueryAccess::EnrollmentAccount(_));
     match access {
         NativeQueryAccess::Registered => Ok(()),
+        NativeQueryAccess::AssetFiOwner(definition, account) => {
+            let asset = world.asset_definition(&definition).map_err(|_| {
+                ValidationFail::NotPermitted("FI relationship asset is unavailable".into())
+            })?;
+            if authority == &account || asset.owned_by() == authority { Ok(()) }
+            else { Err(ValidationFail::NotPermitted("only the exact wallet or asset owner may query FI relationships".into()).into()) }
+        }
         NativeQueryAccess::AssetUidOwner(definition) => {
             let asset = world.asset_definition(&definition).map_err(|_| {
                 ValidationFail::NotPermitted("UID policy asset is not available to the requester".into())
@@ -8288,6 +8305,11 @@ impl Executor {
         ) {
             return result.map_err(ValidationFail::InstructionFailed);
         }
+        if let Some(result) = crate::smartcontracts::isi::asset_fi::execute_instruction(
+            &instruction, authority, state_transaction, contract_runtime_context,
+        ) {
+            return result.map_err(ValidationFail::InstructionFailed);
+        }
         trace!("Running instruction execution");
         let instr_id = instruction.id();
         let result = match self {
@@ -8346,6 +8368,11 @@ impl Executor {
             contract_runtime_context,
         )?;
         if let Some(result) = crate::smartcontracts::isi::escrow::controlled::execute_instruction(
+            instruction, authority, state_transaction, contract_runtime_context,
+        ) {
+            return result.map_err(ValidationFail::InstructionFailed);
+        }
+        if let Some(result) = crate::smartcontracts::isi::asset_fi::execute_instruction(
             instruction, authority, state_transaction, contract_runtime_context,
         ) {
             return result.map_err(ValidationFail::InstructionFailed);
@@ -10865,10 +10892,10 @@ mod tests {
         let state = state_for_testing(fixture.world);
         let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
         let mut tx = block.transaction();
-        for uid in [None, Some([7; 32])] {
+        for (uid, wallet_account_id) in [(None, None), (Some([7; 32]), None), (Some([7; 32]), Some(participant.clone()))] {
             let envelope = QueryWithParams {
                 query: (),
-                query_payload: FindAssetUidPoliciesV1 { asset_definition_id: definition.clone(), uid }.encode(),
+                query_payload: FindAssetUidPoliciesV1 { asset_definition_id: definition.clone(), uid, wallet_account_id }.encode(),
                 item: QueryItemKind::AssetUidPolicyViewV1,
                 predicate_bytes: Vec::new(),
                 selector_bytes: Vec::new(),
@@ -10886,6 +10913,35 @@ mod tests {
                 "general read grants must not reveal cross-participant UID linkage");
             tx.world.account_permissions.remove(participant.clone());
         }
+    }
+    #[test]
+    fn native_fi_relationship_and_enrollment_queries_keep_exact_owner_boundaries() {
+        use iroha_data_model::query::{asset_fi::FindAssetFiLinkV1, asset_uid_enrollment::FindAssetUidEnrollmentV1, parameters::QueryParams};
+        let fixture = initial_batch_fixture();
+        let owner = fixture.source.clone();
+        let wallet = fixture.first_destination.clone();
+        let outsider = fixture.delegate.clone();
+        let definition = fixture.asset_definition.clone();
+        let state = state_for_testing(fixture.world);
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+        let mut tx = block.transaction();
+        tx.world.account_permissions.insert(outsider.clone(), BTreeSet::from([
+            executor_permission::query::CanReadAllLedgerData.into(),
+            executor_permission::query::CanReadAccountData { account: wallet.clone() }.into(),
+        ]));
+        let start = |item, query_payload| QueryRequest::Start(QueryWithParams {
+            query: (), query_payload, item, predicate_bytes: Vec::new(), selector_bytes: Vec::new(), params: QueryParams::default(),
+        });
+        let request = start(QueryItemKind::AssetFiRelationshipViewV1, FindAssetFiLinkV1 {
+            asset_definition_id: definition.clone(), account_id: wallet.clone(), fi_account_id: owner.clone(), reference_digest: [19;32],
+        }.encode());
+        validate_builtin_native_query_permission(tx.world(), &owner, &request, 0).unwrap();
+        validate_builtin_native_query_permission(tx.world(), &wallet, &request, 0).unwrap();
+        validate_builtin_native_query_permission(tx.world(), &outsider, &request, 0).expect_err("public/global/account read must not reveal private FI relationships");
+        let request = start(QueryItemKind::AssetUidEnrollmentViewV1, FindAssetUidEnrollmentV1 {asset_definition_id:definition}.encode());
+        validate_builtin_native_query_permission(tx.world(), &owner, &request, 0).unwrap();
+        validate_builtin_native_query_permission(tx.world(), &wallet, &request, 0).expect_err("activation is an owner observation");
+        validate_builtin_native_query_permission(tx.world(), &outsider, &request, 0).expect_err("global read does not grant enrollment administration");
     }
     #[test]
     fn native_settlement_receipt_query_uses_exact_payer_read_access() {

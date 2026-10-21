@@ -233,3 +233,34 @@ pub(crate) fn validate_persistence(world: &impl WorldReadOnly) -> Result<(), Err
     }
     Ok(())
 }
+
+
+/// Retained enrollment cannot be discarded by deleting its definition or account.
+pub(crate) fn retained(
+    world: &impl WorldReadOnly,
+    definition: Option<&AssetDefinitionId>,
+    account: Option<&AccountId>,
+) -> Result<bool, Error> {
+    for (key, _) in world.smart_contract_state().iter() {
+        if key.as_ref() == ENROLLMENT_ROOT.trim_end_matches('/')
+            || key.as_ref().starts_with(ENROLLMENT_ROOT)
+        {
+            let value: AssetUidEnrollmentV1 = read(world, key)?
+                .ok_or_else(|| reject("missing retained asset enrollment"))?;
+            if definition == Some(&value.asset_definition_id) {
+                return Ok(true);
+            }
+        } else if key.as_ref() == SYSTEM_ROOT.trim_end_matches('/')
+            || key.as_ref().starts_with(SYSTEM_ROOT)
+        {
+            let value: AssetUidSystemAccountV1 = read(world, key)?
+                .ok_or_else(|| reject("missing retained system enrollment"))?;
+            if definition == Some(&value.asset_definition_id)
+                || account == Some(&value.account_id)
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}

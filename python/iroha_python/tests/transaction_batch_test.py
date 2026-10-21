@@ -390,7 +390,7 @@ def test_native_direct_dataspace_preserves_full_u64_and_native_roundtrip(
             metadata={"rate": 1.25},
         )
         payload = instruction.to_json()
-        assert native.from_json(payload).to_json() == payload
+        assert native.from_json(payload, chain_discriminant=753).to_json() == payload
         encoded.append(payload)
     assert len(set(encoded)) == 3
 

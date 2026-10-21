@@ -172,6 +172,26 @@ macro_rules! schema_types {
             iroha_data_model::isi::smart_contract_code::UploadSmartContractCodeChunk,
             iroha_data_model::isi::smart_contract_code::FinalizeSmartContractCodeUpload,
             iroha_data_model::isi::smart_contract_code::CancelSmartContractCodeUpload,
+            // Native UID policy, enrollment, FI links and controlled locks travel
+            // through opaque instruction/query payloads and need explicit roots.
+            iroha_data_model::isi::asset_uid::SetAssetUidPolicyV1,
+            iroha_data_model::isi::asset_uid::SetAssetUidPolicyReaderV1,
+            iroha_data_model::isi::asset_uid_enrollment::ActivateAssetUidEnrollmentV1,
+            iroha_data_model::isi::asset_uid_enrollment::SetAssetUidSystemAccountV1,
+            iroha_data_model::isi::asset_fi::SetAssetFiV1,
+            iroha_data_model::isi::asset_fi::SetAssetFiLinkAttestationV1,
+            iroha_data_model::isi::asset_fi::SetAssetFiLinkV1,
+            iroha_data_model::isi::asset_fi::TransferToLinkedFiV1,
+            iroha_data_model::isi::escrow_control::OpenControlledAssetLockV1,
+            iroha_data_model::isi::escrow_control::DrawdownControlledAssetLockV1,
+            iroha_data_model::isi::escrow_control::CancelControlledAssetLockV1,
+            iroha_data_model::isi::escrow_control::ExpireControlledAssetLockV1,
+            iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1,
+            iroha_data_model::asset::uid::AssetUidBindingV1,
+            iroha_data_model::asset::uid::AssetUidUsageV1,
+            iroha_data_model::asset::uid::AssetUidPolicyViewV1,
+            iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1,
+            iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1,
             // Native provider custody uses opaque framed Manifest policy/enrollment payloads.
             iroha_data_model::isi::sorafs::MutateSorafsStreamTokenCustody,
             iroha_data_model::sorafs::stream_token_custody::StreamTokenCustodyControlRecordV1,
@@ -312,6 +332,7 @@ mod tests {
     mod stream_token_custody;
     mod stream_token_gateway;
     mod topology_authority;
+    mod uid_controlled_locks;
     fn generate_test_map() -> BTreeMap<core::any::TypeId, String> {
         let mut map = BTreeMap::new();
         macro_rules! insert_into_test_map {

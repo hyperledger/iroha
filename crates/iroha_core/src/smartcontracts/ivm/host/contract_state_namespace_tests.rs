@@ -305,6 +305,13 @@ fn contract_state_namespace_access_covers_consensus_owned_prefixes() {
 fn retail_daily_state_paths_reject_generic_read_write_and_delete_admission() {
     for root in [
         crate::state::retail_daily_limit_state::POLICY_ROOT,
+        crate::state::asset_fi::FI_ROOT,
+        crate::state::asset_fi::ATTESTATION_ROOT,
+        crate::state::asset_fi::LINK_ROOT,
+        crate::state::asset_uid_enrollment::ENROLLMENT_ROOT,
+        crate::state::asset_uid_enrollment::SYSTEM_ROOT,
+        crate::state::asset_uid_reader::READER_ROOT,
+
         crate::state::retail_daily_limit_state::ACTIVATION_ROOT,
         crate::state::retail_daily_limit_state::IDENTITY_ROOT,
         crate::state::retail_daily_limit_state::USAGE_ROOT,

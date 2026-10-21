@@ -1460,3 +1460,68 @@ def test_durable_builtin_products_require_exact_shapes() -> None:
         payload["states"].append({"name": "stored", "type_name": type_name})
         with pytest.raises(TypeError):
             ContractManifest.from_payload(payload)
+
+
+def _uid_holding_quote_payload() -> Dict[str, Any]:
+    return {"nodes": [
+        {"kind": "Struct", "value": {"name": "kotodama::AssetUidHoldingQuote", "fields": [
+            "asset_definition_id", "account_id", "policy_revision", "beneficial_holdings", "holding_limit", "required_overflow",
+        ]}},
+        _leaf_node("AssetDefinitionId"), _leaf_node("AccountId"), _leaf_node("Int"),
+        _leaf_node("Quantity"), {"kind": "Option", "value": None},
+        _leaf_node("Quantity"), _leaf_node("Quantity"),
+    ]}
+
+
+def test_uid_holding_quote_exact_boundary_and_durable_shape() -> None:
+    payload = _uid_holding_quote_payload()
+    schema = EntrypointValueTypeV1.from_payload(payload)
+    assert schema.canonical_type_name == "AssetUidHoldingQuote"
+    assert schema.word_count == 6
+    assert len(schema.nodes) == 8
+    for wrapper, name in [
+        ({"kind": "Option", "value": None}, "Option<AssetUidHoldingQuote>"),
+        ({"kind": "List", "value": {"capacity": 2}}, "List<AssetUidHoldingQuote, 2>"),
+    ]:
+        assert EntrypointValueTypeV1.from_payload({"nodes": [wrapper, *payload["nodes"]]}).canonical_type_name == name
+    names = payload["nodes"][0]["value"]["fields"]
+    types = ["AssetDefinitionId", "AccountId", "int", "quantity", "Option<quantity>", "quantity"]
+    def durable(fields: list[str], children: list[str]) -> str:
+        return "kotodama::AssetUidHoldingQuote{" + ", ".join(f"{n}: {t}" for n, t in zip(fields, children, strict=True)) + "}"
+    assert client_module._canonical_kotodama_state_type_name(durable(names, types))
+    assert client_module._canonical_kotodama_state_type_name(f"Option<{durable(names, types)}>")
+    for index in range(6):
+        fields = list(names); fields[index] = f"forged_{index}"
+        assert not client_module._canonical_kotodama_state_type_name(durable(fields, types))
+        children = list(types); children[index] = "bool"
+        assert not client_module._canonical_kotodama_state_type_name(durable(names, children))
+    assert not client_module._canonical_kotodama_state_type_name(
+        f"kotodama::QueryPage{{items: List<{durable(names, types)}, 64>, next_offset: Option<int>}}"
+    )
+    assert len(client_module._CORE_QUERY_VIEW_LAYOUTS) == 5
+    page = {"nodes": [
+        {"kind": "Struct", "value": {"name": "kotodama::QueryPage", "fields": ["items", "next_offset"]}},
+        {"kind": "List", "value": {"capacity": 64}}, *payload["nodes"],
+        {"kind": "Option", "value": None}, _leaf_node("Int"),
+    ]}
+    with pytest.raises(TypeError, match="forged"):
+        EntrypointValueTypeV1.from_payload(page)
+
+
+def test_uid_holding_quote_rejects_exact_field_leaf_and_order_substitutions() -> None:
+    variants = []
+    for index in range(6):
+        bad = _uid_holding_quote_payload()
+        bad["nodes"][0]["value"]["fields"][index] = f"forged_{index}"
+        variants.append(bad)
+    for index in (1, 2, 3, 4, 6, 7):
+        bad = _uid_holding_quote_payload(); bad["nodes"][index] = _leaf_node("Bool")
+        variants.append(bad)
+    required = _uid_holding_quote_payload(); del required["nodes"][5]
+    variants.append(required)
+    reordered = _uid_holding_quote_payload()
+    reordered["nodes"][1], reordered["nodes"][2] = reordered["nodes"][2], reordered["nodes"][1]
+    variants.append(reordered)
+    for bad in variants:
+        with pytest.raises(TypeError, match="forged"):
+            EntrypointValueTypeV1.from_payload(bad)
