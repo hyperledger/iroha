@@ -2060,9 +2060,9 @@ release claim here assumes those checks have passed.
 
 The complete current source schema therefore reserves 8,597 raw Omega bytes and
 8,277 sigma bytes for the retained Payment, with the unconditional joint bound
-above. Incoming Receive evidence reserves 9,321 sigma bytes (10,000 minus the
-measured 679-byte Credited carrier); Status reserves 8,132 raw Omega bytes (the
-320-byte public transcript plus 10,000 minus 2,188 fixed carrier bytes). Installed
+above. Incoming Receive evidence reserves 9,355 sigma bytes (10,034 minus the
+measured 679-byte Credited carrier); Status reserves 8,166 raw Omega bytes (the
+320-byte public transcript plus 10,034 minus 2,188 fixed carrier bytes). Installed
 descriptor equality remains a total proof-verdict check over those original
 lengths; it cannot erase tails or replace mismatched bytes. Artifact admission
 pins the allowed sigma classes and verifier identities. The Archive total-input

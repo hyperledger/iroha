@@ -435,6 +435,13 @@ where
         self.require_storage().and(answer)
     }
 
+    /// Memory currently available to the app, or `None` without an OS answer. Unlike
+    /// [`Self::runtime_resources`] it needs no unlocked storage: a fold reads it to choose a
+    /// quotient plan, never to admit or refuse anything.
+    pub(crate) fn available_memory(&self) -> Option<u64> {
+        self.platform.available_memory()
+    }
+
     /// Read a native sleep-inclusive clock under the same protected custody lifetime.
     /// No payment key or store is exposed; unknown time never becomes a zero reading.
     pub(crate) fn monotonic_reading(

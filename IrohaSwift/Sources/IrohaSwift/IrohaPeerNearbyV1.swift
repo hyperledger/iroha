@@ -9,7 +9,13 @@ import Foundation
 /// must never skip either verification step.
 public enum IrohaPeerNearbyV1 {
     public static let serviceID = "org.hyperledger.iroha.kagemusha.transfer.v1"
-    public static let bonjourService = "_F2EBA4BCB49B._tcp"
+    /// Google Nearby's Wi-Fi LAN Bonjour type for `serviceID`: "_", the first six bytes of
+    /// SHA-256(serviceID) in uppercase hex, then "._tcp". iOS hosts list it in
+    /// `NSBonjourServices`; iOS refuses an undeclared type, so Nearby's Wi-Fi way never
+    /// runs and the system never asks for local network access.
+    public static let bonjourService = "_"
+        + SHA256.hash(data: Data(serviceID.utf8)).prefix(6).map { String(format: "%02X", $0) }.joined()
+        + "._tcp"
     public static let wireVersion: UInt8 = 1
     public static let maximumCertificateBytes = 16 * 1_024
     /// Leaves a conservative 64-byte record-overhead budget inside 32 KiB.
@@ -289,16 +295,26 @@ public enum IrohaPeerNearbyDiscoveryMatcherV1 {
     }
 }
 
-public enum IrohaPeerNearbyVerificationCodeV1 {
-    public static func isValid(_ code: String) -> Bool {
-        (4...12).contains(code.utf8.count) &&
-            code.utf8.allSatisfy { (48...57).contains($0) }
+/// Google Nearby's short authentication token, the pairing input both platforms
+/// share (`specs/kagemusha_wallet_wire_v1.md` §6): the first five characters of
+/// the uppercased URL-safe base64, without padding, of the connection's raw UKEY2
+/// verification string. iOS Nearby passes it as the connection's
+/// `verificationCode`; Android derives it from `ConnectionInfo.rawAuthenticationToken`.
+/// Both phones of one connection see the same token.
+public enum IrohaPeerNearbyPairingTokenV1 {
+    public static let length = 5
+
+    /// Exactly ``length`` ASCII characters from `A`–`Z`, `0`–`9`, `-` and `_`.
+    public static func isValid(_ token: String) -> Bool {
+        token.utf8.count == length && token.utf8.allSatisfy { byte in
+            (65...90).contains(byte) || (48...57).contains(byte) || byte == 45 || byte == 95
+        }
     }
 }
 
-/// Picture pairing in place of the transport's verification digits
+/// Picture pairing in place of the transport's authentication token
 /// (`specs/kagemusha_wallet_wire_v1.md` §6). Both phones derive the same one of
-/// ``pictureCount`` pictures from the digits, which are never shown. The
+/// ``pictureCount`` pictures from the token, which is never shown. The
 /// connecting payer shows that picture; the receiver shows ``gridSize``
 /// pictures that include it, in a fresh random order, and accepts the
 /// connection only when the person picks the payer's picture. The pick gates
@@ -307,17 +323,17 @@ public enum IrohaPeerNearbyPictureCodeV1 {
     public static let pictureCount = 16
     public static let gridSize = 6
 
-    /// `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1" ‖ 0x00 ‖ digits)[0] & 0x0f` for
-    /// digits that ``IrohaPeerNearbyVerificationCodeV1/isValid(_:)`` accepts.
+    /// `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1" ‖ 0x00 ‖ token)[0] & 0x0f` for a
+    /// token that ``IrohaPeerNearbyPairingTokenV1/isValid(_:)`` accepts.
     ///
     /// - Throws: ``IrohaPeerNearbyErrorV1/invalidPictureCode`` for any other text.
-    public static func targetIndex(digits: String) throws -> Int {
-        guard IrohaPeerNearbyVerificationCodeV1.isValid(digits) else {
+    public static func targetIndex(token: String) throws -> Int {
+        guard IrohaPeerNearbyPairingTokenV1.isValid(token) else {
             throw IrohaPeerNearbyErrorV1.invalidPictureCode
         }
         var hasher = SHA256()
         hasher.update(data: IrohaPeerNearbyV1.pictureDomain)
-        hasher.update(data: Data(digits.utf8))
+        hasher.update(data: Data(token.utf8))
         return Int(Array(hasher.finalize())[0] & 0x0f)
     }
 

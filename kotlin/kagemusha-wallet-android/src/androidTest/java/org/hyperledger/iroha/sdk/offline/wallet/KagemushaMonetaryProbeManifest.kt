@@ -51,7 +51,7 @@ internal object KagemushaMonetaryProbeManifest {
         "fee-schedule", "quote" -> 1024
         "destination", "beneficiary", "decision" -> 4096
         "companion" -> 2_048
-        "request", "payment", "credited", "certificates", "envelope" -> 10_000
+        "request", "payment", "credited", "certificates", "envelope" -> 10_034
         else -> throw EnrollmentProbeFailure("input")
     }
     fun word(bytes: ByteArray): ByteArray {

@@ -182,19 +182,14 @@ impl PermutationAssembly {
         self.union_find.is_none()
     }
 
-    /// Records the copy constraint `left == right`.
-    ///
-    /// # Errors
-    ///
-    /// [`PermutationError`] when a column is not equality-enabled or a row is
-    /// outside the domain.
-    pub fn copy(
-        &mut self,
+    /// Checks copy endpoints in the same order for full and layout-only sinks.
+    pub(crate) fn checked_copy_cells(
+        &self,
         left_column: Column<Any>,
         left_row: usize,
         right_column: Column<Any>,
         right_row: usize,
-    ) -> Result<(), PermutationError> {
+    ) -> Result<(usize, usize), PermutationError> {
         let left_position = self
             .columns
             .iter()
@@ -214,6 +209,24 @@ impl PermutationAssembly {
         // (`columns * n` was checked in `new`).
         let left_cell = left_position * self.n + left_row;
         let right_cell = right_position * self.n + right_row;
+        Ok((left_cell, right_cell))
+    }
+
+    /// Records the copy constraint `left == right`.
+    ///
+    /// # Errors
+    ///
+    /// [`PermutationError`] when a column is not equality-enabled or a row is
+    /// outside the domain.
+    pub fn copy(
+        &mut self,
+        left_column: Column<Any>,
+        left_row: usize,
+        right_column: Column<Any>,
+        right_row: usize,
+    ) -> Result<(), PermutationError> {
+        let (left_cell, right_cell) =
+            self.checked_copy_cells(left_column, left_row, right_column, right_row)?;
         if left_cell == right_cell {
             return Ok(());
         }

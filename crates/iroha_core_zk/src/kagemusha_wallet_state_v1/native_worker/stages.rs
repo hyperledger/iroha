@@ -171,12 +171,12 @@ macro_rules! chain {
             )
         } else {
             let fold = $worker.fold_config($cancel);
-            let config = $worker.prover_config($cancel);
             let encoded = if position == 0 {
                 let key = $worker
                     .sources
                     .bind_a_cancellable($route, 0, $worker.read, Some($cancel.prover_token()))
                     .map_err(artifact)?;
+                let config = $worker.prover_config($cancel, key.binding().descriptor());
                 $cancel.check()?;
                 fold_metrics::enter(FoldPhaseV1::Prove);
                 let source = proof(session.first(
@@ -201,6 +201,7 @@ macro_rules! chain {
                         Some($cancel.prover_token()),
                     )
                     .map_err(artifact)?;
+                let config = $worker.prover_config($cancel, key.binding().descriptor());
                 $cancel.check()?;
                 fold_metrics::enter(FoldPhaseV1::Prove);
                 let source = a.as_ref().ok_or(Error::Proof("native A source"))?;
@@ -222,6 +223,7 @@ macro_rules! chain {
                         Some($cancel.prover_token()),
                     )
                     .map_err(artifact)?;
+                let config = $worker.prover_config($cancel, key.binding().descriptor());
                 $cancel.check()?;
                 fold_metrics::enter(FoldPhaseV1::Prove);
                 let source = w.as_ref().ok_or(Error::Proof("native W source"))?;
@@ -305,7 +307,7 @@ macro_rules! call_terminal {
         $session.terminal(
             &$key,
             ProverRandomness::os(),
-            $worker.prover_config($cancel),
+            $worker.prover_config($cancel, $key.binding().descriptor()),
         )
     };
     (folded, $session:ident, $key:ident, $worker:expr, $cancel:expr) => {
@@ -314,7 +316,7 @@ macro_rules! call_terminal {
             fresh_fold_tape::<Ep>($cancel.prover_token())?,
             &$worker.fold_config($cancel),
             ProverRandomness::os(),
-            $worker.prover_config($cancel),
+            $worker.prover_config($cancel, $key.binding().descriptor()),
         )
     };
 }

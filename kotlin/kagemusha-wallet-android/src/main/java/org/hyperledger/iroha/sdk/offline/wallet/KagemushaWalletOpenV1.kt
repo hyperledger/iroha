@@ -8,7 +8,7 @@ class KagemushaWalletOpenOriginalsV1(credential: ByteArray, enrollmentCertificat
     private val originals: List<ByteArray>
     init {
         val values = listOf(credential, enrollmentCertificates, account, assetScope)
-        require(values.zip(listOf(1_024, 10_000, 4_096, 1_024)).all { (bytes, bound) -> bytes.isNotEmpty() && bytes.size <= bound }) { "bounded original owner frames" }
+        require(values.zip(listOf(1_024, 10_034, 4_096, 1_024)).all { (bytes, bound) -> bytes.isNotEmpty() && bytes.size <= bound }) { "bounded original owner frames" }
         originals = values.map { it.copyOf() }
     }
     internal fun frames(): List<ByteArray> = originals.map { it.copyOf() }

@@ -65,13 +65,30 @@ fn read_original<T>(
     state::read_model_original(read, state::Error::Invalid("Load original binding"))
 }
 
+// Keep the decoded evidence and its exact original together until state derivation.
+// Epoch selection and native verification share this one bounded canonical decode;
+// no caller may substitute different retained bytes after selecting the epoch.
+struct DecodedLoadFinalityV1<'a> {
+    original: &'a [u8],
+    evidence: KagemushaWalletLoadFinalityV1,
+}
+
+impl<'a> DecodedLoadFinalityV1<'a> {
+    fn decode(original: &'a [u8]) -> Result<Self, state::Error> {
+        Ok(Self {
+            evidence: read_original(|| KagemushaWalletLoadFinalityV1::decode_canonical(original))?,
+            original,
+        })
+    }
+}
+
 // The installation and released source are checked by prepare_load before this
 // gate. No receipt leaves it until its exact canonical originals pass native BLS
 // and counted-event verification; state derivation happens only afterward.
 fn authenticate_originals(
     reader: &mut SumeragiCommitVerifierV1,
     receipt_bytes: &[u8],
-    finality_bytes: &[u8],
+    finality: &DecodedLoadFinalityV1<'_>,
 ) -> Result<
     (
         KagemushaWalletLoadReceiptV1,
@@ -80,9 +97,8 @@ fn authenticate_originals(
     state::Error,
 > {
     let receipt = read_original(|| KagemushaWalletLoadReceiptV1::decode_canonical(receipt_bytes))?;
-    // Bound both originals before retaining/copying untrusted network bytes.
-    let evidence =
-        read_original(|| KagemushaWalletLoadFinalityV1::decode_canonical(finality_bytes))?;
+    // Both originals have passed bounded canonical decoding before any copy.
+    let evidence = &finality.evidence;
     let retained = [
         KagemushaWalletRetainedInputV1 {
             role: KagemushaWalletRetainedInputRoleV1::LoadReceipt,
@@ -90,7 +106,7 @@ fn authenticate_originals(
         },
         KagemushaWalletRetainedInputV1 {
             role: KagemushaWalletRetainedInputRoleV1::LoadFinality,
-            bytes: finality_bytes.to_vec(),
+            bytes: finality.original.to_vec(),
         },
     ];
     let digest = receipt
@@ -220,16 +236,19 @@ impl PreparationV1<'_> {
             self.receipt_tape(owner, source, budget)?;
             Ok(())
         })())?;
-        let evidence =
-            read_original(|| KagemushaWalletLoadFinalityV1::decode_canonical(originals.finality))?;
-        let epoch = evidence.certificate.epoch_id().map_err(|error| {
-            finality_read_error(error, state::Error::Proof("Load native epoch selector"))
-        })?;
+        let finality_original = DecodedLoadFinalityV1::decode(originals.finality)?;
+        let epoch = finality_original
+            .evidence
+            .certificate
+            .epoch_id()
+            .map_err(|error| {
+                finality_read_error(error, state::Error::Proof("Load native epoch selector"))
+            })?;
         // Keep uncertain storage and lost selected objects distinct from malformed
         // public evidence. Only the coordinator-sealed index can supply this reader.
         let mut reader = custody.load_finality_reader(finality.verifier(), epoch)?;
         let (receipt, retained) =
-            authenticate_originals(&mut reader, originals.receipt, originals.finality)?;
+            authenticate_originals(&mut reader, originals.receipt, &finality_original)?;
         dispatch::proof((|| {
             let capsule = &source.frozen.capsule;
             let (state, statement, witness) = derive(

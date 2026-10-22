@@ -128,20 +128,20 @@ impl Program {
         let key = keygen_pk_v2(&params, &circuit, &key_config()).unwrap();
         let protocol = Protocol::new(key.binding().descriptor()).unwrap();
         assert_eq!(protocol.shape().k, 16);
-        assert_eq!(protocol.shape().degree, 14);
+        assert_eq!(protocol.shape().degree, 11);
         assert_eq!(protocol.shape().lookups, 1);
         assert!(
             protocol.proof_length() + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
                 <= iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
         );
-        assert_eq!(protocol.proof_length(), 3904);
+        assert_eq!(protocol.proof_length(), 4032);
         assert_eq!(
             key.binding(),
             predecessor_binding,
             "catalog growth must preserve the exact predecessor descriptor"
         );
         eprintln!(
-            "COMPACT_CATALOG_KEY terminals={} descriptor_unchanged=true shape={:?} expected_transport=4992 actual_proof=false",
+            "COMPACT_CATALOG_KEY terminals={} descriptor_unchanged=true shape={:?} expected_transport=5120 actual_proof=false",
             catalog.len(),
             protocol.shape()
         );
@@ -259,8 +259,8 @@ impl Program {
             .unwrap()
             .proof_length();
         assert_eq!(output.proof.len(), proof_bytes);
-        assert_eq!(output.proof.len(), 3904);
-        assert_eq!(transport.len(), 4992);
+        assert_eq!(output.proof.len(), 4032);
+        assert_eq!(transport.len(), 5120);
         let (proof, claims) = transport.split_at(proof_bytes);
         let (p, v) = claims.split_at(iroha_plonk_recursion::ACCUMULATOR_BYTES);
         assert_eq!(proof, output.proof);
@@ -568,7 +568,7 @@ fn rebuild_shared_wallets(
         receiver.source.state.lineage[17]
     );
     eprintln!(
-        "COMPACT_SHARED_WALLETS payer=Load receiver=Bootstrap distinct_wallets=true immutable_key=true signed_objects_rebuilt=true all_native_proofs=true transport=4992 source_terminals_rebuilt=true extra_terminal_proofs_pending=true full_catalog=false"
+        "COMPACT_SHARED_WALLETS payer=Load receiver=Bootstrap distinct_wallets=true immutable_key=true signed_objects_rebuilt=true all_native_proofs=true transport=5120 source_terminals_rebuilt=true extra_terminal_proofs_pending=true full_catalog=false"
     );
     SharedKeyWallets { payer, receiver }
 }
@@ -887,7 +887,7 @@ impl Program {
             MemoryBudget::DEFAULT,
         )
         .unwrap();
-        assert_eq!(proof.proof.len(), 3904);
+        assert_eq!(proof.proof.len(), 4032);
         let opening =
             FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges()).unwrap();
         eprintln!(
@@ -914,8 +914,8 @@ pub fn compact_distinct_wallets_share_the_exact_predecessor_catalog(fixture: &Lo
         wallets.payer.key.to_bytes(),
         wallets.receiver.key.to_bytes()
     );
-    assert_eq!(wallets.payer.proof.len(), 3904);
-    assert_eq!(wallets.receiver.proof.len(), 3904);
+    assert_eq!(wallets.payer.proof.len(), 4032);
+    assert_eq!(wallets.receiver.proof.len(), 4032);
     assert_ne!(
         wallets.payer.source.state.core[5..7],
         wallets.receiver.source.state.core[5..7]
@@ -926,7 +926,7 @@ pub fn compact_distinct_wallets_share_the_exact_predecessor_catalog(fixture: &Lo
 #[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_payer_load_retains_the_exact_predecessor_catalog(fixture: &LoadFixture) {
     let payer = compact_payer_load(fixture);
-    assert_eq!(payer.proof.len(), 3904);
+    assert_eq!(payer.proof.len(), 4032);
     assert_eq!(
         payer.source.state.lineage[17],
         payer.key.kagemusha_digest(&payer.binding).unwrap()

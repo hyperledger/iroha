@@ -217,15 +217,12 @@ impl NativeFoldWorkerV1 {
                 .sources
                 .bind_q_cancellable(route, stage, self.read, Some(cancellation.prover_token()))
                 .map_err(artifact)?;
+            let config = self.prover_config(cancellation, owner.binding().descriptor());
             cancellation.check()?;
             fold_metrics::enter(FoldPhaseV1::Prove);
             match (owner, &sigma) {
                 (ImportedQV1::Sigma(owner), Some(sigma)) if stage < offset => {
-                    let output = proof(owner.prove(
-                        sigma,
-                        ProverRandomness::os(),
-                        self.prover_config(cancellation),
-                    ))?;
+                    let output = proof(owner.prove(sigma, ProverRandomness::os(), config))?;
                     q_checkpoint::Original {
                         proof: output.bytes,
                         instances: output.instances,
@@ -236,7 +233,7 @@ impl NativeFoldWorkerV1 {
                     let output = proof(owner.prove(
                         &input.signatures[stage - offset],
                         ProverRandomness::os(),
-                        self.prover_config(cancellation),
+                        config,
                     ))?;
                     q_checkpoint::Original {
                         proof: output.bytes,

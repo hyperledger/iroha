@@ -83,11 +83,17 @@ pub struct QualifiedOperationRouteV1 {
     omega: Option<KeyArtifact<Ep>>,
     a_seals: Vec<InstalledSourceSealV1<Eq>>,
     w_seals: Vec<InstalledSourceSealV1<Ep>>,
-    stage_memory: u64,
+    stage_memory: crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1,
 }
 impl QualifiedOperationRouteV1 {
-    /// Design §5.3 peak proving memory of the largest A or W stage of this route.
+    /// Design §5.3 peak proving memory of the largest A or W stage of this route, fused quotient.
     pub const fn stage_memory_bytes(&self) -> u64 {
+        self.stage_memory.fused_bytes
+    }
+    /// Design §5.3 peak proving memory of the largest A or W stage of this route, under both quotient plans.
+    pub const fn stage_memory(
+        &self,
+    ) -> crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1 {
         self.stage_memory
     }
     /// Authenticated installation, logical route index and signed program index.
@@ -183,8 +189,9 @@ impl Plan {
                     p, terminal,
                 ))?))
             }
+            // Send's stage count follows its mask's quota control (two or three A stages).
             Self::Send(p) => QualifiedOperationOwnerV1::Send(Box::new(source(
-                send::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
+                send::Prover::from_artifacts(p, a, w),
             )?)),
             Self::Receive(p) => QualifiedOperationOwnerV1::Receive(Arc::new(source(
                 receive::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
@@ -578,7 +585,7 @@ impl AuthenticatedProducerInventoryV1 {
                 originals,
                 descriptors,
             )?)?;
-            let stage_memory = owner.stage_memory_bytes();
+            let stage_memory = owner.stage_memory();
             return Ok(QualifiedOperationRouteV1 {
                 installation: identity,
                 route: route_index,

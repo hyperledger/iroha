@@ -1,15 +1,18 @@
-//! Native fixed-mask Send A1/W0/A2/W1/A3 composition (lean lineage).
+//! Native fixed-mask Send composition (lean lineage): A1/W0/A2 without the quota
+//! control, A1/W0/A2/W1/A3 with it.
 //!
 //! A1 binds the actual predecessor Omega and the exact signed tapes, and proves the
 //! Send step relation itself from the prepared step witness: balance, ordinals,
 //! Request binding, epoch and accepted-time window, chain append and every enabled
-//! control. There is no own sigma verifier. A2 inserts Pending and the fee claim and
-//! preserves the remaining state. A3 authenticates the own Advance Receipt under the
-//! predecessor payment key; the credential and its certificate are carried by
-//! continuity. The fixed Tagged3 source profile consumes installed keys, verifies
-//! every produced/restored proof and decides every carried opening. The terminal A3
-//! is only an input to the final Omega producer. Every mask has an independently
-//! installed pipeline whose stage keys fix that mask's relation.
+//! control. There is no own sigma verifier. Without the quota control A1 also inserts
+//! Pending and the fee claim and preserves the remaining state; with it, whose window
+//! charges leave A1 no room beside the real Omega predecessor, A2 does. The terminal A
+//! authenticates the own Advance Receipt under the predecessor payment key; the
+//! credential and its certificate are carried by continuity. The fixed Tagged3 source
+//! profile consumes installed keys, verifies every produced/restored proof and decides
+//! every carried opening. The terminal A is only an input to the final Omega producer.
+//! Every mask has an independently installed pipeline whose stage keys fix that mask's
+//! relation and layout.
 //! TODO: qualify the remaining three masks and complete final Omega catalog.
 //! Original PK imports reconstruct the same source with unknown circuit-only
 //! witnesses and require exact installed descriptor and verifying-key agreement.
@@ -138,10 +141,20 @@ mod capacity;
 
 /// Fixed native source profile; private inputs cannot choose another range-bus count.
 pub const SOURCE_RANGE_BUSES: usize = 3;
-/// Exact source schedule has three A stages and two W continuations.
-pub const A_STAGE_COUNT: usize = 3;
-/// Exact fixed wrapper count, ending in terminal A3.
-pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
+/// A stages of a mask without the quota control (one W continuation).
+pub const PLAIN_A_STAGE_COUNT: usize = 2;
+/// A stages of a mask with the quota control (two W continuations).
+pub const QUOTA_A_STAGE_COUNT: usize = 3;
+
+/// The exact A stage count of an installed mask's schedule.
+#[must_use]
+pub fn a_stage_count(mask: u8) -> usize {
+    if u32::from(mask) & crate::witness::CONTROL_QUOTAS != 0 {
+        QUOTA_A_STAGE_COUNT
+    } else {
+        PLAIN_A_STAGE_COUNT
+    }
+}
 const DESCRIPTOR_MAX_BYTES: usize = 1 << 20;
 const VERIFYING_KEY_MAX_BYTES: usize = 1 << 18;
 
@@ -239,9 +252,9 @@ pub struct Inputs {
     pub step: StepWitness<Fp>,
     /// Current Credential, Request, `FeeSchedule` and own Advance Receipt.
     pub objects: [Vec<u8>; 4],
-    /// Exact depth32 pending-map insertion checked by A2.
+    /// Exact depth32 pending-map insertion checked by A1 (A2 with the quota control).
     pub pending: IndexedInsert<Fp>,
-    /// Exact depth32 fee-map insertion checked by A2.
+    /// Exact depth32 fee-map insertion checked by A1 (A2 with the quota control).
     pub fee: IndexedInsert<Fp>,
     /// The own Receipt signature Q.
     pub q: [QInput; 1],
@@ -261,9 +274,10 @@ pub struct Plan {
     vesta: PinnedParams<Eq>,
 }
 impl Plan {
-    /// Pin predecessor and the fixed [[],[],[Q0]] schedule with every Send task on an
-    /// inline plan. The one hard signature slot is the own Receipt under the predecessor
-    /// payment key. The mask, and with it the proved relation, is fixed by installed keys.
+    /// Pin predecessor and the mask's fixed schedule (`[[],[Q0]]`, or `[[],[],[Q0]]` with
+    /// the quota control) with every Send task on an inline plan. The one hard signature
+    /// slot is the own Receipt under the predecessor payment key. The mask, and with it
+    /// the proved relation and layout, is fixed by installed keys.
     /// # Errors
     /// Wrong variant/k/schema, absent predecessor or substituted fixed signature/key policy.
     pub fn new(
@@ -332,14 +346,18 @@ impl Plan {
         {
             return Err(Error::Artifact);
         }
-        let context = crate::a_relation::schedule::compiled::OperationSchedule::for_variant(
+        let context = crate::a_relation::schedule::compiled::OperationSchedule::for_operation(
             operation.frame().variant(),
+            u32::from(mask),
         )
         .bind(
             operation,
             SendStagePlan::context_specs().map_err(|_| Error::Artifact)?,
         )
         .map_err(|_| Error::Artifact)?;
+        if context.stage_count() != a_stage_count(mask) {
+            return Err(Error::Artifact);
+        }
         SendStagePlan::new(context.clone()).map_err(|_| Error::Artifact)?;
         Ok(Self {
             context,
@@ -1071,13 +1089,25 @@ impl Circuit<Fp> for FirstCircuit {
                     &proof,
                 )?;
                 // A1: the objects and the step relation itself beside the hard
-                // predecessor. Key generation lays out the same relation unknown.
+                // predecessor, and both map insertions unless the quota control is on.
+                // Key generation lays out the same relation unknown.
                 let witness = self
                     .source
                     .step
                     .as_ref()
                     .filter(|_| self.known)
                     .map(|(step, native)| (step, native));
+                let tasks = self.plan.operation_tasks(0).ok_or(LayoutError::Synthesis)?;
+                let pending = if tasks.contains(&OperationTask::SendPending) {
+                    Some(maps.insertion(&mut chip.uint(), &mut region, &maps.pending)?)
+                } else {
+                    None
+                };
+                let fee = if tasks.contains(&OperationTask::SendFeeAndCarry) {
+                    Some(maps.insertion(&mut chip.uint(), &mut region, &maps.fee)?)
+                } else {
+                    None
+                };
                 SendStagePlan::new(self.plan.clone())?.constrain_stage(
                     &mut chip,
                     &mut region,
@@ -1099,6 +1129,8 @@ impl Circuit<Fp> for FirstCircuit {
                             shape: self.source.shape,
                             witness,
                         }),
+                        pending: pending.as_ref(),
+                        fee: fee.as_ref(),
                         ..SendStageWitness::default()
                     },
                 )?;
@@ -1160,7 +1192,7 @@ impl Continuation {
 }
 impl ContinuationCircuit {
     fn blank(first: FirstCircuit, plan: SplitPlan) -> Result<Self, Error> {
-        if !(1..A_STAGE_COUNT).contains(&plan.stage()) {
+        if !(1..first.plan.stage_count()).contains(&plan.stage()) {
             return Err(Error::Artifact);
         }
         Ok(Self {
@@ -1558,9 +1590,9 @@ fn original_bounds(original: &[u8], rows: usize, config: ReadConfig) -> Result<(
 #[derive(Clone)]
 pub struct Prover {
     plan: Plan,
-    a: [KeyArtifact<Eq>; A_STAGE_COUNT],
-    w: [KeyArtifact<Ep>; A_STAGE_COUNT - 1],
-    wrappers: [WKey; A_STAGE_COUNT - 1],
+    a: Vec<KeyArtifact<Eq>>,
+    w: Vec<KeyArtifact<Ep>>,
+    wrappers: Vec<WKey>,
     // Process-local instance identity; only this instance resumes its sessions.
     identity: ProverInstanceV1,
 }
@@ -1573,12 +1605,16 @@ impl Prover {
     /// tables and commitments; proving borrows only one key and checks its identity
     /// before any proof or fold. Metadata matching alone is not source authority.
     /// # Errors
-    /// Wrong profile, curve, public schema or installed source descriptor.
+    /// Wrong stage counts for the mask, profile, curve, public schema or installed
+    /// source descriptor.
     pub fn from_artifacts(
         plan: Plan,
-        a: [KeyArtifact<Eq>; A_STAGE_COUNT],
-        w: [KeyArtifact<Ep>; A_STAGE_COUNT - 1],
+        a: Vec<KeyArtifact<Eq>>,
+        w: Vec<KeyArtifact<Ep>>,
     ) -> Result<Self, Error> {
+        if a.len() != plan.context.stage_count() || w.len() + 1 != a.len() {
+            return Err(Error::Artifact);
+        }
         let expected =
             super::artifact::source_descriptor::<StageCircuit>(()).ok_or(Error::Artifact)?;
         for artifact in &a {
@@ -1610,7 +1646,7 @@ impl Prover {
             plan,
             a,
             w,
-            wrappers: wrappers.try_into().map_err(|_| Error::Artifact)?,
+            wrappers,
             identity: ProverInstanceV1::fresh(),
         })
     }
@@ -1844,16 +1880,18 @@ impl Prover {
             prepared,
         })
     }
-    /// Exact installed descriptors in actual A1/W0/A2/W1/A3 checkpoint order.
+    /// Exact installed descriptors in actual A1/W0/A2(/W1/A3) checkpoint order.
     #[must_use]
-    pub fn descriptors(&self) -> [&DescriptorBinding; A_STAGE_COUNT * 2 - 1] {
-        core::array::from_fn(|index| {
-            if index % 2 == 0 {
-                self.a[index / 2].binding()
-            } else {
-                self.w[index / 2].binding()
-            }
-        })
+    pub fn descriptors(&self) -> Vec<&DescriptorBinding> {
+        (0..self.a.len() + self.w.len())
+            .map(|index| {
+                if index % 2 == 0 {
+                    self.a[index / 2].binding()
+                } else {
+                    self.w[index / 2].binding()
+                }
+            })
+            .collect()
     }
 }
 
@@ -1955,7 +1993,7 @@ pub struct RetainedSession(BoundV1<Prepared>);
 
 impl Session<'_> {
     fn require_source(&self, source: &ACheckpoint) -> Result<(), Error> {
-        if source.stage >= A_STAGE_COUNT
+        if source.stage >= self.prover.a.len()
             || !Arc::ptr_eq(&source.first.source, &self.prepared.source)
         {
             return Err(Error::Input);
@@ -2186,7 +2224,7 @@ impl Session<'_> {
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
         self.verify_a_cancellable(source, fold.kernel_budget, config.cancellation)?;
-        if source.stage >= A_STAGE_COUNT - 1 {
+        if source.stage >= self.prover.w.len() {
             return Err(Error::Input);
         }
         let a = &self.prover.a[source.stage];
@@ -2285,7 +2323,7 @@ impl Session<'_> {
     ) -> Result<WCheckpoint, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         self.verify_a_cancellable(source, budget, cancellation)?;
-        if source.stage >= A_STAGE_COUNT - 1 {
+        if source.stage >= self.prover.w.len() {
             return Err(Error::Input);
         }
         let vesta = AccumulatorT::<Eq>::from_bytes(vesta).map_err(|_| Error::Input)?;
@@ -2340,7 +2378,7 @@ impl Session<'_> {
     ) -> Result<Continuation, Error> {
         self.require_source(&wrapper.source)?;
         let previous = wrapper.source.stage;
-        if previous >= A_STAGE_COUNT - 1 {
+        if previous >= self.prover.w.len() {
             return Err(Error::Input);
         }
         let split = SplitPlan::new(
@@ -2409,7 +2447,7 @@ impl Session<'_> {
                 .iter()
                 .map(|i| self.prepared.source.q_openings[*i].clone()),
         );
-        let purpose = if next + 1 == A_STAGE_COUNT {
+        let purpose = if next + 1 == self.prover.a.len() {
             crate::private_fold::terminal_inputs(&self.prepared.plan.pallas, &mut claims, fold)
                 .map_err(|error| {
                     if error.is_cancelled() {
@@ -2470,7 +2508,7 @@ impl Session<'_> {
             opening,
         })
     }
-    /// Restore A2/A3 from its verified source W and canonical new Pallas claim.
+    /// Restore a continuation A from its verified source W and canonical new Pallas claim.
     /// Every context/public field is derived from the retained source chain.
     /// # Errors
     /// Canonical claim, source/context, installed key, proof or complete decide mismatch.
@@ -2555,7 +2593,8 @@ impl Session<'_> {
             opening,
         })
     }
-    /// Export A3 and all distinct final Omega obligations after another full native check.
+    /// Export the terminal A and all distinct final Omega obligations after another full
+    /// native check.
     /// This grants neither monetary completion nor a final transported Omega.
     /// # Errors
     /// A nonterminal/wrong source checkpoint or any failed native proof/decide.
@@ -2573,7 +2612,7 @@ impl Session<'_> {
     ) -> Result<Terminal, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         self.verify_a_cancellable(source, budget, cancellation)?;
-        if source.stage != A_STAGE_COUNT - 1 {
+        if source.stage + 1 != self.prover.a.len() {
             return Err(Error::Input);
         }
         if source.part.source_k() != 16 {
@@ -2650,20 +2689,20 @@ impl WCheckpoint {
         self.vesta.to_bytes()
     }
 }
-/// Actual A3 proof and every distinct obligation consumed by the final Omega producer.
+/// Actual terminal A proof and every distinct obligation consumed by the final Omega producer.
 #[derive(Clone, Debug)]
 pub struct Terminal {
-    /// Original terminal A3 proof under its installed key.
+    /// Original terminal A proof under its installed key.
     pub proof: Vec<u8>,
     /// Exact homogeneous69-word public frame.
     pub instances: Vec<Fp>,
     /// Full accumulated Pallas claim.
     pub pallas: AccumulatorT<Ep>,
-    /// Full Vesta part forwarded by W1.
+    /// Full Vesta part forwarded by the last W.
     pub vesta_part: AccumulatorT<Eq>,
     /// Full predecessor Vesta obligation, distinct from the current part and A opening.
     pub predecessor_vesta: AccumulatorT<Eq>,
-    /// Actual terminal A3 own opening, a separate final Omega slot.
+    /// Actual terminal A own opening, a separate final Omega slot.
     pub opening: FoldInput<Eq>,
 }
 

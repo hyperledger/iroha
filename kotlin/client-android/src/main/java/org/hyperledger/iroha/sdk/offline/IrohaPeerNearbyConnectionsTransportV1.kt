@@ -99,10 +99,10 @@ internal fun runIrohaPeerEssentialCallbackV1(
 }
 
 internal fun irohaPeerVerificationAdmissionErrorV1(
-    digits: String,
+    pairingToken: String,
     verificationOpen: Boolean,
 ): IrohaPeerNearbyConnectionsErrorV1? =
-    if (!IrohaPeerNearbyVerificationCodeV1.isValid(digits) || verificationOpen) {
+    if (!IrohaPeerNearbyPairingTokenV1.isValid(pairingToken) || verificationOpen) {
         IrohaPeerNearbyConnectionsErrorV1.VERIFICATION_REJECTED
     } else {
         null
@@ -799,12 +799,13 @@ interface IrohaPeerNearbyConnectionsListenerV1 {
     ) = Unit
 
     /**
-     * Pair by picture: derive the picture from [authenticationDigits] with
-     * [IrohaPeerNearbyPictureCodeV1.targetIndex] and never display the digits.
+     * Pair by picture: [pairingToken] is the connection's [IrohaPeerNearbyPairingTokenV1], the same
+     * token the other phone sees on iOS or Android. Derive the picture with
+     * [IrohaPeerNearbyPictureCodeV1.targetIndex] and never display the token.
      */
     fun verifyPeer(
         peerId: String,
-        authenticationDigits: String,
+        pairingToken: String,
         decision: IrohaPeerNearbyVerificationDecisionV1,
     )
 
@@ -1095,9 +1096,12 @@ class IrohaPeerNearbyConnectionsTransportV1 @JvmOverloads constructor(
                     client.rejectConnection(endpointId)
                     return@initiated
                 }
-                val digits = info.authenticationDigits
+                // iOS Nearby offers only this token, so both platforms pair from it, never from digits.
+                val token = IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken(
+                    info.rawAuthenticationToken ?: ByteArray(0),
+                )
                 val verificationError = irohaPeerVerificationAdmissionErrorV1(
-                    digits,
+                    token,
                     verificationOpen,
                 )
                 if (verificationError != null) {
@@ -1131,7 +1135,7 @@ class IrohaPeerNearbyConnectionsTransportV1 @JvmOverloads constructor(
                         }) {
                             callback.verifyPeer(
                                 endpointId,
-                                digits,
+                                token,
                                 IrohaPeerNearbyVerificationDecisionV1 { accepted ->
                                     if (once.compareAndSet(false, true)) {
                                         dispatch {

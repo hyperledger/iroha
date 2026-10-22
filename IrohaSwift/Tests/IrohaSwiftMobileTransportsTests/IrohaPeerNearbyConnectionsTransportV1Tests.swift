@@ -179,7 +179,7 @@ final class IrohaPeerNearbyDeliveryBarrierV1Tests: XCTestCase {
             Row(
                 managerMatches: true,
                 activePeerID: "peer",
-                state: .verificationRequired(peerID: "peer", code: "1234"),
+                state: .verificationRequired(peerID: "peer", code: "K7Q2F"),
                 endpointID: "peer",
                 expected: false
             ),

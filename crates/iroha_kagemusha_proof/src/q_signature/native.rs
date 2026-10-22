@@ -20,15 +20,15 @@ use ff::Field;
 use iroha_pasta::{Ep, Fp, Fq};
 use iroha_plonk::{
     DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, VerifyError,
-    VerifyingKey, Witness, create_proof_owned,
+    VerifyingKey, create_proof_owned,
     cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2},
     frontend::{Circuit, Error as LayoutError},
     keys::{
         CosetCachePolicy, RebuildError, SourceBoundVerifyingKeyV2, SourceBoundViewV2,
-        keygen_pk_from_vk_v2_cancellable,
         pk::artifact::{Error as ArtifactError, ReadConfig},
     },
     pcs::ipa::PinnedParams,
+    prover::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable},
 };
 use iroha_plonk_gadgets::{
     p256::{
@@ -387,21 +387,22 @@ impl<'a> QSignatureProverView<'a> {
             .map_err(|_| QSignatureError::Prover(ProverError::Cancelled))?;
         let instances = self.plan.native_instances(witnesses)?;
         let bytes = {
-            let source = self.plan.source_circuit()?;
-            let key = keygen_pk_from_vk_v2_cancellable(
+            let circuit = QSignatureCircuit::new((*self.plan).clone(), witnesses.to_vec())
+                .map_err(QSignatureError::Layout)?;
+            // The actual source must match the already admitted fixed slot plan.
+            // A source mismatch stays a hard local failure, never a soft verdict.
+            let (key, witness) = rebuild_key_and_witness_v2_cancellable(
                 self.params,
-                &source,
+                &circuit,
                 &self.key,
+                &instances,
                 CosetCachePolicy::OnDemand,
                 config.cancellation,
             )
-            .map_err(QSignatureError::Rebuild)?;
-            drop(source);
-            let circuit = QSignatureCircuit::new((*self.plan).clone(), witnesses.to_vec())
-                .map_err(QSignatureError::Layout)?;
-            let witness =
-                Witness::from_circuit_cancellable(&key, &circuit, &instances, config.cancellation)
-                    .map_err(QSignatureError::Prover)?;
+            .map_err(|error| match error {
+                RebuildWitnessError::Rebuild(error) => QSignatureError::Rebuild(error),
+                RebuildWitnessError::Witness(error) => QSignatureError::Prover(error),
+            })?;
             #[cfg(test)]
             crate::proof_entry_probe::reached();
             create_proof_owned(self.params, &key, witness, randomness, config)

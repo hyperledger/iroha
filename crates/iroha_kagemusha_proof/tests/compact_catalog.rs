@@ -115,7 +115,7 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
     );
     let load = rebuild_bootstrap_load(&program, bootstrap, &initial_load, fixture);
     eprintln!(
-        "COMPACT_TWO_TERMINAL_CLOSURE source_keys_equal=true common_key_bound_before_signing=true all_native_proofs=true transport=4992 full_catalog=false"
+        "COMPACT_TWO_TERMINAL_CLOSURE source_keys_equal=true common_key_bound_before_signing=true all_native_proofs=true transport=5120 full_catalog=false"
     );
     if !include_send {
         return None;
@@ -154,7 +154,7 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
         )
         .unwrap();
     eprintln!(
-        "COMPACT_THREE_TERMINAL_CLOSURE source_keys_equal=true common_key_bound_before_signing=true all_native_proofs=true transport=4992 mask0_only=true full_catalog=false ordinary_finality_load_fixture=true"
+        "COMPACT_THREE_TERMINAL_CLOSURE source_keys_equal=true common_key_bound_before_signing=true all_native_proofs=true transport=5120 mask0_only=true full_catalog=false ordinary_finality_load_fixture=true"
     );
     Some(CompactSendOmega {
         source: send,
@@ -178,15 +178,16 @@ pub fn compact_bootstrap_load_catalog_rebinds_every_proof_and_key(fixture: &Load
 #[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_bootstrap_load_send_catalog_rebinds_every_proof_and_key(fixture: &LoadFixture) {
     let send = compact_payer_send(fixture);
-    assert_eq!(send.proof.len(), 3904);
+    assert_eq!(send.proof.len(), 4032);
     assert_eq!(send.catalog.len(), 3);
     assert_eq!(
         send.source.state.lineage[17],
         send.key.kagemusha_digest(&send.binding).unwrap()
     );
     assert_eq!(send.source.maps.witness.after.core, send.source.state.core);
-    assert_eq!(send.source.context.stage_count(), 3);
-    assert_eq!(send.source.predecessor_omega.len(), 5312);
+    // Production mask 0: A1 owns both map insertions, so the Send has two A stages.
+    assert_eq!(send.source.context.stage_count(), 2);
+    assert_eq!(send.source.predecessor_omega.len(), 5440);
     assert_eq!(send.source.sigma.len(), 3360);
 }
 

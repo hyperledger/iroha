@@ -7,7 +7,9 @@
 
 use std::io::Read;
 
-use iroha_kagemusha_proof::a_relation::schedule::compiled::{OperationSchedule, compiled_routes};
+use iroha_kagemusha_proof::a_relation::schedule::compiled::{
+    OperationRoute, OperationSchedule, compiled_routes,
+};
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
 use super::*;
@@ -101,18 +103,18 @@ pub use opening_metrics::{
     QualificationMetricsV1,
 };
 
-/// Largest design §5.3 peak proving memory over the installed descriptors of `keys`.
-/// Metadata only: no proving key is read and no artifact field is added.
+/// Largest design §5.3 peak proving memory, under both quotient plans, over the installed
+/// descriptors of `keys`. Metadata only: no proving key is read and no artifact field is added.
 fn peak_proving_memory<'a, C: PastaCurve + 'a>(
     keys: impl IntoIterator<
         Item = &'a iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact<C>,
     >,
-) -> Result<u64, Error> {
-    keys.into_iter().try_fold(0_u64, |peak, key| {
-        crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_relation_peak_memory_v1(
+) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1, Error> {
+    keys.into_iter().try_fold(Default::default(), |peak, key| {
+        crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_relation_proving_memory_v1(
             key.binding().descriptor(),
         )
-        .map(|bytes| peak.max(bytes))
+        .map(|memory| memory.max(peak))
         .ok_or(Error::Inventory)
     })
 }
@@ -274,10 +276,24 @@ impl ProducerInventoryV1 {
         let mut terminal_keys = Vec::new();
         for operation in &self.operations {
             let variant = variant(operation.variant)?;
-            let schedule = OperationSchedule::for_variant(variant);
-            let q_count = schedule.q_partitions().iter().flatten().count();
             selectors(&operation.own_class, false)?;
             selectors(&operation.incoming_class, true)?;
+            // Every own selector of the class selects the same schedule (Send's follows
+            // the quota control of its mask).
+            let mut schedules = operation.own_class.iter().map(|own| {
+                OperationSchedule::for_route(OperationRoute {
+                    variant,
+                    own: *own,
+                    incoming: None,
+                })
+            });
+            let schedule = schedules.next().ok_or(Error::Inventory)?;
+            if schedules.any(|other| {
+                other.tasks() != schedule.tasks() || other.q_partitions() != schedule.q_partitions()
+            }) {
+                return Err(Error::Inventory);
+            }
+            let q_count = schedule.q_partitions().iter().flatten().count();
             let allowed: Vec<_> = routes
                 .iter()
                 .filter(|route| route.variant == variant)

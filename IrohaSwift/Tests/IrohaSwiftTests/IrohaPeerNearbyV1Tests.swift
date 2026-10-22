@@ -4,6 +4,14 @@ import XCTest
 @testable import IrohaSwift
 
 final class IrohaPeerNearbyV1Tests: XCTestCase {
+    /// Google Nearby browses and advertises "_" + hex(SHA-256(serviceID)[0..<6]) + "._tcp"
+    /// (WifiLan::GenerateServiceType). The README and host apps' NSBonjourServices list this
+    /// exact value; the retired service ID's "_F2EBA4BCB49B._tcp" left iPhones without Wi-Fi.
+    func testBonjourServiceIsNearbysWifiLanTypeForTheServiceID() {
+        XCTAssertEqual(IrohaPeerNearbyV1.serviceID, "org.hyperledger.iroha.kagemusha.transfer.v1")
+        XCTAssertEqual(IrohaPeerNearbyV1.bonjourService, "_D543FE801144._tcp")
+    }
+
     func testEncryptedRequestPreservesCompanionAndRejectsRecordReplay() throws {
         // Local transport signing keys authenticate this test channel, not wallet monetary DATA.
         let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .request, payload: Data([0x31]))
@@ -248,16 +256,16 @@ final class IrohaPeerNearbyV1Tests: XCTestCase {
         ))
     }
 
-    func testGoogleVerificationCodeRequiresFourToTwelveASCIIDigits() {
-        XCTAssertTrue(IrohaPeerNearbyVerificationCodeV1.isValid("1234"))
-        XCTAssertTrue(IrohaPeerNearbyVerificationCodeV1.isValid("123456"))
-        XCTAssertTrue(IrohaPeerNearbyVerificationCodeV1.isValid("123456789012"))
-        XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid(""))
-        XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid("123"))
-        XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid("1234567890123"))
-        XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid("123 456"))
-        XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid("١٢٣٤٥٦"))
-        XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid("１２３４５６"))
+    /// iOS Nearby's `verificationCode` is uppercase(WebSafeBase64(raw))[0..<5]; Android rebuilds it from
+    /// the raw token. Android's retired authentication digits and anything outside the alphabet are refused.
+    func testPairingTokenIsNearbysFiveCharacterToken() {
+        for token in ["K7Q2F", "AAAAA", "00000", "-_-_-", "AB-9_"] {
+            XCTAssertTrue(IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+        }
+        for token in ["", "1234", "123456", "ABCD", "ABCDEF", "abcde", "AB+CD", "AB/CD", "ABCD=", "AB CD",
+                      "ＡＢＣＤＥ", "ÄBCDE", "ABCD\u{0}", "١٢٣٤٥"] {
+            XCTAssertFalse(IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+        }
     }
 
     func testSessionRecordsRejectZeroSecurityContext() throws {

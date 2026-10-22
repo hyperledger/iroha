@@ -50,11 +50,11 @@ pub fn compact_layout(
         .iter()
         .rposition(|v| *v)
         .map_or(0, |r| r + 1);
-    // The compact profile allocates eight phase columns, then
-    // two tuple-table columns, top width and range pattern. Audit the actual fixed tape,
-    // not a count extrapolated from the host interpreter's operations.
+    // The compact profile allocates eight phase columns, then two tuple-table columns,
+    // top width, range pattern and its two lookup coefficients. Audit the actual fixed
+    // tape, not a count extrapolated from the host interpreter's operations.
     let fixed = assigned.tables.fixed();
-    assert_eq!(fixed.len(), 12);
+    assert_eq!(fixed.len(), 14);
     let pattern = &fixed[11];
     let widths_column = &fixed[10];
     let mut widths = std::collections::BTreeMap::<usize, (usize, usize)>::new();
@@ -219,13 +219,13 @@ pub fn compact_layout(
             let key = keygen_pk_v2(&params, &candidate, &key_config).unwrap();
             let protocol = Protocol::new(key.binding().descriptor()).unwrap();
             assert_eq!(protocol.shape().k, 16);
-            assert_eq!(protocol.shape().degree, 14);
+            assert_eq!(protocol.shape().degree, 11);
             assert_eq!(protocol.shape().lookups, 1);
             assert!(
                 protocol.proof_length() + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
                     <= iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
             );
-            assert_eq!(protocol.proof_length() + 1088, 4992);
+            assert_eq!(protocol.proof_length() + 1088, 5120);
             let output = create_proof_owned_with_claim(
                 &params,
                 &key,

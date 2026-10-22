@@ -63,7 +63,7 @@ use super::{Challenges, ProverError};
 use crate::{
     cs::{
         DescriptorError, DescriptorRule, ProtocolDescriptor,
-        descriptor::{ColumnKindV1, ExprNodeV1, ExprV1, MAX_EXPRESSION_STACK, QueryV1},
+        descriptor::{ColumnKindV1, ExprNodeV1, ExprV1, LookupV1, MAX_EXPRESSION_STACK, QueryV1},
     },
     keys::{CosetPolynomial, KeyError, ProvingKey},
     protocol::{ConstraintFilter, ConstraintTerm, LookupConstraint, Protocol, ProtocolError},
@@ -84,6 +84,8 @@ use gate_fold::{GateFold, GatePlan};
 
 mod workspace;
 pub use workspace::{QuotientWorkspace, WorkspaceError};
+
+pub(super) mod bounded;
 
 /// One node of the compiled DAG; operands index earlier nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -244,6 +246,22 @@ impl<F: PastaField> Builder<'_, F> {
             _ => Err(malformed()),
         }
     }
+
+    /// Compiles one lookup's input and table expressions, in that order.
+    fn lookup(&mut self, lookup: &LookupV1) -> Result<CompiledLookup, DescriptorError> {
+        Ok(CompiledLookup {
+            inputs: lookup
+                .inputs
+                .iter()
+                .map(|input| self.expression(input))
+                .collect::<Result<_, DescriptorError>>()?,
+            tables: lookup
+                .tables
+                .iter()
+                .map(|table| self.expression(table))
+                .collect::<Result<_, DescriptorError>>()?,
+        })
+    }
 }
 
 /// One lookup's compressed input `A` and table `S` on every row.
@@ -314,24 +332,58 @@ impl<F: PastaField> CompiledExpressions<F> {
         let lookups = descriptor
             .lookups
             .iter()
-            .map(|lookup| {
-                Ok(CompiledLookup {
-                    inputs: lookup
-                        .inputs
-                        .iter()
-                        .map(|input| builder.expression(input))
-                        .collect::<Result<_, DescriptorError>>()?,
-                    tables: lookup
-                        .tables
-                        .iter()
-                        .map(|table| builder.expression(table))
-                        .collect::<Result<_, DescriptorError>>()?,
-                })
-            })
+            .map(|lookup| builder.lookup(lookup))
             .collect::<Result<Vec<_>, DescriptorError>>()?;
         Ok(Self {
             nodes: builder.nodes,
             gates,
+            lookups,
+            fixed_queries: descriptor.fixed_queries.clone(),
+            advice_queries: descriptor.advice_queries.clone(),
+            instance_queries: descriptor.instance_queries.clone(),
+        })
+    }
+
+    /// Compiles the flattened gate polynomials `gates` and then the lookups `lookups` of
+    /// `descriptor`, keeping its complete query tables. Values equal [`Self::compile`]'s.
+    ///
+    /// # Errors
+    ///
+    /// Rule 6 ([`DescriptorRule::Expression`]) for a malformed expression or an index
+    /// outside the descriptor.
+    pub(super) fn compile_selected(
+        descriptor: &ProtocolDescriptor,
+        gates: core::ops::Range<usize>,
+        lookups: core::ops::Range<usize>,
+    ) -> Result<Self, DescriptorError> {
+        let mut builder = Builder {
+            nodes: Vec::new(),
+            index: BTreeMap::new(),
+            descriptor,
+        };
+        let mut roots = Vec::with_capacity(gates.len());
+        for poly in descriptor
+            .gates
+            .iter()
+            .flatten()
+            .skip(gates.start)
+            .take(gates.len())
+        {
+            roots.push(builder.expression(poly)?);
+        }
+        if roots.len() != gates.len() {
+            return Err(malformed());
+        }
+        let lookups = descriptor
+            .lookups
+            .get(lookups)
+            .ok_or_else(malformed)?
+            .iter()
+            .map(|lookup| builder.lookup(lookup))
+            .collect::<Result<Vec<_>, DescriptorError>>()?;
+        Ok(Self {
+            nodes: builder.nodes,
+            gates: roots,
             lookups,
             fixed_queries: descriptor.fixed_queries.clone(),
             advice_queries: descriptor.advice_queries.clone(),
@@ -365,6 +417,55 @@ impl<F: PastaField> CompiledExpressions<F> {
         Ok(BoundColumns {
             fixed: bind_table(&self.fixed_queries, fixed, n)?,
             advice: bind_table(&self.advice_queries, advice, n)?,
+            instance: bind_table(&self.instance_queries, instance, n)?,
+            mask: n - 1,
+        })
+    }
+
+    /// Binds the fixed and advice queries this DAG reads, and every instance query. A query
+    /// no node reads is bound to an empty slice; a read query needs its `n`-row column.
+    fn bind_read<'a>(
+        &self,
+        fixed: &[Option<&'a [F]>],
+        advice: &[Option<&'a [F]>],
+        instance: &[&'a [F]],
+        n: usize,
+    ) -> Result<BoundColumns<'a, F>, ProverError> {
+        if !n.is_power_of_two() {
+            return Err(ProverError::Protocol(ProtocolError::Overflow));
+        }
+        let mut read_fixed = vec![false; self.fixed_queries.len()];
+        let mut read_advice = vec![false; self.advice_queries.len()];
+        for node in &self.nodes {
+            let flag = match *node {
+                Node::Fixed(query) => read_fixed.get_mut(query as usize),
+                Node::Advice(query) => read_advice.get_mut(query as usize),
+                _ => None,
+            };
+            if let Some(flag) = flag {
+                *flag = true;
+            }
+        }
+        let bind = |queries: &[QueryV1], columns: &[Option<&'a [F]>], read: &[bool]| {
+            queries
+                .iter()
+                .zip(read)
+                .map(|(query, &read)| {
+                    if !read {
+                        return Ok((&[][..], 0));
+                    }
+                    let column = usize::try_from(query.column)
+                        .ok()
+                        .and_then(|column| columns.get(column).copied().flatten())
+                        .filter(|column| column.len() == n)
+                        .ok_or(ProverError::Key(KeyError::CosetIndex))?;
+                    Ok((column, rotation_offset(query.rotation, n)?))
+                })
+                .collect::<Result<Vec<_>, ProverError>>()
+        };
+        Ok(BoundColumns {
+            fixed: bind(&self.fixed_queries, fixed, &read_fixed)?,
+            advice: bind(&self.advice_queries, advice, &read_advice)?,
             instance: bind_table(&self.instance_queries, instance, n)?,
             mask: n - 1,
         })
@@ -692,6 +793,92 @@ fn evaluate_many<F: PastaField>(
     Ok(())
 }
 
+/// Evaluates a same-owner instance prefix into existing coset workspace.
+/// The coefficient-only entry remains dense. Private owner identity is checked
+/// before any output mutation; separately supplied prefixes are never accepted.
+fn evaluate_instance_many<F: PastaField>(
+    plan: Option<&CosetFftPlan<'_, '_, F>>,
+    coefficients: &[Vec<F>],
+    source: Option<&super::advice::InstanceColumns<F>>,
+    l0: &[F],
+    values: &mut [&mut [F]],
+    cancellation: Option<&CancellationToken>,
+) -> Result<(), KeyError> {
+    CancellationToken::checkpoint(cancellation)?;
+    let Some(source) = source else {
+        return evaluate_many(plan, coefficients, values, cancellation);
+    };
+    // `polys` and prefix metadata are private inside InstanceColumns. Its
+    // immutable borrow prevents either changing during this evaluation.
+    if !core::ptr::eq(source.polys(), coefficients) {
+        return Err(KeyError::CosetIndex);
+    }
+    if !source.has_short_prefixes() {
+        return evaluate_many(plan, coefficients, values, cancellation);
+    }
+    if coefficients.len() != values.len() {
+        return Err(KeyError::Shape {
+            what: "coset columns",
+            expected: values.len(),
+            actual: coefficients.len(),
+        });
+    }
+    for (output, polynomial) in values.iter().zip(coefficients) {
+        if polynomial.len() != output.len() {
+            return Err(KeyError::Shape {
+                what: "coset coefficients",
+                expected: output.len(),
+                actual: polynomial.len(),
+            });
+        }
+        if l0.len() != output.len() {
+            return Err(KeyError::Shape {
+                what: "instance coset mask",
+                expected: output.len(),
+                actual: l0.len(),
+            });
+        }
+    }
+    if values.is_empty() {
+        return Ok(());
+    }
+    // Keep the existing workspace/plan admission even when all columns are short.
+    let plan = plan.ok_or(KeyError::CosetIndex)?;
+    let n = l0.len();
+    let mask = n - 1;
+    let mut dense_coefficients = Vec::with_capacity(coefficients.len());
+    let mut dense_values = Vec::with_capacity(values.len());
+    for (column, (polynomial, output)) in coefficients.iter().zip(values.iter_mut()).enumerate() {
+        if let Some(prefix) = source.short_prefix(column) {
+            output
+                .par_chunks_mut(1024)
+                .enumerate()
+                .try_for_each(|(chunk, output)| {
+                    CancellationToken::checkpoint(cancellation)?;
+                    for (offset, value) in output.iter_mut().enumerate() {
+                        let row = chunk * 1024 + offset;
+                        *value = prefix.iter().enumerate().fold(F::ZERO, |sum, (j, input)| {
+                            sum + *input * l0[row.wrapping_sub(j) & mask]
+                        });
+                    }
+                    Ok::<_, KeyError>(())
+                })?;
+        } else {
+            dense_coefficients.push(polynomial.as_slice());
+            dense_values.push(&mut **output);
+        }
+    }
+    // All Rayon tasks are joined. Long columns retain the existing batched FFT.
+    evaluate_many(
+        Some(plan),
+        &dense_coefficients,
+        &mut dense_values,
+        cancellation,
+    )?;
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(())
+}
+
 /// Borrows complete lookup triples without growing the field workspace.
 /// `first` is the mandatory triple; optional mask weights were reserved before
 /// the remaining columns reach this function. Partial trailing triples stay unused.
@@ -751,6 +938,138 @@ fn prepare_lookup_mask_weights<'a, F: PastaField>(
         });
     CancellationToken::checkpoint(cancellation)?;
     Ok(Some([first, last]))
+}
+
+/// Streams every lookup's committed triple onto the coset and folds its five constraints into
+/// each row of `values` in spec section 2 order. `columns` are dead coset buffers: the
+/// mandatory triple, then two optional mask weights, then extra triples for batching.
+#[allow(clippy::too_many_arguments)]
+fn fold_lookups<'a, F: PastaField + 'a>(
+    mut columns: impl Iterator<Item = &'a mut [F]>,
+    lookups: &[LookupPolys<'_, F>],
+    numerators: &[&mut [F]],
+    [l0, l_last, l_active]: [&[F]; 3],
+    [beta, gamma, y]: [F; 3],
+    plan: Option<&CosetFftPlan<'_, '_, F>>,
+    filter: &(impl ConstraintFilter + Sync),
+    values: &mut [F],
+    cancellation: Option<&CancellationToken>,
+) -> Result<(), ProverError> {
+    let one = F::ONE;
+    let mask = values.len() - 1;
+    let y2 = y.square();
+    let y3 = y2 * y;
+    let y4 = y2.square();
+    let y5 = y4 * y;
+    let first = [
+        next_column(&mut columns)?,
+        next_column(&mut columns)?,
+        next_column(&mut columns)?,
+    ];
+    // Reserve the same optional weight columns before borrowing extra
+    // complete triples. All lookup outputs remain disjoint from weights,
+    // numerators and cached key cosets, within the original field budget.
+    let mask_weights = prepare_lookup_mask_weights(
+        &mut columns,
+        [l0, l_last],
+        [y, y3],
+        lookups.len(),
+        cancellation,
+    )?;
+    let mut batch_columns = lookup_batch_columns(first, &mut columns, lookups.len());
+    let batch_size = batch_columns.len() / 3;
+    let mut coefficients = Vec::with_capacity(batch_columns.len());
+    for (batch_index, (batch, batch_numerators)) in lookups
+        .chunks(batch_size)
+        .zip(numerators.chunks(batch_size))
+        .enumerate()
+    {
+        // Only slice metadata is collected. Each FFT keeps its original
+        // arithmetic; batching gives the column-parallel kernel more than
+        // three independent columns without nested FFT parallelism.
+        coefficients.clear();
+        coefficients.extend(
+            batch
+                .iter()
+                .flat_map(|lookup| [lookup.product, lookup.input, lookup.table]),
+        );
+        evaluate_many(
+            plan,
+            &coefficients,
+            &mut batch_columns[..coefficients.len()],
+            cancellation,
+        )?;
+        for (offset, (columns, numerator)) in batch_columns
+            .chunks_exact(3)
+            .zip(batch_numerators)
+            .enumerate()
+        {
+            let index = batch_index * batch_size + offset;
+            let [product, input, table] = [&*columns[0], &*columns[1], &*columns[2]];
+            values
+                .par_chunks_mut(ROWS_PER_TASK)
+                .enumerate()
+                .for_each(|(task, out)| {
+                    if CancellationToken::checkpoint(cancellation).is_err() {
+                        return;
+                    }
+                    let start = task * ROWS_PER_TASK;
+                    for (offset, value) in out.iter_mut().enumerate() {
+                        let row = start + offset;
+                        let r_next = (row + 1) & mask;
+                        let r_prev = (row + mask) & mask;
+                        let a_minus_s = input[row] - table[row];
+                        // Evaluate every unmasked contribution before filtering,
+                        // preserving all five keeps calls in the serial order.
+                        let kept = |part, contribution: F| {
+                            let term = ConstraintTerm::Lookup {
+                                lookup: index,
+                                part,
+                            };
+                            if filter.keeps(term) {
+                                contribution
+                            } else {
+                                F::ZERO
+                            }
+                        };
+                        let first = kept(LookupConstraint::First, one - product[row]);
+                        let last = kept(LookupConstraint::Last, product[row] - one);
+                        let product_term = kept(
+                            LookupConstraint::Product,
+                            product[r_next]
+                                * crate::norm_factor(input[row] + beta)
+                                * crate::norm_factor(table[row] + gamma)
+                                - product[row] * numerator[row],
+                        );
+                        let start = kept(LookupConstraint::Start, a_minus_s);
+                        let step = kept(
+                            LookupConstraint::Step,
+                            a_minus_s * (input[row] - input[r_prev]),
+                        );
+                        // Expand five Horner positions, factoring only equal
+                        // public masks. Omitted terms still retain their powers.
+                        let (first_and_start, last) = match mask_weights {
+                            Some([first_weight, last_weight]) => (
+                                first_weight[row] * (y3 * first + start),
+                                last_weight[row] * last,
+                            ),
+                            None => (
+                                l0[row] * (y4 * first + y * start),
+                                l_last[row] * (y3 * last),
+                            ),
+                        };
+                        *value = *value * y5
+                            + first_and_start
+                            + last
+                            + l_active[row] * (y2 * product_term + step);
+                    }
+                });
+            // The old next-triple FFT checked cancellation before the
+            // next lookup. Keep that joined-task boundary within a batch.
+            CancellationToken::checkpoint(cancellation)?;
+        }
+    }
+    Ok(())
 }
 
 /// Updates owned key-polynomial buffers in place, or changes the borrowed
@@ -835,6 +1154,71 @@ pub(super) fn evaluate_cancellable<C: PastaCurve>(
     )
 }
 
+/// Internal prover entry for prefixes captured with their exact coefficient owner.
+/// Existing coefficient-only evaluator calls cannot select this representation.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn evaluate_with_bound_instances_cancellable<C: PastaCurve>(
+    pk: &ProvingKey<C>,
+    protocol: &Protocol,
+    compiled: &CompiledExpressions<C::ScalarExt>,
+    inputs: &QuotientInputs<'_, C::ScalarExt>,
+    instances: &super::advice::InstanceColumns<C::ScalarExt>,
+    challenges: Challenges<C::ScalarExt>,
+    filter: &(impl ConstraintFilter + Sync),
+    workspace: Option<&mut QuotientWorkspace<C::ScalarExt>>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Vec<C::ScalarExt>, ProverError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if !core::ptr::eq(inputs.instance, instances.polys()) {
+        return Err(KeyError::CosetIndex.into());
+    }
+    if !instances.has_short_prefixes() {
+        return match workspace {
+            Some(workspace) => evaluate_with_workspace_cancellable(
+                pk,
+                protocol,
+                compiled,
+                inputs,
+                challenges,
+                filter,
+                workspace,
+                cancellation,
+            ),
+            None => evaluate_cancellable(
+                pk,
+                protocol,
+                compiled,
+                inputs,
+                challenges,
+                filter,
+                cancellation,
+            ),
+        };
+    }
+    let mut owned;
+    let workspace = match workspace {
+        Some(workspace) => workspace,
+        None => {
+            let bytes = workspace_elements(pk, protocol)?
+                .checked_mul(size_of::<C::ScalarExt>())
+                .ok_or(ProtocolError::Overflow)?;
+            owned = QuotientWorkspace::new(bytes);
+            &mut owned
+        }
+    };
+    evaluate_inner(
+        pk,
+        protocol,
+        compiled,
+        inputs,
+        Some(instances),
+        challenges,
+        filter,
+        workspace,
+        cancellation,
+    )
+}
+
 /// The same quotient evaluator using an exclusively borrowed reusable buffer.
 #[cfg(test)]
 pub(super) fn evaluate_with_workspace<C: PastaCurve>(
@@ -862,6 +1246,31 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
     workspace: &mut QuotientWorkspace<C::ScalarExt>,
     cancellation: Option<&CancellationToken>,
 ) -> Result<Vec<C::ScalarExt>, ProverError> {
+    evaluate_inner(
+        pk,
+        protocol,
+        compiled,
+        inputs,
+        None,
+        challenges,
+        filter,
+        workspace,
+        cancellation,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_inner<C: PastaCurve>(
+    pk: &ProvingKey<C>,
+    protocol: &Protocol,
+    compiled: &CompiledExpressions<C::ScalarExt>,
+    inputs: &QuotientInputs<'_, C::ScalarExt>,
+    instances: Option<&super::advice::InstanceColumns<C::ScalarExt>>,
+    challenges: Challenges<C::ScalarExt>,
+    filter: &(impl ConstraintFilter + Sync),
+    workspace: &mut QuotientWorkspace<C::ScalarExt>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Vec<C::ScalarExt>, ProverError> {
     CancellationToken::checkpoint(cancellation)?;
     let shape = protocol.shape();
     let n = shape.n;
@@ -880,11 +1289,6 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
     let gate_plan = GatePlan::new(compiled);
     let compiled = gate_plan.compiled();
     let one = C::ScalarExt::ONE;
-    // Public powers shared by every row and lookup; no inverse of y is used.
-    let y2 = y.square();
-    let y3 = y2 * y;
-    let y4 = y2.square();
-    let y5 = y4 * y;
     let delta = <C::ScalarExt as ff::PrimeField>::DELTA;
     let mut cosets = SecretColumns::new(Vec::with_capacity(shape.quotient_pieces));
     let elements = workspace_elements(pk, protocol)?;
@@ -962,7 +1366,14 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
             masks.l_active.as_slice(),
         );
         evaluate_many(plan.as_ref(), inputs.advice, &mut advice, cancellation)?;
-        evaluate_many(plan.as_ref(), inputs.instance, &mut instance, cancellation)?;
+        evaluate_instance_many(
+            plan.as_ref(),
+            inputs.instance,
+            instances,
+            l0,
+            &mut instance,
+            cancellation,
+        )?;
         evaluate_many(
             plan.as_ref(),
             &inputs.permutation_products,
@@ -998,6 +1409,13 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
         {
             return Err(KeyError::CosetIndex.into());
         }
+        // Carry public beta in the row recurrence once per coset. Empty
+        // permutation shapes retain the old recurrence without an extra multiply.
+        let permutation_shift = if products.is_empty() {
+            shift
+        } else {
+            beta * shift
+        };
         let mut values = SecretPolynomial::new(vec![C::ScalarExt::ZERO; n]);
         // Evaluate the shared expression DAG once per row. Retain only
         // (A + beta)(S + gamma) for each lookup; its three committed cosets
@@ -1027,7 +1445,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                     C::ScalarExt::ZERO;
                     compiled.nodes.len() * tile_plan.width
                 ]);
-                let mut x_row = shift * omega.pow_vartime([start as u64]);
+                let mut permutation_x_row = permutation_shift * omega.pow_vartime([start as u64]);
                 for (tile, out) in out.chunks_mut(tile_plan.width).enumerate() {
                     let offset = tile * tile_plan.width;
                     compiled.evaluate_tile(&bound, start + offset, tile_plan.width, &mut scratch);
@@ -1063,7 +1481,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                     (pair[1][row] - pair[0][r_last]) * l0[row],
                                 );
                             }
-                            let mut current_delta = beta * x_row;
+                            let mut current_delta = permutation_x_row;
                             for (set_index, ((set, set_columns), set_sigma)) in products
                                 .iter()
                                 .zip(permutation_columns.chunks(shape.chunk_len))
@@ -1096,7 +1514,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                 * crate::norm_factor(compressed_table + gamma);
                         }
                         *out = value;
-                        x_row *= omega;
+                        permutation_x_row *= omega;
                     }
                 }
             });
@@ -1114,7 +1532,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
             sigma_refs,
         ));
         if shape.lookups != 0 {
-            let mut lookup_columns = fixed
+            let lookup_columns = fixed
                 .iter_mut()
                 .chain(sigma.iter_mut())
                 .filter_map(|column| match column {
@@ -1125,113 +1543,17 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                 .chain(instance.iter_mut().map(|values| &mut **values))
                 .chain(products.iter_mut().map(|values| &mut **values))
                 .chain(lookup_spill.iter_mut().map(|values| &mut **values));
-            let first = [
-                next_column(&mut lookup_columns)?,
-                next_column(&mut lookup_columns)?,
-                next_column(&mut lookup_columns)?,
-            ];
-            // Reserve the same optional weight columns before borrowing extra
-            // complete triples. All lookup outputs remain disjoint from weights,
-            // numerators and cached key cosets, within the original field budget.
-            let mask_weights = prepare_lookup_mask_weights(
-                &mut lookup_columns,
-                [l0, l_last],
-                [y, y3],
-                shape.lookups,
+            fold_lookups(
+                lookup_columns,
+                &inputs.lookups,
+                &lookup_numerators,
+                [l0, l_last, l_active],
+                [beta, gamma, y],
+                plan.as_ref(),
+                filter,
+                &mut values[..],
                 cancellation,
             )?;
-            let mut batch_columns = lookup_batch_columns(first, &mut lookup_columns, shape.lookups);
-            let batch_size = batch_columns.len() / 3;
-            let mut coefficients = Vec::with_capacity(batch_columns.len());
-            for (batch_index, (lookups, numerators)) in inputs
-                .lookups
-                .chunks(batch_size)
-                .zip(lookup_numerators.chunks(batch_size))
-                .enumerate()
-            {
-                // Only slice metadata is collected. Each FFT keeps its original
-                // arithmetic; batching gives the column-parallel kernel more than
-                // three independent columns without nested FFT parallelism.
-                coefficients.clear();
-                coefficients.extend(
-                    lookups
-                        .iter()
-                        .flat_map(|lookup| [lookup.product, lookup.input, lookup.table]),
-                );
-                evaluate_many(
-                    plan.as_ref(),
-                    &coefficients,
-                    &mut batch_columns[..coefficients.len()],
-                    cancellation,
-                )?;
-                for (offset, (columns, numerator)) in
-                    batch_columns.chunks_exact(3).zip(numerators).enumerate()
-                {
-                    let index = batch_index * batch_size + offset;
-                    let [product, input, table] = [&*columns[0], &*columns[1], &*columns[2]];
-                    values
-                        .par_chunks_mut(ROWS_PER_TASK)
-                        .enumerate()
-                        .for_each(|(task, out)| {
-                            if CancellationToken::checkpoint(cancellation).is_err() {
-                                return;
-                            }
-                            let start = task * ROWS_PER_TASK;
-                            for (offset, value) in out.iter_mut().enumerate() {
-                                let row = start + offset;
-                                let r_next = (row + 1) & mask;
-                                let r_prev = (row + mask) & mask;
-                                let a_minus_s = input[row] - table[row];
-                                // Evaluate every unmasked contribution before filtering,
-                                // preserving all five keeps calls in the serial order.
-                                let kept = |part, contribution: C::ScalarExt| {
-                                    let term = ConstraintTerm::Lookup {
-                                        lookup: index,
-                                        part,
-                                    };
-                                    if filter.keeps(term) {
-                                        contribution
-                                    } else {
-                                        C::ScalarExt::ZERO
-                                    }
-                                };
-                                let first = kept(LookupConstraint::First, one - product[row]);
-                                let last = kept(LookupConstraint::Last, product[row] - one);
-                                let product_term = kept(
-                                    LookupConstraint::Product,
-                                    product[r_next]
-                                        * crate::norm_factor(input[row] + beta)
-                                        * crate::norm_factor(table[row] + gamma)
-                                        - product[row] * numerator[row],
-                                );
-                                let start = kept(LookupConstraint::Start, a_minus_s);
-                                let step = kept(
-                                    LookupConstraint::Step,
-                                    a_minus_s * (input[row] - input[r_prev]),
-                                );
-                                // Expand five Horner positions, factoring only equal
-                                // public masks. Omitted terms still retain their powers.
-                                let (first_and_start, last) = match mask_weights {
-                                    Some([first_weight, last_weight]) => (
-                                        first_weight[row] * (y3 * first + start),
-                                        last_weight[row] * last,
-                                    ),
-                                    None => (
-                                        l0[row] * (y4 * first + y * start),
-                                        l_last[row] * (y3 * last),
-                                    ),
-                                };
-                                *value = *value * y5
-                                    + first_and_start
-                                    + last
-                                    + l_active[row] * (y2 * product_term + step);
-                            }
-                        });
-                    // The old next-triple FFT checked cancellation before the
-                    // next lookup. Keep that joined-task boundary within a batch.
-                    CancellationToken::checkpoint(cancellation)?;
-                }
-            }
         }
         CancellationToken::checkpoint(cancellation)?;
         let inverse = quotient
@@ -1259,3 +1581,6 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
 mod tests;
 #[cfg(test)]
 mod tile_experiment;
+
+#[cfg(test)]
+mod short_instance_tests;

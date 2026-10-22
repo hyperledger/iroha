@@ -340,7 +340,7 @@ pub const KAGEMUSHA_WALLET_TEXT_PREFIX_V1: &str = "kgm1:";
 pub const KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1: usize = 2_048;
 /// Maximum complete canonical envelope frame for Request, Payment, Credited and `PolicyData`
 /// (§8, R9).
-pub const KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1: usize = 10_000;
+pub const KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1: usize = 10_034;
 /// Maximum complete `kgm1:` text for a session-bounded envelope.
 pub const KAGEMUSHA_WALLET_SESSION_TEXT_MAX_BYTES_V1: usize =
     text_max_bytes_v1(KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1);
@@ -354,7 +354,7 @@ pub const KAGEMUSHA_WALLET_MESSAGE_TEXT_MAX_BYTES_V1: usize =
 /// in the compact Payment and reconstructed exactly before signature validation.
 pub const KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1: usize = 1_394;
 /// Joint budget of the Ω transport proof and the largest `σ_send`:
-/// `10,000 − F_payment`. Individual source capacities and exact frozen-key lengths are
+/// `10,034 − F_payment`. Individual source capacities and exact frozen-key lengths are
 /// checked independently; a larger role cannot borrow unused bytes from the other role.
 pub const KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1: usize =
     KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 - KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1;
@@ -368,7 +368,7 @@ pub const KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1: usize =
 /// Every byte of the largest valid `Credited::Receive` envelope other than its `σ_recv`
 /// proof, for proof lengths of 128 to 9,999 bytes (pinned by `size_tests`).
 pub const KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1: usize = 679;
-/// Envelope-derived `σ_recv` budget: `10,000 − F_receive` (§8). Frozen verifying keys still
+/// Envelope-derived `σ_recv` budget: `10,034 − F_receive` (§8). Frozen verifying keys still
 /// select one exact proof length; this is the complete carrying envelope's upper bound.
 pub const KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1: usize =
     KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 - KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1;
@@ -376,7 +376,7 @@ pub const KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1: usize =
 /// transport-proof bytes, with the fixed 32-sibling credit opening (§8, owner answer A2), for
 /// proof lengths of 128 to 9,999 bytes (pinned by `size_tests`).
 pub const KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1: usize = 2_188;
-/// Envelope-derived Ω budget of `Credited::Status`: `10,000 − F_status`.
+/// Envelope-derived Ω budget of `Credited::Status`: `10,034 − F_status`.
 /// This frame arithmetic does not enlarge the separate source capacity or exact key length.
 pub const KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1: usize =
     KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 - KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1;
@@ -424,12 +424,12 @@ pub const KAGEMUSHA_WALLET_RENEWAL_REQUEST_MAX_BYTES_V1: usize = 73_728;
 pub const KAGEMUSHA_WALLET_COMPLETION_RECORD_MAX_BYTES_V1: usize = 65_536;
 /// Maximum standalone canonical frame of one local recovery capsule.
 /// Includes a bounded native finality envelope and the remaining local custody fields;
-/// this does not change the separate 10,000-byte peer Payment limit.
+/// this does not change the separate 10,034-byte peer Payment limit.
 pub const KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1: usize =
     KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 + 262_144;
 /// Maximum standalone canonical frame of one local fold record.
 ///
-/// The record carries one Ω, which must fit the 10,000-byte Payment that carries it (§8), so
+/// The record carries one Ω, which must fit the 10,034-byte Payment that carries it (§8), so
 /// the record shares the message bound.
 pub const KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1: usize = KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
 /// Maximum standalone canonical frame of one complete signed blacklist: 2,228,736 bytes.

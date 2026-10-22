@@ -49,16 +49,16 @@ class IrohaPeerWalletPaymentV1Test {
         assertEquals(16, IrohaPeerWalletPaymentV1.HEADER_BYTES)
         assertEquals(2_048, IrohaPeerWalletPaymentV1.MAXIMUM_COMPANION_BYTES)
         assertEquals(KagemushaWalletWireV1.PAYER_COMPANION_MAX_BYTES, IrohaPeerWalletPaymentV1.MAXIMUM_COMPANION_BYTES)
-        assertEquals(12_064, IrohaPeerWalletPaymentV1.MAXIMUM_BYTES)
+        assertEquals(12_098, IrohaPeerWalletPaymentV1.MAXIMUM_BYTES)
         assertEquals(IrohaPeerWalletPaymentV1.MAXIMUM_BYTES, IrohaPeerPayloadKind.PAYMENT.maximumWalletFrameBytes)
-        assertEquals(84 + 12_064, IrohaPeerNfcV1.MAXIMUM_PAYMENT_BYTES)
+        assertEquals(84 + 12_098, IrohaPeerNfcV1.MAXIMUM_PAYMENT_BYTES)
         assertEquals(2_048, IrohaPeerWalletPaymentV1(envelope, ByteArray(2_048) { 1 }).payerCompanion().size)
         assertEquals(1, IrohaPeerWalletPaymentV1(envelope, byteArrayOf(1)).payerCompanion().size)
         for (size in listOf(0, 2_049)) {
             assertFailsWith<IllegalArgumentException>("$size") { IrohaPeerWalletPaymentV1(envelope, ByteArray(size)) }
         }
         assertFailsWith<IllegalArgumentException> { IrohaPeerWalletPaymentV1(byteArrayOf(), companion) }
-        assertFailsWith<IllegalArgumentException> { IrohaPeerWalletPaymentV1(ByteArray(10_001), companion) }
+        assertFailsWith<IllegalArgumentException> { IrohaPeerWalletPaymentV1(ByteArray(10_035), companion) }
         // The carrier holds exactly a Payment envelope.
         for (kind in listOf(IrohaPeerPayloadKind.REQUEST, IrohaPeerPayloadKind.CREDITED)) {
             assertFailsWith<IllegalArgumentException>(kind.name) {
@@ -82,7 +82,7 @@ class IrohaPeerWalletPaymentV1Test {
             valid.copyOf().also { it[0] = 0 },
             valid.copyOf().also { it[7] = 1 },
             valid.copyOf().also { ByteBuffer.wrap(it, 8, 4).putInt(0) },
-            valid.copyOf().also { ByteBuffer.wrap(it, 8, 4).putInt(10_001) },
+            valid.copyOf().also { ByteBuffer.wrap(it, 8, 4).putInt(10_035) },
             valid.copyOf().also { ByteBuffer.wrap(it, 8, 4).putInt(-1) },
             valid.copyOf().also { ByteBuffer.wrap(it, 12, 4).putInt(0) },
             valid.copyOf().also { ByteBuffer.wrap(it, 12, 4).putInt(2_049) },

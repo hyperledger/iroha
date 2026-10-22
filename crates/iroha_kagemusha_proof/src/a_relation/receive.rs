@@ -63,11 +63,11 @@ pub(super) fn joint_length_valid(
     uint.lt(region, &length, &limit)
 }
 
-/// Wire section4 joint raw Omega-transport and sigma budget: `10,000 - 1,394`.
+/// Wire section4 joint raw Omega-transport and sigma budget: `10,034 - 1,394`.
 ///
 /// This is an envelope bound, not an admitted proof length. Exact lengths still
 /// come from the frozen verifier descriptors and participate in the soft check.
-pub const PAYMENT_PROOF_BUDGET: usize = 8_606;
+pub const PAYMENT_PROOF_BUDGET: usize = 8_640;
 /// Independent joint budget including the exact320-byte public Omega prefix.
 pub const PAYMENT_RAW_PROOF_BUDGET: usize = PAYMENT_PROOF_BUDGET + 320;
 /// Largest Send sigma in the source-derived selector-budget-seven catalog.
@@ -166,7 +166,7 @@ impl ReceiveObjects {
     /// deterministic Send selector is hard-bound to the sigma binding, so a
     /// prover cannot choose another key merely to manufacture a false verdict.
     /// The two active lengths also enforce the wire's fixed Payment overhead
-    /// and 10,000-byte joint bound. This fixed-field G1 transcript component
+    /// and 10,034-byte joint bound. This fixed-field G1 transcript component
     /// does not validate an external Norito envelope.
     /// # Errors
     /// Wrong fixed schema, absent active provenance, non-Receive own statement,
@@ -227,7 +227,7 @@ impl ReceiveObjects {
         GlueChip::assert_equal(region, input.sigma.key_index(), payment.sigma_index())?;
         let own = input.own.fields();
         let mut checks = vec![payment.payment().valid().clone()];
-        // Wire section4: |Omega transport| + |sigma| <= 10,000 - 1,394.
+        // Wire section4: |Omega transport| + |sigma| <= 10,034 - 1,394.
         // The active Omega source additionally contains its 320-byte public
         // transcript. UInt32 sources make the sum an exact 33-bit integer.
         checks.push(joint_length_valid(

@@ -420,13 +420,13 @@ mod tests {
     use super::*;
     #[test]
     fn retained_original_envelope_is_joint_inclusive_and_overflow_safe() {
-        assert_eq!(check_retained_sizes(5406, 3520), Ok(()));
-        assert_eq!(check_retained_sizes(5406, 0), Ok(()));
+        assert_eq!(check_retained_sizes(5440, 3520), Ok(()));
+        assert_eq!(check_retained_sizes(5440, 0), Ok(()));
         assert_eq!(check_retained_sizes(0, 0), Ok(()));
         for (omega, sigma) in [
-            (5407, 3520),
-            (5406, 3521),
-            (5407, 0),
+            (5441, 3520),
+            (5440, 3521),
+            (5441, 0),
             (0, 3521),
             (usize::MAX, 1),
         ] {

@@ -111,8 +111,9 @@ pub fn core_epoch(context: &ValidatorEpochContextV1) -> Result<EpochConfig, Sche
 ///
 /// At most two complete, immutable, fixed-size snapshots of validated contexts are retained.
 /// The bounded native committee stores its ordered key/PoP bytes inline; no heap graph is
-/// encoded, decoded or cloned for this optional cache. Its enclosing owner pays for the
-/// inline scope itself. A hit requires
+/// encoded, decoded or cloned for this optional cache. A context-only entry carries no core
+/// identity; requesting one still performs its original complete derivation. The enclosing
+/// owner pays for the inline scope itself. A hit requires
 /// exact value equality, never a caller-provided hash or epoch number. This has no certificate,
 /// source, freshness or authority verdict; consumers must still authenticate each current
 /// source and its signatures. One operation may borrow it for independently selected checkpoint
@@ -125,7 +126,7 @@ pub struct EpochValidationScope {
 }
 struct ValidatedEpoch {
     context: ExactEpoch,
-    core: EpochConfig,
+    core: Option<EpochConfig>,
 }
 // This is a local exact-value cache, never a wire object or certificate authority. Explicit
 // exhaustive destructuring makes a newly added context field require a projection decision.
@@ -279,6 +280,26 @@ impl EpochValidationScope {
             context.validate()
         }
     }
+    // Compact checkpoint bounds need only complete validation, not a canonical context
+    // identity. Preserve that original work and error order on a miss. The caller disables
+    // reuse under an active enclosing decoder owner before borrowing this workspace.
+    pub(super) fn validate_context(
+        &mut self,
+        context: &ValidatorEpochContextV1,
+    ) -> Result<(), String> {
+        if self
+            .entries
+            .iter()
+            .flatten()
+            .any(|entry| entry.context.matches(context))
+        {
+            return Ok(());
+        }
+        context.validate()?;
+        self.retain_validated(context, None);
+        Ok(())
+    }
+
     fn validated_epoch(
         &mut self,
         context: &ValidatorEpochContextV1,
@@ -288,8 +309,9 @@ impl EpochValidationScope {
             .iter()
             .flatten()
             .find(|entry| entry.context.matches(context))
+            .and_then(|entry| entry.core)
         {
-            return Ok(entry.core);
+            return Ok(entry);
         }
         // context_id validates every original BLS proof and the authorized generation first.
         // Invalid inputs never enter retained ownership. The optional exact snapshot below
@@ -307,6 +329,11 @@ impl EpochValidationScope {
             last_height: context.authorization.last_height,
             leader_seed: Hash32(context.leader_seed),
         };
+        self.retain_validated(context, Some(core));
+        Ok(core)
+    }
+
+    fn retain_validated(&mut self, context: &ValidatorEpochContextV1, core: Option<EpochConfig>) {
         // Optional pure validation reuse. This original exact snapshot cannot borrow mutable
         // input and cannot consume or replenish the caller's cumulative decoder allowance.
         #[cfg(not(all(test, sumeragi_model_mutation = "DM34")))]
@@ -318,7 +345,16 @@ impl EpochValidationScope {
             .ok()
             .and_then(|encoded| norito::decode_canonical::<ValidatorEpochContextV1>(&encoded).ok())
             .and_then(|owned| ExactEpoch::capture(&owned));
-        if let Some(context) = snapshot {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .flatten()
+            .find(|entry| entry.context.matches(context))
+        {
+            // Upgrade in place: retaining a core projection must not duplicate this exact
+            // context or evict the operation's other still-useful snapshot.
+            entry.core = core.or(entry.core);
+        } else if let Some(context) = snapshot {
             self.entries[0] = self.entries[1].take();
             self.entries[1] = Some(ValidatedEpoch { context, core });
         }
@@ -326,7 +362,6 @@ impl EpochValidationScope {
         {
             self.validations += 1;
         }
-        Ok(core)
     }
 }
 

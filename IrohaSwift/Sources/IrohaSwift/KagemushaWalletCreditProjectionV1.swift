@@ -19,7 +19,7 @@ public struct KagemushaWalletCreditProjectionV1: Sendable, Equatable {
     init(_ result: KagemushaWalletCallV1) throws {
         let bytes = [UInt8](result.bytes)
         guard result.status == 47, result.sequenceLow == 0, result.sequenceHigh == 0,
-            result.detail == 0, (92...10_092).contains(bytes.count),
+            result.detail == 0, (92...10_126).contains(bytes.count),
             bytes[0] == 1, bytes[1] == 0,
             let evidence = Evidence(rawValue: bytes[2]),
             let archive = Archive(rawValue: bytes[3]), bytes[4] <= 1,
@@ -33,7 +33,7 @@ public struct KagemushaWalletCreditProjectionV1: Sendable, Equatable {
         let length = (0..<4).reduce(UInt32(0)) { $0 | (UInt32(bytes[88 + $1]) << (8 * $1)) }
         guard credit.contains(where: { $0 != 0 }), payment.contains(where: { $0 != 0 }),
             amount.low != 0 || amount.high != 0,
-            length <= 10_000, bytes.count == 92 + Int(length),
+            length <= 10_034, bytes.count == 92 + Int(length),
             archive == .receiver ? (bytes[4] == 0 && length > 0) : length == 0
         else { throw KagemushaWalletErrorV1.invalidNativeOutput }
         self.evidence = evidence; self.archive = archive; corePending = bytes[4] == 1

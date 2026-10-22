@@ -79,8 +79,10 @@ mod batch;
 mod lookup;
 mod multiopen;
 mod permutation;
+mod rebuild;
+pub use rebuild::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable};
 pub mod quotient;
-pub use quotient::{QuotientWorkspace, WorkspaceError};
+pub use quotient::{QuotientWorkspace, WorkspaceError, bounded::bounded_quotient_columns};
 #[cfg(test)]
 mod cancellation_tests;
 #[cfg(test)]
@@ -509,6 +511,8 @@ impl<F: PastaField> Drop for Witness<F> {
                 value.zeroize();
             }
         }
+        #[cfg(test)]
+        rebuild::observe_wiped_witness(&self.advice);
     }
 }
 
@@ -780,6 +784,11 @@ pub struct ProverConfig<'a> {
     pub msm_budget: MemoryBudget,
     /// Per-proof cooperative cancellation; no signal means run to completion.
     pub cancellation: Option<&'a iroha_pasta::CancellationToken>,
+    /// Coset columns the quotient holds at once. `None` transforms every column for one
+    /// fused row pass, the fastest plan. `Some(columns)` evaluates the same terms in passes
+    /// of at most that many columns (a term that alone reads more gets its own pass),
+    /// trading coset FFTs for memory. Proof bytes are identical either way.
+    pub quotient_columns: Option<usize>,
 }
 
 impl Default for ProverConfig<'_> {
@@ -787,6 +796,7 @@ impl Default for ProverConfig<'_> {
         Self {
             msm_budget: MemoryBudget::DEFAULT,
             cancellation: None,
+            quotient_columns: None,
         }
     }
 }
@@ -1041,7 +1051,11 @@ where
     let protocol = Protocol::new(descriptor)?;
     let shape = *protocol.shape();
     if let Some(workspace) = workspace.as_ref() {
-        let bytes = quotient::workspace_elements(pk, &protocol)?
+        let elements = match config.quotient_columns {
+            None => quotient::workspace_elements(pk, &protocol)?,
+            Some(columns) => quotient::bounded::workspace_elements(pk, &protocol, columns)?,
+        };
+        let bytes = elements
             .checked_mul(size_of::<C::ScalarExt>())
             .ok_or(ProtocolError::Overflow)?;
         workspace.check(bytes).map_err(ProverError::Workspace)?;
@@ -1180,10 +1194,9 @@ where
     let y = transcript.squeeze_challenge();
 
     // Row 6.
-    let compiled = quotient::CompiledExpressions::compile(descriptor, true)?;
     let inputs = quotient::QuotientInputs {
         advice: &advice.polys,
-        instance: &instance.polys,
+        instance: instance.polys(),
         permutation_products: products.iter().map(|set| set.poly.as_slice()).collect(),
         lookups: lookups
             .iter()
@@ -1200,31 +1213,36 @@ where
         gamma,
         y,
     };
-    let h = if let Some(workspace) = workspace {
-        quotient::evaluate_with_workspace_cancellable(
+    let h = if let Some(columns) = config.quotient_columns {
+        quotient::bounded::evaluate_cancellable(
             pk,
             &protocol,
-            &compiled,
             &inputs,
+            Some(&instance),
             challenges,
             filter,
+            columns,
             workspace,
             cancellation,
         )?
     } else {
-        quotient::evaluate_cancellable(
+        let compiled = quotient::CompiledExpressions::compile(descriptor, true)?;
+        let h = quotient::evaluate_with_bound_instances_cancellable(
             pk,
             &protocol,
             &compiled,
             &inputs,
+            &instance,
             challenges,
             filter,
+            workspace,
             cancellation,
-        )?
+        )?;
+        // The quotient evaluations are owned by `h`; no later phase reads the
+        // compiled DAG, including quotient commitments and the opening proof.
+        drop(compiled);
+        h
     };
-    // The quotient evaluations are owned by `h`; no later phase reads the
-    // compiled DAG, including quotient commitments and the opening proof.
-    drop(compiled);
     let quotient = vanishing::commit_quotient(
         params,
         pk,

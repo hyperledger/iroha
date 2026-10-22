@@ -116,13 +116,13 @@ pub fn rooted_compact_bootstrap_with_identity(
     assert_eq!(key.vk().to_bytes(), initial_vk.to_bytes());
     let protocol = Protocol::new(key.binding().descriptor()).unwrap();
     assert_eq!(protocol.shape().k, 16);
-    assert_eq!(protocol.shape().degree, 14);
+    assert_eq!(protocol.shape().degree, 11);
     assert_eq!(protocol.shape().lookups, 1);
     assert!(
         protocol.proof_length() + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
             <= iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
     );
-    assert_eq!(protocol.proof_length(), 3904);
+    assert_eq!(protocol.proof_length(), 4032);
     let output = create_proof_owned_with_claim(
         &params,
         &key,
@@ -147,7 +147,7 @@ pub fn rooted_compact_bootstrap_with_identity(
             MemoryBudget::DEFAULT,
         )
         .unwrap();
-    assert_eq!(output.proof.len(), 3904);
+    assert_eq!(output.proof.len(), 4032);
     let opening =
         iroha_plonk_recursion::FoldInput::from_opening(*verified.g(), verified.challenges())
             .unwrap();

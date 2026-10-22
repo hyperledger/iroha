@@ -335,7 +335,7 @@ fn kagemusha_wallet_v1_verifying_key_allowlist_rules() {
     // Ω fits the Credited::Status bound with the fixed 32-sibling opening.
     assert_eq!(
         KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1,
-        10_000 - KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1
+        10_034 - KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1
     );
     let cap = u32::try_from(KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1).expect("source cap");
     let mut at_cap = sample_allowlist();
@@ -359,10 +359,10 @@ fn kagemusha_wallet_v1_verifying_key_allowlist_rules() {
         Err(KagemushaWalletValidationErrorV1::UnsupportedVersion { .. })
     ));
 
-    // R9 (owner answer Q6): |Ω| + the largest σ_send fits 10,000 − F_payment.
+    // R9 (owner answer Q6): |Ω| + the largest σ_send fits 10,034 − F_payment.
     assert_eq!(
         KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1,
-        10_000 - KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1
+        10_034 - KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1
     );
     let budget = u32::try_from(KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1).expect("budget");
     let mut at_budget = sample_allowlist();
@@ -390,9 +390,9 @@ fn kagemusha_wallet_v1_verifying_key_receive_budget_preserves_exact_selectors() 
     let budget = KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1;
     assert_eq!(
         budget,
-        10_000 - KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1
+        10_034 - KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1
     );
-    assert_eq!(budget, 9_321);
+    assert_eq!(budget, 9_355);
     let capacity = KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
     assert_eq!(capacity, 3_520);
     assert!(capacity < budget);
@@ -451,7 +451,7 @@ fn kagemusha_wallet_v1_verifying_key_lineage_cap_and_joint_budget_are_independen
     use KagemushaWalletOperationKindV1 as Kind;
     let cap = u32::try_from(KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1).expect("source cap");
     let budget = u32::try_from(KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1).expect("budget");
-    assert_eq!(budget, 8_606);
+    assert_eq!(budget, 8_640);
     let mut allowlist = sample_allowlist();
     allowlist.lineage_proof_bytes = cap;
     let largest_send = budget - cap;

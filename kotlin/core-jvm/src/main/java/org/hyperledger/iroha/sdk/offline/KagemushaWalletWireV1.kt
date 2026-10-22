@@ -250,7 +250,7 @@ object KagemushaWalletWireV1 {
      * Payment structural admission enforces both source role maxima and the joint proof budget.
      * Native additionally checks exact admitted proof lengths and verifies the complete messages.
      */
-    const val MESSAGE_MAX_BYTES: Int = 10_000
+    const val MESSAGE_MAX_BYTES: Int = 10_034
 
     /**
      * Maximum canonical payer companion (`KagemushaWalletPayerCompanionV1`: the payer credential and
@@ -263,14 +263,14 @@ object KagemushaWalletWireV1 {
     /** `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs. */
     const val PAYMENT_FIXED_BYTES: Int = 1_394
 
-    /** Joint budget of the Ω transport proof and the largest σ_send (R9): `10,000 − F_payment`. */
+    /** Joint budget of the Ω transport proof and the largest σ_send (R9): `10,034 − F_payment`. */
     const val PAYMENT_PROOF_BUDGET_BYTES: Int = MESSAGE_MAX_BYTES - PAYMENT_FIXED_BYTES
 
     /** Source role maximum for a Payment's σ_send proof. */
     const val PAYMENT_SIGMA_PROOF_CAP_BYTES: Int = 3_520
 
     /** Source role maximum for a Payment's Ω predecessor transport proof. */
-    const val PAYMENT_OMEGA_PROOF_CAP_BYTES: Int = 5_086
+    const val PAYMENT_OMEGA_PROOF_CAP_BYTES: Int = 5_120
 
     /** Bytes of a Credited::Receive envelope other than its σ proof. */
     const val CREDITED_RECEIVE_FIXED_BYTES: Int = 679
@@ -284,7 +284,7 @@ object KagemushaWalletWireV1 {
      */
     const val CREDITED_STATUS_FIXED_BYTES: Int = 2_188
 
-    /** Cap of the Ω transport proof so that Credited::Status fits: `10,000 − F_status`. */
+    /** Cap of the Ω transport proof so that Credited::Status fits: `10,034 − F_status`. */
     const val LINEAGE_PROOF_CAP_BYTES: Int = MESSAGE_MAX_BYTES - CREDITED_STATUS_FIXED_BYTES
 
     /**
@@ -324,7 +324,7 @@ object KagemushaWalletWireV1 {
     const val SESSION_TEXT_MAX_BYTES: Int = 2_736
 
     /** Maximum complete `kgm1:` text for a message-bounded envelope. */
-    const val MESSAGE_TEXT_MAX_BYTES: Int = 13_339
+    const val MESSAGE_TEXT_MAX_BYTES: Int = 13_384
 
     /** Maximum certificates in one certificate set. */
     const val CERTIFICATE_SET_MAX: Int = 3

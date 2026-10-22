@@ -662,9 +662,9 @@ Reconnect only to recover interrupted contact; an exact retry never creates anot
 
 There are three user-visible codes: receiver Request, payer Payment, receiver Credited.
 The Request carrier is `KWRQAC1` (envelope plus canonical destination account original,
-maximum 14,112 bytes); the Payment carrier is `KWPYPC1` (envelope plus payer companion,
-maximum 12,064 bytes). The envelope bound remains 10,000 bytes. IPM1 hashes bind both
-originals and the NFC bounds include its 84-byte header: 14,196 overall and 12,148 for
+maximum 14,146 bytes); the Payment carrier is `KWPYPC1` (envelope plus payer companion,
+maximum 12,098 bytes). The envelope bound remains 10,034 bytes. IPM1 hashes bind both
+originals and the NFC bounds include its 84-byte header: 14,230 overall and 12,182 for
 Payment. `IrohaPeerKagemushaWalletAdapterV1.decode` returns the bare envelope;
 `destinationAccountOriginal` and `payerCompanion` return the respective exact companions.
 Only Native authenticates monetary and credential bindings.
@@ -675,7 +675,9 @@ advertise with `IrohaPeerNearbyDiscoveryContextV1.freshReceiver` while preparing
 that random discovery context does not authorize payment. The per-direction record budgets
 are four on the payer (HELLO, AUTH, Request, Credited) and three on the receiver (HELLO, AUTH,
 Payment). Pairing derives a picture with `IrohaPeerNearbyPictureCodeV1.targetIndex` from the
-transport's authentication digits; never show the digits. The shared picture fixture is
+connection's pairing token, which the transport rebuilds from `rawAuthenticationToken` with
+`IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken` so it matches iOS; never show the
+token. The shared picture fixture is
 `fixtures/kagemusha/nearby_picture_v1.json`. Retired Offer/Ask/Lineage message kinds and
 NFC Offer/Ask commands have no fallback; GET_INTAKE remains the direct card's
 REQUEST_READY session record.

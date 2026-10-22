@@ -274,7 +274,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             count: IrohaPeerWireKindV1.credited.maximumWalletFrameBytes - 48,
             seed: 6
         )
-        XCTAssertEqual(message.encodedBody.count, 10_000)
+        XCTAssertEqual(message.encodedBody.count, 10_034)
         let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
         let frames = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0) }
 
@@ -297,7 +297,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         let account = deterministicBytes(count: IrohaPeerWalletRequestV1.maximumAccountBytes, seed: 7)
         let message = try IrohaPeerKagemushaWalletAdapterV1.wrap(
             envelope, destinationAccountOriginal: account)
-        XCTAssertEqual(message.encodedBody.count, 14_112)
+        XCTAssertEqual(message.encodedBody.count, 14_146)
         XCTAssertNil(try IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: message))
         let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
         let frames = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0) }
@@ -338,7 +338,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         let companion = deterministicBytes(count: IrohaPeerWalletPaymentV1.maximumCompanionBytes, seed: 9)
         let message = try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope, payerCompanion: companion)
         XCTAssertEqual(message.encodedBody.count, IrohaPeerWalletPaymentV1.maximumBytes)
-        XCTAssertEqual(message.encodedBody.count, 12_064)
+        XCTAssertEqual(message.encodedBody.count, 12_098)
         XCTAssertNil(try IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: message))
         let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
         let frames = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0) }
@@ -387,7 +387,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             compressionPolicy: .peerOptimized
         )) { error in
             XCTAssertEqual(error as? IrohaPeerWireMessageErrorV1,
-                           .canonicalLengthOutOfRange(actual: 12_065, maximum: 12_064))
+                           .canonicalLengthOutOfRange(actual: 12_099, maximum: 12_098))
         }
     }
 

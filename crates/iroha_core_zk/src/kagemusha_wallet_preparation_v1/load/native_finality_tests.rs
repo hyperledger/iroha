@@ -38,8 +38,31 @@ fn authenticate_originals(
     super::authenticate_originals(
         &mut SumeragiCommitVerifierV1::new(native).unwrap(),
         receipt,
-        finality,
+        &super::DecodedLoadFinalityV1::decode(finality)?,
     )
+}
+
+#[test]
+fn load_finality_decode_retains_the_exact_bounded_original() {
+    let source = NativeLoad::new("load-finality-decode-reuse");
+    let original = source.evidence.to_canonical_bytes().unwrap();
+    let decoded = super::DecodedLoadFinalityV1::decode(&original).unwrap();
+    assert_eq!(decoded.original, original);
+    assert_eq!(decoded.evidence.to_canonical_bytes().unwrap(), original);
+    assert_eq!(
+        decoded.evidence.certificate.epoch_id().unwrap(),
+        source.evidence.certificate.epoch_id().unwrap()
+    );
+    let mut trailing = original.clone();
+    trailing.push(0);
+    assert!(super::DecodedLoadFinalityV1::decode(&trailing).is_err());
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    assert!(matches!(
+        norito::with_decode_limits_scope(limits, || {
+            super::DecodedLoadFinalityV1::decode(&original)
+        }),
+        Err(state::Error::DecodeResource(_))
+    ));
 }
 
 struct NativeLoad {

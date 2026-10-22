@@ -131,13 +131,44 @@ fn cancelled_original_import_does_not_open_custody() {
 
 fn structural_inventory() -> ProducerInventoryV1 {
     let routes = compiled_routes();
-    let operations = Variant::ALL
-        .into_iter()
+    // One operation per variant and schedule, as the compiler's Q classes group them:
+    // Send's masks with and without the quota control get separate operations.
+    let schedule = |route: &OperationRoute| {
+        OperationSchedule::for_route(OperationRoute {
+            incoming: None,
+            ..*route
+        })
+    };
+    let same = |a: &OperationSchedule, b: &OperationSchedule| {
+        a.tasks() == b.tasks() && a.q_partitions() == b.q_partitions()
+    };
+    let mut classes: Vec<(usize, OperationSchedule)> = Vec::new();
+    for (i, variant) in Variant::ALL.into_iter().enumerate() {
+        for route in routes.iter().filter(|route| route.variant == variant) {
+            let current = schedule(route);
+            if !classes.iter().any(|(v, s)| *v == i && same(s, &current)) {
+                classes.push((i, current));
+            }
+        }
+    }
+    let class_of = |route: &OperationRoute| {
+        let i = Variant::ALL
+            .iter()
+            .position(|v| *v == route.variant)
+            .unwrap();
+        let current = schedule(route);
+        classes
+            .iter()
+            .position(|(v, s)| *v == i && same(s, &current))
+            .unwrap()
+    };
+    let operations = classes
+        .iter()
         .enumerate()
-        .map(|(i, variant)| {
+        .map(|(index, (i, schedule))| {
             let selected: Vec<_> = routes
                 .iter()
-                .filter(|route| route.variant == variant)
+                .filter(|route| class_of(route) == index)
                 .collect();
             let mut own_class: Vec<_> = selected.iter().map(|r| r.own).collect();
             own_class.sort_unstable();
@@ -145,7 +176,6 @@ fn structural_inventory() -> ProducerInventoryV1 {
             let mut incoming_class: Vec<_> = selected.iter().filter_map(|r| r.incoming).collect();
             incoming_class.sort_unstable();
             incoming_class.dedup();
-            let schedule = OperationSchedule::for_variant(variant);
             OperationV1 {
                 variant: u8::try_from(i + 1).unwrap(),
                 own_class,
@@ -172,9 +202,7 @@ fn structural_inventory() -> ProducerInventoryV1 {
         operations,
         routes: routes
             .iter()
-            .map(|r| {
-                u32::try_from(Variant::ALL.iter().position(|v| *v == r.variant).unwrap()).unwrap()
-            })
+            .map(|r| u32::try_from(class_of(r)).unwrap())
             .collect(),
         terminals: vec![0],
         omega: 0,

@@ -358,11 +358,19 @@ impl<'a> PreparationCustodyV1<'a> {
         epoch: u64,
     ) -> Result<iroha_data_model::sumeragi_finality::SumeragiCommitVerifierV1, Error> {
         use iroha_data_model::sumeragi_finality::{
-            MAX_COMMIT_CHECKPOINT_BYTES, SumeragiCommitCheckpointV1, SumeragiCommitVerifierV1,
+            EpochValidationScope, MAX_COMMIT_CHECKPOINT_BYTES, SumeragiCommitCheckpointV1,
+            SumeragiCommitVerifierV1,
         };
+        // One bounded pure-validation workspace ends with this exact source-selected read.
+        // Decoder owners retain their original independent work and resource refusal order.
+        let mut validation =
+            (!norito::core::decode_limits_active()).then(EpochValidationScope::new);
         let checkpoint = if epoch == 0 {
-            SumeragiCommitCheckpointV1::from_authenticated_genesis(genesis)
-                .map_err(|_| Error::Proof("Load initial epoch authority"))?
+            SumeragiCommitCheckpointV1::from_authenticated_genesis_with_validation(
+                genesis,
+                validation.as_mut(),
+            )
+            .map_err(|_| Error::Proof("Load initial epoch authority"))?
         } else {
             let bytes = self
                 .epochs
@@ -376,7 +384,11 @@ impl<'a> PreparationCustodyV1<'a> {
                 .maps
                 .store()
                 .read_staged_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
-            SumeragiCommitCheckpointV1::decode_canonical(&bytes).map_err(|error| {
+            SumeragiCommitCheckpointV1::decode_canonical_with_validation(
+                &bytes,
+                validation.as_mut(),
+            )
+            .map_err(|error| {
                 super::finality_read_error(
                     error,
                     Error::WitnessLost("Load selected epoch original"),
@@ -388,8 +400,12 @@ impl<'a> PreparationCustodyV1<'a> {
         }
         // This index is sealed by the coordinator's protected manifest; the certificate's
         // epoch is only a key. No network-provided checkpoint can enter this restore path.
-        SumeragiCommitVerifierV1::from_trusted_epoch_checkpoint(&checkpoint, genesis)
-            .map_err(|_| Error::WitnessLost("Load selected epoch genesis binding"))
+        SumeragiCommitVerifierV1::from_trusted_epoch_checkpoint_with_validation(
+            &checkpoint,
+            genesis,
+            validation.as_mut(),
+        )
+        .map_err(|_| Error::WitnessLost("Load selected epoch genesis binding"))
     }
 
     /// Read the exact selected original. Only a state-committed zero means absence.

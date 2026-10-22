@@ -270,9 +270,12 @@ pub struct SendStageWitness<'a> {
     pub transition: Option<super::transition::TransitionInputs<'a>>,
 }
 impl SendStagePlan {
-    /// Require every Send task exactly once in the fixed lean layout: A1 the objects
-    /// and the inline step relation beside the hard predecessor, A2 both map
-    /// insertions, A3 the own receipt on Q0. The plan has no own sigma verifier.
+    /// Require every Send task exactly once in one of the two fixed lean layouts. Without
+    /// the quota control, A1 the objects, both map insertions and the inline step relation
+    /// beside the hard predecessor, and the terminal A2 the own receipt on Q0; with it,
+    /// A1 the objects and the inline step relation, A2 both map insertions and A3 the own
+    /// receipt. The plan has no own sigma verifier; its owner selects the layout from the
+    /// installed mask.
     /// # Errors
     /// Wrong operation, task coverage, Q count or stage assignment.
     pub fn new(context: super::context::ContextPlan) -> Result<Self, Error> {
@@ -288,12 +291,29 @@ impl SendStagePlan {
             .map(|i| context.operation_tasks(i).unwrap_or_default().to_vec())
             .collect::<Vec<_>>();
         OperationTask::validate(Variant::Send, &groups)?;
-        let required = [
-            vec![OperationTask::SendObjects, OperationTask::SendTransition],
-            vec![OperationTask::SendPending, OperationTask::SendFeeAndCarry],
-            vec![OperationTask::SendAuthorization],
-        ];
-        let partitions = [vec![], vec![], vec![0]];
+        let (required, partitions) = if context.stage_count() == 2 {
+            (
+                vec![
+                    vec![
+                        OperationTask::SendObjects,
+                        OperationTask::SendPending,
+                        OperationTask::SendFeeAndCarry,
+                        OperationTask::SendTransition,
+                    ],
+                    vec![OperationTask::SendAuthorization],
+                ],
+                vec![vec![], vec![0]],
+            )
+        } else {
+            (
+                vec![
+                    vec![OperationTask::SendObjects, OperationTask::SendTransition],
+                    vec![OperationTask::SendPending, OperationTask::SendFeeAndCarry],
+                    vec![OperationTask::SendAuthorization],
+                ],
+                vec![vec![], vec![], vec![0]],
+            )
+        };
         if groups != required
             || context.predecessor_stage() != Some(0)
             || partitions

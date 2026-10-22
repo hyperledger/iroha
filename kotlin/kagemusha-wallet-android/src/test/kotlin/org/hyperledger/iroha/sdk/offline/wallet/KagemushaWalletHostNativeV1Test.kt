@@ -108,7 +108,7 @@ class KagemushaWalletHostNativeV1Test {
                 token, first, second, third))
         for (selector in listOf(54, 55)) {
             val id = if (selector == 54) ByteArray(32) { 1 } else ByteArray(32)
-            for (length in listOf(1, 10_000)) {
+            for (length in listOf(1, 10_034)) {
                 val reply = call(selector, id, first = ByteArray(length) { 1 })
                 assertEquals(-2, reply.status, "selector $selector length $length must reach owner lookup")
                 assertEquals(-1, reply.reason)
@@ -122,7 +122,7 @@ class KagemushaWalletHostNativeV1Test {
                 "long identity" to call(selector, ByteArray(33)),
                 "wrong identity value" to call(selector, wrongIdentity),
                 "empty original" to call(selector, id, first = byteArrayOf()),
-                "oversized original" to call(selector, id, first = ByteArray(10_001)),
+                "oversized original" to call(selector, id, first = ByteArray(10_035)),
                 "second original" to call(selector, id, second = byteArrayOf(1)),
                 "third original" to call(selector, id, third = byteArrayOf(1)),
                 "low amount" to call(selector, id, low = 1),
@@ -289,7 +289,7 @@ class KagemushaWalletHostNativeV1Test {
             assertEquals(-1, assertNotNull(KagemushaWalletNativeV1.review(0, selector, 0, 0, byteArrayOf(1), byteArrayOf())).status)
         }
         assertEquals(-1, assertNotNull(KagemushaWalletNativeV1.review(0, 1, 1, 0, byteArrayOf(1), byteArrayOf())).status)
-        assertEquals(-1, assertNotNull(KagemushaWalletNativeV1.review(0, 1, 0, 0, ByteArray(10_001), byteArrayOf())).status)
+        assertEquals(-1, assertNotNull(KagemushaWalletNativeV1.review(0, 1, 0, 0, ByteArray(10_035), byteArrayOf())).status)
         assertEquals(-1, assertNotNull(KagemushaWalletNativeV1.review(0, 8, 1, 0, byteArrayOf(1), byteArrayOf())).status)
         val execution = assertNotNull(KagemushaWalletNativeV1.executeReviewed(0, 1, id))
         assertEquals(-2, execution.status); assertTrue(execution.bytes().isEmpty())

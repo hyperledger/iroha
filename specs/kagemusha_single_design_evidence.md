@@ -172,7 +172,7 @@ disposition. Deleted code remains in Git history; later goals rebuild from the
   and qualification criteria are tracked in
   [NF1-NF6](kagemusha_native_finality_goals.md).
   TODO(G3/G5): qualify the regenerated complete monetary catalog, genuine Load
-  and downstream lineage, complete 10,000-byte payment envelopes, four-validator
+  and downstream lineage, complete 10,034-byte payment envelopes, four-validator
   execution and physical-phone performance on the current candidate. Historical
   recursive-finality and earlier staged-Load captures do not qualify this replacement.
 

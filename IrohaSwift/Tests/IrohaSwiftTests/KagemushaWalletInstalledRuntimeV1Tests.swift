@@ -64,7 +64,7 @@ final class KagemushaWalletInstalledRuntimeV1Tests: XCTestCase {
     XCTAssertEqual(try runtime(root: "/検証").originals[6], Data("/検証".utf8))
   }
   func testEveryEnrollmentOriginalIsRequiredAndIndependentlyFinite() {
-    for (index, cap) in [1024, 10_000, 4096, 1024].enumerated() {
+    for (index, cap) in [1024, 10_034, 4096, 1024].enumerated() {
       for bad in [Data(), Data(repeating: 0, count: cap + 1)] {
         var inputs = Array(repeating: Data([7]), count: 4); inputs[index] = bad
         XCTAssertThrowsError(try KagemushaWalletOpenOriginalsV1(credential: inputs[0], enrollmentCertificates: inputs[1], account: inputs[2], assetScope: inputs[3]))

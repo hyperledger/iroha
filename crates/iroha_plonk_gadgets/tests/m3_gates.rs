@@ -446,6 +446,7 @@ fn measure_in_pool<C, Ci>(
             ProverConfig {
                 msm_budget: MSM_BUDGET,
                 cancellation: None,
+                ..ProverConfig::default()
             },
             &mut quotient_workspace,
         )

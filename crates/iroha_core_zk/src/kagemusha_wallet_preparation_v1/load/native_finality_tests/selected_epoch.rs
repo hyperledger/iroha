@@ -5,6 +5,24 @@ use iroha_data_model::sumeragi_finality::{
     CertifiedResultV1, SumeragiCommitCheckpointV1, result_of_preimage,
 };
 
+fn authenticate_selected_originals(
+    reader: &mut SumeragiCommitVerifierV1,
+    receipt: &[u8],
+    finality: &[u8],
+) -> Result<
+    (
+        KagemushaWalletLoadReceiptV1,
+        [KagemushaWalletRetainedInputV1; 2],
+    ),
+    state::Error,
+> {
+    super::super::authenticate_originals(
+        reader,
+        receipt,
+        &super::super::DecodedLoadFinalityV1::decode(finality)?,
+    )
+}
+
 fn successor_epoch_source() -> (NativeLoad, SumeragiCommitCheckpointV1) {
     let (fixture, chain) =
         NativeFinalityFixture::short_npos_boundary_chain_with_explicit_parameters(4);
@@ -128,7 +146,7 @@ fn requires_selected_epoch_and_preserves_authenticated_state_on_failure() {
     let mut wrong_event = source.evidence.clone();
     wrong_event.event_proof = source.events.get_proof(0).unwrap();
     assert!(matches!(
-        super::super::authenticate_originals(
+        authenticate_selected_originals(
             &mut reader,
             &receipt,
             &wrong_event.to_canonical_bytes().unwrap()
@@ -136,8 +154,7 @@ fn requires_selected_epoch_and_preserves_authenticated_state_on_failure() {
         Err(state::Error::Proof(_))
     ));
     assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
-    let authenticated =
-        super::super::authenticate_originals(&mut reader, &receipt, &evidence).unwrap();
+    let authenticated = authenticate_selected_originals(&mut reader, &receipt, &evidence).unwrap();
     assert_eq!(authenticated.0, source.receipt);
     assert_eq!(
         authenticated.1,
@@ -153,7 +170,7 @@ fn requires_selected_epoch_and_preserves_authenticated_state_on_failure() {
         ]
     );
     assert_eq!(
-        super::super::authenticate_originals(&mut reader, &receipt, &evidence).unwrap(),
+        authenticate_selected_originals(&mut reader, &receipt, &evidence).unwrap(),
         authenticated
     );
     assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
@@ -169,15 +186,14 @@ fn load_resource_refusal_keeps_selected_epoch_and_retries_after_scope_retirement
     for allocation in [0, 64] {
         let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
         let error = norito::with_decode_limits_scope(limits, || {
-            super::super::authenticate_originals(&mut reader, &receipt, &evidence)
+            authenticate_selected_originals(&mut reader, &receipt, &evidence)
         })
         .unwrap_err();
         assert!(matches!(error, state::Error::DecodeResource(ref cause)
             if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
     }
-    let authenticated =
-        super::super::authenticate_originals(&mut reader, &receipt, &evidence).unwrap();
+    let authenticated = authenticate_selected_originals(&mut reader, &receipt, &evidence).unwrap();
     assert_eq!(authenticated.0, source.receipt);
     assert_eq!(reader.export_epoch_checkpoint(1).unwrap(), selected);
 }

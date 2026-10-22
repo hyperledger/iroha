@@ -20,7 +20,7 @@ class KagemushaWalletCreditProjectionV1 internal constructor(value: KagemushaWal
         if (value.status != KagemushaWalletCallV1.CREDIT_PROJECTION || value.reason != -1 ||
             value.platformCode != 0 || value.sequenceLow != 0L || value.sequenceHigh != 0L || value.detail != 0) invalid()
         val bytes = value.bytes()
-        if (bytes.size !in 92..10_092) invalid()
+        if (bytes.size !in 92..10_126) invalid()
         val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         if (input.short.toInt() != 1) invalid()
         evidence = when (input.get().toInt()) { 1 -> Evidence.UNFOLDED; 2 -> Evidence.CREDITED; 3 -> Evidence.BURNED; else -> invalid() }
@@ -35,7 +35,7 @@ class KagemushaWalletCreditProjectionV1 internal constructor(value: KagemushaWal
         amount = KagemushaWalletUInt128V1(input.long, input.long)
         val size = input.int
         if (credit.all { it == 0.toByte() } || payment.all { it == 0.toByte() } ||
-            amount.low == 0L && amount.high == 0L || size !in 0..10_000 || input.remaining() != size ||
+            amount.low == 0L && amount.high == 0L || size !in 0..10_034 || input.remaining() != size ||
             (archive == Archive.RECEIVER && (corePending || size == 0)) ||
             (archive != Archive.RECEIVER && size != 0)) invalid()
         original = ByteArray(size).also(input::get)

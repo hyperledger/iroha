@@ -1,6 +1,10 @@
 //! Bounded original frames, fixed native identities and complete catalog regressions.
 
 use super::*;
+use iroha_data_model::isi::{
+    InstructionBox,
+    kagemusha_wallet::{KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1},
+};
 
 #[test]
 #[ignore = "genuine complete k12/k16 native verifier inventory; run optimized"]
@@ -55,6 +59,183 @@ fn genuine_signed_complete_inventory_mounts_and_rejects_substituted_originals() 
             .authenticate_producer_inventory(b"engineering-verifier-only")
             .is_err()
     );
+}
+
+#[test]
+#[ignore = "genuine complete k12/k16 native verifier inventory; run optimized"]
+fn verifier_admission_mounts_an_earlier_producer_profile_and_keeps_every_other_binding() {
+    let earlier = artifact_digest(b"native-profile", b"earlier producer generation");
+    let (pack, installation) = engineering_fixture::signed_inventory_with_profile(earlier);
+    let original = pack.to_canonical_bytes().unwrap();
+    // Producer admission stays bound to this source's compiled profile.
+    assert!(matches!(
+        InstalledVerifierPackV1::load(&original, installation),
+        Err(Error::RuntimeBinding)
+    ));
+    // Verifier admission yields only the verifier; no producer inventory can follow from it.
+    let verifier = InstalledVerifierPackV1::load_verifier(&original, installation).unwrap();
+    assert_eq!(verifier.scheme().scheme_id(), installation.scheme_id);
+    assert_eq!(verifier.manifest_digest(), installation.manifest_digest);
+    for changed_member in 0..7 {
+        let mut changed = pack.clone();
+        let member = match changed_member {
+            0 => &mut changed.scheme,
+            1 => &mut changed.signer_certificate,
+            2 => &mut changed.manifest,
+            3 => &mut changed.steps[0].artifact.descriptor,
+            4 => &mut changed.steps[0].artifact.verifying_key,
+            5 => &mut changed.lineage.descriptor,
+            _ => &mut changed.lineage.verifying_key,
+        };
+        *member.last_mut().unwrap() ^= 1;
+        assert!(
+            InstalledVerifierPackV1::load_verifier(
+                &changed.to_canonical_bytes().unwrap(),
+                installation
+            )
+            .is_err(),
+            "substituted authority/native original {changed_member}"
+        );
+    }
+    let mut changed = pack.clone();
+    changed.producer_catalog_digest[0] ^= 1;
+    assert!(
+        InstalledVerifierPackV1::load_verifier(
+            &changed.to_canonical_bytes().unwrap(),
+            installation
+        )
+        .is_err()
+    );
+    // A coherently signed scheme and manifest naming a profile the inventory was not built
+    // with is refused by both admissions.
+    let compiled = artifact_digest(b"native-profile", &native_profile_transcript_v1().unwrap());
+    for named in [
+        compiled,
+        artifact_digest(b"native-profile", b"another generation"),
+    ] {
+        let (resigned, resigned_installation) =
+            engineering_fixture::resigned_with_profile(&pack, installation, named);
+        assert_ne!(resigned_installation.scheme_id, installation.scheme_id);
+        let bytes = resigned.to_canonical_bytes().unwrap();
+        assert!(matches!(
+            InstalledVerifierPackV1::load_verifier(&bytes, resigned_installation),
+            Err(Error::RuntimeBinding)
+        ));
+        assert!(matches!(
+            InstalledVerifierPackV1::load(&bytes, resigned_installation),
+            Err(Error::RuntimeBinding)
+        ));
+    }
+    // A pack built from this source mounts the same verifier under both admissions.
+    let (current, current_installation) = engineering_fixture::signed_inventory();
+    let bytes = current.to_canonical_bytes().unwrap();
+    let installed = InstalledVerifierPackV1::load(&bytes, current_installation).unwrap();
+    let verifier = InstalledVerifierPackV1::load_verifier(&bytes, current_installation).unwrap();
+    assert_eq!(verifier.scheme(), installed.verifier().scheme());
+    assert_eq!(
+        verifier.manifest_digest(),
+        installed.verifier().manifest_digest()
+    );
+}
+
+/// The exact installed pack original and its independently recorded installation pins.
+fn retained_installation() -> (Vec<u8>, InstallationV1) {
+    let original = std::fs::read(std::env::var("KAGEMUSHA_INSTALLED_PACK").unwrap()).unwrap();
+    let pin = |name: &str| -> [u8; 32] {
+        hex::decode(std::env::var(name).unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    };
+    (
+        original,
+        InstallationV1 {
+            scheme_id: pin("KAGEMUSHA_INSTALLED_SCHEME"),
+            manifest_digest: pin("KAGEMUSHA_INSTALLED_MANIFEST"),
+        },
+    )
+}
+
+#[test]
+#[ignore = "retained installed pack: KAGEMUSHA_INSTALLED_PACK=<path> KAGEMUSHA_INSTALLED_SCHEME=<hex> KAGEMUSHA_INSTALLED_MANIFEST=<hex>"]
+fn retained_installed_pack_mounts_for_ledger_verification() {
+    let (original, installation) = retained_installation();
+    let verifier = InstalledVerifierPackV1::load_verifier(&original, installation).unwrap();
+    assert_eq!(verifier.manifest_digest(), installation.manifest_digest);
+    let pack = VerifierPackV1::decode_canonical(&original).unwrap();
+    let scheme =
+        KagemushaWalletSchemeV1::decode_canonical(&pack.scheme, &installation.scheme_id).unwrap();
+    let named = KagemushaWalletArtifactManifestV1::decode_canonical(&pack.manifest, &scheme)
+        .unwrap()
+        .body
+        .native_profile_digest;
+    let compiled = artifact_digest(b"native-profile", &native_profile_transcript_v1().unwrap());
+    let producer = InstalledVerifierPackV1::load(&original, installation);
+    eprintln!(
+        "RETAINED_PACK_VERIFIER_ADMITTED profile={} compiled={} producer_admission={}",
+        hex::encode(named),
+        hex::encode(compiled),
+        producer.is_ok()
+    );
+    if named != compiled {
+        assert!(matches!(producer, Err(Error::RuntimeBinding)));
+    }
+}
+
+#[test]
+#[ignore = "retained ledger history: the KAGEMUSHA_INSTALLED_* pins plus KAGEMUSHA_HISTORICAL_INSTRUCTIONS=<directory of exact committed instruction originals>"]
+fn retained_ledger_history_verifies_under_verifier_admission() {
+    let (original, installation) = retained_installation();
+    let verifier = InstalledVerifierPackV1::load_verifier(&original, installation).unwrap();
+    let mut paths: Vec<_> =
+        std::fs::read_dir(std::env::var("KAGEMUSHA_HISTORICAL_INSTRUCTIONS").unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+    paths.sort();
+    let (mut installs, mut activations) = (0, 0);
+    for path in paths {
+        let framed = std::fs::read(&path).unwrap();
+        // A committed transaction carries each instruction as its exact registry frame.
+        let boxed: InstructionBox = norito::decode_canonical_with_limits(
+            &framed,
+            norito::canonical_decode_limits(framed.len()),
+        )
+        .unwrap();
+        let instruction = boxed
+            .as_any()
+            .downcast_ref::<KagemushaWalletLedgerV1>()
+            .unwrap();
+        assert_eq!(instruction.scheme, installation.scheme_id);
+        match &instruction.action {
+            KagemushaWalletLedgerActionV1::InstallVerifierPack {
+                manifest_digest,
+                pack,
+                ..
+            } => {
+                assert_eq!(*manifest_digest, installation.manifest_digest);
+                assert_eq!(*pack, original);
+                installs += 1;
+            }
+            KagemushaWalletLedgerActionV1::Activate(bytes) => {
+                // The ledger's order: exact activation authority, then the native Bootstrap
+                // proof under the mounted verifier.
+                let activation =
+                    KagemushaWalletActivationV1::decode_canonical(bytes, &instruction.scheme)
+                        .unwrap();
+                activation.verify(verifier.scheme()).unwrap();
+                verifier
+                    .verify_package_proofs(&activation.bootstrap, Default::default())
+                    .unwrap();
+                activations += 1;
+                eprintln!("HISTORICAL_ACTIVATION_VERIFIED {}", path.display());
+            }
+            _ => {}
+        }
+    }
+    eprintln!("RETAINED_LEDGER_HISTORY_VERIFIED installs={installs} activations={activations}");
+    assert_eq!(installs, 1);
+    assert!(activations > 0);
 }
 
 fn kind(tag: u8) -> KagemushaWalletOperationKindV1 {
@@ -386,14 +567,14 @@ fn native_profile_matches_complete_compiled_encoder_preimage() {
         hex::encode(Sha256::digest(&body)),
         hex::encode(artifact_digest(b"native-profile", &body))
     );
-    assert_eq!(body.len(), 2_353);
+    assert_eq!(body.len(), 2_497);
     // Pin the complete compiled schedules, sigma policy and Omega layout of this source.
     assert_eq!(
         hex::encode(Sha256::digest(&body)),
-        "3b14369ac4f5184398c8342f707f84415b4e04d21e12078e09b3076a5af5003a"
+        "ebe2ac209e566c09928f0e55513e51e1cde4302cb9ab79cad4b7d911c6c9e6bb"
     );
     assert_eq!(
         hex::encode(artifact_digest(b"native-profile", &body)),
-        "e9e0bd23e67cdd238c3684e5f10e8aeea9842e88d159635f3c0e9b38152a5e37"
+        "cf97197687e1c985b7d29a716a52f1ac9a1e2adfc9a093b9dc17f836a3f8e74a"
     );
 }

@@ -48,14 +48,14 @@ class KagemushaWalletReleasedOutputV1 internal constructor(original: ByteArray) 
     private val output: ByteArray
     private val peer: ByteArray?
     init {
-        val input = input(original, "KWROV1\u0000\u0000", 67, 20_066)
+        val input = input(original, "KWROV1\u0000\u0000", 67, 20_134)
         val tag = input.get().toInt()
         if (tag !in 1..8) invalidOutput()
         kind = Kind.values()[tag - 1]
         operation = input.word(); sequence = input.scalar()
         val length = input.int; val peerTag = input.get().toInt(); val peerLength = input.int
         val expected = when (kind) { Kind.SEND -> 3; Kind.RECEIVE -> 4; else -> 0 }
-        if (length !in 1..10_000 || peerLength !in 0..10_000 || peerTag != expected ||
+        if (length !in 1..10_034 || peerLength !in 0..10_034 || peerTag != expected ||
             (peerTag == 0) != (peerLength == 0) || input.remaining() != length + peerLength) invalidOutput()
         output = ByteArray(length).also(input::get)
         peer = if (peerTag == 0) null else ByteArray(peerLength).also(input::get)

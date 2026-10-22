@@ -174,6 +174,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         request_id: [u8; 32],
         entry: &Entry,
     ) -> Result<Option<IntakeBatch>, Error> {
+        let _observation = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+        );
         self.require_intake_memory()?;
         let Some(bytes) = self
             .archive

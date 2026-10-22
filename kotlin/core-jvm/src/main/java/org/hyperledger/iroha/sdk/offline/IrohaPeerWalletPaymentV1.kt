@@ -8,7 +8,7 @@ package org.hyperledger.iroha.sdk.offline
  * verify the credential, the Payment proofs or their binding.
  *
  * `"KWPYPC1" ‖ 0x00 ‖ BE32 envelope_length ‖ BE32 companion_length ‖ payment_envelope ‖ companion`:
- * a 1..10,000-byte Payment envelope and a 1..2,048-byte companion, at most 12,064 bytes in all.
+ * a 1..10,034-byte Payment envelope and a 1..2,048-byte companion, at most 12,098 bytes in all.
  */
 class IrohaPeerWalletPaymentV1(paymentEnvelope: ByteArray, payerCompanion: ByteArray) {
     private val envelope = paymentEnvelope.copyOf()

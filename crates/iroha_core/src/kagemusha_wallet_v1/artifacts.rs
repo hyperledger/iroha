@@ -2,8 +2,11 @@
 //! it is never obtained from a received package, local node flag or foreign verdict.
 use super::*;
 use crate::state::StateTransaction;
-use iroha_core_zk::kagemusha_wallet_artifacts_v1::{
-    InstallationV1, InstalledVerifierPackV1, VERIFIER_PACK_MAX_BYTES_V1, VerifierPackV1,
+use iroha_core_zk::{
+    kagemusha_wallet_artifacts_v1::{
+        InstallationV1, InstalledVerifierPackV1, VERIFIER_PACK_MAX_BYTES_V1, VerifierPackV1,
+    },
+    kagemusha_wallet_proofs_v1::ArtifactSet,
 };
 use mv::storage::StorageReadOnly as _;
 
@@ -40,8 +43,8 @@ impl VerifierInstallation {
             manifest,
             original,
         };
-        let installed = value.mount()?;
-        if installed.verifier().scheme() != &registration.scheme {
+        let verifier = value.mount()?;
+        if verifier.scheme() != &registration.scheme {
             return Err(Error::Binding);
         }
         Ok(value)
@@ -73,9 +76,11 @@ impl VerifierInstallation {
         Ok(())
     }
 
-    fn mount(&self) -> Result<InstalledVerifierPackV1> {
+    fn mount(&self) -> Result<ArtifactSet> {
         self.validate(&key(self.scheme))?;
-        InstalledVerifierPackV1::load(
+        // Verifier-only admission: installations made by an earlier producer generation keep
+        // verifying, and replaying, exactly as when they were installed.
+        InstalledVerifierPackV1::load_verifier(
             &self.original,
             InstallationV1 {
                 scheme_id: self.scheme,
@@ -139,8 +144,8 @@ impl NativePackageVerifier for LedgerVerifier {
             .map_err(|_| Error::Proof)?;
         let value: VerifierInstallation = storage::decode(original, CAP)?;
         value.validate(&key(self.scheme))?;
-        let installed = value.mount()?;
-        if installed.verifier().scheme() != scheme {
+        let verifier = value.mount()?;
+        if verifier.scheme() != scheme {
             return Err(Error::Binding);
         }
         // Check exact current credential/receipt/wallet/key binding before proof verification.
@@ -152,8 +157,7 @@ impl NativePackageVerifier for LedgerVerifier {
             reason = "the verifier's budget type is not re-exported by iroha_core_zk"
         )]
         let verification_budget = Default::default();
-        installed
-            .verifier()
+        verifier
             .verify_package_proofs(package, verification_budget)
             .map_err(|_| Error::Proof)
     }

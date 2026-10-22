@@ -115,7 +115,7 @@ mod tests {
             let mut trailing = original;
             trailing.push(0);
             assert!(convert(kind, true, &trailing, &scheme).is_err());
-            assert!(convert(kind, false, &vec![0; 10_001], &scheme).is_err());
+            assert!(convert(kind, false, &vec![0; 10_035], &scheme).is_err());
         }
     }
     #[test]
@@ -252,7 +252,7 @@ mod tests {
         );
         for status in [false, true] {
             assert!(credited(status, &[], &scheme).is_err());
-            assert!(credited(status, &vec![0; 10_001], &scheme).is_err());
+            assert!(credited(status, &vec![0; 10_035], &scheme).is_err());
         }
     }
 }

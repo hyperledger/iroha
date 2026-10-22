@@ -32,11 +32,17 @@ pub struct QualifiedBootstrapProgramV1 {
     program: u32,
     prover: native::Prover,
     terminal: InstalledSourceSealV1<Eq>,
-    stage_memory: u64,
+    stage_memory: crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1,
 }
 impl QualifiedBootstrapProgramV1 {
-    /// Design §5.3 peak proving memory of the single terminal A stage.
+    /// Design §5.3 peak proving memory of the single terminal A stage, fused quotient.
     pub const fn stage_memory_bytes(&self) -> u64 {
+        self.stage_memory.fused_bytes
+    }
+    /// Design §5.3 peak proving memory of the single terminal A stage, under both quotient plans.
+    pub const fn stage_memory(
+        &self,
+    ) -> crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1 {
         self.stage_memory
     }
     /// Exact authenticated installation and selected program.

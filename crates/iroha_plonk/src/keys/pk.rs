@@ -376,6 +376,38 @@ fn interpolate_all<F: PastaField>(
         .collect()
 }
 
+/// Interpolate the public row masks, using the closed form for singleton rows.
+/// The coefficient of X^i in L_r is omega^(-r*i) / n, so L_0 and L_last
+/// need no FFT or temporary evaluation copies. The active prefix still uses
+/// the ordinary inverse transform, preserving the exact mask polynomials.
+fn interpolate_masks<F: PastaField>(
+    domain: &FftDomain<F>,
+    values: &Masks<F>,
+    last: usize,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<Masks<F>, KeyError> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let l0 = vec![domain.n_inv(); domain.n()];
+    let stride = domain.omega_inv().pow_vartime([last as u64]);
+    let mut coefficient = domain.n_inv();
+    let mut l_last = Vec::with_capacity(domain.n());
+    for index in 0..domain.n() {
+        if index % 1024 == 0 {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        }
+        l_last.push(coefficient);
+        coefficient *= stride;
+    }
+    let mut l_active = values.l_active.clone();
+    domain.ifft_cancellable(&mut l_active, cancellation)?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    Ok(Masks {
+        l0,
+        l_last,
+        l_active,
+    })
+}
+
 impl<C: PastaCurve> ProvingKey<C> {
     /// Assembles a proving key.
     ///
@@ -438,22 +470,7 @@ impl<C: PastaCurve> ProvingKey<C> {
             l_last,
             l_active,
         };
-        let polys = interpolate_all(
-            &domain,
-            &[
-                mask_values.l0.clone(),
-                mask_values.l_last.clone(),
-                mask_values.l_active.clone(),
-            ],
-            cancellation,
-        )?;
-        let [l0, l_last, l_active]: [Vec<C::ScalarExt>; 3] =
-            polys.try_into().map_err(|_| KeyError::CosetIndex)?;
-        let mask_polys = Masks {
-            l0,
-            l_last,
-            l_active,
-        };
+        let mask_polys = interpolate_masks(&domain, &mask_values, last, cancellation)?;
 
         let mut key = Self {
             vk,
@@ -742,6 +759,10 @@ impl<C: PastaCurve> ProvingKey<C> {
         self.vk.transcript_repr().to_repr()
     }
 }
+
+#[cfg(test)]
+#[path = "pk/mask_tests.rs"]
+mod mask_tests;
 
 #[cfg(test)]
 mod tests {

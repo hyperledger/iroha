@@ -202,6 +202,13 @@ fn export_rechecks_native_qc_roster_tip_and_retained_decision_after_reuse() {
                 .unwrap_err(),
             expected
         );
+        assert_eq!(
+            verifier
+                .export_checkpoint_with_tip(changed)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
+            expected
+        );
         assert_eq!(norito::encode_canonical(changed).unwrap(), source);
         assert_eq!(
             verifier.export_checkpoint(&fixture.second).unwrap(),
@@ -243,6 +250,14 @@ fn export_rechecks_native_qc_roster_tip_and_retained_decision_after_reuse() {
         assert_eq!(
             changed
                 .export_checkpoint(&fixture.second)
+                .map_err(invalid_read_error)
+                .unwrap_err(),
+            expected,
+            "{field}"
+        );
+        assert_eq!(
+            changed
+                .export_checkpoint_with_tip(&fixture.second)
                 .map_err(invalid_read_error)
                 .unwrap_err(),
             expected,
@@ -340,4 +355,42 @@ fn active_producers_preserve_original_results_charges_and_positive_refusals() {
         checkpoint
     );
     assert_eq!(checkpoint.encode_canonical().unwrap(), original);
+}
+
+#[test]
+fn export_handoff_retains_exact_tip_without_another_verification() {
+    let fixture = Fixture::new();
+    let verifier = selected(&fixture);
+    let alternate = fixture.alternate();
+    for proof in [&fixture.second, &alternate] {
+        let expected = verifier.export_checkpoint(proof).unwrap();
+        let before = validation_counts::calls();
+        let (checkpoint, tip) = verifier.export_checkpoint_with_tip(proof).unwrap();
+        assert_eq!(validation_counts::calls() - before, 1);
+        assert_eq!(checkpoint, expected);
+        assert_eq!(tip.block().encode_wire().unwrap(), proof.block_wire);
+        assert_eq!(tip.height(), checkpoint.height());
+        assert_eq!(tip.header().hash(), checkpoint.block_hash());
+        assert_eq!(
+            tip.context_id(),
+            verifier
+                .verify_retained_decision(proof)
+                .unwrap()
+                .context_id()
+        );
+    }
+}
+
+#[test]
+fn export_handoff_preserves_original_cumulative_decoder_admission() {
+    let fixture = Fixture::new();
+    let verifier = selected(&fixture);
+    assert_original_admission(
+        || independent_export(&verifier, &fixture.second),
+        || {
+            verifier
+                .export_checkpoint_with_tip(&fixture.second)
+                .map(|(checkpoint, _)| checkpoint)
+        },
+    );
 }

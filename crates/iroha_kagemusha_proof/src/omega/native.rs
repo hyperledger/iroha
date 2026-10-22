@@ -17,15 +17,16 @@ use core::fmt;
 use ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
-    DescriptorBinding, Protocol, ProverConfig, ProverRandomness, VerifyingKey, Witness,
+    DescriptorBinding, Protocol, ProverConfig, ProverRandomness, VerifyingKey,
     create_proof_owned_with_claim,
     cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2},
     frontend::Circuit,
     keys::{
         CosetCachePolicy, RebuildError, SourceBoundVerifyingKeyV2, SourceBoundViewV2,
-        keygen_pk_from_vk_v2_cancellable, pk::artifact::ReadConfig,
+        pk::artifact::ReadConfig,
     },
     pcs::ipa::PinnedParams,
+    prover::{RebuildWitnessError, rebuild_key_and_witness_v2_cancellable},
     transcript::decode_point,
 };
 use iroha_plonk_gadgets::{range::secondary::SecondaryPlan, statement::foreign_limbs};
@@ -131,6 +132,31 @@ impl Program {
         )?;
         program.layout = layout::derive(&program.source_circuit()?)?;
         Ok(program)
+    }
+
+    // Test-only comparison with the ordinary assignment backend. The returned
+    // program retains the same catalog/parameters and grants no source authority.
+    #[cfg(test)]
+    pub(crate) fn with_checked_reference_layout_for_test(&self) -> Result<Self, Error> {
+        let mut reference = self.clone();
+        reference.layout = layout::derive_reference(&reference.source_circuit()?)?;
+        match (&self.layout, &reference.layout) {
+            (
+                Layout::Secondary { spans, schedule },
+                Layout::Secondary {
+                    spans: reference_spans,
+                    schedule: reference_schedule,
+                },
+            ) => {
+                assert_eq!(spans, reference_spans, "exact compact lane spans");
+                assert_eq!(
+                    schedule, reference_schedule,
+                    "complete secondary range plan"
+                );
+            }
+            _ => panic!("compiled catalog comparison requires two secondary layouts"),
+        }
+        Ok(reference)
     }
 
     /// Pin the complete installed terminal A key list in its authenticated catalog order.
@@ -629,28 +655,22 @@ impl Session<'_> {
         iroha_pasta::CancellationToken::checkpoint(config.cancellation)
             .map_err(|_| Error::Cancelled)?;
         let output = {
-            let key = {
-                let blank = owner.program.source_circuit()?;
-                keygen_pk_from_vk_v2_cancellable(
-                    &owner.program.pallas,
-                    &blank,
-                    &owner.key,
-                    CosetCachePolicy::OnDemand,
-                    config.cancellation,
-                )
-                .map_err(|error| rebuild_error(&error))?
-            };
-            let witness = Witness::from_circuit_cancellable(
-                &key,
+            let (key, witness) = rebuild_key_and_witness_v2_cancellable(
+                &owner.program.pallas,
                 &self.circuit,
+                &owner.key,
                 &self.public,
+                CosetCachePolicy::OnDemand,
                 config.cancellation,
             )
-            .map_err(|error| {
-                if error.is_cancelled() {
-                    Error::Cancelled
-                } else {
-                    Error::Prover
+            .map_err(|error| match error {
+                RebuildWitnessError::Rebuild(error) => rebuild_error(&error),
+                RebuildWitnessError::Witness(error) => {
+                    if error.is_cancelled() {
+                        Error::Cancelled
+                    } else {
+                        Error::Prover
+                    }
                 }
             })?;
             #[cfg(test)]

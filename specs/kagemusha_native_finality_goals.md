@@ -46,7 +46,7 @@ required native checks before using its credential-bound signing key.
   at `/loads/{request}/epochs/{boundary}`. It does not receive a trusted client
   roster or follow an unverified successor. The terminal `/finality` response
   contains one receipt certificate and counted event proof, bounded to 262,144
-  bytes; the native capsule bound is 524,288 bytes. Payment remains 10,000 bytes.
+  bytes; the native capsule bound is 524,288 bytes. Payment remains 10,034 bytes.
 - Native bridge and SDK owners expose selected epoch progress and one original
   boundary ingestion. Sync repeats until the authenticated interval covers the
   receipt height. Native preparation restores the receipt's archived epoch and

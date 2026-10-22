@@ -480,6 +480,21 @@ fn actual_two_sigma_q_proof_verifies() {
         check_producer_rebuild(&params, &producer, prepared.circuit(), &original);
         let installed_vk = producer.vk().to_bytes();
         let descriptor = producer.binding().encoded();
+        let proof_protocol = Protocol::new(&CircuitDescriptorV2::decode(descriptor).unwrap()).unwrap();
+        let shape = proof_protocol.shape();
+        assert_eq!((shape.k, shape.degree, shape.num_advice, shape.num_fixed,
+            shape.permutation_columns, shape.permutation_sets, shape.lookups),
+            (16, 8, 29, 39, 22, 8, 12));
+        assert_eq!(plan.instance_lengths(), [241, 2, 2, 5, 1]);
+        // The degree-8 standalone FF layout has eight permutation sets. The
+        // former degree-10 fixture's 10_464-byte literal predates that layout.
+        let expected_proof_bytes = proof_protocol.proof_length();
+        assert_eq!(expected_proof_bytes, 10_720);
+        println!("Q_SIGMA_PROOF_LAYOUT k={} degree={} advice={} fixed={} equality={} permutation_sets={} lookups={} advice_queries={} fixed_queries={} opening_sets={} bytes={}",
+            shape.k, shape.degree, shape.num_advice, shape.num_fixed,
+            shape.permutation_columns, shape.permutation_sets, shape.lookups,
+            shape.advice_queries, shape.fixed_queries, proof_protocol.plan().sets().len(),
+            expected_proof_bytes);
         let config = iroha_plonk::keys::pk::artifact::ReadConfig {
             maximum_bytes: original.len(), maximum_rows: 1 << 16,
             coset_cache: iroha_plonk::keys::CosetCachePolicy::OnDemand,
@@ -568,6 +583,7 @@ fn actual_two_sigma_q_proof_verifies() {
             common::fresh_randomness(), iroha_plonk::ProverConfig::default(),
         ).unwrap();
         iroha_plonk::verify_full(&params, producer.binding(), producer.vk(), prepared.instances(), &direct, MemoryBudget::DEFAULT).unwrap();
+        assert_eq!(direct.len(), expected_proof_bytes);
         let start = std::time::Instant::now();
         let installed_entry = crate::proof_entry_probe::Guard::new(None);
         let proof = prover.prove(&prepared,common::fresh_randomness(),iroha_plonk::ProverConfig::default()).expect("actual Q proof");
@@ -581,7 +597,7 @@ fn actual_two_sigma_q_proof_verifies() {
         assert_eq!(retained, direct, "original bytes remain immutable");
         assert_eq!(proof.instances, prepared.instances());
 
-        assert_eq!(proof.bytes.len(),10_464);
+        assert_eq!(proof.bytes.len(), expected_proof_bytes);
         assert_eq!(proof.part, *prepared.part());
         let mut wrong = proof.instances.clone(); wrong[0][1] += Fq::ONE;
         assert!(iroha_plonk::verify_full(prover.params(),prover.binding(),prover.verifying_key(),&wrong,&proof.bytes,MemoryBudget::DEFAULT).is_err());

@@ -1814,7 +1814,7 @@ pub struct KagemushaWalletReceivePreparationV1 {
 /// `(credit_id, P(kgwcdig1, [credit_id, payment_digest, burned]), next_key)` at `slot`, with
 /// exactly 32 siblings, height 0 first, as 1,024 concatenated 32-byte canonical σ-field values.
 /// The flat byte string costs 32 bytes per sibling in the canonical frame; a sequence of 32-byte
-/// arrays would cost 65 in Norito, which matters inside the 10,000-byte Credited bound (§8).
+/// arrays would cost 65 in Norito, which matters inside the 10,034-byte Credited bound (§8).
 /// Only a membership opening is evidence; a non-membership (low-leaf) opening is not.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(

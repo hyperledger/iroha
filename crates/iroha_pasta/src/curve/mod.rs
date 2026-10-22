@@ -64,11 +64,11 @@ mod sealed {
     impl Sealed for super::EpAffine {}
     impl Sealed for super::EqAffine {}
 
-    /// Capability token of the unchecked affine constructor.
+    /// Capability token of unchecked affine construction and finite-RHS addition.
     ///
     /// The type is unnameable outside the crate and its field is private, so
     /// safe code outside `iroha_pasta` cannot produce a value and call
-    /// `PastaAffine::from_xy_unchecked`.
+    /// `PastaAffine::from_xy_unchecked` or the internal finite-RHS addition.
     #[derive(Clone, Copy, Debug)]
     pub struct Internal(());
 
@@ -84,6 +84,17 @@ mod sealed {
 #[inline]
 pub(crate) fn affine_unchecked<A: PastaAffine>(x: A::Base, y: A::Base) -> A {
     A::from_xy_unchecked(x, y, sealed::INTERNAL)
+}
+
+/// Complete mixed addition with a nonidentity affine right-hand side.
+///
+/// Crate-internal: the caller establishes that `rhs` is finite. Pippenger's
+/// source skip flags and occupied affine buckets establish this invariant;
+/// left-hand identities, equal points and opposite points remain supported.
+/// Other callers use the identity-safe public mixed addition.
+#[inline]
+pub(crate) fn add_mixed_finite<C: PastaCurve>(lhs: &C, rhs: &C::AffineExt) -> C {
+    C::add_mixed_finite_internal(lhs, rhs, sealed::INTERNAL)
 }
 
 /// A Pasta curve point in projective form (Pallas [`Ep`] or Vesta [`Eq`](struct@Eq)).
@@ -157,6 +168,13 @@ pub trait PastaCurve:
 
     /// The curve constant `b = 5`.
     fn b() -> Self::Base;
+
+    /// Complete mixed addition whose affine right-hand side is nonidentity.
+    ///
+    /// Crate-internal: the capability token cannot be constructed outside
+    /// `iroha_pasta`. Public callers use the identity-safe addition operators.
+    #[doc(hidden)]
+    fn add_mixed_finite_internal(&self, rhs: &Self::AffineExt, token: sealed::Internal) -> Self;
 }
 
 /// A Pasta curve point in affine form ([`EpAffine`] or [`EqAffine`]).
@@ -359,6 +377,13 @@ macro_rules! impl_pasta_curve {
             #[inline]
             #[must_use]
             pub fn add_mixed(&self, rhs: &$affine) -> Self {
+                let sum = self.add_mixed_finite(rhs);
+                Self::conditional_select(&sum, self, rhs.is_identity())
+            }
+
+            /// The same complete RCB formula for a finite affine RHS.
+            #[inline]
+            fn add_mixed_finite(&self, rhs: &$affine) -> Self {
                 let t0 = self.x.mul(&rhs.x);
                 let t1 = self.y.mul(&rhs.y);
                 let t3 = rhs.x.add(&rhs.y);
@@ -385,12 +410,11 @@ macro_rules! impl_pasta_curve {
                 let t0 = t0.mul(&t3);
                 let z3 = z3.mul(&t4);
                 let z3 = z3.add(&t0);
-                let sum = Self {
+                Self {
                     x: x3,
                     y: y3,
                     z: z3,
-                };
-                Self::conditional_select(&sum, self, rhs.is_identity())
+                }
             }
 
             /// Constant-time scalar multiplication with a 4-bit fixed window.
@@ -903,6 +927,15 @@ macro_rules! impl_pasta_curve {
 
             fn b() -> $base {
                 B
+            }
+
+            #[inline]
+            fn add_mixed_finite_internal(
+                &self,
+                rhs: &Self::AffineExt,
+                _token: crate::curve::sealed::Internal,
+            ) -> Self {
+                self.add_mixed_finite(rhs)
             }
         }
 

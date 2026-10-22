@@ -100,10 +100,10 @@ class KagemushaWalletVectorsV1Test {
         assertEquals(KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES, bounds.int("sigma_proof_cap_bytes"))
         assertEquals(KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES, bounds.int("omega_proof_cap_bytes"))
         assertEquals(3_520, KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES)
-        assertEquals(5_086, KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES)
+        assertEquals(5_120, KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES)
         assertEquals(KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES, KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES + KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES)
         assertEquals(1_394, KagemushaWalletWireV1.PAYMENT_FIXED_BYTES)
-        assertEquals(8_606, KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES)
+        assertEquals(8_640, KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES)
         assertEquals(
             KagemushaWalletWireV1.MESSAGE_MAX_BYTES,
             KagemushaWalletWireV1.PAYMENT_FIXED_BYTES + KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES,
@@ -114,16 +114,16 @@ class KagemushaWalletVectorsV1Test {
             bounds.int("credited_receive_proof_budget_bytes"),
         )
         assertEquals(679, KagemushaWalletWireV1.CREDITED_RECEIVE_FIXED_BYTES)
-        assertEquals(9_321, KagemushaWalletWireV1.CREDITED_RECEIVE_PROOF_BUDGET_BYTES)
+        assertEquals(9_355, KagemushaWalletWireV1.CREDITED_RECEIVE_PROOF_BUDGET_BYTES)
         assertEquals(
             KagemushaWalletWireV1.MESSAGE_MAX_BYTES,
             KagemushaWalletWireV1.CREDITED_RECEIVE_FIXED_BYTES + KagemushaWalletWireV1.CREDITED_RECEIVE_PROOF_BUDGET_BYTES,
         )
         assertTrue(bounds.text("proof_caps").contains("credited_receive_proof_budget_bytes"))
-        // Credited::Status carries Ω(h) and the fixed 32-sibling opening: F_status + Ω cap = 10,000.
+        // Credited::Status carries Ω(h) and the fixed 32-sibling opening: F_status + Ω cap = 10,034.
         assertEquals(KagemushaWalletWireV1.CREDITED_STATUS_FIXED_BYTES, bounds.int("credited_status_fixed_bytes"))
         assertEquals(KagemushaWalletWireV1.LINEAGE_PROOF_CAP_BYTES, bounds.int("lineage_proof_cap_bytes"))
-        assertEquals(7_812, KagemushaWalletWireV1.LINEAGE_PROOF_CAP_BYTES)
+        assertEquals(7_846, KagemushaWalletWireV1.LINEAGE_PROOF_CAP_BYTES)
         assertEquals(
             KagemushaWalletWireV1.MESSAGE_MAX_BYTES,
             KagemushaWalletWireV1.CREDITED_STATUS_FIXED_BYTES + KagemushaWalletWireV1.LINEAGE_PROOF_CAP_BYTES,
@@ -180,7 +180,7 @@ class KagemushaWalletVectorsV1Test {
             KagemushaWalletWireV1.MESSAGE_TEXT_MAX_BYTES,
             KagemushaWalletWireV1.textBytesForFrame(KagemushaWalletWireV1.MESSAGE_MAX_BYTES),
         )
-        for (length in listOf(1, 2, 3, 4, 47, 48, 2_048, 9_999, 10_000)) {
+        for (length in listOf(1, 2, 3, 4, 47, 48, 2_048, 9_999, 10_000, 10_034)) {
             assertEquals(
                 KagemushaWalletWireV1.textBytesForFrame(length),
                 KagemushaWalletWireV1.encodeText(ByteArray(length) { it.toByte() }).length,
@@ -792,7 +792,7 @@ class KagemushaWalletVectorsV1Test {
     @Test fun `Payment proof roles reject individual overflow even within the joint frame`() {
         val payment = vectors.array("envelopes").map { it.jsonObject }.first { it.text("variant") == "Payment" }.hex("canonical_hex")
         val request = vectors.array("envelopes").map { it.jsonObject }.first { it.text("variant") == "Request" }.hex("canonical_hex")
-        for ((sigma, omega) in listOf(0 to 0, 3520 to 0, 0 to 5086, 3520 to 5086)) {
+        for ((sigma, omega) in listOf(0 to 0, 3520 to 0, 0 to 5120, 3520 to 5120)) {
             val changed = withPaymentProofVectors(payment, proofVector(sigma), proofVector(omega))
             assertTrue(changed.size <= KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
             assertEquals(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.inspectEnvelope(changed).kind)
@@ -1128,7 +1128,7 @@ class KagemushaWalletVectorsV1Test {
             "kgm1:A",
             "kgm1:_x",
             "kgm1:AB",
-            KagemushaWalletWireV1.TEXT_PREFIX + "A".repeat(13_335),
+            KagemushaWalletWireV1.TEXT_PREFIX + "A".repeat(13_380),
         )
         for (candidate in rejected) {
             assertFailsWith<IllegalArgumentException>(candidate.take(24)) {
@@ -1144,7 +1144,7 @@ class KagemushaWalletVectorsV1Test {
         }
         assertContentEquals(byteArrayOf(0xff.toByte()), KagemushaWalletWireV1.decodeText("kgm1:_w"))
         assertContentEquals(byteArrayOf(0), KagemushaWalletWireV1.decodeText("kgm1:AA"))
-        val largest = KagemushaWalletWireV1.TEXT_PREFIX + "A".repeat(13_334)
+        val largest = KagemushaWalletWireV1.TEXT_PREFIX + "A".repeat(13_379)
         assertEquals(KagemushaWalletWireV1.MESSAGE_TEXT_MAX_BYTES, largest.length)
         assertContentEquals(
             ByteArray(KagemushaWalletWireV1.MESSAGE_MAX_BYTES),

@@ -68,6 +68,8 @@ pub struct NativeWalletProofsV1<F: KagemushaWalletFsV1, P, S> {
     enrollment_certificates: Vec<u8>,
     capacity:
         std::sync::OnceLock<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1>,
+    proving_memory:
+        std::sync::OnceLock<crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1>,
 }
 
 fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
@@ -148,6 +150,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdmittedWalletV1<F, P
             asset_original,
             enrollment_certificates: certificates,
             capacity: std::sync::OnceLock::new(),
+            proving_memory: std::sync::OnceLock::new(),
         };
         let mut wallet = Coordinator {
             custody: handle,
@@ -188,6 +191,20 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdmittedWalletV1<F, P
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send>
     NativeWalletProofsV1<F, P, S>
 {
+    /// Both quotient plans' peak proving memory of this installation, computed once.
+    fn proving_memory(
+        &self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1, Error> {
+        if let Some(memory) = self.proving_memory.get() {
+            return Ok(*memory);
+        }
+        let memory = self
+            .sources
+            .proving_memory()
+            .map_err(|_| Error::Proof("installed relation capacity bound"))?;
+        Ok(*self.proving_memory.get_or_init(|| memory))
+    }
+
     fn derive(
         &self,
         request: &NativeIntentV1,
@@ -195,6 +212,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         custody: &mut PreparationCustodyV1<'_>,
         bytes: &[u8],
     ) -> Result<PreparedOperationV1, Error> {
+        let _observation = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SourceRestore,
+        );
         let preparation = proof(PreparationV1::new(&self.installed))?;
         let choices = NativeChoicesV1::decode(
             bytes,
@@ -460,13 +480,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             return Ok(*capacity);
         }
         // Fixed for this installation: computed once from its authenticated descriptors and
-        // checkpoint layouts, never from the phone.
+        // checkpoint layouts, never from the phone. Memory admits the lean quotient plan, so a
+        // phone that cannot hold the fused one still folds, more slowly.
         let capacity = crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1 {
             storage_bytes: self.worker.fold_witness_bytes()?,
-            memory_bytes: self
-                .sources
-                .peak_proving_memory_bytes()
-                .map_err(|_| Error::Proof("installed relation capacity bound"))?,
+            memory_bytes: self.proving_memory()?.lean_bytes,
         };
         Ok(*self.capacity.get_or_init(|| capacity))
     }
@@ -491,12 +509,17 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
     ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
+        // Each proof of this job chooses its quotient plan from this reading and its own
+        // relation's bounds.
+        let worker = self
+            .worker
+            .with_available_memory(self.observations.available_memory());
         // The original store is lent to the locked prepare only; the job never holds it.
         let mut originals = self
             .originals
             .lock()
             .map_err(|_| Error::ArtifactsUnavailable("proving original owner poisoned"))?;
-        self.worker.prepare(
+        worker.prepare(
             witness,
             predecessor,
             checkpoints,

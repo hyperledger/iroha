@@ -70,19 +70,20 @@ public struct IrohaPeerNearbyConnectionsConfigurationV1: Equatable, Sendable {
 /// UI and application callbacks for the Google Nearby radio adapter.
 ///
 /// There is intentionally no default verification implementation. If the
-/// delegate disappears while digits are pending, the transport rejects the
-/// connection.
+/// delegate disappears while a verification is pending, the transport rejects
+/// the connection.
 public protocol IrohaPeerNearbyConnectionsTransportDelegateV1: AnyObject {
     func nearbyTransport(
         _ transport: IrohaPeerNearbyConnectionsTransportV1,
         didChange state: IrohaPeerNearbyConnectionsStateV1
     )
 
-    /// Pair by picture: derive the picture from `code` with
-    /// `IrohaPeerNearbyPictureCodeV1.targetIndex(digits:)` and never display the digits.
+    /// Pair by picture: `token` is the connection's pairing token
+    /// (`IrohaPeerNearbyPairingTokenV1`); derive the picture with
+    /// `IrohaPeerNearbyPictureCodeV1.targetIndex(token:)` and never display the token.
     func nearbyTransport(
         _ transport: IrohaPeerNearbyConnectionsTransportV1,
-        verify code: String,
+        verify token: String,
         peerID: String,
         decision: @escaping (Bool) -> Void
     )
@@ -1376,7 +1377,8 @@ extension IrohaPeerNearbyConnectionsTransportV1: ConnectionManagerDelegate {
                 verificationHandler(false)
                 return
             }
-            guard IrohaPeerNearbyVerificationCodeV1.isValid(verificationCode) else {
+            // Google's Swift API passes the pairing token as `verificationCode`.
+            guard IrohaPeerNearbyPairingTokenV1.isValid(verificationCode) else {
                 verificationHandler(false)
                 failLocked(.verificationRejected)
                 return

@@ -604,11 +604,11 @@ The [Archive composition argument](../../specs/kagemusha_recursion_soundness_v1.
 has passed independent internal source review, conditional on executing all
 fixed owners and closing every obligation. A subsequent capacity review found
 that the earlier 3,456-byte incoming sigma buffer did not cover the declared
-owner capacity. The current Archive context fixes retained raw Omega at 5,406
-bytes and sigma at 3,520 bytes, with an independent 8,926-byte joint raw bound.
+owner capacity. The current Archive context fixes retained raw Omega at 5,440
+bytes and sigma at 3,520 bytes, with an independent 8,960-byte joint raw bound.
 Incoming Receive sigma uses the same 3,520-byte role cap; incoming Status raw
-Omega uses 5,406 bytes. These source limits are stricter than the 9,321-byte
-Receive and 7,812-byte Status envelope budgets. Descriptor-length mismatches
+Omega uses 5,440 bytes. These source limits are stricter than the 9,355-byte
+Receive and 7,846-byte Status envelope budgets. Descriptor-length mismatches
 remain soft proof failures. Pending membership authenticates the seven-word Send
 descriptor, not old proof lengths or bytes.
 
@@ -879,9 +879,9 @@ for mask 3. Both exact descriptor lengths meet the independent 3,520-byte
 `target/qualification/sigma-current-shape-probe-20261018-1/shape-table.log`.
 
 The compact Payment has 1,394 bytes of fixed overhead. Transported Ω,
-including both accumulator claims, has its own 5,086-byte cap; σ plus
-transported Ω must also fit 8,606 bytes, keeping the complete Payment within
-10,000 bytes. Spare capacity in one role cannot enlarge the other role's cap.
+including both accumulator claims, has its own 5,120-byte cap; σ plus
+transported Ω must also fit 8,640 bytes, keeping the complete Payment within
+10,034 bytes. Spare capacity in one role cannot enlarge the other role's cap.
 The table establishes descriptor-derived σ lengths; genuine current proofs,
 current Ω artifacts and complete encoded Payments require their own checks.
 Performance and memory qualification remain separate gates. `select_shape`

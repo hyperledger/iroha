@@ -6,7 +6,7 @@ use iroha_data_model::sumeragi_finality::{
 };
 
 /// One bounded original proof: maximum block plus bounded committee and framing overhead.
-/// This online control surface is separate from the 10,000-byte Payment envelope.
+/// This online control surface is separate from the 10,034-byte Payment envelope.
 pub const LEDGER_PROOF_MAX_BYTES_V1: usize = MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024;
 /// Maximum original immutable payout row, including canonical Norito framing.
 pub const PAYOUT_RECORD_MAX_BYTES_V1: usize = 1024;

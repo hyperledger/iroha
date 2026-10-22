@@ -169,7 +169,7 @@ mod tests {
         }
         // Receive with a payer companion: both originals present, the companion within its
         // 2,048-byte bound, no third original or amount.
-        assert_eq!(bounds(10).unwrap(), [10_000, 2_048, 0]);
+        assert_eq!(bounds(10).unwrap(), [10_034, 2_048, 0]);
         assert!(bounds(11).is_err());
         assert!(request(&[1; 32], 10, 0, [&[], &[], &[]]).is_err());
         assert!(request(&[1; 32], 10, 0, [&[7], &[], &[]]).is_err());

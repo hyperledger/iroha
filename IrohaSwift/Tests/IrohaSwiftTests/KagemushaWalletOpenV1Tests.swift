@@ -15,7 +15,7 @@ final class KagemushaWalletOpenV1Tests: XCTestCase {
     }
     for role in 0..<4 {
       var values = [one, one, one, one]
-      values[role] = Data(repeating: 0, count: [1_024, 10_000, 4_096, 1_024][role] + 1)
+      values[role] = Data(repeating: 0, count: [1_024, 10_034, 4_096, 1_024][role] + 1)
       XCTAssertThrowsError(try KagemushaWalletOpenOriginalsV1(credential: values[0], enrollmentCertificates: values[1], account: values[2], assetScope: values[3]))
       values[role] = Data()
       XCTAssertThrowsError(try KagemushaWalletOpenOriginalsV1(credential: values[0], enrollmentCertificates: values[1], account: values[2], assetScope: values[3]))

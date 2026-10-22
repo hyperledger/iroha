@@ -5,7 +5,9 @@
 
 use ff::Field;
 use iroha_pasta::Fq;
-use iroha_plonk::frontend::{Circuit, synthesize};
+#[cfg(test)]
+use iroha_plonk::frontend::synthesize;
+use iroha_plonk::frontend::{Circuit, synthesize_layout};
 use iroha_plonk_gadgets::range::secondary::{SecondaryPhase, SecondaryPlan};
 use iroha_plonk_recursion::verifier::CompactSpans;
 
@@ -19,7 +21,7 @@ const SPONGE_END: usize = 32_768;
 const ARITHMETIC_END: usize = 131_072;
 const TRACE_END: usize = 262_138;
 const ADVICE_COLUMNS: usize = 11;
-const FIXED_COLUMNS: usize = 12;
+const FIXED_COLUMNS: usize = 14;
 const RANGE_START: usize = 16;
 const RANGE_RADIX: usize = 15;
 const RANGE_MAX: usize = 252;
@@ -106,14 +108,12 @@ fn range_widths(pattern: &[Fq], tops: &[Fq], end: usize) -> Result<Vec<usize>, E
     Ok(widths)
 }
 
-pub(super) fn derive(source: &OmegaCircuit) -> Result<Layout, Error> {
-    let trace_spans =
-        CompactSpans::new(SPONGE_END, ARITHMETIC_END, TRACE_END).map_err(|_| Error::Artifact)?;
-    let trace = source.without_witnesses().with_compact_layout(trace_spans);
-    let assigned = synthesize(&trace, TRACE_K, None).map_err(|_| Error::Artifact)?;
-    let advice = assigned.tables.advice_assigned();
-    let fixed = assigned.tables.fixed();
-    let occupied_fixed = assigned.tables.fixed_assigned();
+/// The planner consumes only fixed values and occupancy from either backend.
+fn packed_layout(
+    advice: &[Vec<bool>],
+    fixed: &[Vec<Fq>],
+    occupied_fixed: &[Vec<bool>],
+) -> Result<(CompactSpans, SecondaryPlan), Error> {
     if advice.len() != ADVICE_COLUMNS
         || fixed.len() != FIXED_COLUMNS
         || occupied_fixed.len() != FIXED_COLUMNS
@@ -179,9 +179,43 @@ pub(super) fn derive(source: &OmegaCircuit) -> Result<Layout, Error> {
     let schedule = SecondaryPlan::new(widths, phases).map_err(|_| Error::Artifact)?;
     let spans = CompactSpans::new(sponge + PREFIX, padding_start + padding, USABLE)
         .map_err(|_| Error::Artifact)?;
+    Ok((spans, schedule))
+}
+
+pub(super) fn derive(source: &OmegaCircuit) -> Result<Layout, Error> {
+    let trace_spans =
+        CompactSpans::new(SPONGE_END, ARITHMETIC_END, TRACE_END).map_err(|_| Error::Artifact)?;
+    let trace = source.without_witnesses().with_compact_layout(trace_spans);
+    let assigned = synthesize_layout(&trace, TRACE_K).map_err(|_| Error::Artifact)?;
+    let (spans, schedule) = packed_layout(
+        assigned.advice_assigned(),
+        assigned.fixed(),
+        assigned.fixed_assigned(),
+    )?;
     drop(assigned);
-    // Secondary replay checks the exact event sequence and shared-cell ownership.
-    // This unknown assignment establishes source shape only, never proof validity.
+    // The same k16 replay validates exact event order and shared-cell ownership.
+    // Actual keygen/import/proving continue to use full synthesis.
+    let replay = source
+        .without_witnesses()
+        .with_secondary_layout(spans, schedule.clone());
+    synthesize_layout(&replay, PROOF_K).map_err(|_| Error::Artifact)?;
+    Ok(Layout::Secondary { spans, schedule })
+}
+
+// Reference backend only for differential tests. Constants, planner and both
+// source circuits match derive; full copy cycles are retained in both passes.
+#[cfg(test)]
+pub(super) fn derive_reference(source: &OmegaCircuit) -> Result<Layout, Error> {
+    let trace_spans =
+        CompactSpans::new(SPONGE_END, ARITHMETIC_END, TRACE_END).map_err(|_| Error::Artifact)?;
+    let trace = source.without_witnesses().with_compact_layout(trace_spans);
+    let assigned = synthesize(&trace, TRACE_K, None).map_err(|_| Error::Artifact)?;
+    let (spans, schedule) = packed_layout(
+        assigned.tables.advice_assigned(),
+        assigned.tables.fixed(),
+        assigned.tables.fixed_assigned(),
+    )?;
+    drop(assigned);
     let replay = source
         .without_witnesses()
         .with_secondary_layout(spans, schedule.clone());
@@ -197,7 +231,7 @@ mod tests {
     fn compiled_policy_has_exact_unambiguous_framing() {
         let mut expected = b"iroha-kagemusha-omega-layout-v1\0".to_vec();
         for word in [
-            16_u32, 18, 37, 65_530, 32_768, 131_072, 262_138, 11, 12, 16, 15, 252, 6, 0, 1, 2, 4,
+            16_u32, 18, 37, 65_530, 32_768, 131_072, 262_138, 11, 14, 16, 15, 252, 6, 0, 1, 2, 4,
             5, 9, 6, 4, 5, 6, 7, 8, 9, 3,
         ] {
             expected.extend_from_slice(&word.to_le_bytes());

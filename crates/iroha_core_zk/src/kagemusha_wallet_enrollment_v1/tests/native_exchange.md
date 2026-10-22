@@ -103,7 +103,7 @@ package, folds the complete outgoing backlog, reopens the same custody, and
 replays the acknowledgement without another signature or monetary change. B's
 final CreditStatus must expose an empty pending-outgoing root. The four exact
 acknowledgement/Archive originals are retained with their lengths and hashes in
-`archive_originals`; every original must fit 10,000 bytes. Exact current-candidate
+`archive_originals`; every original must fit 10,034 bytes. Exact current-candidate
 execution, rather than registration of the checks, establishes acceptance.
 
 For retained A Send/Archive custody, the ignored

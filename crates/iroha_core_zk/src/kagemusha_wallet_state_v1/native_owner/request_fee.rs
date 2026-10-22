@@ -245,7 +245,7 @@ mod tests {
             },
         );
         assert!(fee_policy(&scheme, &a, &missing).is_err());
-        for malformed in [vec![], vec![0; 10_001], [a.as_slice(), &[0]].concat()] {
+        for malformed in [vec![], vec![0; 10_035], [a.as_slice(), &[0]].concat()] {
             assert!(fee_policy(&scheme, &malformed, &b).is_err());
         }
     }

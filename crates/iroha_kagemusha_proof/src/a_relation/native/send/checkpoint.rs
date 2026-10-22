@@ -12,15 +12,16 @@ use iroha_plonk_recursion::ACCUMULATOR_BYTES;
 use norito::{NoritoDeserialize, NoritoSchema, NoritoSerialize};
 
 use super::{
-    A_STAGE_COUNT, ACheckpoint, Error, Prover, Session, W_STAGE_COUNT, WCheckpoint, context_digest,
+    ACheckpoint, Error, PLAIN_A_STAGE_COUNT, Prover, QUOTA_A_STAGE_COUNT, Session, WCheckpoint,
+    context_digest,
 };
 
 /// Fixed native stage kind; no transported kind selects a circuit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckpointKind {
-    /// One of the three original A proof stages.
+    /// One of the installed two or three original A proof stages.
     A,
-    /// One of the two original W continuations.
+    /// One of the installed one or two original W continuations.
     W,
 }
 impl CheckpointKind {
@@ -71,13 +72,17 @@ impl CheckpointLayout {
     fn new(
         kind: CheckpointKind,
         stage: usize,
+        a_stages: usize,
         descriptor_digest: [u8; 32],
         verifying_key_digest: [u8; 32],
         proof_bytes: usize,
     ) -> Result<Self, Error> {
+        if !matches!(a_stages, PLAIN_A_STAGE_COUNT | QUOTA_A_STAGE_COUNT) {
+            return Err(Error::Artifact);
+        }
         let limit = match kind {
-            CheckpointKind::A => A_STAGE_COUNT,
-            CheckpointKind::W => W_STAGE_COUNT,
+            CheckpointKind::A => a_stages,
+            CheckpointKind::W => a_stages - 1,
         };
         if stage >= limit || proof_bytes == 0 || u32::try_from(proof_bytes).is_err() {
             return Err(Error::Artifact);
@@ -174,6 +179,7 @@ impl Prover {
                 CheckpointLayout::new(
                     kind,
                     stage,
+                    self.a.len(),
                     *key.binding().digest(),
                     key.key()
                         .kagemusha_digest(key.binding())
@@ -189,6 +195,7 @@ impl Prover {
                 CheckpointLayout::new(
                     kind,
                     stage,
+                    self.a.len(),
                     *key.binding().digest(),
                     key.key()
                         .kagemusha_digest(key.binding())
@@ -208,10 +215,10 @@ impl Prover {
     /// # Errors
     /// An installed descriptor/key cannot define the fixed canonical payload.
     pub fn checkpoint_layouts(&self) -> Result<Vec<CheckpointLayout>, Error> {
-        let mut layouts = Vec::with_capacity(A_STAGE_COUNT + W_STAGE_COUNT);
-        for stage in 0..A_STAGE_COUNT {
+        let mut layouts = Vec::with_capacity(self.a.len() + self.w.len());
+        for stage in 0..self.a.len() {
             layouts.push(self.checkpoint_layout(CheckpointKind::A, stage)?);
-            if stage < W_STAGE_COUNT {
+            if stage < self.w.len() {
                 layouts.push(self.checkpoint_layout(CheckpointKind::W, stage)?);
             }
         }
@@ -425,8 +432,13 @@ mod tests {
     #[test]
     fn checkpoint_read_refusal_preserves_original_and_exact_retry() {
         // Grammar-only originals never enter a proof verifier or monetary owner.
-        for kind in [CheckpointKind::A, CheckpointKind::W] {
-            let layout = CheckpointLayout::new(kind, 0, [1; 32], [2; 32], 64).unwrap();
+        for (kind, a_stages) in [
+            (CheckpointKind::A, PLAIN_A_STAGE_COUNT),
+            (CheckpointKind::W, PLAIN_A_STAGE_COUNT),
+            (CheckpointKind::A, QUOTA_A_STAGE_COUNT),
+            (CheckpointKind::W, QUOTA_A_STAGE_COUNT),
+        ] {
+            let layout = CheckpointLayout::new(kind, 0, a_stages, [1; 32], [2; 32], 64).unwrap();
             let make = || Payload {
                 version: 1,
                 kind: kind.tag(),
@@ -485,38 +497,59 @@ mod tests {
     #[test]
     fn counting_layout_preserves_every_fixed_stage_and_rejects_overflow() {
         // Metadata/counting only; no zero proof is restored or admitted here.
-        for stage in 0..A_STAGE_COUNT {
-            let layout =
-                CheckpointLayout::new(CheckpointKind::A, stage, [1; 32], [2; 32], 8480).unwrap();
-            assert_eq!(layout.stage(), u32::try_from(stage).unwrap());
-            assert_eq!(layout.proof_bytes(), 8480);
-            assert!(layout.payload_bytes() > 8480 + ACCUMULATOR_BYTES);
-        }
-        for stage in 0..W_STAGE_COUNT {
+        for count in [PLAIN_A_STAGE_COUNT, QUOTA_A_STAGE_COUNT] {
+            for stage in 0..count {
+                let layout =
+                    CheckpointLayout::new(CheckpointKind::A, stage, count, [1; 32], [2; 32], 8480)
+                        .unwrap();
+                assert_eq!(layout.stage(), u32::try_from(stage).unwrap());
+                assert_eq!(layout.proof_bytes(), 8480);
+                assert!(layout.payload_bytes() > 8480 + ACCUMULATOR_BYTES);
+            }
+            for stage in 0..count - 1 {
+                assert!(
+                    CheckpointLayout::new(CheckpointKind::W, stage, count, [1; 32], [2; 32], 4096)
+                        .is_ok()
+                );
+            }
             assert!(
-                CheckpointLayout::new(CheckpointKind::W, stage, [1; 32], [2; 32], 4096).is_ok()
+                CheckpointLayout::new(CheckpointKind::A, count, count, [1; 32], [2; 32], 8480)
+                    .is_err()
+            );
+            assert!(
+                CheckpointLayout::new(CheckpointKind::W, count - 1, count, [1; 32], [2; 32], 4096)
+                    .is_err()
+            );
+            for bytes in [0, usize::MAX] {
+                assert!(
+                    CheckpointLayout::new(CheckpointKind::A, 0, count, [1; 32], [2; 32], bytes)
+                        .is_err()
+                );
+            }
+        }
+        for count in [0, 1, 4, 5] {
+            assert!(
+                CheckpointLayout::new(CheckpointKind::A, 0, count, [1; 32], [2; 32], 32).is_err()
             );
         }
-        assert!(
-            CheckpointLayout::new(CheckpointKind::A, A_STAGE_COUNT, [1; 32], [2; 32], 8480)
-                .is_err()
-        );
-        assert!(
-            CheckpointLayout::new(CheckpointKind::W, W_STAGE_COUNT, [1; 32], [2; 32], 4096)
-                .is_err()
-        );
-        assert!(CheckpointLayout::new(CheckpointKind::A, 0, [1; 32], [2; 32], 0).is_err());
-        assert!(CheckpointLayout::new(CheckpointKind::A, 0, [1; 32], [2; 32], usize::MAX).is_err());
     }
 
     #[test]
     fn canonical_payload_metadata_cannot_select_another_stage_key_or_length() {
         // Original codec checks only. These labelled stand-in proof/claim bytes
         // are never passed to Session restore or treated as acceptance evidence.
-        let stage = A_STAGE_COUNT - 1;
+        let stage = PLAIN_A_STAGE_COUNT - 1;
         // Keep another valid A ordinal for the cross-stage mismatch control.
         assert!(stage > 0);
-        let layout = CheckpointLayout::new(CheckpointKind::A, stage, [1; 32], [2; 32], 32).unwrap();
+        let layout = CheckpointLayout::new(
+            CheckpointKind::A,
+            stage,
+            PLAIN_A_STAGE_COUNT,
+            [1; 32],
+            [2; 32],
+            32,
+        )
+        .unwrap();
         let payload = || Payload {
             version: 1,
             kind: 0,
@@ -540,7 +573,7 @@ mod tests {
                 5 => {
                     changed.proof.pop();
                 }
-                _ => changed.stage = u32::try_from(A_STAGE_COUNT).unwrap(),
+                _ => changed.stage = u32::try_from(PLAIN_A_STAGE_COUNT).unwrap(),
             }
             assert!(changed.encode(&layout).is_err());
         }

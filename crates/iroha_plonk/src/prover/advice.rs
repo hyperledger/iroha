@@ -23,15 +23,89 @@ use crate::{
     transcript::{Transcript, TranscriptWrite},
 };
 
+// Public shape only: at k >= 8, four rows use at most 4n products, while
+// the current coset FFT uses nk/2 + 1. Smaller domains keep the dense path.
+const SHORT_INSTANCE_PREFIX_MAX: usize = 4;
+const SHORT_INSTANCE_MIN_N: usize = 1 << 8;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ShortInstancePrefix<F> {
+    values: [F; SHORT_INSTANCE_PREFIX_MAX],
+    len: usize,
+}
+
 /// The instance columns in both forms.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct InstanceColumns<F> {
     /// Zero-padded evaluation form (`n` rows each).
     pub(super) values: Vec<Vec<F>>,
     /// Coefficient form.
-    pub(super) polys: Vec<Vec<F>>,
+    polys: Vec<Vec<F>>,
+    // Captured from the same immutable input used to interpolate `polys`.
+    // No n-row evaluation buffer is retained for this optimization.
+    short_prefixes: Vec<Option<ShortInstancePrefix<F>>>,
     /// The unpadded lengths.
     lengths: Vec<usize>,
+}
+
+/// Interpolates public prefixes of length at most two into the existing
+/// coefficient buffer. Longer or oversized prefixes leave it untouched and
+/// retain the caller's dense IFFT. The constructor supplies the same original
+/// input that produced its padded column; this is not a public coefficient API.
+///
+/// c_i = n^-1 sum_j a_j omega^(-ij). A one-element prefix is constant;
+/// a two-element prefix adds one geometric sequence. Shape, never values,
+/// selects the path. All Rayon work joins before cancellation is returned.
+fn interpolate_short_instance<F: iroha_pasta::PastaField>(
+    domain: &iroha_pasta::fft::FftDomain<F>,
+    prefix: &[F],
+    coefficients: &mut [F],
+    cancellation: Option<&CancellationToken>,
+) -> Result<bool, iroha_pasta::fft::FftError> {
+    use iroha_pasta::fft::FftError;
+    CancellationToken::checkpoint(cancellation)?;
+    if coefficients.len() != domain.n() {
+        return Err(FftError::WrongLength {
+            expected: domain.n(),
+            actual: coefficients.len(),
+        });
+    }
+    if prefix.len() > 2 || prefix.len() > domain.n() {
+        return Ok(false);
+    }
+    let constant = prefix.first().copied().unwrap_or(F::ZERO) * domain.n_inv();
+    let linear = prefix
+        .get(1)
+        .map(|value| (*value * domain.n_inv(), domain.omega_inv()));
+    coefficients
+        .par_chunks_mut(1024)
+        .enumerate()
+        .try_for_each(|(chunk, output)| {
+            interpolate_short_instance_chunk(output, chunk * 1024, constant, linear, cancellation)
+        })?;
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(true)
+}
+
+/// Each bounded chunk checks cancellation before modifying its output.
+fn interpolate_short_instance_chunk<F: iroha_pasta::PastaField>(
+    output: &mut [F],
+    start: usize,
+    constant: F,
+    linear: Option<(F, F)>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<(), iroha_pasta::fft::FftError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if let Some((scale, step)) = linear {
+        let mut term = scale * step.pow_vartime([start as u64]);
+        for value in output {
+            *value = constant + term;
+            term *= step;
+        }
+    } else {
+        output.fill(constant);
+    }
+    Ok(())
 }
 
 impl<F: iroha_pasta::PastaField> InstanceColumns<F> {
@@ -46,6 +120,27 @@ impl<F: iroha_pasta::PastaField> InstanceColumns<F> {
         cancellation: Option<&CancellationToken>,
     ) -> Result<Self, ProverError> {
         let n = pk.binding().n();
+        let short_prefixes = if n >= SHORT_INSTANCE_MIN_N
+            && instances
+                .iter()
+                .any(|column| column.len() <= SHORT_INSTANCE_PREFIX_MAX)
+        {
+            instances
+                .iter()
+                .map(|column| {
+                    (column.len() <= SHORT_INSTANCE_PREFIX_MAX).then(|| {
+                        let mut values = [F::ZERO; SHORT_INSTANCE_PREFIX_MAX];
+                        values[..column.len()].copy_from_slice(column);
+                        ShortInstancePrefix {
+                            values,
+                            len: column.len(),
+                        }
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let values: Vec<Vec<F>> = instances
             .iter()
             .map(|column| {
@@ -56,17 +151,38 @@ impl<F: iroha_pasta::PastaField> InstanceColumns<F> {
             .collect();
         let polys = values
             .iter()
-            .map(|column| {
+            .zip(instances)
+            .map(|(column, prefix)| {
                 let mut coeffs = column.clone();
-                pk.domain().ifft_cancellable(&mut coeffs, cancellation)?;
+                if !interpolate_short_instance(pk.domain(), prefix, &mut coeffs, cancellation)? {
+                    pk.domain().ifft_cancellable(&mut coeffs, cancellation)?;
+                }
                 Ok(coeffs)
             })
             .collect::<Result<Vec<_>, ProverError>>()?;
         Ok(Self {
             values,
             polys,
+            short_prefixes,
             lengths: instances.iter().map(Vec::len).collect(),
         })
+    }
+
+    /// The original coefficients, also used by every instance opening.
+    pub(super) fn polys(&self) -> &[Vec<F>] {
+        &self.polys
+    }
+
+    pub(super) fn has_short_prefixes(&self) -> bool {
+        !self.short_prefixes.is_empty()
+    }
+
+    /// Only this owner can pair a retained prefix with its interpolated polynomial.
+    pub(super) fn short_prefix(&self, column: usize) -> Option<&[F]> {
+        self.short_prefixes
+            .get(column)
+            .and_then(Option::as_ref)
+            .map(|prefix| &prefix.values[..prefix.len])
     }
 
     /// Absorbs the instances (spec 6.3 step 3).
@@ -216,3 +332,7 @@ where
     }
     Ok(advice)
 }
+
+#[cfg(test)]
+#[path = "advice/short_instance_coefficients_tests.rs"]
+mod short_instance_coefficients_tests;

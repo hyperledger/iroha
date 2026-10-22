@@ -369,7 +369,7 @@ pub(crate) fn inner_product<F: PastaField>(a: &[F], b: &[F]) -> F {
     a.iter().zip(b).fold(F::ZERO, |acc, (x, y)| acc + *x * y)
 }
 
-/// Evaluates a coefficient-form polynomial at `x` with Horner leaves.
+/// Evaluates a coefficient-form polynomial at `x` with interleaved Horner leaves.
 ///
 /// Large inputs split into a fixed tree on the caller's Rayon pool. Each
 /// node combines `low(x) + x^low.len() high(x)` in that order; scheduling
@@ -386,11 +386,37 @@ pub fn evaluate_polynomial<F: Field>(coeffs: &[F], x: F) -> F {
         );
         return low + power * high;
     }
-    coeffs
+    evaluate_horner_interleaved(coeffs, x)
+}
+
+/// Four independent chains expose field multiplication parallelism to the CPU.
+/// Grouping depends only on the public polynomial length, uses constant stack
+/// space and is exact field arithmetic, including a short final group.
+fn evaluate_horner_interleaved<F: Field>(coeffs: &[F], x: F) -> F {
+    if coeffs.len() < 16 {
+        return coeffs
+            .iter()
+            .rev()
+            .fold(F::ZERO, |acc, coeff| acc * x + coeff);
+    }
+    let x4 = x.square().square();
+    let mut lanes = [F::ZERO; 4];
+    let mut groups = coeffs.chunks_exact(4);
+    lanes[..groups.remainder().len()].copy_from_slice(groups.remainder());
+    for group in groups.by_ref().rev() {
+        for (value, coeff) in lanes.iter_mut().zip(group) {
+            *value = *value * x4 + coeff;
+        }
+    }
+    lanes
         .iter()
         .rev()
-        .fold(F::ZERO, |acc, coeff| acc * x + coeff)
+        .fold(F::ZERO, |acc, value| acc * x + value)
 }
+
+#[cfg(test)]
+#[path = "evaluation_tests.rs"]
+mod evaluation_tests;
 
 #[cfg(test)]
 mod tests {

@@ -45,7 +45,7 @@ class KagemushaWalletInstalledHolderV1Test {
         assertFailsWith<IllegalArgumentException>{runtime(root="/"+"x".repeat(4096))}
     }
     @Test fun `every enrollment original is required and independently finite`() {
-        val caps = intArrayOf(1024, 10_000, 4096, 1024)
+        val caps = intArrayOf(1024, 10_034, 4096, 1024)
         for (i in caps.indices) for (bad in listOf(byteArrayOf(), ByteArray(caps[i] + 1))) {
             val inputs = MutableList(4) { byteArrayOf(7) }; inputs[i] = bad
             assertFailsWith<IllegalArgumentException> { KagemushaWalletOpenOriginalsV1(inputs[0], inputs[1], inputs[2], inputs[3]) }

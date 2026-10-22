@@ -1,7 +1,9 @@
 //! Transaction-bound ordinary finality custody, independent of the wallet's global tip.
 use super::*;
 use crate::kagemusha_wallet_state_v1::finality_read_error;
-use iroha_data_model::sumeragi_finality::{SumeragiFinalityCheckpoint, SumeragiFinalityProof};
+use iroha_data_model::sumeragi_finality::{
+    SumeragiCheckpointAdvanceError, SumeragiFinalityCheckpoint, SumeragiFinalityProof,
+};
 const SESSION_MAX: usize = MAX_FINALITY_CHECKPOINT_BYTES + 1024;
 
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -46,18 +48,18 @@ impl Session {
     }
 }
 fn next_checkpoint(
-    mut verifier: SumeragiFinalityVerifier,
+    verifier: SumeragiFinalityVerifier,
     previous: Option<&SumeragiFinalityCheckpoint>,
     candidate: &SumeragiFinalityProof,
-) -> Result<(SumeragiFinalityCheckpoint, bool), Error> {
+) -> Result<(SumeragiFinalityCheckpoint, VerifiedSumeragiBlock, bool), Error> {
     if let Some(previous) = previous {
         if candidate.height() == previous.height() {
-            verifier
+            let decision = verifier
                 .verify_retained_decision(candidate)
                 .map_err(|error| {
                     finality_read_error(error, Error::Proof("Unload cursor retry decision"))
                 })?;
-            return Ok((previous.clone(), false));
+            return Ok((previous.clone(), decision, false));
         }
         if previous.height().checked_add(1) != Some(candidate.height()) {
             return Err(Error::Invalid("Unload cursor next height"));
@@ -79,15 +81,25 @@ fn next_checkpoint(
             }
         }
     };
-    if needs_contiguous_verification {
-        verifier.verify(candidate).map_err(|error| {
-            finality_read_error(error, Error::Proof("Unload cursor continuity"))
-        })?;
-    }
-    let checkpoint = verifier
-        .export_checkpoint(candidate)
-        .map_err(|error| finality_read_error(error, Error::Proof("Unload cursor checkpoint")))?;
-    Ok((checkpoint, true))
+    let (checkpoint, decision) = if needs_contiguous_verification {
+        // One exact native producer owns the candidate through continuity and bounded export.
+        // Active cumulative decoder owners retain the original two-attempt admission recipe.
+        verifier
+            .advance_checkpoint_with_tip(candidate)
+            .map_err(|error| match error {
+                SumeragiCheckpointAdvanceError::Verify(original) => {
+                    finality_read_error(original, Error::Proof("Unload cursor continuity"))
+                }
+                SumeragiCheckpointAdvanceError::Export(original) => {
+                    finality_read_error(original, Error::Proof("Unload cursor checkpoint"))
+                }
+            })?
+    } else {
+        verifier
+            .export_checkpoint_with_tip(candidate)
+            .map_err(|error| finality_read_error(error, Error::Proof("Unload cursor checkpoint")))?
+    };
+    Ok((checkpoint, decision, true))
 }
 
 struct UnloadInclusion<'a> {
@@ -102,26 +114,19 @@ impl UnloadInclusion<'_> {
         archive: &mut impl index::ObjectStore,
         confirmations: &mut index::IndexRoot,
         genesis: &SumeragiFinalityVerifier,
-        checkpoint: &SumeragiFinalityCheckpoint,
+        decision: &VerifiedSumeragiBlock,
     ) -> Result<bool, Error> {
         if retained_unload_confirmation(archive, confirmations, self.transaction, self.digest)?
             .is_some()
         {
             return Ok(false);
         }
-        let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
-            checkpoint,
-            &genesis.initial_epoch().network_id,
-            genesis.chain_id(),
-        )
-        .map_err(|error| finality_read_error(error, Error::Proof("Unload selected prefix")))?;
-        let decision = verifier
-            .verify_retained_decision(checkpoint.tip())
-            .map_err(|error| {
-                finality_read_error(error, Error::Proof("Unload selected native decision"))
-            })?;
+        // The cursor producer returns the exact native decision it has already verified.
+        // Keep that opaque capability inside this call instead of rebuilding the same
+        // checkpoint and verifying its tip twice more. Every supplied candidate still
+        // passes native finality, and inclusion below still binds the exact claim bytes.
         if !contains_successful_unload(
-            &decision,
+            decision,
             &genesis.initial_epoch().network_id,
             self.scheme,
             self.transaction,
@@ -129,11 +134,10 @@ impl UnloadInclusion<'_> {
         )? {
             return Ok(false);
         }
-        let progress = ledger::progress(checkpoint);
         let confirmed = UnloadConfirmation {
             original_digest: *self.digest,
-            height: progress.height,
-            block_hash: progress.block_hash,
+            height: decision.height(),
+            block_hash: *decision.block().hash().as_ref(),
         };
         *confirmations =
             confirmations.set(archive, *self.transaction, &archive::encode(&confirmed)?)?;
@@ -255,7 +259,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         self.clean_unload_cursor()?;
         let (selected, mut manifest) = self.sync_manifest()?;
         let (verifier, previous) = self.selected_unload_cursor(&manifest, &transaction, &digest)?;
-        let (checkpoint, changed) = next_checkpoint(verifier, previous.as_ref(), &candidate)?;
+        let (checkpoint, decision, changed) =
+            next_checkpoint(verifier, previous.as_ref(), &candidate)?;
+        // The returned checkpoint owns its exact tip; the input wire copies are
+        // no longer needed during inclusion, encoding or durable publication.
+        drop(candidate);
+        drop(previous);
         // The HTTP locator may be later than the actual transaction. Retain inclusion
         // atomically with this prefix so a later cursor can never discard its evidence.
         // unload_original_digest already validated the claim and its owner scope.
@@ -269,8 +278,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &mut self.archive,
             &mut manifest.ledger_unload_confirmations,
             &self.proofs.genesis,
-            &checkpoint,
+            &decision,
         )?;
+        // Inclusion retained only compact confirmation data. Release the decoded
+        // block before checkpoint encoding, archive writes and manifest publication.
+        drop(decision);
         if !changed {
             if confirmed {
                 self.publish_manifest(selected, &manifest)?;
@@ -312,6 +324,162 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 mod tests {
     use super::*;
     use iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+
+    impl UnloadInclusion<'_> {
+        // Tests which start from an independently selected checkpoint use the same full
+        // importer and consume its authenticated tip without a second tip verification.
+        fn retain_checkpoint_fixture(
+            &self,
+            archive: &mut impl index::ObjectStore,
+            confirmations: &mut index::IndexRoot,
+            genesis: &SumeragiFinalityVerifier,
+            checkpoint: &SumeragiFinalityCheckpoint,
+        ) -> Result<bool, Error> {
+            let (_, decision) = SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+                checkpoint,
+                &genesis.initial_epoch().network_id,
+                genesis.chain_id(),
+            )
+            .map_err(|error| finality_read_error(error, Error::Proof("Unload selected prefix")))?;
+            self.retain(archive, confirmations, genesis, &decision)
+        }
+    }
+
+    #[test]
+    fn unload_cursor_returns_the_exact_authenticated_candidate_for_inclusion() {
+        let mut native = NativeFinalityFixture::start("unload-verified-candidate-reuse");
+        let genesis = native.verifier();
+        let previous = native.checkpoint();
+        let block = native.block_with_submitted_work(native.next_header());
+        let candidate = native.certify(block);
+        let (checkpoint, decision, changed) =
+            next_checkpoint(genesis, Some(&previous), &candidate).unwrap();
+        assert!(changed);
+        assert_eq!(decision.height(), candidate.height());
+        assert_eq!(
+            decision.block().encode_wire().unwrap(),
+            candidate.block_wire
+        );
+        assert_eq!(checkpoint.tip(), &candidate);
+        let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
+            &checkpoint,
+            &native.network_id(),
+            native.chain_id(),
+        )
+        .unwrap();
+        let (retry, decision, changed) =
+            next_checkpoint(verifier.clone(), Some(&checkpoint), &candidate).unwrap();
+        assert!(!changed);
+        assert_eq!(
+            retry.encode_canonical().unwrap(),
+            checkpoint.encode_canonical().unwrap()
+        );
+        assert_eq!(
+            decision.block().encode_wire().unwrap(),
+            candidate.block_wire
+        );
+        let mut changed = candidate;
+        changed.committee[0].proof_of_possession[0] ^= 1;
+        assert!(next_checkpoint(verifier, Some(&checkpoint), &changed).is_err());
+    }
+
+    #[test]
+    fn unload_cursor_advance_preserves_refusal_category_and_exact_retry() {
+        let mut native = NativeFinalityFixture::start("unload-advance-refusal");
+        let genesis = native.verifier();
+        let previous = native.checkpoint();
+        let block = native.block_with_submitted_work(native.next_header());
+        let candidate = native.certify(block);
+        let original = norito::encode_canonical(&candidate).unwrap();
+        let expected = native.checkpoint();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || {
+            next_checkpoint(genesis.clone(), Some(&previous), &candidate)
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        let mut invalid = candidate.clone();
+        invalid.committee[0].proof_of_possession[0] ^= 1;
+        assert!(matches!(
+            next_checkpoint(genesis.clone(), Some(&previous), &invalid),
+            Err(Error::Proof("Unload cursor continuity"))
+        ));
+        assert_eq!(norito::encode_canonical(&candidate).unwrap(), original);
+        let (retried, decision, changed) =
+            next_checkpoint(genesis, Some(&previous), &candidate).unwrap();
+        assert!(changed);
+        assert_eq!(retried, expected);
+        assert_eq!(
+            decision.block().encode_wire().unwrap(),
+            candidate.block_wire
+        );
+    }
+
+    /// Host diagnostic for the removed redundant native-finality work; no device SLA claim.
+    #[test]
+    #[ignore = "host timing diagnostic; run explicitly with --ignored --nocapture"]
+    fn unload_finality_inclusion_reuse_timing() {
+        use crate::kagemusha_wallet_state_v1::tests::MemoryArchive;
+        use std::time::{Duration, Instant};
+        let mut native = NativeFinalityFixture::start("unload-inclusion-reuse-timing");
+        let genesis = native.verifier();
+        let previous = native.checkpoint();
+        let block = native.block_with_submitted_work(native.next_header());
+        let candidate = native.certify(block);
+        let inclusion = UnloadInclusion {
+            scheme: [1; 32],
+            transaction: &[2; 32],
+            digest: &[3; 32],
+            original: b"absent transaction claim",
+        };
+        let mut baseline = Duration::ZERO;
+        let mut optimized = Duration::ZERO;
+        for sample in 0..6 {
+            for old_path in [true, false] {
+                let start = Instant::now();
+                let (checkpoint, decision, _) =
+                    next_checkpoint(genesis.clone(), Some(&previous), &candidate).unwrap();
+                let decision = if old_path {
+                    // Reproduce the original caller's full checkpoint import followed by
+                    // a separate tip verification, with exactly the same genuine BLS input.
+                    drop(decision);
+                    let restored = SumeragiFinalityVerifier::from_trusted_checkpoint(
+                        &checkpoint,
+                        &native.network_id(),
+                        native.chain_id(),
+                    )
+                    .unwrap();
+                    restored.verify_retained_decision(checkpoint.tip()).unwrap()
+                } else {
+                    decision
+                };
+                assert!(
+                    !inclusion
+                        .retain(
+                            &mut MemoryArchive::new(),
+                            &mut index::IndexRoot::default(),
+                            &genesis,
+                            &decision,
+                        )
+                        .unwrap()
+                );
+                if sample != 0 {
+                    if old_path {
+                        baseline += start.elapsed();
+                    } else {
+                        optimized += start.elapsed();
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "UNLOAD_FINALITY_REUSE samples=5 block_bytes={} duplicated_ms={:.3} reused_ms={:.3} speedup={:.3}",
+            candidate.block_wire.len(),
+            baseline.as_secs_f64() * 200.0,
+            optimized.as_secs_f64() * 200.0,
+            baseline.as_secs_f64() / optimized.as_secs_f64(),
+        );
+    }
 
     #[test]
     fn selected_unload_decision_preserves_actual_read_refusal_and_exact_retry() {
@@ -393,7 +561,7 @@ mod tests {
         let genesis = native.verifier();
         let candidate = native.genesis_proof();
         let original = norito::encode_canonical(candidate).unwrap();
-        let (checkpoint, changed) = next_checkpoint(genesis.clone(), None, candidate).unwrap();
+        let (checkpoint, _, changed) = next_checkpoint(genesis.clone(), None, candidate).unwrap();
         assert!(changed);
         let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
         for previous in [None, Some(&checkpoint)] {
@@ -403,7 +571,8 @@ mod tests {
             assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
                 if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
             assert_eq!(norito::encode_canonical(candidate).unwrap(), original);
-            let (retried, changed) = next_checkpoint(genesis.clone(), previous, candidate).unwrap();
+            let (retried, _, changed) =
+                next_checkpoint(genesis.clone(), previous, candidate).unwrap();
             assert_eq!(changed, previous.is_none());
             assert_eq!(
                 retried.encode_canonical().unwrap(),
@@ -494,6 +663,7 @@ mod tests {
         // This does not execute a World Unload; it checks relayed exact-byte inclusion.
         let mut native = NativeFinalityFixture::start("unload-overshooting-locator");
         let genesis = native.verifier();
+        let previous = native.checkpoint();
         let signer = KeyPair::from_seed(vec![79; 32], Algorithm::Ed25519);
         let account = AccountId::new(signer.public_key().clone());
         let claim: KagemushaWalletUnloadClaimV1 =
@@ -528,6 +698,10 @@ mod tests {
         let transaction = *block.network_entrypoint_at(0).unwrap().hash().as_ref();
         native.certify(block);
         let two = native.checkpoint();
+        let (exported, verified, changed) =
+            next_checkpoint(genesis.clone(), Some(&previous), two.tip()).unwrap();
+        assert!(changed);
+        assert_eq!(exported, two);
         let inclusion = UnloadInclusion {
             scheme,
             transaction: &transaction,
@@ -539,24 +713,20 @@ mod tests {
         let unchanged = confirmations;
         let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
         let refused = norito::with_decode_limits_scope(limits, || {
-            inclusion.retain(&mut archive, &mut confirmations, &genesis, &two)
+            inclusion.retain_checkpoint_fixture(&mut archive, &mut confirmations, &genesis, &two)
         });
         assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
             if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(confirmations, unchanged);
         assert!(
             inclusion
-                .retain(&mut archive, &mut confirmations, &genesis, &two)
+                .retain(&mut archive, &mut confirmations, &genesis, &verified)
                 .unwrap()
         );
         let selected = archive::encode(&confirmations).unwrap();
         let exact = confirmations
             .get(&mut archive, &transaction)
             .unwrap()
-            .unwrap();
-        let verified = native
-            .verifier()
-            .verify_retained_decision(two.tip())
             .unwrap();
         assert!(
             contains_successful_unload(
@@ -649,7 +819,7 @@ mod tests {
         let mut confirmations: index::IndexRoot = archive::decode(&selected).unwrap();
         assert!(
             !inclusion
-                .retain(&mut archive, &mut confirmations, &genesis, &three)
+                .retain_checkpoint_fixture(&mut archive, &mut confirmations, &genesis, &three)
                 .unwrap()
         );
         assert_eq!(
@@ -673,10 +843,11 @@ mod tests {
         };
         assert!(
             changed
-                .retain(&mut archive, &mut confirmations, &genesis, &three)
+                .retain_checkpoint_fixture(&mut archive, &mut confirmations, &genesis, &three)
                 .is_err()
         );
         // Even a certified rejected output never earns a successful confirmation.
+        let before_rejected = native.verifier();
         let header = native.next_header();
         let mut tx = TransactionBuilder::new(
             native.network_id(),
@@ -707,6 +878,10 @@ mod tests {
         );
         let rejected = *block.network_entrypoint_at(0).unwrap().hash().as_ref();
         native.certify(block);
+        let rejected_checkpoint = native.checkpoint();
+        let (_, rejected_decision, changed) =
+            next_checkpoint(before_rejected, Some(&three), rejected_checkpoint.tip()).unwrap();
+        assert!(changed);
         let rejected = UnloadInclusion {
             transaction: &rejected,
             digest: &digest,
@@ -720,7 +895,7 @@ mod tests {
                     &mut archive,
                     &mut confirmations,
                     &genesis,
-                    &native.checkpoint()
+                    &rejected_decision
                 )
                 .is_err()
         );
@@ -731,7 +906,7 @@ mod tests {
     fn unload_cursor_restores_exact_older_history_with_genuine_certificates() {
         let mut native = NativeFinalityFixture::start("unload-independent-cursor");
         let genesis = native.verifier();
-        let (one, changed) =
+        let (one, _, changed) =
             next_checkpoint(genesis.clone(), None, native.genesis_proof()).unwrap();
         assert!(changed);
         let mut verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
@@ -742,7 +917,7 @@ mod tests {
         .unwrap();
         let block = native.block_with_submitted_work(native.next_header());
         let two = native.certify(block);
-        let (two_checkpoint, _) = next_checkpoint(verifier.clone(), Some(&one), &two).unwrap();
+        let (two_checkpoint, _, _) = next_checkpoint(verifier.clone(), Some(&one), &two).unwrap();
         let session = Session {
             transaction: [1; 32],
             original_digest: [2; 32],
@@ -757,7 +932,7 @@ mod tests {
         let (older, restored) = session.restore(&genesis, &[1; 32], &[2; 32]).unwrap();
         assert_eq!(restored.height(), 2);
         assert!(older.verify_retained_decision(&two).is_ok());
-        assert!(!next_checkpoint(older, Some(&restored), &two).unwrap().1);
+        assert!(!next_checkpoint(older, Some(&restored), &two).unwrap().2);
         assert!(session.restore(&genesis, &[3; 32], &[2; 32]).is_err());
         assert!(session.restore(&genesis, &[1; 32], &[3; 32]).is_err());
         let foreign = NativeFinalityFixture::start("foreign-unload-cursor");

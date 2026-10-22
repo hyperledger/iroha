@@ -11,6 +11,8 @@ use sha2::Sha256;
 type Owner = EnrollmentOwnerV1<KagemushaWalletSimFsV1, FakePlatformV1>;
 #[path = "tests/native_exchange.rs"]
 mod native_exchange;
+#[path = "tests/multischeme_custody.rs"]
+mod multischeme_custody;
 struct Fixture {
     config: EnrollmentConfigV1,
     challenge: KagemushaWalletEnrollmentChallengeV1,

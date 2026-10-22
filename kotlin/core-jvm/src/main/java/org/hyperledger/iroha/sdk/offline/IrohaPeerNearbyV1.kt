@@ -10,6 +10,7 @@ import java.math.BigInteger
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.Locale
 import java.util.Random
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -200,15 +201,34 @@ object IrohaPeerNearbyDiscoveryMatcherV1 {
     }
 }
 
-object IrohaPeerNearbyVerificationCodeV1 {
-    @JvmStatic fun isValid(code: String): Boolean =
-        code.length in 4..12 && code.all { it in '0'..'9' }
+/**
+ * Google Nearby's short authentication token, the pairing input both platforms share
+ * (`specs/kagemusha_wallet_wire_v1.md` §6, Nearby): the first [LENGTH] characters of the uppercased
+ * URL-safe base64, without padding, of the connection's raw UKEY2 verification string. iOS Nearby
+ * passes it to the app as the connection's verification code; Android has only the raw bytes
+ * (`ConnectionInfo.rawAuthenticationToken`), so [fromRawAuthenticationToken] rebuilds it the way the
+ * Nearby core does. Both phones of one connection see the same token.
+ */
+object IrohaPeerNearbyPairingTokenV1 {
+    const val LENGTH = 5
+
+    /** Exactly [LENGTH] ASCII characters from `A`-`Z`, `0`-`9`, `-` and `_`. */
+    @JvmStatic fun isValid(token: String): Boolean =
+        token.length == LENGTH && token.all { it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }
+
+    /**
+     * The token for [raw], the connection's raw UKEY2 verification string: Nearby's
+     * `ToHumanReadableString` (encryption_runner.cc). Fewer than four raw bytes give a shorter,
+     * invalid token.
+     */
+    @JvmStatic fun fromRawAuthenticationToken(raw: ByteArray): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(raw).take(LENGTH).uppercase(Locale.ROOT)
 }
 
 /**
- * Nearby pairing by picture instead of digits (`specs/kagemusha_wallet_wire_v1.md` §6, Nearby). Both
- * phones derive one of [PICTURE_COUNT] pictures from the transport's authentication digits, which are
- * never displayed: the payer's phone shows that picture, the receiver's phone shows a [grid] of
+ * Nearby pairing by picture instead of a code (`specs/kagemusha_wallet_wire_v1.md` §6, Nearby). Both
+ * phones derive one of [PICTURE_COUNT] pictures from the transport's pairing token, which is never
+ * displayed: the payer's phone shows that picture, the receiver's phone shows a [grid] of
  * [GRID_SIZE] pictures that contains it, and the receiver accepts the connection only when its user
  * picks the payer's picture. Every index matches the Swift `IrohaPeerNearbyPictureCodeV1`
  * (`fixtures/kagemusha/nearby_picture_v1.json`). A matching picture only pairs the radio link; the
@@ -221,14 +241,14 @@ object IrohaPeerNearbyPictureCodeV1 {
     private val DOMAIN = "IROHA-PEER-NEARBY-PICTURE-V1\u0000".toByteArray(Charsets.US_ASCII)
 
     /**
-     * The picture both phones derive from the authentication [digits]:
-     * `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1" ‖ 0x00 ‖ ASCII digits)[0] & 0x0f`. The digits must
-     * satisfy [IrohaPeerNearbyVerificationCodeV1.isValid].
+     * The picture both phones derive from the pairing [token]:
+     * `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1" ‖ 0x00 ‖ ASCII token)[0] & 0x0f`. The token must
+     * satisfy [IrohaPeerNearbyPairingTokenV1.isValid].
      */
     @JvmStatic
-    fun targetIndex(digits: String): Int {
-        require(IrohaPeerNearbyVerificationCodeV1.isValid(digits)) { "Invalid Nearby authentication digits" }
-        val hash = MessageDigest.getInstance("SHA-256").digest(DOMAIN + digits.toByteArray(Charsets.US_ASCII))
+    fun targetIndex(token: String): Int {
+        require(IrohaPeerNearbyPairingTokenV1.isValid(token)) { "Invalid Nearby pairing token" }
+        val hash = MessageDigest.getInstance("SHA-256").digest(DOMAIN + token.toByteArray(Charsets.US_ASCII))
         return hash[0].toInt() and (PICTURE_COUNT - 1)
     }
 

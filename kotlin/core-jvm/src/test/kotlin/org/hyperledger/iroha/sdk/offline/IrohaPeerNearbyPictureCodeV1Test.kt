@@ -18,32 +18,55 @@ class IrohaPeerNearbyPictureCodeV1Test {
         val root = generateSequence(Paths.get("").toAbsolutePath()) { it.parent }
             .first { Files.isRegularFile(it.resolve("fixtures/kagemusha/nearby_picture_v1.json")) }
         val parsed = JsonParser.parse(String(Files.readAllBytes(root.resolve("fixtures/kagemusha/nearby_picture_v1.json")), Charsets.UTF_8)) as Map<*, *>
-        assertEquals(1, (parsed["fixture_version"] as Number).toInt())
+        assertEquals(2, (parsed["fixture_version"] as Number).toInt())
         parsed["nearby_picture"] as Map<*, *>
     }
     private val count = IrohaPeerNearbyPictureCodeV1.PICTURE_COUNT
     private val size = IrohaPeerNearbyPictureCodeV1.GRID_SIZE
 
     @Test
-    fun `both phones derive the shared picture from the authentication digits`() {
+    fun `both phones derive the shared picture from the pairing token`() {
         assertEquals(16, count)
         assertEquals(6, size)
         assertEquals((vectors["picture_count"] as Number).toInt(), count)
         assertEquals((vectors["grid_size"] as Number).toInt(), size)
         val pictures = (vectors["vectors"] as List<*>).map { it as Map<*, *> }
-        assertEquals(10, pictures.size)
+        assertEquals(12, pictures.size)
         for (vector in pictures) {
-            val digits = vector["digits"] as String
-            assertEquals((vector["index"] as Number).toInt(), IrohaPeerNearbyPictureCodeV1.targetIndex(digits), digits)
+            val token = vector["token"] as String
+            assertTrue(IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+            assertEquals((vector["index"] as Number).toInt(), IrohaPeerNearbyPictureCodeV1.targetIndex(token), token)
         }
     }
 
     @Test
-    fun `digits outside the verification code rule are refused`() {
-        val invalid = (vectors["invalid_digits"] as List<*>).map { it as String }
-        assertEquals(6, invalid.size)
-        for (digits in invalid + listOf("12345678901234", "+1234", "1234\u0000", "１２３４")) {
-            assertFailsWith<IllegalArgumentException>(digits) { IrohaPeerNearbyPictureCodeV1.targetIndex(digits) }
+    fun `android rebuilds the token iOS Nearby passes from the raw verification string`() {
+        val tokens = (vectors["token_vectors"] as List<*>).map { it as Map<*, *> }
+        assertEquals(6, tokens.size)
+        for (vector in tokens) {
+            val hex = vector["raw_hex"] as String
+            val raw = ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+            assertEquals(32, raw.size, hex)
+            assertEquals(vector["token"] as String, IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken(raw), hex)
+        }
+        // Fewer than four raw bytes cannot fill five characters.
+        assertEquals("AQID", IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken(byteArrayOf(1, 2, 3)))
+        assertEquals(false, IrohaPeerNearbyPairingTokenV1.isValid(IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken(byteArrayOf(1, 2, 3))))
+        assertEquals("", IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken(ByteArray(0)))
+    }
+
+    @Test
+    fun `text outside the pairing token rule is refused`() {
+        val invalid = (vectors["invalid_tokens"] as List<*>).map { it as String }
+        assertEquals(13, invalid.size)
+        assertTrue("1234" in invalid, "Android's retired authentication digits")
+        for (token in invalid + listOf("ABCD\u0000", "AB\u0000CD", " ABCD", "ABCD ", "ABC\u200BD", "K7Q2f")) {
+            assertEquals(false, IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+            assertFailsWith<IllegalArgumentException>(token) { IrohaPeerNearbyPictureCodeV1.targetIndex(token) }
+        }
+        for (character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") {
+            val token = character.toString().repeat(IrohaPeerNearbyPairingTokenV1.LENGTH)
+            assertTrue(IrohaPeerNearbyPictureCodeV1.targetIndex(token) in 0 until count, token)
         }
     }
 

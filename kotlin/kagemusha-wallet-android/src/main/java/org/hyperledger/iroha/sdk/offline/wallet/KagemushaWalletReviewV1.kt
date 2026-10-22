@@ -109,7 +109,7 @@ internal class KagemushaWalletReviewInputV1(
     init {
         val nonzero = amount.low != 0L || amount.high != 0L
         when (selector) {
-            1 -> require(!nonzero && first.isNotEmpty() && first.size <= 10_000 &&
+            1 -> require(!nonzero && first.isNotEmpty() && first.size <= 10_034 &&
                 second.isNotEmpty() && second.size <= 4_096)
             8 -> {
                 require(nonzero && first.size <= 1_024 && first.isEmpty() == second.isEmpty())
