@@ -372,8 +372,7 @@ fn retained_batch_memory_admission_precedes_read_and_never_demands_fresh_disk_he
 fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_provider_errors() {
     use crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1;
     use crate::kagemusha_wallet_state_v1::capacity::{
-        INTAKE_MEMORY_RESERVATION_BYTES, INTAKE_STORAGE_RESERVATION_BYTES,
-        OPERATION_RESERVATION_BYTES,
+        INTAKE_PEAK_MEMORY_BYTES, INTAKE_STORAGE_RESERVATION_BYTES, OPERATION_RESERVATION_BYTES,
     };
     let mut wallet = prepared_wallet();
     wallet.proofs.capacity = KagemushaWalletRuntimeCapacityV1 {
@@ -403,7 +402,7 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
     ));
     wallet.custody.fail_resources = false;
     wallet.custody.resources.storage_bytes = required;
-    wallet.custody.resources.memory_bytes = Some(INTAKE_MEMORY_RESERVATION_BYTES + 1999);
+    wallet.custody.resources.memory_bytes = Some(INTAKE_PEAK_MEMORY_BYTES - 1);
     assert!(matches!(
         wallet.require_intake_capacity(),
         Err(Error::NotEnoughMemory)
@@ -412,7 +411,7 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
         wallet.require_intake_memory(),
         Err(Error::NotEnoughMemory)
     ));
-    wallet.custody.resources.memory_bytes = Some(INTAKE_MEMORY_RESERVATION_BYTES + 2000);
+    wallet.custody.resources.memory_bytes = Some(INTAKE_PEAK_MEMORY_BYTES);
     wallet.require_intake_capacity().unwrap();
     wallet.require_intake_memory().unwrap();
     wallet.custody.resources.memory_bytes = None;
@@ -441,6 +440,38 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
     assert_eq!(rows[3].phase, NativeAdmissionPhaseV1::IntakeMemory);
     assert_eq!(rows[6].available.unwrap().memory_bytes, None);
     assert_eq!(footprint(&wallet), before);
+}
+
+#[test]
+fn intake_memory_is_the_larger_of_staging_and_proving_never_their_sum() {
+    use crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1;
+    use crate::kagemusha_wallet_state_v1::capacity::INTAKE_PEAK_MEMORY_BYTES;
+    let mut wallet = prepared_wallet();
+    wallet.custody.resources.storage_bytes = u64::MAX / 2;
+    // Staging dominates a small relation bound; a larger relation bound replaces it.
+    for proving in [
+        2_000,
+        INTAKE_PEAK_MEMORY_BYTES,
+        INTAKE_PEAK_MEMORY_BYTES + 4_096,
+    ] {
+        wallet.proofs.capacity = KagemushaWalletRuntimeCapacityV1 {
+            storage_bytes: 1_000,
+            memory_bytes: proving,
+        };
+        let required = proving.max(INTAKE_PEAK_MEMORY_BYTES);
+        wallet.custody.resources.memory_bytes = Some(required - 1);
+        assert!(matches!(
+            wallet.require_intake_capacity(),
+            Err(Error::NotEnoughMemory)
+        ));
+        assert!(matches!(
+            wallet.require_intake_memory(),
+            Err(Error::NotEnoughMemory)
+        ));
+        wallet.custody.resources.memory_bytes = Some(required);
+        wallet.require_intake_capacity().unwrap();
+        wallet.require_intake_memory().unwrap();
+    }
 }
 
 #[test]
