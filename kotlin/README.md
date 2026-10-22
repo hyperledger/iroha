@@ -675,7 +675,9 @@ advertise with `IrohaPeerNearbyDiscoveryContextV1.freshReceiver` while preparing
 that random discovery context does not authorize payment. The per-direction record budgets
 are four on the payer (HELLO, AUTH, Request, Credited) and three on the receiver (HELLO, AUTH,
 Payment). Pairing derives a picture with `IrohaPeerNearbyPictureCodeV1.targetIndex` from the
-transport's authentication digits; never show the digits. The shared picture fixture is
+connection's pairing token, which the transport rebuilds from `rawAuthenticationToken` with
+`IrohaPeerNearbyPairingTokenV1.fromRawAuthenticationToken` so it matches iOS; never show the
+token. The shared picture fixture is
 `fixtures/kagemusha/nearby_picture_v1.json`. Retired Offer/Ask/Lineage message kinds and
 NFC Offer/Ask commands have no fallback; GET_INTAKE remains the direct card's
 REQUEST_READY session record.

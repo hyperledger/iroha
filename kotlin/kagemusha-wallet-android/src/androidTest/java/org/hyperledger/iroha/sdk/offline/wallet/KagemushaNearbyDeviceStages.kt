@@ -52,7 +52,7 @@ internal class KagemushaNearbyDeviceStages(
     }
     private sealed class Incoming {
         class State(val value: IrohaPeerNearbyConnectionsStateV1, val peer: String?, val error: IrohaPeerNearbyConnectionsErrorV1?) : Incoming()
-        class Verify(val peer: String, val digits: String, val decision: IrohaPeerNearbyVerificationDecisionV1) : Incoming()
+        class Verify(val peer: String, val token: String, val decision: IrohaPeerNearbyVerificationDecisionV1) : Incoming()
         class Record(val peer: String, val bytes: ByteArray, val ticks: Long) : Incoming()
         class Context(val peer: String, val value: IrohaPeerNearbyDiscoveryContextV1) : Incoming()
     }
@@ -138,8 +138,8 @@ internal class KagemushaNearbyDeviceStages(
         transport.listener = object : IrohaPeerNearbyConnectionsListenerV1 {
             override fun onStateChanged(state: IrohaPeerNearbyConnectionsStateV1, peerId: String?, error: IrohaPeerNearbyConnectionsErrorV1?) =
                 enqueue(Incoming.State(state, peerId, error))
-            override fun verifyPeer(peerId: String, authenticationDigits: String, decision: IrohaPeerNearbyVerificationDecisionV1) =
-                enqueue(Incoming.Verify(peerId, authenticationDigits, decision))
+            override fun verifyPeer(peerId: String, pairingToken: String, decision: IrohaPeerNearbyVerificationDecisionV1) =
+                enqueue(Incoming.Verify(peerId, pairingToken, decision))
             override fun onRecord(peerId: String, record: ByteArray) = enqueue(Incoming.Record(peerId, record.copyOf(), SystemClock.elapsedRealtimeNanos()))
             override fun onPeerContext(peerId: String, context: IrohaPeerNearbyDiscoveryContextV1) = enqueue(Incoming.Context(peerId, context))
         }
@@ -156,7 +156,7 @@ internal class KagemushaNearbyDeviceStages(
             when (next) {
                 is Incoming.Verify -> {
                     probeRequire(peer == null, "nearby-peer")
-                    val accepted = try { KagemushaNearbyPairing.confirm(next.peer, next.digits, digest(peerCertificate),
+                    val accepted = try { KagemushaNearbyPairing.confirm(next.peer, next.token, digest(peerCertificate),
                         EnrollmentProbeFiles.hex(sessionId)) } catch (failure: Throwable) { next.decision.decide(false); throw failure }
                     requireLive(); next.decision.decide(accepted)
                     trace("pairing-decision", fields = arrayOf("accepted" to accepted.toString(), "peerID" to next.peer))

@@ -1,59 +1,101 @@
 {
-  "fixture_version": 1,
+  "fixture_version": 2,
   "nearby_picture": {
     "domain": "IROHA-PEER-NEARBY-PICTURE-V1\\u0000",
     "picture_count": 16,
     "grid_size": 6,
-    "rule": "index = SHA-256(domain || ASCII digits)[0] & 0x0f; digits must satisfy 4..12 ASCII digits",
-    "vectors": [
+    "token_rule": "token = the first 5 characters of uppercase(URL-safe base64, no padding, of the raw UKEY2 verification string); exactly 5 ASCII characters from A-Z 0-9 - _",
+    "rule": "index = SHA-256(domain || ASCII token)[0] & 0x0f",
+    "token_vectors": [
       {
-        "digits": "0000",
-        "index": 5
+        "raw_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "token": "AAECA"
       },
       {
-        "digits": "0001",
+        "raw_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "token": "_____"
+      },
+      {
+        "raw_hex": "fbefbefbefbefbefbefbefbefbefbefbefbefbefbefbefbefbefbefbefbefbef",
+        "token": "-----"
+      },
+      {
+        "raw_hex": "69b71d79f8000000000000000000000000000000000000000000000000000000",
+        "token": "ABCDE"
+      },
+      {
+        "raw_hex": "06bb0001300abace2687f8a11b3cc60e12c7cdb3cf9a897a39838c2cffe8fee9",
+        "token": "BRSAA"
+      },
+      {
+        "raw_hex": "abd030ada609cfb78d83325968a34a31e536f5d54c9fe8bbcbcf5035d30b6ff1",
+        "token": "Q9AWR"
+      }
+    ],
+    "vectors": [
+      {
+        "token": "AAAAA",
+        "index": 14
+      },
+      {
+        "token": "ZZZZZ",
         "index": 1
       },
       {
-        "digits": "0002",
-        "index": 8
+        "token": "00000",
+        "index": 1
       },
       {
-        "digits": "0451",
+        "token": "99999",
+        "index": 13
+      },
+      {
+        "token": "K7Q2F",
+        "index": 4
+      },
+      {
+        "token": "-_-_-",
+        "index": 6
+      },
+      {
+        "token": "AB-9_",
+        "index": 1
+      },
+      {
+        "token": "Q0W9E",
         "index": 9
       },
       {
-        "digits": "1234",
-        "index": 12
-      },
-      {
-        "digits": "4321",
-        "index": 12
-      },
-      {
-        "digits": "7777",
-        "index": 3
-      },
-      {
-        "digits": "9999",
+        "token": "X1Y2Z",
         "index": 1
       },
       {
-        "digits": "00000000",
-        "index": 8
+        "token": "AAECA",
+        "index": 10
       },
       {
-        "digits": "123456789012",
-        "index": 4
+        "token": "BRSAA",
+        "index": 6
+      },
+      {
+        "token": "Q9AWR",
+        "index": 15
       }
     ],
-    "invalid_digits": [
+    "invalid_tokens": [
       "",
-      "123",
-      "1234567890123",
-      "12a4",
-      "12 34",
-      "١٢٣٤"
+      "ABCD",
+      "ABCDEF",
+      "abcde",
+      "Abcde",
+      "ABC D",
+      "AB+CD",
+      "AB/CD",
+      "ABCD=",
+      "1234",
+      "731904",
+      "ＡＢＣＤＥ",
+      "ÄBCDE"
     ]
   }
 }

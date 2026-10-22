@@ -2,7 +2,8 @@ import Foundation
 import XCTest
 @testable import IrohaSwift
 
-/// Nearby picture pairing: the shared target vectors, strict ASCII digits and the random grid.
+/// Nearby picture pairing: the shared token and target vectors, the strict token alphabet and the
+/// random grid.
 final class IrohaPeerNearbyPictureCodeV1Tests: XCTestCase {
     func testSharedVectorsPinTheTargetPicture() throws {
         let pictures = try irohaPeerNearbyPictureFixtureV1()
@@ -11,30 +12,48 @@ final class IrohaPeerNearbyPictureCodeV1Tests: XCTestCase {
         XCTAssertEqual(IrohaPeerNearbyPictureCodeV1.pictureCount, 16)
         XCTAssertEqual(IrohaPeerNearbyPictureCodeV1.gridSize, 6)
         let vectors = try XCTUnwrap(pictures["vectors"] as? [[String: Any]])
-        XCTAssertEqual(vectors.count, 10)
+        XCTAssertEqual(vectors.count, 12)
         for vector in vectors {
-            let digits = try XCTUnwrap(vector["digits"] as? String)
-            XCTAssertEqual(try IrohaPeerNearbyPictureCodeV1.targetIndex(digits: digits),
-                           vector["index"] as? Int, digits)
+            let token = try XCTUnwrap(vector["token"] as? String)
+            XCTAssertTrue(IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+            XCTAssertEqual(try IrohaPeerNearbyPictureCodeV1.targetIndex(token: token),
+                           vector["index"] as? Int, token)
         }
     }
 
-    func testOnlyFourToTwelveASCIIDigitsMakeAPicture() throws {
+    /// iOS receives the token from Google Nearby as is; Android derives the same token from the raw
+    /// verification string, so both phones of one connection draw the same picture. Each vector follows
+    /// the rule iOS Nearby applies (encryption_runner.cc `ToHumanReadableString`).
+    func testTokenVectorsFollowNearbysTokenRule() throws {
         let pictures = try irohaPeerNearbyPictureFixtureV1()
-        let invalid = try XCTUnwrap(pictures["invalid_digits"] as? [String])
-        XCTAssertTrue(invalid.contains("\u{0661}\u{0662}\u{0663}\u{0664}"), "Arabic-Indic digits vector")
-        let extra = ["１２３４", "１234", "+1234", "-1234", "1234 ", " 1234", "12\u{0}34", "123456789012\u{0}",
-                     "1234\u{200B}", "١٢٣٤٥", "0x12", "1e10", "12.4"]
-        for digits in invalid + extra {
-            XCTAssertFalse(IrohaPeerNearbyVerificationCodeV1.isValid(digits), digits)
-            XCTAssertThrowsError(try IrohaPeerNearbyPictureCodeV1.targetIndex(digits: digits), digits) {
-                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidPictureCode, digits)
+        let vectors = try XCTUnwrap(pictures["token_vectors"] as? [[String: Any]])
+        XCTAssertEqual(vectors.count, 6)
+        for vector in vectors {
+            let token = try XCTUnwrap(vector["token"] as? String)
+            let raw = try XCTUnwrap(Data(hexString: try XCTUnwrap(vector["raw_hex"] as? String)), token)
+            XCTAssertEqual(raw.count, 32, token)
+            let webSafe = raw.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            XCTAssertEqual(String(webSafe.prefix(IrohaPeerNearbyPairingTokenV1.length)).uppercased(), token)
+            XCTAssertTrue(IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+        }
+    }
+
+    func testOnlyFiveCharacterTokensMakeAPicture() throws {
+        let pictures = try irohaPeerNearbyPictureFixtureV1()
+        let invalid = try XCTUnwrap(pictures["invalid_tokens"] as? [String])
+        XCTAssertTrue(invalid.contains("1234"), "Android's retired authentication digits")
+        let extra = ["ABCD\u{0}", "AB\u{0}CD", "ABCDE\u{0}", " ABCD", "ABCD ", "ABC\u{200B}D", "ABCDE\n", "K7Q2f"]
+        for token in invalid + extra {
+            XCTAssertFalse(IrohaPeerNearbyPairingTokenV1.isValid(token), token)
+            XCTAssertThrowsError(try IrohaPeerNearbyPictureCodeV1.targetIndex(token: token), token) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidPictureCode, token)
             }
         }
-        // Every valid length gives an index inside the picture set.
-        for length in 4...12 {
-            let digits = String(repeating: "9", count: length)
-            XCTAssertTrue((0..<16).contains(try IrohaPeerNearbyPictureCodeV1.targetIndex(digits: digits)))
+        // Every character of the token alphabet gives an index inside the picture set.
+        for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" {
+            let token = String(repeating: character, count: IrohaPeerNearbyPairingTokenV1.length)
+            XCTAssertTrue((0..<16).contains(try IrohaPeerNearbyPictureCodeV1.targetIndex(token: token)), token)
         }
     }
 
@@ -102,7 +121,7 @@ private func irohaPeerNearbyPictureFixtureV1(filePath: String = #filePath) throw
             let object = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
             )
-            if let version = object["fixture_version"] { XCTAssertEqual(version as? Int, 1) }
+            if let version = object["fixture_version"] { XCTAssertEqual(version as? Int, 2) }
             return object["nearby_picture"] as? [String: Any] ?? object
         }
         directory.deleteLastPathComponent()

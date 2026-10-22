@@ -1398,13 +1398,18 @@ checksums never replace the wallet's verification.
   budgets are four records for the payer (HELLO, AUTH, Request, Credited) and three
   for the receiver (HELLO, AUTH, Payment). Retired kind `4` is rejected, including
   authenticated payloads containing `IAK1`; rejected records do not consume a sequence.
-- *Picture pairing.* Both phones derive one of 16 pictures from the radio's authentication
-  digits (4 to 12 ASCII digits): `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1" ‖ 0x00 ‖
-  digits)[0] & 0x0f`. The payer's phone shows that picture; the receiver's phone shows six
-  distinct pictures that include it, in uniformly random order, and accepts the connection
-  only when its user picks that picture. The digits are never displayed. A matching
-  picture only pairs the radio link; the IPN1 authentication still authenticates the peer.
-  Kotlin and Swift `IrohaPeerNearbyPictureCodeV1` implement it against
+- *Picture pairing.* Both phones derive one of 16 pictures from the radio's pairing token:
+  the first five characters of the uppercased URL-safe base64, without padding, of the
+  connection's raw UKEY2 verification string, so exactly five ASCII characters from `A`–`Z`,
+  `0`–`9`, `-` and `_`. This is Google Nearby's authentication token: iOS Nearby hands it to
+  the app as the connection's verification code, and Android rebuilds it from
+  `ConnectionInfo.rawAuthenticationToken`. Android's four authentication digits are not used,
+  because iOS Nearby never exposes them. The picture is `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1"
+  ‖ 0x00 ‖ token)[0] & 0x0f`. The payer's phone shows that picture; the receiver's phone shows
+  six distinct pictures that include it, in uniformly random order, and accepts the connection
+  only when its user picks that picture. The token is never displayed. A matching picture only
+  pairs the radio link; the IPN1 authentication still authenticates the peer. Kotlin and Swift
+  `IrohaPeerNearbyPairingTokenV1` and `IrohaPeerNearbyPictureCodeV1` implement it against
   `fixtures/kagemusha/nearby_picture_v1.json`.
 
 **Account check code.** Before approving a Send, the payer compares the receiving account's

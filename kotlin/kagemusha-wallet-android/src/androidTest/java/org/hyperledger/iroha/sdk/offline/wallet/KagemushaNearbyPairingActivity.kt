@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 
 /** Explicit on-device code comparison for the exact selected endpoint and pinned certificate. */
 internal object KagemushaNearbyPairing {
-    class Request(val peer: String, val digits: String, val certificate: String, val session: String) {
+    class Request(val peer: String, val token: String, val certificate: String, val session: String) {
         val ticket = KagemushaProbeConfirmationTicket<Boolean>()
         var activity: KagemushaNearbyPairingActivity? = null
     }
@@ -24,9 +24,9 @@ internal object KagemushaNearbyPairing {
     @Synchronized private fun register(value: Request) { check(current == null); current = value }
     @Synchronized fun claim(id: String): Request? = current?.takeIf { it.ticket.claim(id) }
     @Synchronized private fun retire(value: Request) { if (current === value) current = null }
-    fun confirm(peer: String, digits: String, certificate: String, session: String): Boolean {
+    fun confirm(peer: String, token: String, certificate: String, session: String): Boolean {
         check(Looper.myLooper() != Looper.getMainLooper())
-        val value = Request(peer, digits, certificate, session); register(value)
+        val value = Request(peer, token, certificate, session); register(value)
         try {
             val context = InstrumentationRegistry.getInstrumentation().context
             context.startActivity(Intent(context, KagemushaNearbyPairingActivity::class.java)
@@ -51,7 +51,7 @@ class KagemushaNearbyPairingActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val layout = LinearLayout(this); layout.orientation = LinearLayout.VERTICAL; layout.setPadding(32, 48, 32, 32)
         val text = TextView(this); text.textSize = 18f
-        text.text = "Compare Nearby code on both devices: ${selected.digits}\n\n" +
+        text.text = "Compare Nearby code on both devices: ${selected.token}\n\n" +
             "Peer: ${selected.peer}\nSession: ${selected.session}\nPinned transport certificate SHA-256: ${selected.certificate}\n\n" +
             "This diagnostic identity is not hardware attestation. Continue only if the selected device displays the same code."
         layout.addView(text)
