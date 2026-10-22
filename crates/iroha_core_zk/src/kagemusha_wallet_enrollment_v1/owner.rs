@@ -473,7 +473,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             )
             .map_err(|_| Error::Original("pre-key retained permit"))?;
             for slot in self.provider.slots()? {
-                let Some(intent) = self.provider.read_intent(&slot)? else {
+                let Some(intent) = self.provider.read_intent_for_enrollment_search(&slot)? else {
                     // A durable holder abandonment before E2 legitimately has no intent.
                     if self.provider.is_abandoned_without_marker(&slot)? {
                         continue;

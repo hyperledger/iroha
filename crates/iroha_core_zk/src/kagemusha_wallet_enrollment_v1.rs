@@ -21,6 +21,7 @@ pub use carrier::{
     EVIDENCE_MAX_BYTES, IssuerEvidenceV1, PlatformEvidenceV1, REQUEST_MAX_BYTES, RESULT_MAX_BYTES,
     RequestBodyV1, RequestV1, ResultV1,
 };
+pub(crate) use credential::platform_key_profile;
 pub use owner::{
     EnrollmentAbandonmentV1, EnrollmentConfigV1, EnrollmentOwnerV1, EnrollmentProgressV1, Error,
     RequestPreparationV1,

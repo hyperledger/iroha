@@ -256,7 +256,10 @@ where
         self.pending_reasons.get(slot).copied()
     }
 
-    /// Scheme of every slot under this root.
+    /// The only scheme this provider may adopt, reconcile or operate.
+    /// Retained slots of another scheme may share the protected root. Enrollment inventory
+    /// can identify them read-only from their exact phase, intent and signed permit originals;
+    /// that classification never admits their custody as this provider's scheme.
     pub fn scheme_id(&self) -> &[u8; 32] {
         &self.scheme_id
     }

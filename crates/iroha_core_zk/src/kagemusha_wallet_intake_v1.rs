@@ -471,6 +471,16 @@ pub(crate) fn select_enrolled_source<F: KagemushaWalletFsV1, P: KagemushaWalletP
 ) -> Result<(KagemushaWalletSlotIdV1, [u8; 32]), Error> {
     let mut selected = None;
     for slot in provider.slots()? {
+        // Enrollment originals can identify retained custody of another scheme without
+        // reconciling it as this provider's wallet. A pinned source may never be excluded.
+        if let Some(intent) = provider.read_intent_for_enrollment_search(&slot)? {
+            if &intent.challenge.scheme_id != provider.scheme_id() {
+                if pinned.is_some_and(|(selected, _)| selected == slot) {
+                    return Err(Error::SourceChanged);
+                }
+                continue;
+            }
+        }
         let status = match provider.status(&slot) {
             Ok(status) => status,
             Err(error @ KagemushaWalletProviderErrorV1::LostCustody(

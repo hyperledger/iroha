@@ -34,7 +34,7 @@ pub(super) fn evidence_matches_policy(
 }
 
 /// The single key profile of a platform.
-pub(super) fn platform_key_profile(
+pub(crate) fn platform_key_profile(
     platform: &KagemushaWalletEnrollmentPlatformV1,
 ) -> KagemushaWalletKeyProfileV1 {
     match platform {

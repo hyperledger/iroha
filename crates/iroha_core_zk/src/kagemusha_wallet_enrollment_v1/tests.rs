@@ -9,10 +9,10 @@ use iroha_data_model::{
 use sha2::Sha256;
 
 type Owner = EnrollmentOwnerV1<KagemushaWalletSimFsV1, FakePlatformV1>;
-#[path = "tests/native_exchange.rs"]
-mod native_exchange;
 #[path = "tests/multischeme_custody.rs"]
 mod multischeme_custody;
+#[path = "tests/native_exchange.rs"]
+mod native_exchange;
 struct Fixture {
     config: EnrollmentConfigV1,
     challenge: KagemushaWalletEnrollmentChallengeV1,
@@ -2935,6 +2935,8 @@ fn lost_prekey_slot_with_actual_intent_never_becomes_optional_request_absence() 
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 191);
     let mut current = enrolled(&f, &d);
+    let slot =
+        KagemushaWalletSlotIdV1(fixture_phase(current.test_provider()).unwrap().binding.slot);
     request(&f, &mut current);
     drop(current.into_provider());
     let root = KagemushaWalletCustodyDirV1::root();
@@ -2947,15 +2949,44 @@ fn lost_prekey_slot_with_actual_intent_never_becomes_optional_request_absence() 
     d.fs.restart();
     let mut restored = owner(&f, &d);
     assert!(dispatch(&f, &mut restored).previous_permit.is_some());
-    assert!(matches!(
-        restored.retained_request(),
-        Err(Error::Original("selected pre-key slot lost"))
-    ));
-    assert!(matches!(
-        restored.retained_result(),
-        Err(Error::Original("selected pre-key slot lost"))
-    ));
-    d.platform.with(|s| assert_eq!(s.generate_calls, 1));
+    let key = d.platform.key_of(&slot);
+    let effects = d
+        .platform
+        .with(|s| (s.generate_calls, s.delete_calls, s.sign_calls));
+    let originals = slot_names(&d);
+    // Inventory authenticates Phase/Slot agreement before the owner can treat this as
+    // request absence. The missing Slot is therefore an earlier typed custody refusal.
+    let request = restored.retained_request();
+    assert!(
+        matches!(
+            request,
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "selected pre-key originals"
+                }
+            ))
+        ),
+        "{request:?}"
+    );
+    let result = restored.retained_result();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "selected pre-key originals"
+                }
+            ))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(d.platform.key_of(&slot), key);
+    assert_eq!(slot_names(&d), originals);
+    assert!(d.fs.visible_file(&root, &selected).is_none());
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 1);
+        assert_eq!((s.generate_calls, s.delete_calls, s.sign_calls), effects);
+    });
 }
 
 fn apple_collection_fixture() -> Fixture {

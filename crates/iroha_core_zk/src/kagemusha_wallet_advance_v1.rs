@@ -345,6 +345,9 @@ where
 pub(crate) mod test_support;
 
 #[cfg(test)]
+mod enrollment_inventory_tests;
+
+#[cfg(test)]
 mod crash_matrix_tests;
 
 #[cfg(all(test, unix))]

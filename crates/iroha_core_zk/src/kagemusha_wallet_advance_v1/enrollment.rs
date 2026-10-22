@@ -471,7 +471,7 @@ where
         }
         let mut found = None;
         for slot in self.slots()? {
-            let Some(intent) = self.read_intent(&slot)? else {
+            let Some(intent) = self.read_intent_for_enrollment_search(&slot)? else {
                 // A missing intent is not permission to replace a surviving key or wallet.
                 // Reconcile first, preserving unknown key/storage answers on older Android.
                 match self.status(&slot) {
@@ -1513,6 +1513,44 @@ where
         &self,
         slot: &KagemushaWalletSlotIdV1,
     ) -> Result<Option<KagemushaWalletIntentV1>, KagemushaWalletProviderErrorV1> {
+        let intent = self.read_intent_structure(slot)?;
+        if intent
+            .as_ref()
+            .is_some_and(|intent| intent.challenge.scheme_id != self.scheme_id)
+        {
+            return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "intent",
+            });
+        }
+        Ok(intent)
+    }
+
+    /// Read-only search across retained enrollment incarnations. Every intent must agree with
+    /// its exact phase; a foreign intent also requires its signed original permit under its
+    /// retained scheme. It is never absent custody or admitted for this provider's operations.
+    ///
+    /// # Errors
+    /// An invalid intent or inconsistent foreign enrollment originals, and unavailable storage.
+    pub(crate) fn read_intent_for_enrollment_search(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<Option<KagemushaWalletIntentV1>, KagemushaWalletProviderErrorV1> {
+        let intent = self.read_intent_structure(slot)?;
+        if let Some(intent) = &intent {
+            self.require_enrollment_search_intent(slot, intent)?;
+            if self.read_intent_structure(slot)?.as_ref() != Some(intent) {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                    KagemushaWalletUnavailableV1::Busy,
+                ));
+            }
+        }
+        Ok(intent)
+    }
+
+    fn read_intent_structure(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<Option<KagemushaWalletIntentV1>, KagemushaWalletProviderErrorV1> {
         let intent = read_record::<F, KagemushaWalletIntentV1>(
             &self.store,
             &kagemusha_wallet_slot_dir_v1(slot),
@@ -1528,7 +1566,6 @@ where
                     && intent.key_profile().is_ok()
                     && intent.key_generation_policy().is_ok()
                     && intent.dates.is_valid()
-                    && intent.challenge.scheme_id == self.scheme_id
                     && intent.challenge.validate().is_ok() =>
             {
                 Ok(Some(intent))

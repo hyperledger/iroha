@@ -98,7 +98,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         // A lost Slot/Phase association must not release actual custody. Missing intents are
         // not absence either, except for the already terminal provider no-marker form.
         for slot in self.provider.slots()? {
-            match self.provider.read_intent(&slot)? {
+            match self.provider.read_intent_for_enrollment_search(&slot)? {
                 Some(intent) if intent.challenge == permit.body.challenge => {
                     return Err(Error::Original("selected pre-key slot lost"));
                 }

@@ -365,38 +365,82 @@ fn enrollment_owner_current_phase_cannot_be_relabelled_as_foreign_inventory() {
 }
 
 #[test]
-fn enrollment_owner_current_preintent_resumes_beside_intact_foreign_wallet() {
-    let (_, d, old_slot) = old_enrollment(true, false, 221);
-    let before = file_snapshot(&d);
-    let old_key = d.platform.key_of(&old_slot).unwrap();
-    let next = next_scheme(true);
-    let mut current = owner(&next, &d);
-    let message = begin_request(&next, &mut current, &NEW_REQUEST);
-    d.platform.with(|s| s.probe_unavailable = true);
-    assert!(current.authorize(&sign(&next, &message)).is_err());
-    let phase = current
-        .test_provider()
-        .enrollment_phase(&NEW_REQUEST)
-        .unwrap()
-        .unwrap();
-    assert!(matches!(
-        phase.phase,
-        KagemushaWalletEnrollmentPhaseV1::PreIntent
-    ));
-    d.platform.with(|s| assert_eq!(s.generate_calls, 1));
-    drop(current);
-    d.fs.restart();
-    d.platform.with(|s| s.probe_unavailable = false);
-    let mut resumed = owner(&next, &d);
-    let message = begin_request(&next, &mut resumed, &NEW_REQUEST);
-    assert!(matches!(resumed.authorize(&sign(&next, &message)).unwrap(),
-        EnrollmentProgressV1::Evidence { slot, .. } if slot == phase.binding.slot));
-    assert_files_preserved(&d, &before);
-    assert_eq!(d.platform.key_of(&old_slot), Some(old_key));
-    d.platform.with(|s| {
-        assert_eq!(s.generate_calls, 2);
-        assert_eq!(s.delete_calls, 0);
-    });
+fn enrollment_owner_current_preintent_preserves_generation_policy_beside_foreign_wallet() {
+    for policy in [
+        KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence,
+        KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly,
+    ] {
+        let apple = policy == KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence;
+        let (_, d, old_slot) = old_enrollment(apple, !apple, 221);
+        let before = file_snapshot(&d);
+        let old_key = d.platform.key_of(&old_slot).unwrap();
+        let next = next_scheme(apple);
+        d.platform.with(|s| s.generation_policy = policy);
+        let mut current = owner(&next, &d);
+        let message = begin_request(&next, &mut current, &NEW_REQUEST);
+        // The existing pre-key fixture's clock cut: Slot and PreIntent are durable,
+        // while E2 and every new key effect have not started.
+        d.platform.with(|s| {
+            s.monotonic_script = [Ok(1000), Err(KagemushaWalletUnavailableV1::Busy)].into()
+        });
+        assert!(current.authorize(&sign(&next, &message)).is_err());
+        let phase = current
+            .test_provider()
+            .enrollment_phase(&NEW_REQUEST)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            phase.phase,
+            KagemushaWalletEnrollmentPhaseV1::PreIntent
+        ));
+        assert_eq!(phase.binding.generation_policy, policy.tag());
+        d.platform.with(|s| {
+            s.monotonic_script.clear();
+            assert_eq!(s.generate_calls, 1);
+        });
+        drop(current);
+        d.fs.restart();
+        let mut resumed = owner(&next, &d);
+        let message = begin_request(&next, &mut resumed, &NEW_REQUEST);
+        let progress = resumed.authorize(&sign(&next, &message)).unwrap();
+        if policy == KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence {
+            assert!(
+                matches!(progress, EnrollmentProgressV1::Evidence { slot, .. } if slot == phase.binding.slot)
+            );
+        } else {
+            // Android FreshEnrollmentOnly never turns a loaded attempt into a generation grant.
+            assert!(matches!(progress, EnrollmentProgressV1::Pending));
+            assert_eq!(
+                resumed
+                    .test_provider()
+                    .enrollment_phase(&NEW_REQUEST)
+                    .unwrap(),
+                Some(phase)
+            );
+            d.platform.with(|s| assert_eq!(s.generate_calls, 1));
+            assert_eq!(
+                resumed.abandon().unwrap(),
+                EnrollmentAbandonmentV1::LocalAbandoned
+            );
+            assert_eq!(resumed.abandonment_ledger_instruction().unwrap(), None);
+            assert!(matches!(
+                resumed.progress().unwrap(),
+                EnrollmentProgressV1::Abandoned
+            ));
+            drop(resumed);
+            let mut fresh = owner(&next, &d);
+            let message = begin_request(&next, &mut fresh, &[13; 32]);
+            assert!(matches!(fresh.authorize(&sign(&next, &message)).unwrap(),
+                EnrollmentProgressV1::Evidence { slot, .. } if slot != phase.binding.slot && slot != old_slot.0));
+        }
+        assert_files_preserved(&d, &before);
+        assert_eq!(d.platform.key_of(&old_slot), Some(old_key));
+        d.platform.with(|s| {
+            assert_eq!(s.generate_calls, 2);
+            assert_eq!(s.delete_calls, 0);
+            assert!(s.violations.is_empty());
+        });
+    }
 }
 
 #[test]
@@ -477,5 +521,99 @@ fn enrollment_owner_unreadable_foreign_phase_is_not_absent_inventory() {
     d.platform.with(|s| {
         assert_eq!(s.generate_calls, 1);
         assert_eq!(s.delete_calls, 0);
+    });
+}
+
+#[test]
+fn enrollment_owner_completed_foreign_wallet_does_not_block_current_intake() {
+    use crate::kagemusha_wallet_intake_v1::{Error as IntakeError, select_enrolled_source};
+    let (_, d, old_slot) = old_enrollment(false, true, 227);
+    let before = file_snapshot(&d);
+    let old_key = d.platform.key_of(&old_slot).unwrap();
+    let next = next_scheme(false);
+    let mut current = owner(&next, &d);
+    let message = begin_request(&next, &mut current, &NEW_REQUEST);
+    let EnrollmentProgressV1::Evidence { slot, .. } =
+        current.authorize(&sign(&next, &message)).unwrap()
+    else {
+        panic!("new enrollment reaches E4")
+    };
+    let issued = issuer_result(
+        &next,
+        &RequestV1::decode(&request(&next, &mut current)).unwrap(),
+    );
+    current
+        .accept_credential(&issued.encode().unwrap())
+        .unwrap();
+    let credential = KagemushaWalletCredentialV1::decode_canonical(
+        &issued.credential,
+        &next.config.scheme.scheme_id(),
+    )
+    .unwrap();
+    credential
+        .verify(&next.config.scheme, &next.config.enrollment_certificate)
+        .unwrap();
+    let mut provider = current.into_provider();
+    // This is the actual source-selection path used by Native wallet-open after its
+    // credential authentication. No installed producer or monetary operation is simulated.
+    let opened =
+        select_enrolled_source(&mut provider, &credential, &issued.credential, None).unwrap();
+    assert_eq!(opened.0, KagemushaWalletSlotIdV1(slot));
+    assert_eq!(
+        select_enrolled_source(&mut provider, &credential, &issued.credential, Some(opened))
+            .unwrap(),
+        opened
+    );
+    assert!(matches!(
+        select_enrolled_source(
+            &mut provider,
+            &credential,
+            &issued.credential,
+            Some((old_slot, [1; 32]))
+        ),
+        Err(IntakeError::SourceChanged)
+    ));
+    drop(provider);
+    d.fs.restart();
+    let mut reopened = owner(&next, &d);
+    let dispatch = PreKeyDispatchV1::decode(
+        &reopened
+            .begin(
+                &NEW_REQUEST,
+                &norito::encode_canonical(&next.account).unwrap(),
+                &norito::encode_canonical(&next.asset).unwrap(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(dispatch.previous_permit.is_some());
+    assert_eq!(
+        reopened.retained_result().unwrap(),
+        Some(issued.encode().unwrap())
+    );
+    let mut provider = reopened.into_provider();
+    assert_eq!(
+        select_enrolled_source(&mut provider, &credential, &issued.credential, Some(opened))
+            .unwrap(),
+        opened
+    );
+    assert_files_preserved(&d, &before);
+    assert_eq!(d.platform.key_of(&old_slot), Some(old_key));
+    // A valid current source cannot make a malformed foreign original disappear.
+    let root = KagemushaWalletCustodyDirV1::root();
+    let name = prekey_name(&OLD_REQUEST, "phase");
+    let original = d.fs.visible_file(&root, &name).unwrap();
+    d.fs.place_unsynced(&root, &name, b"changed foreign phase");
+    assert!(
+        select_enrolled_source(&mut provider, &credential, &issued.credential, Some(opened))
+            .is_err()
+    );
+    d.fs.place_unsynced(&root, &name, &original);
+    assert_files_preserved(&d, &before);
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 2);
+        assert_eq!(s.delete_calls, 0);
+        assert!(s.anchors.is_empty());
+        assert!(s.violations.is_empty());
     });
 }

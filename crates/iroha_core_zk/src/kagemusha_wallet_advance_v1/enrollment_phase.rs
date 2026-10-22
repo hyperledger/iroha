@@ -115,6 +115,16 @@ impl KagemushaWalletEnrollmentBindingV1 {
     }
 
     fn validate(&self, scheme_id: &[u8; 32]) -> Result<(), KagemushaWalletProviderErrorV1> {
+        self.validate_structure()?;
+        if self.challenge.scheme_id != *scheme_id {
+            return Err(corrupt());
+        }
+        Ok(())
+    }
+
+    // Root inventory may contain another scheme's intact custody. Structural validity is
+    // not authority to adopt or operate it; selected phase APIs still require their scheme.
+    fn validate_structure(&self) -> Result<(), KagemushaWalletProviderErrorV1> {
         if self.version != PHASE_VERSION
             || self.request_id == [0; 32]
             || self.slot == [0; 32]
@@ -122,7 +132,6 @@ impl KagemushaWalletEnrollmentBindingV1 {
             || self.client_nonce == [0; 32]
             || self.permit_digest == [0; 32]
             || self.challenge.validate().is_err()
-            || self.challenge.scheme_id != *scheme_id
             || !self.dates.is_valid()
             || KagemushaWalletKeyProfileV1::from_tag(self.profile).is_none()
             || KagemushaWalletKeyGenerationPolicyV1::from_tag(self.generation_policy).is_none()
@@ -405,7 +414,8 @@ where
         self.platform.anchor_policy()
     }
 
-    /// Strictly read the visible phase record of `request_id` without adopting it.
+    /// Structurally read the visible phase without adopting it. Current-scheme admission
+    /// belongs to `adopted_phase`; inventory alone grants no authority over this attempt.
     fn read_phase(
         &self,
         request_id: &[u8; 32],
@@ -419,7 +429,7 @@ where
         let record: PhaseRecordV1 =
             decode_envelope_v1(&bytes, PHASE_MAX_BYTES).map_err(|_| corrupt())?;
         let state = record.state()?;
-        state.binding.validate(&self.scheme_id)?;
+        state.binding.validate_structure()?;
         if state.binding.request_id != *request_id {
             return Err(corrupt());
         }
@@ -451,6 +461,7 @@ where
         let Some((bytes, state)) = self.read_phase(request_id)? else {
             return Ok(None);
         };
+        state.binding.validate(&self.scheme_id)?;
         self.prekey_adopt(request_id, &[PreKeyRecordV1::Phase])?;
         if self
             .read_phase(request_id)?
@@ -657,6 +668,54 @@ where
         &self,
         slot: &KagemushaWalletSlotIdV1,
     ) -> Result<Option<KagemushaWalletEnrollmentPhaseStateV1>, KagemushaWalletProviderErrorV1> {
+        let Some((state, originals)) = self.read_phase_originals_for_slot(slot)? else {
+            return Ok(None);
+        };
+        state.binding.validate(&self.scheme_id)?;
+        let id = state.binding.request_id;
+        // Only this provider's selected scheme is adopted or cached. Other schemes were
+        // structurally checked above, never admitted as this wallet's custody.
+        let (bytes, adopted) = self.adopted_phase(&id)?.ok_or_else(corrupt)?;
+        if adopted != state {
+            return Err(busy());
+        }
+        self.prekey_adopt(
+            &id,
+            &[
+                PreKeyRecordV1::Client,
+                PreKeyRecordV1::Accepted,
+                PreKeyRecordV1::Slot,
+            ],
+        )?;
+        for (role, original) in [
+            PreKeyRecordV1::Phase,
+            PreKeyRecordV1::Client,
+            PreKeyRecordV1::Accepted,
+            PreKeyRecordV1::Slot,
+        ]
+        .into_iter()
+        .zip([&bytes, &originals[0], &originals[1], &originals[2]])
+        {
+            if self.prekey_read(&id, role)?.as_ref() != Some(original) {
+                return Err(busy());
+            }
+        }
+        let [client, accepted, selection] = originals;
+        self.slot_phases
+            .borrow_mut()
+            .insert(*slot, (id, [bytes, client, accepted, selection]));
+        Ok(Some(state))
+    }
+
+    // Read-only inventory. Every Phase and Slot is checked, including malformed/orphaned
+    // records outside the requested slot. No foreign original is adopted or cached.
+    fn read_phase_originals_for_slot(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<
+        Option<(KagemushaWalletEnrollmentPhaseStateV1, [Vec<u8>; 3])>,
+        KagemushaWalletProviderErrorV1,
+    > {
         let entries =
             kagemusha_wallet_list_dir_v1(&self.store, &KagemushaWalletCustodyDirV1::root())?
                 .unwrap_or_default();
@@ -724,27 +783,74 @@ where
                 object: "selected pre-key originals",
             });
         }
-        // Authenticated, then durable: the phase and the originals it names are republished on
-        // a fresh inode (once per process) before any effect relies on them.
-        let (bytes, state) = self.adopted_phase(&id)?.ok_or_else(corrupt)?;
-        if state.binding != binding {
-            return Err(busy());
-        }
-        self.prekey_adopt(
-            &id,
-            &[
-                PreKeyRecordV1::Client,
-                PreKeyRecordV1::Accepted,
-                PreKeyRecordV1::Slot,
-            ],
-        )?;
         let (Some(client), Some(accepted), Some(selection)) = (client, accepted, selection) else {
             return Err(busy());
         };
-        self.slot_phases
-            .borrow_mut()
-            .insert(*slot, (id, [bytes, client, accepted, selection]));
-        Ok(Some(state))
+        Ok(Some((phases[&id], [client, accepted, selection])))
+    }
+
+    /// Check an intent's exact retained phase and originals for inventory only. For a foreign
+    /// intent, verify the permit under the retained Client's scheme and certificate; this does
+    /// not select an old trusted runtime or grant authority to reconcile, sign or replace
+    /// custody. Selected-slot APIs still require this provider's scheme.
+    ///
+    /// # Errors
+    /// Missing, malformed, changed or inconsistent Phase/Slot/Client/Accepted/intent records,
+    /// an invalid retained permit signature, or any unavailable storage read.
+    pub(super) fn require_enrollment_search_intent(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+        intent: &KagemushaWalletIntentV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        use crate::kagemusha_wallet_enrollment_v1::PreKeyDispatchV1;
+        use iroha_data_model::kagemusha::{
+            KagemushaEnrollmentPermitPurposeV1, KagemushaEnrollmentPermitV1,
+        };
+
+        let (state, [client, accepted, selection]) = self
+            .read_phase_originals_for_slot(slot)?
+            .ok_or_else(corrupt)?;
+        if state.binding.intent() != *intent
+            || state.phase.intent_digest() != Some(kagemusha_wallet_intent_digest_v1(intent)?)
+        {
+            return Err(corrupt());
+        }
+        if intent.challenge.scheme_id != self.scheme_id {
+            let dispatch = PreKeyDispatchV1::decode(&client).map_err(|_| corrupt())?;
+            let permit = KagemushaEnrollmentPermitV1::decode_canonical(
+                &accepted,
+                &dispatch.scheme,
+                &dispatch.enrollment_certificate,
+            )
+            .map_err(|_| corrupt())?;
+            dispatch
+                .require_permit_selection(&permit)
+                .map_err(|_| corrupt())?;
+            if dispatch.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh
+                || dispatch.previous_permit.is_some()
+                || dispatch.request_id != state.binding.request_id
+                || dispatch.client_nonce != state.binding.client_nonce
+                || intent.profile
+                    != crate::kagemusha_wallet_enrollment_v1::platform_key_profile(
+                        &dispatch.policy.platform,
+                    )
+                    .tag()
+                || permit.body.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh
+                || permit.body.challenge != intent.challenge
+                || permit.body.created_at_ms != intent.dates.issued_at_ms
+                || permit.body.expires_at_ms != intent.dates.expires_at_ms
+            {
+                return Err(corrupt());
+            }
+        }
+        // Storage availability and unchanged originals bracket this read-only classification.
+        let Some((after, originals)) = self.read_phase_originals_for_slot(slot)? else {
+            return Err(busy());
+        };
+        if after != state || originals != [client, accepted, selection] {
+            return Err(busy());
+        }
+        Ok(())
     }
 
     /// Whether the phase this process last verified for `slot` is still exactly the visible
