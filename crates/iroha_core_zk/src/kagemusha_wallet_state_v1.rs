@@ -59,13 +59,13 @@ mod map_tree;
 mod native_owner;
 mod native_worker;
 pub use native_owner::{
-    ActivationFinalityProgressV1, LEDGER_INSTRUCTION_MAX_BYTES_V1, LEDGER_PROOF_MAX_BYTES_V1,
-    LedgerProgressV1, NativeEpochProgressV1, NativeInstallationConfigV1, NativeOpenErrorV1,
-    NativeOpenFailureV1, NativeOperationReviewV1, NativePreparedLedgerLoadV1,
-    NativeReleasedOutputV1, NativeStartupFailureV1, NativeWalletCoordinatorV1,
-    NativeWalletMetadataV1, NativeWalletProofsV1, NativeWalletRuntimeV1,
+    LEDGER_INSTRUCTION_MAX_BYTES_V1, LEDGER_PROOF_MAX_BYTES_V1, LedgerAttemptIngestV1,
+    LedgerAttemptOutcomeV1, LedgerCommitV1, LedgerProgressV1, NativeEpochProgressV1,
+    NativeInstallationConfigV1, NativeOpenErrorV1, NativeOpenFailureV1, NativeOperationReviewV1,
+    NativePreparedLedgerLoadV1, NativeReleasedOutputV1, NativeStartupFailureV1,
+    NativeWalletCoordinatorV1, NativeWalletMetadataV1, NativeWalletProofsV1, NativeWalletRuntimeV1,
     PAYOUT_RECORD_MAX_BYTES_V1, PendingNativeWalletOpenV1, ReviewedOperationV1, SpeculativeProofV1,
-    SpeculativeSendJobV1, SpeculativeSendV1, UnloadFinalityProgressV1,
+    SpeculativeSendJobV1, SpeculativeSendV1,
 };
 mod preparation_custody;
 mod scheduling;

@@ -136,7 +136,14 @@ fn retain_actual_a_activation_before_network_submission() {
     );
     let progress = wallet.retain_activation_attempt(&wire).unwrap();
     let returned_ticks = u64::try_from(clock_origin.elapsed().as_nanos()).unwrap();
-    assert_eq!(progress, state::ActivationFinalityProgressV1::NotStarted);
+    let entrypoint = *iroha_data_model::transaction::SignedTransaction::decode_all_versioned(&wire)
+        .unwrap()
+        .hash_as_entrypoint()
+        .as_ref();
+    assert_eq!(
+        progress,
+        state::LedgerAttemptOutcomeV1::Awaiting { entrypoint }
+    );
     assert!(returned_ticks > 0);
     assert_eq!(
         device.platform.with(|state| state.sign_calls),
@@ -147,14 +154,14 @@ fn retain_actual_a_activation_before_network_submission() {
     // Reopen the same durable owner and independently observe retention before publishing.
     let mut wallet = sources.open(&device, &fixture, &frames);
     assert_eq!(
-        wallet.activation_finality_progress(&wire).unwrap(),
-        state::ActivationFinalityProgressV1::NotStarted
+        wallet.activation_attempt_outcome(&wire).unwrap(),
+        state::LedgerAttemptOutcomeV1::Awaiting { entrypoint }
     );
     assert_eq!(wallet.activation().unwrap(), activation);
     assert_eq!(device.platform.with(|state| state.sign_calls), sign_calls);
     let receipt = norito::json::to_vec(&norito::json!({
         "schema":"iroha.kagemusha.wallet-activation-retained.v1", "action":"retain-activation",
-        "signedWireSHA256":(sha(&wire)), "signedWireBytes":(wire.len().to_string()), "nativeResult":"not_started",
+        "signedWireSHA256":(sha(&wire)), "signedWireBytes":(wire.len().to_string()), "nativeResult":"awaiting", "entrypointHex":(hex::encode(entrypoint)),
         "nativeReturnedTicks":(returned_ticks.to_string()), "invocation":invocation, "sequence":"0"
     })).unwrap();
     let directory = PrivateDirectory::open_exact(&output).unwrap();

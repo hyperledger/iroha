@@ -48,20 +48,22 @@ class KagemushaWalletCallV1 internal constructor(
     bytes: ByteArray,
 ) {
     init {
-        val carriesBytes = status == EPOCH_PROGRESS || status == DELETION_REVIEW || status == DELETED || status == CREDIT_PROJECTION || status == UNLOAD_CLAIM || status == COMPLETE || status == CREDIT_STATUS || status == SETUP || status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE || status == ACTIVATION || status == CLOSE_LOADS || status == 31 || status == 33 || status == 36 || status == LEDGER_INSTRUCTION || status == ENROLLMENT_LEDGER_INSTRUCTION || status == UNLOAD_CONFIRMATION || status == ACTIVATION_CONFIRMATION || status == ACTIVATION_PROGRESS || status == ACTIVATION_REJECTED || status in listOf(18, 19, 23, 24, 25, 27, 28, 37, 38)
-        if (status in listOf(41, 43) || (status >= 0 && status !in UNKNOWN..ENROLLMENT_LEDGER_INSTRUCTION) || bytes.size > when (status) { EPOCH_PROGRESS -> 16; DELETION_REVIEW -> 254; DELETED -> 32; DELETION_REVIEW_DISCARDED, NOT_DELETED -> 0; CREDIT_PROJECTION -> 10_126; ACTIVATION, ENROLLMENT_DISPATCH, CLOSE_LOADS, 36, UNLOAD_CLAIM -> 16_384; LEDGER_INSTRUCTION, ENROLLMENT_LEDGER_INSTRUCTION -> 65_536; 24 -> KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES; 25 -> 262_144; 28 -> 1024; 37 -> 1028; 38 -> 73_740; 31 -> 21_092; 33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED -> 32; else -> 10_034 } ||
+        val carriesBytes = status == EPOCH_PROGRESS || status == DELETION_REVIEW || status == DELETED || status == CREDIT_PROJECTION || status == UNLOAD_CLAIM || status == COMPLETE || status == CREDIT_STATUS || status == SETUP || status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE || status == ACTIVATION || status == CLOSE_LOADS || status == 31 || status == 33 || status == 36 || status == LEDGER_INSTRUCTION || status == ENROLLMENT_LEDGER_INSTRUCTION || status == LEDGER_CONFIRMED || status == LEDGER_AWAITING || status == LEDGER_REJECTED || status in listOf(18, 19, 23, 24, 25, 27, 28, 37, 38)
+        if (status in listOf(41, 42, 43, 44, 45, 49) || (status >= 0 && status !in UNKNOWN..LEDGER_CONFIRMED) || bytes.size > when (status) { EPOCH_PROGRESS -> 16; DELETION_REVIEW -> 254; DELETED -> 32; DELETION_REVIEW_DISCARDED, NOT_DELETED -> 0; CREDIT_PROJECTION -> 10_126; ACTIVATION, ENROLLMENT_DISPATCH, CLOSE_LOADS, 36, UNLOAD_CLAIM -> 16_384; LEDGER_INSTRUCTION, ENROLLMENT_LEDGER_INSTRUCTION -> 65_536; 24 -> KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES; 25 -> 262_144; 28 -> 1024; 37 -> 1028; 38 -> 73_740; 31 -> 21_092; 33, LEDGER_CONFIRMED, LEDGER_AWAITING, LEDGER_REJECTED -> 32; LEDGER_EPOCH_REQUIRED -> 0; else -> 10_034 } ||
             (if (carriesBytes) bytes.isEmpty() else bytes.isNotEmpty()) ||
             ((status == TIME_CHALLENGE || status == ACCOUNT_CHALLENGE) && (bytes.size != 32 || sequenceLow <= 0 || sequenceHigh != 0L)) ||
-            (status in listOf(ACTIVATION, CLOSE_LOADS, 31, 32, 34, 35, 36, ACTIVATION_NOT_STARTED, LEDGER_INSTRUCTION, UNLOAD_CLAIM, COLLECTION_IDLE, DELETED, DELETION_REVIEW_DISCARDED, NOT_DELETED) && (sequenceLow != 0L || sequenceHigh != 0L || detail != 0)) ||
+            (status in listOf(ACTIVATION, CLOSE_LOADS, 31, 32, 34, 35, 36, LEDGER_AWAITING, LEDGER_INSTRUCTION, UNLOAD_CLAIM, COLLECTION_IDLE, DELETED, DELETION_REVIEW_DISCARDED, NOT_DELETED) && (sequenceLow != 0L || sequenceHigh != 0L || detail != 0)) ||
             (status in COLLECTION_IDLE..COLLECTED && detail != 0) ||
             (status == EPOCH_PROGRESS && (sequenceHigh != 0L || detail != 0 || bytes.size != 16)) ||
             (status == DELETION_REVIEW && (sequenceLow <= 0 || sequenceHigh != 0L || detail != 0 || bytes.size != 254)) ||
             (status == DELETED && (bytes.size != 32 || bytes.all { it == 0.toByte() })) ||
             (status == OPENED && (sequenceLow <= 0 || sequenceHigh != 0L)) ||
             ((status in 18..28 || status in 37..39 || status in ENROLLMENT_LOCAL_ABANDONED..ENROLLMENT_LEDGER_INSTRUCTION) && (sequenceLow <= 0 || sequenceHigh != 0L || detail != 0)) ||
-            (status in listOf(UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_REJECTED) && java.lang.Long.compareUnsigned(sequenceLow, 2L) < 0) ||
+            (status in listOf(LEDGER_CONFIRMED, LEDGER_REJECTED) && java.lang.Long.compareUnsigned(sequenceLow, 2L) < 0) ||
+            (status == LEDGER_AWAITING && (bytes.size != 32 || bytes.all { it == 0.toByte() })) ||
+            (status == LEDGER_EPOCH_REQUIRED && (sequenceLow == 0L || sequenceHigh != 0L || detail != 0)) ||
             (status in listOf(18, 23) && bytes.size != 32) || (status == 19 && bytes.size != 161) ||
-            (status in listOf(33, UNLOAD_CONFIRMATION, ACTIVATION_CONFIRMATION, ACTIVATION_PROGRESS, ACTIVATION_REJECTED) && (sequenceLow == 0L || sequenceHigh != 0L || detail != 0 || bytes.size != 32 || bytes.all { it == 0.toByte() }))) {
+            (status in listOf(33, LEDGER_CONFIRMED, LEDGER_REJECTED) && (sequenceLow == 0L || sequenceHigh != 0L || detail != 0 || bytes.size != 32 || bytes.all { it == 0.toByte() }))) {
             throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         }
     }
@@ -116,6 +118,15 @@ class KagemushaWalletCallV1 internal constructor(
         const val ENROLLMENT_LOCAL_ABANDONED = 58
         /** Exact ledger instruction for the enrollment owner's retained signed abandonment. */
         const val ENROLLMENT_LEDGER_INSTRUCTION = 59
+        /** DATA from ledger finality ingestion: the original names an unselected epoch; the
+         * sequence is the untrusted target height and there are no bytes. */
+        const val LEDGER_EPOCH_REQUIRED = 60
+        /** Certified rejected execution of one attempt only: height, commit hash. */
+        const val LEDGER_REJECTED = 61
+        /** Certified successful execution of an Activate or Unload attempt: height, commit hash.
+         * Never the walk's retired 44/49, which had this shape with the Iroha header hash: an SDK
+         * and a Native from opposite sides of direct finality refuse each other's outcome. */
+        const val LEDGER_CONFIRMED = 62
         const val UNKNOWN = 0
         const val COMPLETE = 1
         const val PENDING = 2
@@ -142,13 +153,10 @@ class KagemushaWalletCallV1 internal constructor(
         const val BACKGROUND_STATUS = 29
         const val CLOSE_LOADS = 30
         const val LEDGER_INSTRUCTION = 40
-        const val UNLOAD_CONFIRMATION = 42
-        const val ACTIVATION_CONFIRMATION = 44
-        const val ACTIVATION_PROGRESS = 45
-        const val ACTIVATION_NOT_STARTED = 46
+        /** No retained outcome: the 32-byte entrypoint hash Native derived from the retained wire. */
+        const val LEDGER_AWAITING = 46
         const val CREDIT_PROJECTION = 47
         const val UNLOAD_CLAIM = 48
-        const val ACTIVATION_REJECTED = 49
         const val COLLECTION_IDLE = 50
         const val COLLECTION_PROGRESS = 51
         const val COLLECTED = 52
@@ -260,32 +268,58 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         if (result.status != KagemushaWalletCallV1.LEDGER_INSTRUCTION) throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         return result.bytes()
     }
-    /** Native authenticates this exact Unload in the selected committed block's successful transaction. */
-    fun confirmLedgerUnload(transactionHash: ByteArray, original: ByteArray): KagemushaWalletUnloadConfirmationV1 =
-        KagemushaWalletUnloadConfirmationV1(setup(KagemushaWalletSetupInputV1(30, identity = transactionHash, first = original)))
-    /** Native's exact retained confirmation or verified history for this transaction and claim.
-     * Absent inclusion is explicit; malformed or mismatched custody remains an error. */
-    fun unloadFinalityProgress(transactionHash: ByteArray, original: ByteArray): KagemushaWalletUnloadFinalityV1 =
-        KagemushaWalletUnloadFinalityV1(setup(KagemushaWalletSetupInputV1(33, identity = transactionHash, first = original)))
-    /** Verify the next contiguous ordinary proof for this exact Unload's independent cursor. */
-    fun ingestUnloadFinality(transactionHash: ByteArray, original: ByteArray,
-        finality: ByteArray): KagemushaWalletLedgerProgressV1 = KagemushaWalletLedgerProgressV1(
-        setup(KagemushaWalletSetupInputV1(34, identity = transactionHash, first = original, second = finality)))
+    /** The outcome of this exact signed Unload envelope over this exact claim, or Awaiting with
+     * the entrypoint Native derived. Only Confirmed establishes the payout; Rejected closes this
+     * envelope only. Reads never verify or write. */
+    fun unloadAttemptOutcome(claim: ByteArray, signedWire: ByteArray): KagemushaWalletLedgerOutcomeV1 =
+        KagemushaWalletLedgerOutcomeV1.of(setup(KagemushaWalletSetupInputV1(33, first = claim, second = signedWire)))
+    /** Verify one direct ledger finality original for this exact signed Unload envelope. */
+    fun ingestUnloadFinality(claim: ByteArray, signedWire: ByteArray, finality: ByteArray): KagemushaWalletLedgerIngestV1 =
+        KagemushaWalletLedgerIngestV1.of(setup(KagemushaWalletSetupInputV1(34, first = claim, second = signedWire, third = finality)))
     /** Durably admit this exact existing-account-signed outer Activate before its first POST.
-     * Intake is DATA only. An already retained attempt may report family confirmation from
-     * another retained same-Activation transaction; this is not this outer's execution result. */
-    fun retainActivationAttempt(signedWire: ByteArray): KagemushaWalletActivationFinalityV1 =
-        KagemushaWalletActivationFinalityV1(setup(KagemushaWalletSetupInputV1(46, first = signedWire)))
-    /** Recover Native's durable same-Activation family confirmation for a retained attempt. */
-    fun confirmLedgerActivation(signedWire: ByteArray): KagemushaWalletActivationConfirmationV1 =
-        KagemushaWalletActivationConfirmationV1(setup(KagemushaWalletSetupInputV1(35, first = signedWire)))
-    /** Verify one contiguous original for this Activate's independent Native history. */
-    fun ingestActivationFinality(signedWire: ByteArray, original: ByteArray): KagemushaWalletActivationFinalityV1 =
-        KagemushaWalletActivationFinalityV1(setup(KagemushaWalletSetupInputV1(36, first = signedWire, second = original)))
-    /** Exact retained attempt's independent progress, or genuine same-Activation family
-     * confirmation. Family confirmation does not assert this particular outer succeeded. */
-    fun activationFinalityProgress(signedWire: ByteArray): KagemushaWalletActivationFinalityV1 =
-        KagemushaWalletActivationFinalityV1(setup(KagemushaWalletSetupInputV1(37, first = signedWire)))
+     * Intake is DATA only. Confirmed may come from another retained same-Activation attempt;
+     * it is not this outer's execution result. */
+    fun retainActivationAttempt(signedWire: ByteArray): KagemushaWalletLedgerOutcomeV1 =
+        KagemushaWalletLedgerOutcomeV1.of(setup(KagemushaWalletSetupInputV1(46, first = signedWire)))
+    /** This retained attempt's outcome: the wallet's activation, this attempt's authenticated
+     * rejection, or Awaiting with Native's route selector. Reads never verify or write. */
+    fun activationAttemptOutcome(signedWire: ByteArray): KagemushaWalletLedgerOutcomeV1 =
+        KagemushaWalletLedgerOutcomeV1.of(setup(KagemushaWalletSetupInputV1(37, first = signedWire)))
+    /** Verify one direct ledger finality original for this retained Activate attempt. */
+    fun ingestActivationFinality(signedWire: ByteArray, finality: ByteArray): KagemushaWalletLedgerIngestV1 =
+        KagemushaWalletLedgerIngestV1.of(setup(KagemushaWalletSetupInputV1(36, first = signedWire, second = finality)))
+    /** Confirm one retained attempt with at most one finality read. A retained outcome returns
+     * without network; a typed wait returns Awaiting; an unselected epoch synchronizes at most
+     * [maximumBoundaries] boundaries through the attempt's epoch route, then offers the same
+     * in-memory original once more. Nothing is persisted or signed here, and no status, expiry
+     * or absence is ever an outcome. */
+    fun confirmLedgerAttempt(
+        attempt: KagemushaWalletLedgerAttemptV1, schemeId: ByteArray, walletId: ByteArray,
+        transport: org.hyperledger.iroha.sdk.client.HttpClientTransport,
+        canonicalAuth: org.hyperledger.iroha.sdk.client.ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable, maximumBoundaries: Int = 64,
+    ): java.util.concurrent.CompletableFuture<KagemushaWalletLedgerConfirmationV1> =
+        confirmKagemushaLedgerAttemptV1(requireCurrentOwner,
+            { ledgerAttemptOutcome(attempt) },
+            { entrypoint -> transport.getKagemushaWalletLedgerAttemptFinalityV1(
+                org.hyperledger.iroha.sdk.client.ToriiKagemushaWalletLedgerSelectionV1(schemeId, walletId, entrypoint),
+                canonicalAuth, requireCurrentOwner) },
+            { finality -> ingestLedgerAttempt(attempt, finality) },
+            { entrypoint, targetHeight ->
+                val selection = org.hyperledger.iroha.sdk.client.ToriiKagemushaWalletLedgerSelectionV1(schemeId, walletId, entrypoint)
+                synchronizeKagemushaLedgerEpochsV1(targetHeight, maximumBoundaries, requireCurrentOwner,
+                    { epochProgress() },
+                    { height -> transport.getKagemushaWalletLedgerAttemptEpochV1(selection, height, canonicalAuth, requireCurrentOwner) },
+                    { epoch, bytes -> ingestEpochBoundary(epoch, bytes) })
+            })
+    private fun ledgerAttemptOutcome(attempt: KagemushaWalletLedgerAttemptV1): KagemushaWalletLedgerOutcomeV1 = when (attempt) {
+        is KagemushaWalletLedgerAttemptV1.Activation -> activationAttemptOutcome(attempt.signedWire())
+        is KagemushaWalletLedgerAttemptV1.Unload -> unloadAttemptOutcome(attempt.claim(), attempt.signedWire())
+    }
+    private fun ingestLedgerAttempt(attempt: KagemushaWalletLedgerAttemptV1, finality: ByteArray): KagemushaWalletLedgerIngestV1 = when (attempt) {
+        is KagemushaWalletLedgerAttemptV1.Activation -> ingestActivationFinality(attempt.signedWire(), finality)
+        is KagemushaWalletLedgerAttemptV1.Unload -> ingestUnloadFinality(attempt.claim(), attempt.signedWire(), finality)
+    }
     /** Exact retained Activate frame for ledger submission; this is not activation confirmation. */
     fun activation(): ByteArray {
         val result = setup(KagemushaWalletSetupInputV1(15))

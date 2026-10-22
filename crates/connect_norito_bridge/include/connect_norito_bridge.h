@@ -1896,32 +1896,33 @@ typedef struct {
 // LedgerInstruction29(token=1 Activate/2 Unload/3 CloseLoads, first original <=65536) returns kind40;
 // conversion does not confirm execution. Kind40 has zero sequence/detail and nonempty bytes.
 // LedgerFinality23 atomically retains the genuinely verified native checkpoint under the same manifest.
-// ConfirmUnload30(nonzero transaction entrypoint hash in setup_id, first exact Unload original <=65536)
-// verifies successful input/output inclusion and saves its confirmation before returning kind42 (same geometry as kind33).
-// UnloadProofProgress33(nonzero tx hash setup_id, first exact Unload <=65536) returns kind42 for
-// retained authentic successful inclusion, kind33 for verified history, or kind34 when not started.
-// Missing inclusion is distinct from malformed/mismatched custody, which remains an error.
-// IngestUnloadProof34 adds second ordinary proof <=36MiB and returns kind33. Both use a separate
-// transaction+claim-bound cursor; ConfirmUnload30 consumes its selected block, independent of later global tips.
+// Activate and Unload attempts confirm by direct ledger finality: one bounded original per attempt,
+// verified under the manifest-selected epoch, with no block walk, cursor or imported checkpoint.
 // RetainActivationAttempt46(first exact signed Activate transaction <=65536) durably registers
 // a same-account/network/inner-Activation outer attempt before its first POST. New intake after
 // family confirmation is rejected; exact registered intake is idempotent. No clock or non-inclusion
 // authority is inferred. Unsupported earlier DATA layouts are preserved and rejected, never reset.
-// ConfirmActivation35(first registered signed Activate transaction <=65536) returns kind44 only after
-// Native verifies successful exact input/output inclusion of a retained attempt and durably confirms
-// the shared wallet activation. Kind44 does not assert successful execution of every outer attempt.
-// IngestActivationProof36(first exact signed transaction <=65536, second complete finality <=36MiB)
-// verifies one next block in that registered attempt's separate cursor, independent of other attempts
-// and the ordinary ledger tip. Each attempt retains its selected checkpoint; the winning actual finality
-// original remains independently retained. Cleanup may retire only that attempt's replaced prefix.
-// Matching successful execution is confirmed atomically before the cursor can pass its block.
-// ActivationProofProgress37(first exact signed transaction <=65536) reads that cursor after restart.
-// Results44 family confirmed /45 verifying /49 this attempt authentically rejected:
-// sequence_low=verified height, sequence_high/detail=0, bytes=32-byte block hash.
-// Rejected49 retains exact authenticated failed input/output execution and its checkpoint, never
-// unlocks first Load, and does not prevent another retained attempt from proving activation.
-// Result46 not started: zero sequence/detail, empty bytes. Confirmed result44 requires height>=2.
-// Setup35..37/46 use zero setup_id/amount/token and no unused originals. No HTTP receipt is authority.
+// ActivationOutcome37 (same input) reads that attempt's retained outcome and never writes.
+// ActivationFinality36(first exact signed Activate <=65536, second KagemushaWalletLedgerFinalityV1
+// original <=1,327,104) verifies the inclusion block's CommitQC certificate, the exact entrypoint's
+// network-input membership and its joined Network output, and retains the first authenticated
+// outcome of the attempt with its exact original.
+// UnloadOutcome33(zero setup_id, first exact Unload claim <=16,384, second exact signed transaction
+// <=65536) reads, and UnloadFinality34(third ledger finality original <=1,327,104) ingests, one
+// envelope's outcome. Any account may relay the exact claim; the claim itself binds the paid account.
+// Results: kind46 Awaiting (zero sequence/detail; bytes32 = the entrypoint hash Native derived from the
+// retained wire, which only selects the attempt's finality route), kind62 Confirmed and kind61 Rejected
+// (sequence_low = height >=2, sequence_high/detail=0, bytes32 = certified native commit hash, not the Iroha
+// header hash), and from 36/34 only kind60 EpochRequired (sequence_low = untrusted target height, no bytes):
+// synchronize epochs (Setup52/53) through the attempt's ledger epoch route, then offer the same original.
+// Kind62 for Activate is the wallet's activation, not success of every attempt. Kind61 closes only that
+// attempt: it never unlocks first Load, restores offline value or releases, replaces or retargets a claim.
+// Absence, HTTP status and expiry are never verdicts. A different original that verifies to the same
+// entrypoint, height, commit hash and result is idempotent; a differing verified outcome is an error.
+// Selectors30/35 and result kinds42/44/45/49 are retired and not reused; kinds33/34 remain the global tip
+// of 23/24. The walk's Confirmed44/Rejected49 carried this height-and-hash shape with the Iroha header hash,
+// so an SDK and a Native from opposite sides of direct finality refuse each other's outcome.
+// Setup33/34/36/37/46 use zero setup_id/amount/token and no unused originals. No HTTP receipt is authority.
 // RequestFeeSelection38(no inputs) returns kind12 bytes64 = asset digest32 || selected fee digest32.
 // Zero fee digest means Native-selected zero fee; this projection is DATA, never Request authority.
 // RequestWithFeePolicy39(nonzero setup_id, positive amount, optional paired first FeeSchedule
@@ -2015,7 +2016,7 @@ int32_t connect_norito_kagemusha_wallet_setup_v1(uint64_t handle, const connect_
 // startedNativeMicros/endedNativeMicros and sampledNativeMicros share a process-local
 // monotonic origin. They are observation-only, not wall time or completion authority.
 // Domain-specific frames are never general result kinds or monetary/custody verdicts.
-// Unload claims use canonical setup45/status48; activation rejection remains status49.
+// Unload claims use canonical setup45/status48; an attempt's certified rejection is status61.
 int32_t connect_norito_kagemusha_wallet_observe_v1(uint64_t handle, uint32_t selector, const uint8_t* identity, size_t identity_length, connect_norito_kagemusha_wallet_result_v1* out);
 // Pure full AccountId codecs, no ownership or signing authority. Bounds4096, response12.
 int32_t connect_norito_kagemusha_wallet_account_original_v1(const uint8_t* literal, size_t length, connect_norito_kagemusha_wallet_result_v1* out);

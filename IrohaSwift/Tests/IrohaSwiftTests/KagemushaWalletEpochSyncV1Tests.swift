@@ -30,7 +30,7 @@ final class KagemushaWalletEpochSyncV1Tests: XCTestCase {
   func testSyncUsesNativeBoundariesAndOlderReceiptsNeedNoFetch() async throws {
     var selected = try progress(0, 1, 3)
     var heights: [UInt64] = []
-    let result = try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: 7, maximumBoundaries: 2,
+    let result = try await kagemushaWalletSynchronizeEpochsV1(targetHeight: 7, maximumBoundaries: 2,
       requireCurrentOwner: {}, progress: { selected }, fetch: { height in heights.append(height); return Data([7]) },
       ingest: { epoch, bytes in
         XCTAssertEqual(epoch, selected.epoch); XCTAssertEqual(bytes, Data([7]))
@@ -38,7 +38,7 @@ final class KagemushaWalletEpochSyncV1Tests: XCTestCase {
         return selected
       })
     XCTAssertEqual(heights, [3, 6]); XCTAssertEqual(result.epoch, 2)
-    _ = try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: 2, maximumBoundaries: 1,
+    _ = try await kagemushaWalletSynchronizeEpochsV1(targetHeight: 2, maximumBoundaries: 1,
       requireCurrentOwner: {}, progress: { selected }, fetch: { _ in XCTFail("old receipt fetched history"); return Data() },
       ingest: { _, _ in XCTFail("old receipt ingested history"); return selected })
   }
@@ -47,13 +47,13 @@ final class KagemushaWalletEpochSyncV1Tests: XCTestCase {
     enum Refused: Error { case owner }
     var selected = try progress(0, 1, 3)
     var fetched = 0
-    let partial = try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: 9, maximumBoundaries: 1,
+    let partial = try await kagemushaWalletSynchronizeEpochsV1(targetHeight: 9, maximumBoundaries: 1,
         requireCurrentOwner: {}, progress: { selected }, fetch: { _ in fetched += 1; return Data([1]) },
         ingest: { _, _ in selected = try self.progress(1, 4, 6); return selected })
     XCTAssertEqual(fetched, 1); XCTAssertEqual(partial.epoch, 1)
     var ownerValid = true
     do {
-      _ = try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: 9, maximumBoundaries: 1,
+      _ = try await kagemushaWalletSynchronizeEpochsV1(targetHeight: 9, maximumBoundaries: 1,
         requireCurrentOwner: { if !ownerValid { throw Refused.owner } }, progress: { selected },
         fetch: { _ in ownerValid = false; return Data([1]) },
         ingest: { _, _ in XCTFail("owner loss ingested"); return selected })
@@ -64,7 +64,7 @@ final class KagemushaWalletEpochSyncV1Tests: XCTestCase {
   func testStalledNativeProgressFailsClosed() async throws {
     let selected = try progress(0, 1, 3)
     do {
-      _ = try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: 4, maximumBoundaries: 1,
+      _ = try await kagemushaWalletSynchronizeEpochsV1(targetHeight: 4, maximumBoundaries: 1,
         requireCurrentOwner: {}, progress: { selected }, fetch: { _ in Data([1]) }, ingest: { _, _ in selected })
       XCTFail("stalled native progress accepted")
     } catch { XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidNativeOutput) }
@@ -74,7 +74,7 @@ final class KagemushaWalletEpochSyncV1Tests: XCTestCase {
     var selected = try progress(0, 1, 3)
     var fetched = 0
     func sync() async throws -> KagemushaWalletEpochProgressV1 {
-      try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: 198, maximumBoundaries: 64,
+      try await kagemushaWalletSynchronizeEpochsV1(targetHeight: 198, maximumBoundaries: 64,
         requireCurrentOwner: {}, progress: { selected },
         fetch: { height in XCTAssertEqual(height, selected.boundaryHeight); fetched += 1; return Data([1]) },
         ingest: { epoch, _ in

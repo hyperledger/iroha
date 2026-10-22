@@ -263,8 +263,8 @@ by Native; a pinned mailbox digest establishes input identity, not issuer author
 | --- | --- | --- |
 | bootstrap | none | Native bootstrap status; no activation claim |
 | activation | none | Exact activation and ledger instruction originals |
-| retain-activation / activation-status / confirm-activation | signed-wire | Native retained attempt/status or verified successful inclusion |
-| activation-finality | signed-wire, finality | Authenticate one finality original; only actual confirmation marks activated |
+| retain-activation / activation-status | signed-wire | Native retained attempt outcome, or Awaiting with Native's entrypoint |
+| activation-finality | signed-wire, finality | Ingest the attempt's one direct finality original (or report the epoch it needs); only actual confirmation marks activated |
 | prepare-load | request-id, amount | Retain exact load plan and export ledger instruction |
 | prepared-load | request-id | Recover exact retained plan or report absent |
 | load | request-id, receipt, finality | Native Load; completion also reads its released original |
@@ -288,8 +288,8 @@ by Native; a pinned mailbox digest establishes input identity, not issuer author
 | retry / released-operation | operation-id | Native retry or exact released output |
 | resume | none | Native reconciliation; never a new debit |
 | unload-claim | request-id; optionally beneficiary | Exact retained claim and ledger instruction, not settlement |
-| unload-status / confirm-unload | transaction-hash, claim | Native history or verified successful exact inclusion |
-| unload-finality | transaction-hash, claim, finality | Authenticate/retain prefix; no settlement claim by itself |
+| unload-status | claim, signed-wire | Observe the envelope's retained outcome, or Awaiting with Native's entrypoint |
+| unload-finality | claim, signed-wire, finality | Verify the envelope's one direct finality original (or report the epoch it needs) |
 
 `decision` is UTF-8 JSON with exactly four string fields: `decision` (`confirm` or
 `cancel`), `invocation` (this invocation UUID), `reviewSequence` (canonical decimal

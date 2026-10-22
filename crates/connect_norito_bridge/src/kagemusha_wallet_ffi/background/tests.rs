@@ -628,18 +628,26 @@ fn ingests_and_status_reads_during_an_unlocked_proof_never_cancel_it() {
     let (id, owner, entered, release) = unlocked_owner(None);
     activity(id, true, false).unwrap();
     started(&entered);
-    // A simulated setup sequence: the activation walk, the Load wait and their status reads
-    // take the owner and return while the sub-proof keeps proving.
+    // A simulated setup sequence: direct Activate/Unload finality, the Load wait and their
+    // status reads take the owner and return while the sub-proof keeps proving.
     let mut inputs = vec![S::RetainActivationAttempt(vec![1])];
     for _ in 0..3 {
-        inputs.push(S::ActivationProofStep {
+        inputs.push(S::ActivationFinality {
             signed: vec![1],
-            original: vec![2],
+            finality: vec![2],
         });
-        inputs.push(S::ActivationProofProgress(vec![1]));
+        inputs.push(S::ActivationOutcome(vec![1]));
     }
     inputs.extend([
-        S::ConfirmActivation(vec![1]),
+        S::UnloadOutcome {
+            claim: vec![1],
+            signed: vec![2],
+        },
+        S::UnloadFinality {
+            claim: vec![1],
+            signed: vec![2],
+            finality: vec![3],
+        },
         S::LedgerFinality(vec![1]),
         S::LedgerStatus,
         S::EpochStatus,
@@ -960,16 +968,15 @@ fn setup_inputs_preempt_only_when_they_prove_sign_or_delete_custody() {
     for input in [
         S::LedgerStatus,
         S::EpochStatus,
-        S::ActivationProofProgress(vec![1]),
-        S::UnloadProofProgress {
-            transaction: [1; 32],
-            original: vec![1],
-        },
-        S::ConfirmActivation(vec![1]),
-        S::RetainActivationAttempt(vec![1]),
-        S::ActivationProofStep {
+        S::ActivationOutcome(vec![1]),
+        S::UnloadOutcome {
+            claim: vec![1],
             signed: vec![1],
-            original: vec![1],
+        },
+        S::RetainActivationAttempt(vec![1]),
+        S::ActivationFinality {
+            signed: vec![1],
+            finality: vec![1],
         },
         S::LedgerLoad {
             id: [1; 32],
@@ -980,13 +987,9 @@ fn setup_inputs_preempt_only_when_they_prove_sign_or_delete_custody() {
             original: vec![1],
         },
         S::LedgerFinality(vec![1]),
-        S::ConfirmUnload {
-            transaction: [1; 32],
-            original: vec![1],
-        },
-        S::UnloadProofStep {
-            transaction: [1; 32],
-            original: vec![1],
+        S::UnloadFinality {
+            claim: vec![1],
+            signed: vec![1],
             finality: vec![1],
         },
         S::EpochBoundary {

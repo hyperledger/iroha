@@ -14,8 +14,10 @@ pub struct WalletResult {
     /// 58 is a local no-marker enrollment abandonment (nothing to submit).
     /// CloseLoads30; FeeClaim31/absent32; selected ledger tip33/absent34; fee payout acknowledged35.
     /// FeeClaim transport36; enrollment selection37/Apple originals38/custody acknowledgement39.
-    /// Ledger instruction40/Unload confirmation42; retired result kinds41/43 are rejected.
-    /// Activation confirmed44/verifying45/not started46/rejected49; UnloadClaim48.
+    /// Ledger instruction40; result kinds41/42/43/45 and the walk's44/49 are retired. Attempt:
+    /// confirmed62/rejected61 (sequence = certified height, bytes = 32-byte native commit
+    /// hash), awaiting46 (bytes = the entrypoint hash Native derived from the retained wire),
+    /// epoch required60 (selectors 34/36 only; sequence = untrusted target height). UnloadClaim48.
     /// Collection idle50/progress51/collected52: no bytes/detail, sequence only for51/52.
     /// Destructive review53: token+254 DATA bytes; deleted54: marker32; discarded55/not-deleted56 empty.
     /// Background29: phase/eligibility/backlog-known in detail; sequence is last observed backlog.
@@ -487,48 +489,33 @@ mod setup_boundary_tests {
                     assert_eq!(original, [0, 255, 7]);
                     (40, 0, vec![0xc2])
                 }
-                setup::Setup::ConfirmUnload {
-                    transaction,
-                    original,
-                } => {
-                    assert_eq!(transaction, [7; 32]);
-                    assert_eq!(original, [0, 255, 7]);
-                    (42, u128::from(u64::MAX), vec![8; 32])
+                setup::Setup::UnloadOutcome { claim, signed } => {
+                    assert_eq!(claim, [0, 255, 7]);
+                    assert_eq!(signed, [0, 255, 7]);
+                    (46, 0, vec![8; 32])
                 }
-                setup::Setup::UnloadProofProgress {
-                    transaction,
-                    original,
-                } => {
-                    assert_eq!(transaction, [7; 32]);
-                    assert_eq!(original, [0, 255, 7]);
-                    (34, 0, vec![])
-                }
-                setup::Setup::UnloadProofStep {
-                    transaction,
-                    original,
+                setup::Setup::UnloadFinality {
+                    claim,
+                    signed,
                     finality,
                 } => {
-                    assert_eq!(transaction, [7; 32]);
-                    assert_eq!(original, [0, 255, 7]);
-                    assert_eq!(finality, [0, 255, 7]);
-                    (33, u128::from(u64::MAX), vec![9; 32])
-                }
-                setup::Setup::ConfirmActivation(signed) => {
+                    assert_eq!(claim, [0, 255, 7]);
                     assert_eq!(signed, [0, 255, 7]);
-                    (44, u128::from(u64::MAX), vec![10; 32])
+                    assert_eq!(finality, [0, 255, 7]);
+                    (60, 3_601, vec![])
                 }
                 setup::Setup::RetainActivationAttempt(signed) => {
                     assert!(!signed.is_empty());
-                    (46, 0, Vec::new())
+                    (46, 0, vec![10; 32])
                 }
-                setup::Setup::ActivationProofProgress(signed) => {
+                setup::Setup::ActivationOutcome(signed) => {
                     assert_eq!(signed, [0, 255, 7]);
-                    (46, 0, vec![])
+                    (61, u128::from(u64::MAX), vec![12; 32])
                 }
-                setup::Setup::ActivationProofStep { signed, original } => {
+                setup::Setup::ActivationFinality { signed, finality } => {
                     assert_eq!(signed, [0, 255, 7]);
-                    assert_eq!(original, [0, 255, 7]);
-                    (45, u128::from(u64::MAX), vec![11; 32])
+                    assert_eq!(finality, [0, 255, 7]);
+                    (62, u128::from(u64::MAX), vec![11; 32])
                 }
                 setup::Setup::ReviewCustodyDeletion
                 | setup::Setup::ConfirmCustodyDeletion { .. }
@@ -720,13 +707,11 @@ mod setup_boundary_tests {
             ),
             (27, 40, 0, vec![0xa2]),
             (29, 40, 0, vec![0xc2]),
-            (30, 42, u64::MAX, vec![8; 32]),
-            (33, 34, 0, vec![]),
-            (34, 33, u64::MAX, vec![9; 32]),
-            (35, 44, u64::MAX, vec![10; 32]),
-            (36, 45, u64::MAX, vec![11; 32]),
-            (37, 46, 0, vec![]),
-            (46, 46, 0, vec![]),
+            (33, 46, 0, vec![8; 32]),
+            (34, 60, 3_601, vec![]),
+            (36, 62, u64::MAX, vec![11; 32]),
+            (37, 61, u64::MAX, vec![12; 32]),
+            (46, 46, 0, vec![10; 32]),
             (38, 12, 0, vec![0xf3; 64]),
             (43, 47, 0, vec![0xc3; 92]),
             (
@@ -738,7 +723,7 @@ mod setup_boundary_tests {
             (55, 12, 0, vec![0, 255, 2]),
         ] {
             let mut request = request(
-                if matches!(selector, 2 | 19 | 20 | 25 | 27 | 30 | 33 | 34 | 43 | 45) {
+                if matches!(selector, 2 | 19 | 20 | 25 | 27 | 43 | 45) {
                     &id
                 } else {
                     &zero
@@ -751,14 +736,20 @@ mod setup_boundary_tests {
                     high: u64::MAX,
                 };
             }
-            if matches!(selector, 3 | 16 | 17 | 21..=23 | 25 | 26 | 29 | 30 | 33..=37 | 45 | 46 | 55)
-            {
+            if matches!(
+                selector,
+                3 | 16 | 17 | 21..=23 | 25 | 26 | 29 | 33 | 34 | 36 | 37 | 45 | 46 | 55
+            ) {
                 request.first = original.as_ptr();
                 request.first_length = original.len();
             }
-            if matches!(selector, 25 | 26 | 34 | 36) {
+            if matches!(selector, 25 | 26 | 33 | 34 | 36) {
                 request.second = original.as_ptr();
                 request.second_length = original.len();
+            }
+            if selector == 34 {
+                request.third = original.as_ptr();
+                request.third_length = original.len();
             }
             if selector == 29 {
                 request.token = 2;
@@ -783,7 +774,7 @@ mod setup_boundary_tests {
                 crate::connect_norito_free(out.bytes);
             }
         }
-        assert_eq!(calls.load(Ordering::SeqCst), 28);
+        assert_eq!(calls.load(Ordering::SeqCst), 26);
         let mut status = WalletResult::default();
         assert_eq!(
             unsafe {
@@ -794,11 +785,11 @@ mod setup_boundary_tests {
         assert_eq!((status.status, status.detail, status.length), (29, 0, 0));
         assert_eq!(
             calls.load(Ordering::SeqCst),
-            28,
+            26,
             "worker status does not acquire the wallet"
         );
         assert_failure(handle, &request(&zero, 19), INVALID);
-        for selector in [28, 31, 32] {
+        for selector in [28, 30, 31, 32, 35] {
             assert_failure(handle, &request(&zero, selector), INVALID);
         }
         // The deleted Offer selector never reaches the owner, with or without its old inputs.
@@ -806,10 +797,10 @@ mod setup_boundary_tests {
         assert_failure(handle, &offer, INVALID);
         offer.amount = WalletU128 { low: 1, high: 0 };
         assert_failure(handle, &offer, INVALID);
-        assert_eq!(calls.load(Ordering::SeqCst), 28);
+        assert_eq!(calls.load(Ordering::SeqCst), 26);
         close(handle).unwrap();
         assert_failure(handle, &request(&zero, 0), CLOSED);
-        assert_eq!(calls.load(Ordering::SeqCst), 28);
+        assert_eq!(calls.load(Ordering::SeqCst), 26);
     }
     #[test]
     fn setup_c_routes_cancellation_and_every_envelope_form_to_the_same_owner() {

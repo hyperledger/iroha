@@ -205,7 +205,7 @@ class KagemushaWalletEnrollmentV1Test {
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(58, -1, 0, 7, 0, 0, byteArrayOf(1)) }
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(28, -1, 0, 7, 0, 0, byteArrayOf()) }
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(58, -1, 0, 7, 0, 1, byteArrayOf()) }
-        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(60, -1, 0, 7, 0, 0, byteArrayOf()) }
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(61, -1, 0, 7, 0, 0, byteArrayOf()) }
         for (reply in listOf(KagemushaWalletCallV1(20, -1, 0, 7, 0, 0, byteArrayOf()), KagemushaWalletCallV1(58, -1, 0, 8, 0, 0, byteArrayOf()),
             KagemushaWalletCallV1(24, -1, 0, 7, 0, 0, byteArrayOf(1)))) {
             driver.reply = reply

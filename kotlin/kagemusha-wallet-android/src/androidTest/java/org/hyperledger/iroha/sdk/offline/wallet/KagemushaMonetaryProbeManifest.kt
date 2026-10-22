@@ -11,7 +11,6 @@ internal object KagemushaMonetaryProbeManifest {
         "retain-activation" to setOf(setOf("signed-wire")),
         "activation-status" to setOf(setOf("signed-wire")),
         "activation-finality" to setOf(setOf("signed-wire", "finality")),
-        "confirm-activation" to setOf(setOf("signed-wire")),
         "prepare-load" to setOf(setOf("request-id", "amount")),
         "prepared-load" to setOf(setOf("request-id")),
         "load" to setOf(setOf("request-id", "receipt", "finality")),
@@ -30,9 +29,8 @@ internal object KagemushaMonetaryProbeManifest {
         "resume" to setOf(emptySet()), "released-request" to setOf(setOf("request-id")),
         "released-operation" to setOf(setOf("operation-id")),
         "unload-claim" to setOf(setOf("request-id"), setOf("request-id", "beneficiary")),
-        "unload-status" to setOf(setOf("transaction-hash", "claim")),
-        "unload-finality" to setOf(setOf("transaction-hash", "claim", "finality")),
-        "confirm-unload" to setOf(setOf("transaction-hash", "claim")),
+        "unload-status" to setOf(setOf("claim", "signed-wire")),
+        "unload-finality" to setOf(setOf("claim", "signed-wire", "finality")),
         "decode-request" to setOf(setOf("envelope")),
         "decode-payment" to setOf(setOf("envelope")), "decode-credited" to setOf(setOf("envelope")),
         "refresh-time" to setOf(setOf("request-id", "anchor", "certificates")),
@@ -41,7 +39,7 @@ internal object KagemushaMonetaryProbeManifest {
     )
     fun validate(action: String, names: Set<String>) = probeRequire(schemas[action]?.contains(names) == true)
     fun maximum(name: String): Int = when (name) {
-        "request-id", "setup-id", "operation-id", "transaction-hash" -> 32
+        "request-id", "setup-id", "operation-id" -> 32
         "amount" -> 16
         "epoch" -> 8
         "finality" -> 36 * 1024 * 1024

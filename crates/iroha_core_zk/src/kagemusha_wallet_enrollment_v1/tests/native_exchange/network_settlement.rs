@@ -2,9 +2,7 @@
 //!
 //! TODO: Compile and qualify against the same live Network campaign and admitted originals.
 use super::*;
-use crate::kagemusha_wallet_state_v1::{
-    LEDGER_PROOF_MAX_BYTES_V1, LedgerProgressV1, UnloadFinalityProgressV1,
-};
+use crate::kagemusha_wallet_state_v1::{LEDGER_PROOF_MAX_BYTES_V1, LedgerCommitV1};
 use iroha_data_model::sumeragi_finality::{MAX_FINALITY_BLOCK_BYTES, SumeragiFinalityProof};
 
 fn original(directory: &Path, rows: &[norito::json::Value], name: &str, maximum: usize) -> Vec<u8> {
@@ -37,8 +35,8 @@ fn digest(value: &norito::json::Value) -> [u8; 32] {
 }
 
 // A test receipt projection of the public native result, not a new protocol encoding.
-fn confirmation_bytes(value: LedgerProgressV1) -> Vec<u8> {
-    norito::encode_canonical(&(value.height, value.block_hash)).unwrap()
+fn confirmation_bytes(value: LedgerCommitV1) -> Vec<u8> {
+    norito::encode_canonical(&(value.height, value.commit_hash)).unwrap()
 }
 
 fn inventory(value: &norito::json::Value) -> (u64, u64) {
@@ -248,11 +246,7 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         claim
     );
     let transaction = digest(&settlement["settlement_transaction_hash_hex"]);
-    let expected = LedgerProgressV1 {
-        height: settled_height,
-        block_hash: digest(&settlement["settlement_block_hash_hex"]),
-    };
-    let expected_bytes = confirmation_bytes(expected);
+    let settlement_block_hash = digest(&settlement["settlement_block_hash_hex"]);
     let block = original(root, rows, "unload-block.norito", MAX_FINALITY_BLOCK_BYTES);
     let signed = original(
         root,
@@ -263,6 +257,7 @@ fn actual_c_confirms_network_unload_after_process_restart() {
     let signed: iroha_data_model::transaction::SignedTransaction = decode(&signed);
     assert_eq!(*signed.hash().as_ref(), transaction);
     assert_eq!(signed.authority(), &f.account);
+    let wire = signed.encode_wire_v1().unwrap();
     let instruction = original(
         root,
         rows,
@@ -277,11 +272,11 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         )
     );
 
-    assert_eq!(
-        c.unload_finality_progress(transaction, &claim).unwrap(),
-        UnloadFinalityProgressV1::NotStarted
-    );
-    assert!(c.confirm_ledger_unload(transaction, &claim).is_err());
+    // Native derives the route selector from the retained envelope, never from Core's hash.
+    let awaiting = state::LedgerAttemptOutcomeV1::Awaiting {
+        entrypoint: transaction,
+    };
+    assert_eq!(c.unload_attempt_outcome(&claim, &wire).unwrap(), awaiting);
     let exact_claim = claim.clone();
     let exact_instruction = c.ledger_instruction(2, &claim).unwrap();
     assert_eq!(exact_instruction, instruction);
@@ -289,9 +284,8 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
     ] {
-        let refused = norito::with_decode_limits_scope(limits, || {
-            c.unload_finality_progress(transaction, &claim)
-        });
+        let refused =
+            norito::with_decode_limits_scope(limits, || c.unload_attempt_outcome(&claim, &wire));
         assert!(
             matches!(refused, Err(state::Error::DecodeResource(ref cause))
             if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
@@ -301,23 +295,16 @@ fn actual_c_confirms_network_unload_after_process_restart() {
             matches!(refused, Err(state::Error::DecodeResource(ref cause))
             if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
-        let refused = norito::with_decode_limits_scope(limits, || {
-            c.confirm_ledger_unload(transaction, &claim)
-        });
-        assert!(
-            matches!(refused, Err(state::Error::DecodeResource(ref cause))
-            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
-        );
         assert_eq!(c.ledger_instruction(2, &claim).unwrap(), exact_instruction);
-        assert_eq!(
-            c.unload_finality_progress(transaction, &claim).unwrap(),
-            UnloadFinalityProgressV1::NotStarted
-        );
+        assert_eq!(c.unload_attempt_outcome(&claim, &wire).unwrap(), awaiting);
         assert_eq!(c.snapshot().unwrap(), before);
         assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
         assert_eq!(claim, exact_claim);
     }
+    // The test, not Native, verifies the recorded prefix to locate the certified block and
+    // project the one original Torii's attempt route serves for it.
     let mut independent = (*sources.genesis).clone();
+    let mut certified = None;
     for height in 1..=through {
         let bytes = original(
             root,
@@ -330,86 +317,58 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         assert_eq!(proof.height(), height);
         if height == settled_height {
             assert_eq!(proof.block_wire, block);
-            assert_eq!(*verified.block().hash().as_ref(), expected.block_hash);
+            assert_eq!(*verified.block().hash().as_ref(), settlement_block_hash);
+            certified = Some(verified);
         }
-        let previous = c.unload_finality_progress(transaction, &claim).unwrap();
-        for limits in [
-            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
-            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-        ] {
-            let refused = norito::with_decode_limits_scope(limits, || {
-                c.ingest_unload_finality(transaction, &claim, &bytes)
-            });
-            assert!(
-                matches!(refused, Err(state::Error::DecodeResource(ref cause))
-                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
-            );
-            assert_eq!(
-                c.unload_finality_progress(transaction, &claim).unwrap(),
-                previous
-            );
-            assert_eq!(c.snapshot().unwrap(), before);
-            assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
-            assert_eq!(claim, exact_claim);
-        }
-        let progress = c
-            .ingest_unload_finality(transaction, &claim, &bytes)
-            .unwrap();
-        assert_eq!(progress.height, height);
-        assert_eq!(
-            c.ingest_unload_finality(transaction, &claim, &bytes)
-                .unwrap(),
-            progress
+    }
+    let certified = certified.unwrap();
+    let finality = ledger_finality_original(&certified, &signed);
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let refused = norito::with_decode_limits_scope(limits, || {
+            c.ingest_unload_finality(&claim, &wire, &finality)
+        });
+        assert!(
+            matches!(refused, Err(state::Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
-        if height < settled_height {
-            assert_eq!(
-                c.unload_finality_progress(transaction, &claim).unwrap(),
-                UnloadFinalityProgressV1::Verifying(progress)
-            );
-            assert!(c.confirm_ledger_unload(transaction, &claim).is_err());
-        } else {
-            assert_eq!(
-                c.unload_finality_progress(transaction, &claim).unwrap(),
-                UnloadFinalityProgressV1::Confirmed(expected)
-            );
-            assert_eq!(
-                confirmation_bytes(c.confirm_ledger_unload(transaction, &claim).unwrap()),
-                expected_bytes
-            );
-        }
-        if [settled_height - 1, settled_height, through].contains(&height) {
-            drop(c);
-            c = sources.open(&device, &f, &frames);
-            if height >= settled_height {
-                assert_eq!(
-                    confirmation_bytes(c.confirm_ledger_unload(transaction, &claim).unwrap()),
-                    expected_bytes
-                );
-            } else {
-                assert_eq!(
-                    c.unload_finality_progress(transaction, &claim).unwrap(),
-                    UnloadFinalityProgressV1::Verifying(progress)
-                );
-            }
-        }
+        assert_eq!(c.unload_attempt_outcome(&claim, &wire).unwrap(), awaiting);
         assert_eq!(c.snapshot().unwrap(), before);
         assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
+        assert_eq!(claim, exact_claim);
     }
-    let mut wrong_transaction = transaction;
-    wrong_transaction[0] ^= 1;
-    assert!(c.confirm_ledger_unload(wrong_transaction, &claim).is_err());
+    let state::LedgerAttemptIngestV1::Outcome(state::LedgerAttemptOutcomeV1::Confirmed(expected)) =
+        c.ingest_unload_finality(&claim, &wire, &finality).unwrap()
+    else {
+        panic!("the executed Unload confirms from one direct original");
+    };
+    assert_eq!(expected.height, settled_height);
+    assert_eq!(expected.commit_hash, certified.core_hash().0);
+    let confirmed = state::LedgerAttemptOutcomeV1::Confirmed(expected);
+    assert_eq!(
+        c.ingest_unload_finality(&claim, &wire, &finality).unwrap(),
+        state::LedgerAttemptIngestV1::Outcome(confirmed)
+    );
+    assert_eq!(c.unload_attempt_outcome(&claim, &wire).unwrap(), confirmed);
+    drop(c);
+    c = sources.open(&device, &f, &frames);
+    assert_eq!(c.unload_attempt_outcome(&claim, &wire).unwrap(), confirmed);
+    let expected_bytes = confirmation_bytes(expected);
+    // A changed claim or another envelope is an error, never a verdict.
     let mut changed =
         KagemushaWalletUnloadClaimV1::decode_canonical(&claim, &f.config.scheme.scheme_id())
             .unwrap();
     changed.account = setup.accounts[0].clone();
     assert!(
-        c.confirm_ledger_unload(transaction, &norito::encode_canonical(&changed).unwrap())
+        c.unload_attempt_outcome(&norito::encode_canonical(&changed).unwrap(), &wire)
             .is_err()
     );
-    assert_eq!(
-        confirmation_bytes(c.confirm_ledger_unload(transaction, &claim).unwrap()),
-        expected_bytes
-    );
+    let mut noncanonical = wire.clone();
+    noncanonical.push(0);
+    assert!(c.unload_attempt_outcome(&claim, &noncanonical).is_err());
+    assert_eq!(c.unload_attempt_outcome(&claim, &wire).unwrap(), confirmed);
     assert_eq!(c.snapshot().unwrap(), before);
     assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
     publish(&output.join("confirmation.norito"), &expected_bytes);
@@ -420,8 +379,8 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         "executed_ledger_setup_sha256": (setup.manifest_sha256),
         "claim_sha256": (sha(&claim)), "transaction_hash_hex": (hex::encode(transaction)),
         "confirmation_sha256": (sha(&expected_bytes)), "confirmation_height": settled_height,
-        "last_native_cursor_height": through, "new_payment_signatures": 0,
-        "scope": "Same retained C incarnation reopened in a separate process with private software hardware fixture; actual four-validator settlement evidence, native durable confirmation and reopen/overshoot refusal. No fresh wallet, disk power-loss, physical platform or physical-device qualification."
+        "native_finality_originals": 1, "new_payment_signatures": 0,
+        "scope": "Same retained C incarnation reopened in a separate process with private software hardware fixture; actual four-validator settlement evidence, native durable confirmation from one direct finality original, reopen and changed-claim refusal. No fresh wallet, disk power-loss, physical platform or physical-device qualification."
     });
     publish(
         &output.join("result.json"),

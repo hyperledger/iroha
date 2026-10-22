@@ -27,13 +27,15 @@ public struct KagemushaWalletCallV1: Sendable {
   /// timeChallenge13, timeRetained14, accountChallenge15, opened16, activation17;
   /// background29, closure30, retainedFee31, noFee32, ledgerTip33, noTip34, payoutRecorded35,
   /// feeClaimTransport36, authenticatedEnrollmentSelection37, appleOriginals38, appleCustodyAcknowledged39,
-  /// ledgerInstruction40, confirmedUnload42, confirmedActivation44, activationProgress45,
-  /// activationNotStarted46, creditProjection47, unloadClaimTransport48, activationRejected49;
-  /// collectionIdle50, collectionProgress51, collected52, deletionReview53, deleted54,
-  /// deletionReviewDiscarded55, notDeleted56, epochProgress57. Retired kinds41/43 are rejected.
+  /// ledgerInstruction40, ledgerAwaiting46 (32-byte Native-derived entrypoint), creditProjection47,
+  /// unloadClaimTransport48; collectionIdle50, collectionProgress51, collected52, deletionReview53,
+  /// deleted54, deletionReviewDiscarded55, notDeleted56, epochProgress57, ledgerEpochRequired60
+  /// (untrusted target height, no bytes), ledgerRejected61 and ledgerConfirmed62 (height and
+  /// 32-byte native commit hash). Retired kinds41/42/43/45 and the walk's44/49 are rejected: 44/49
+  /// had the 61/62 shape with the Iroha header hash, so a mixed SDK/Native pair refuses.
   /// Enrollment18...28 and localAbandoned58 (the no-marker enrollment abandonment, which has
   /// nothing to submit) are projected by the separate enrollment owner.
-  static let statusRange: ClosedRange<Int32> = 0...59
+  static let statusRange: ClosedRange<Int32> = 0...62
   public let status: Int32
   public let sequenceLow: UInt64
   public let sequenceHigh: UInt64
@@ -45,20 +47,20 @@ public struct KagemushaWalletCallV1: Sendable {
   public let bytes: Data
   init(status: Int32, sequenceLow: UInt64, sequenceHigh: UInt64, detail: UInt32, bytes: Data) throws
   {
-    guard Self.statusRange.contains(status), ![41, 43].contains(status), bytes.count <= kagemushaWalletOutputBoundV1(status),
-      [1, 10, 12, 13, 15, 17, 18, 19, 23, 24, 25, 27, 28, 30, 31, 33, 36, 37, 38, 40, 42, 44, 45, 47, 48, 49, 53, 54, 57, 59].contains(status) ? !bytes.isEmpty : bytes.isEmpty,
+    guard Self.statusRange.contains(status), ![41, 42, 43, 44, 45, 49].contains(status), bytes.count <= kagemushaWalletOutputBoundV1(status),
+      [1, 10, 12, 13, 15, 17, 18, 19, 23, 24, 25, 27, 28, 30, 31, 33, 36, 37, 38, 40, 46, 47, 48, 53, 54, 57, 59, 61, 62].contains(status) ? !bytes.isEmpty : bytes.isEmpty,
       ![12, 14, 17, 30, 31, 32, 34, 35, 36, 40, 46, 47, 48, 50, 54, 55, 56].contains(status) || (sequenceLow == 0 && sequenceHigh == 0 && detail == 0),
-      !([13, 15, 16, 53, 58, 59].contains(status) || (18...28).contains(status) || (37...39).contains(status))
+      !([13, 15, 16, 53, 58, 59, 60].contains(status) || (18...28).contains(status) || (37...39).contains(status))
         || (sequenceLow > 0 && sequenceLow <= UInt64(Int64.max) && sequenceHigh == 0 && detail == 0),
       !(50...52).contains(status) || detail == 0,
-      ![13, 15, 18, 23].contains(status) || bytes.count == 32,
-      status != 13 || bytes.contains(where: { $0 != 0 }),
+      ![13, 15, 18, 23, 46].contains(status) || bytes.count == 32,
+      ![13, 46].contains(status) || bytes.contains(where: { $0 != 0 }),
       status != 19 || bytes.count == 161,
       status != 53 || bytes.count == 254,
       status != 54 || (bytes.count == 32 && bytes.contains(where: { $0 != 0 })),
       status != 57 || (sequenceHigh == 0 && detail == 0 && bytes.count == 16),
-      ![42, 44, 49].contains(status) || sequenceLow > 1,
-      ![33, 42, 44, 45, 49].contains(status) || (sequenceLow != 0 && sequenceHigh == 0 && detail == 0 && bytes.count == 32 && bytes.contains(where: { $0 != 0 }))
+      ![61, 62].contains(status) || sequenceLow > 1,
+      ![33, 61, 62].contains(status) || (sequenceLow != 0 && sequenceHigh == 0 && detail == 0 && bytes.count == 32 && bytes.contains(where: { $0 != 0 }))
     else { throw KagemushaWalletErrorV1.invalidNativeOutput }
     self.status = status
     self.sequenceLow = sequenceLow
@@ -801,11 +803,11 @@ func kagemushaWalletOutputBoundV1(_ status: Int32) -> Int {
   case 37: return 1028
   case 38: return 73_740
   case 31: return 21_092
-  case 33, 42, 44, 45, 49: return 32
+  case 33, 46, 61, 62: return 32
   case 47: return 10_126
   case 53: return 254
   case 54: return 32
-  case 55, 56, 58: return 0
+  case 55, 56, 58, 60: return 0
   case 57: return 16
   default: return 10_034
   }

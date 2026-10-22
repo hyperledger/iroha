@@ -10,7 +10,9 @@ use iroha_data_model::sumeragi_finality::{
 pub const LEDGER_PROOF_MAX_BYTES_V1: usize = MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024;
 /// Maximum original immutable payout row, including canonical Norito framing.
 pub const PAYOUT_RECORD_MAX_BYTES_V1: usize = 1024;
-/// Selected native finality progress; this alone grants no fee-payout acknowledgement.
+/// The wallet's selected global ledger tip, used only for fee payout evidence. Activate and
+/// Unload outcomes are direct [`super::LedgerCommitV1`] facts instead. This alone grants no
+/// fee-payout acknowledgement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LedgerProgressV1 {
     /// Last durably selected authenticated height.

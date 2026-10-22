@@ -533,13 +533,15 @@ is insufficient because it does not bind every signature in the complete wire.
 
 The controller delivers those exact wire bytes to the same A wallet's real
 `retainActivationAttempt` call before any submission. A successful initial Native
-return produces a portable UTF-8 JSON original with exactly eight string fields:
+return produces a portable UTF-8 JSON original with exactly nine string fields:
 `schema` equal to `iroha.kagemusha.wallet-activation-retained.v1`, `action` equal to
 `retain-activation`, `signedWireSHA256`, `signedWireBytes`, `nativeResult` equal to
-`not_started`, `nativeReturnedTicks`, `invocation`, and `sequence`. Decimal strings
+`awaiting`, `entrypointHex`, `nativeReturnedTicks`, `invocation`, and `sequence`.
+`entrypointHex` is the lowercase entrypoint hash Native derived from the retained wire;
+the controller requires it to equal the prepared transaction's hash. Decimal strings
 are canonical unsigned integers; ticks are positive and sequence is 0–9999.
 Invocation preserves the driver's UUID identity. The driver emits no such receipt
-for confirmation, rejection, or partial finality progress. Its command,
+for a confirmed or rejected outcome. Its command,
 started/finished observations, and invocation remain independently pinned by the
 controller; an activation export, host boolean, or normalized host substitute is
 never a wallet-retention receipt.

@@ -635,18 +635,16 @@ fn setup_priority(input: &setup::Setup) -> Priority {
         // here would make its own scheduler start return Idle forever; real payments still
         // cancel/join collection before acquiring this wallet mutex.
         S::CollectRetained { .. } => Priority::None,
-        S::ActivationProofProgress(_)
-        | S::UnloadProofProgress { .. }
+        S::ActivationOutcome(_)
+        | S::UnloadOutcome { .. }
         | S::LedgerStatus
         | S::EpochStatus
-        | S::ConfirmActivation(_)
         | S::RetainActivationAttempt(_)
-        | S::ActivationProofStep { .. }
+        | S::ActivationFinality { .. }
         | S::LedgerLoad { .. }
         | S::LedgerInstruction { .. }
         | S::LedgerFinality(_)
-        | S::ConfirmUnload { .. }
-        | S::UnloadProofStep { .. }
+        | S::UnloadFinality { .. }
         | S::EpochBoundary { .. }
         | S::FeePayout { .. }
         | S::RequestFeeSelection

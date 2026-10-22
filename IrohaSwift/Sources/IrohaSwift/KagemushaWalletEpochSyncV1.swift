@@ -11,7 +11,7 @@ extension KagemushaWalletV1 {
     maximumBoundaries: Int = 64,
     requireCurrentOwner: @escaping @Sendable () async throws -> Void
   ) async throws -> KagemushaWalletEpochProgressV1 {
-    try await kagemushaWalletSynchronizeEpochsV1(receiptHeight: original.blockHeight,
+    try await kagemushaWalletSynchronizeEpochsV1(targetHeight: original.blockHeight,
       maximumBoundaries: maximumBoundaries, requireCurrentOwner: requireCurrentOwner,
       progress: { try self.epochProgress() },
       fetch: { height in
@@ -23,19 +23,20 @@ extension KagemushaWalletV1 {
 
 // The callbacks separate transport scheduling tests from cryptographic authority: production
 // always supplies the installed wallet's sealed progress and ingestion entry points above.
+// `targetHeight` is a Load receipt height or a ledger attempt's EpochRequired height.
 func kagemushaWalletSynchronizeEpochsV1(
-  receiptHeight: UInt64, maximumBoundaries: Int,
+  targetHeight: UInt64, maximumBoundaries: Int,
   requireCurrentOwner: () async throws -> Void,
   progress: () throws -> KagemushaWalletEpochProgressV1,
   fetch: (UInt64) async throws -> Data,
   ingest: (UInt64, Data) throws -> KagemushaWalletEpochProgressV1
 ) async throws -> KagemushaWalletEpochProgressV1 {
-  guard receiptHeight > 0, (1...64).contains(maximumBoundaries) else { throw KagemushaWalletErrorV1.invalidInput }
+  guard targetHeight > 0, (1...64).contains(maximumBoundaries) else { throw KagemushaWalletErrorV1.invalidInput }
   try Task.checkCancellation()
   try await requireCurrentOwner()
   var selected = try progress()
   var remaining = maximumBoundaries
-  while receiptHeight > selected.boundaryHeight {
+  while targetHeight > selected.boundaryHeight {
     guard remaining > 0 else { break }
     try Task.checkCancellation()
     try await requireCurrentOwner()

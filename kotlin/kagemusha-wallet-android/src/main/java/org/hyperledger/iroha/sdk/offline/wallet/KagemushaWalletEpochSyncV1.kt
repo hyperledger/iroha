@@ -6,14 +6,15 @@ import java.math.BigInteger
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicReference
 
-/** Bounded transport scheduling only. Native callbacks own all authority and publication. */
+/** Bounded transport scheduling only. Native callbacks own all authority and publication.
+ * [targetHeight] is a Load receipt height or a ledger attempt's EpochRequired height. */
 internal fun synchronizeKagemushaEpochsV1(
-    receiptHeight: BigInteger, maximumBoundaries: Int, requireCurrentOwner: Runnable,
+    targetHeight: BigInteger, maximumBoundaries: Int, requireCurrentOwner: Runnable,
     progress: () -> KagemushaWalletEpochProgressV1,
     fetch: (BigInteger) -> CompletableFuture<ByteArray>,
     ingest: (BigInteger, ByteArray) -> KagemushaWalletEpochProgressV1,
 ): CompletableFuture<KagemushaWalletEpochProgressV1> {
-    require(receiptHeight.signum() > 0 && receiptHeight.bitLength() <= 64 && maximumBoundaries in 1..64)
+    require(targetHeight.signum() > 0 && targetHeight.bitLength() <= 64 && maximumBoundaries in 1..64)
     val result = CompletableFuture<KagemushaWalletEpochProgressV1>()
     val pending = AtomicReference<CompletableFuture<ByteArray>?>(null)
     result.whenComplete { _, _ -> if (result.isCancelled) pending.get()?.cancel(false) }
@@ -21,7 +22,7 @@ internal fun synchronizeKagemushaEpochsV1(
         if (result.isDone) return
         try {
             requireCurrentOwner.run()
-            if (receiptHeight <= selected.boundaryHeight || remaining == 0) { result.complete(selected); return }
+            if (targetHeight <= selected.boundaryHeight || remaining == 0) { result.complete(selected); return }
             val request = fetch(selected.boundaryHeight)
             pending.set(request)
             if (result.isCancelled) { request.cancel(false); return }

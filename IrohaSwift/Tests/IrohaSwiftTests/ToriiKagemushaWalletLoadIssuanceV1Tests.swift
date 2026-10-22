@@ -159,20 +159,100 @@ final class ToriiKagemushaWalletLoadIssuanceV1Tests: XCTestCase {
         XCTAssertEqual(received, bytes) // DATA only; no Native finality or credit is inferred.
     }
 
-    func testCanonicalLedgerProofTransportUsesExactHeightAndBody() async throws {
-        let bytes = Data([0, 255, 1])
+    private func ledgerSelection() throws -> ToriiKagemushaWalletLedgerSelectionV1 {
+        try .init(schemeID: Data(repeating: 0xab, count: 32), walletID: Data(repeating: 0xcd, count: 32),
+            entrypointHash: Data(repeating: 0x0f, count: 32))
+    }
+
+    func testLedgerSelectorsAreExactNonzero32BytesOnTheAttemptRoute() throws {
+        let valid = Data(repeating: 1, count: 32)
+        for bad in [Data(), Data(repeating: 1, count: 31), Data(repeating: 1, count: 33), Data(repeating: 0, count: 32)] {
+            XCTAssertThrowsError(try ToriiKagemushaWalletLedgerSelectionV1(schemeID: bad, walletID: valid, entrypointHash: valid))
+            XCTAssertThrowsError(try ToriiKagemushaWalletLedgerSelectionV1(schemeID: valid, walletID: bad, entrypointHash: valid))
+            XCTAssertThrowsError(try ToriiKagemushaWalletLedgerSelectionV1(schemeID: valid, walletID: valid, entrypointHash: bad))
+        }
+        XCTAssertEqual(try ledgerSelection().path, "/v1/kagemusha/" + String(repeating: "ab", count: 32)
+            + "/wallets/" + String(repeating: "cd", count: 32) + "/ledger/" + String(repeating: "0f", count: 32))
+    }
+
+    func testLedgerAttemptReadsSignTheirExactRouteAndMapOnlyTypedWaits() async throws {
+        let selected = try ledgerSelection(), signer = try auth(), bytes = Data([0, 255, 1])
+        let publicKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed).publicKey
+        let network = self.network
         let (client, cleanup) = proofClient { request in
-            XCTAssertEqual(request.url?.path, "/v1/bridge/finality/7")
+            XCTAssertTrue([selected.path + "/finality", selected.path + "/epochs/10"].contains(request.url?.path ?? ""))
+            XCTAssertEqual(request.httpMethod, "GET"); XCTAssertNil(request.httpBody)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/x-norito")
+            let signature = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(request.value(forHTTPHeaderField: ToriiCanonicalRequest.headerSignature))))
+            let timestamp = try XCTUnwrap(UInt64(XCTUnwrap(request.value(forHTTPHeaderField: ToriiCanonicalRequest.headerTimestampMs))))
+            let nonce = try XCTUnwrap(request.value(forHTTPHeaderField: ToriiCanonicalRequest.headerNonce))
+            let message = try ToriiCanonicalRequest.signatureMessage(networkId: network, method: "GET",
+                url: XCTUnwrap(request.url), timestampMs: timestamp, nonce: nonce)
+            XCTAssertTrue(publicKey.isValidSignature(signature, for: message))
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
-                headerFields: ["Content-Type": "application/x-norito"])!, bytes)
+                headerFields: ["Content-Type": "application/x-norito", "Content-Length": "3"])!, bytes)
         }
         defer { cleanup() }
-        let received = try await client.getKagemushaWalletLedgerFinalityOriginalV1(height: 7, requireCurrentOwner: {})
-        XCTAssertEqual(received, bytes)
-        do {
-            _ = try await client.getKagemushaWalletLedgerFinalityOriginalV1(height: 0, requireCurrentOwner: {})
-            XCTFail("zero height must fail before transport")
-        } catch is ToriiClientError { }
+        let finality = try await client.getKagemushaWalletLedgerAttemptFinalityV1(
+            selection: selected, canonicalAuth: signer, requireCurrentOwner: {})
+        XCTAssertEqual(finality, .original(bytes)) // DATA only; Native alone decides the outcome.
+        let epoch = try await client.getKagemushaWalletLedgerAttemptEpochV1(
+            selection: selected, boundaryHeight: 10, canonicalAuth: signer, requireCurrentOwner: {})
+        XCTAssertEqual(epoch, .original(bytes))
+        for height in [UInt64(0), UInt64(1)] {
+            do {
+                _ = try await client.getKagemushaWalletLedgerAttemptEpochV1(
+                    selection: selected, boundaryHeight: height, canonicalAuth: signer, requireCurrentOwner: {})
+                XCTFail("a genesis boundary must fail before transport")
+            } catch is ToriiClientError { }
+        }
+        // Only Torii's authoritative reject-code header types a wait.
+        let typed: [(Int, String?, KagemushaWalletLedgerReadV1?)] = [
+            (404, "kagemusha_ledger_entry_not_committed", .notCommitted),
+            (503, "kagemusha_ledger_finality_unavailable", .unavailable),
+            (404, nil, nil), (404, "kagemusha_ledger_finality_unavailable", nil),
+            (503, nil, nil), (503, "kagemusha_load_finality_unavailable", nil),
+            (401, nil, nil), (406, nil, nil), (202, nil, nil),
+        ]
+        for (status, code, expected) in typed {
+            for epochRead in [false, true] {
+                let (client, cleanup) = proofClient { request in
+                    var headers = ["Content-Type": "application/x-norito"]
+                    if let code { headers["X-Iroha-Reject-Code"] = code }
+                    return (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!, Data([1]))
+                }
+                defer { cleanup() }
+                do {
+                    let read: KagemushaWalletLedgerReadV1
+                    if epochRead {
+                        read = try await client.getKagemushaWalletLedgerAttemptEpochV1(
+                            selection: selected, boundaryHeight: 10, canonicalAuth: signer, requireCurrentOwner: {})
+                    } else {
+                        read = try await client.getKagemushaWalletLedgerAttemptFinalityV1(
+                            selection: selected, canonicalAuth: signer, requireCurrentOwner: {})
+                    }
+                    XCTAssertEqual(read, try XCTUnwrap(expected), "status \(status) code \(code ?? "none")")
+                } catch is ToriiClientError {
+                    XCTAssertNil(expected, "status \(status) code \(code ?? "none") must be a typed wait")
+                }
+            }
+        }
+    }
+
+    func testLedgerAttemptFinalityBoundIsTheDerivedFrame() async throws {
+        let selected = try ledgerSelection(), signer = try auth()
+        for (count, accepted) in [(1_327_104, true), (1_327_105, false)] {
+            let (client, cleanup) = proofClient { request in
+                (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/x-norito"])!, Data(repeating: 1, count: count))
+            }
+            defer { cleanup() }
+            do {
+                let read = try await client.getKagemushaWalletLedgerAttemptFinalityV1(
+                    selection: selected, canonicalAuth: signer, requireCurrentOwner: {})
+                XCTAssertTrue(accepted); XCTAssertEqual(read, .original(Data(repeating: 1, count: count)))
+            } catch is ToriiClientError { XCTAssertFalse(accepted) }
+        }
     }
 
     func testEpochReadSignsExactBoundaryAndPreservesOnlyData() async throws {
@@ -298,8 +378,8 @@ final class ToriiKagemushaWalletLoadIssuanceV1Tests: XCTestCase {
         }
         defer { cleanup() }
         do {
-            _ = try await client.getKagemushaWalletLedgerFinalityOriginalV1(height: 7,
-                requireCurrentOwner: { try await fence.check() })
+            _ = try await client.getKagemushaWalletLedgerAttemptFinalityV1(selection: ledgerSelection(),
+                canonicalAuth: auth(), requireCurrentOwner: { try await fence.check() })
             XCTFail("changed owner must reject a returned original")
         } catch OwnerFence.Failure.changed { }
     }

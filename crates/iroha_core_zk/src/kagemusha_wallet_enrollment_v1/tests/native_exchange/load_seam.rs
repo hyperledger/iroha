@@ -199,15 +199,9 @@ pub(super) fn exercise(
     let mut wallet = sources.open(&device, f, frames);
     assert_eq!(
         wallet
-            .activation_finality_progress(&signed_activation)
+            .activation_attempt_outcome(&signed_activation)
             .unwrap(),
-        state::ActivationFinalityProgressV1::Confirmed(confirmed)
-    );
-    assert_eq!(
-        wallet
-            .confirm_ledger_activation(&signed_activation)
-            .unwrap(),
-        confirmed
+        state::LedgerAttemptOutcomeV1::Confirmed(confirmed)
     );
     assert_eq!(wallet.snapshot().unwrap(), before);
     let signs = device.platform.with(|state| state.sign_calls);

@@ -47,30 +47,38 @@ fn activation_commands_require_closed_phase_and_exact_selected_original() {
     assert!(require_command(&command("funding", "target"), "other").is_err());
 }
 
+const ENTRYPOINT: [u8; 32] = [0x0f; 32];
+
 fn retention(wire: &[u8]) -> norito::json::Value {
     norito::json!({"schema":"iroha.kagemusha.wallet-activation-retained.v1",
         "action":"retain-activation", "signedWireSHA256":(hash(wire)), "signedWireBytes":(wire.len().to_string()),
-        "nativeResult":"not_started", "nativeReturnedTicks":"123", "invocation":"60ae6b58-627c-4c41-88a6-13637881079e", "sequence":"0"})
+        "nativeResult":"awaiting", "entrypointHex":("0f".repeat(32)), "nativeReturnedTicks":"123",
+        "invocation":"60ae6b58-627c-4c41-88a6-13637881079e", "sequence":"0"})
 }
 
 #[test]
 fn retention_requires_initial_native_result_and_exact_wire() {
     let wire = b"exact signed transaction";
     let original = retention(wire);
-    require_retention(&original, wire).unwrap();
+    require_retention(&original, wire, &ENTRYPOINT).unwrap();
     let mut apple = original.clone();
     apple.as_object_mut().unwrap().insert(
         "invocation".into(),
         "60AE6B58-627C-4C41-88A6-13637881079E".into(),
     );
-    require_retention(&apple, wire).unwrap();
-    assert!(require_retention(&original, b"foreign signed transaction").is_err());
+    require_retention(&apple, wire, &ENTRYPOINT).unwrap();
+    assert!(require_retention(&original, b"foreign signed transaction", &ENTRYPOINT).is_err());
+    assert!(require_retention(&original, wire, &[0x0e; 32]).is_err());
     for (name, value) in [
         ("schema", "iroha.kagemusha.activation-export.v1"),
         ("action", "activation-status"),
+        ("nativeResult", "not_started"),
         ("nativeResult", "confirmed"),
         ("nativeResult", "rejected"),
         ("nativeResult", "verifying"),
+        ("entrypointHex", &"00".repeat(32)),
+        ("entrypointHex", &"0F".repeat(32)),
+        ("entrypointHex", &"0f".repeat(31)),
         ("signedWireSHA256", &hash(b"foreign")),
         ("signedWireBytes", "0"),
         ("signedWireBytes", "024"),
@@ -86,25 +94,31 @@ fn retention_requires_initial_native_result_and_exact_wire() {
             .as_object_mut()
             .unwrap()
             .insert(name.into(), value.into());
-        assert!(require_retention(&changed, wire).is_err(), "{name}={value}");
+        assert!(
+            require_retention(&changed, wire, &ENTRYPOINT).is_err(),
+            "{name}={value}"
+        );
     }
     for name in original.as_object().unwrap().keys() {
         let mut changed = original.clone();
         changed.as_object_mut().unwrap().remove(name);
-        assert!(require_retention(&changed, wire).is_err(), "missing {name}");
+        assert!(
+            require_retention(&changed, wire, &ENTRYPOINT).is_err(),
+            "missing {name}"
+        );
     }
     let mut changed = original.clone();
     changed
         .as_object_mut()
         .unwrap()
         .insert("retained".into(), true.into());
-    assert!(require_retention(&changed, wire).is_err());
+    assert!(require_retention(&changed, wire, &ENTRYPOINT).is_err());
     changed = original;
     changed
         .as_object_mut()
         .unwrap()
         .insert("sequence".into(), 0.into());
-    assert!(require_retention(&changed, wire).is_err());
+    assert!(require_retention(&changed, wire, &ENTRYPOINT).is_err());
 }
 
 #[test]

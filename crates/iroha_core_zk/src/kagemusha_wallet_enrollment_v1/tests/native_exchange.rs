@@ -318,6 +318,37 @@ fn decode<T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>>(
     norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
         .unwrap()
 }
+/// The exact ledger finality original Torii's attempt route serves for `signed`, projected
+/// from a block this test verified independently. Native verifies it under its own selected
+/// epoch; the projection grants nothing.
+fn ledger_finality_original(
+    block: &iroha_data_model::sumeragi_finality::VerifiedSumeragiBlock,
+    signed: &iroha_data_model::transaction::SignedTransaction,
+) -> Vec<u8> {
+    let entrypoint = signed.hash_as_entrypoint();
+    let certified = block.block();
+    let index = certified
+        .network_entrypoints()
+        .position(|entry| entry.hash() == entrypoint)
+        .expect("the attempt is a certified network input");
+    let input_index = u32::try_from(index).unwrap();
+    let (output_index, _) = certified.network_output_at(input_index).unwrap();
+    iroha_data_model::kagemusha::KagemushaWalletLedgerFinalityV1 {
+        version: 1,
+        entrypoint_hash: entrypoint,
+        certificate:
+            iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1::from_verified(block)
+                .unwrap(),
+        inclusion: iroha_data_model::sumeragi_finality::CertifiedTransactionInclusionV1 {
+            entry_proof: certified.network_input_proof(input_index).unwrap(),
+            output: certified.execution_outputs()[output_index as usize].clone(),
+            output_proof: certified.output_proof(output_index).unwrap(),
+        },
+    }
+    .to_canonical_bytes()
+    .unwrap()
+}
+
 fn sha(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }

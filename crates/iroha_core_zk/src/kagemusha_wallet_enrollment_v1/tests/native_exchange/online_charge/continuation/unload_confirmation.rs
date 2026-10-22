@@ -6,7 +6,6 @@
 //! TODO: Compile and execute with matching captured harnesses after the next source batch.
 
 use super::*;
-use crate::kagemusha_wallet_state_v1::{LedgerProgressV1, UnloadFinalityProgressV1};
 
 #[test]
 #[ignore = "requires successful charged-Load absorption, SAME seed111 custody and exact H8 charged-Unload finality through H12"]
@@ -267,19 +266,6 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
             .unwrap(),
         claim_bytes
     );
-    assert_eq!(
-        a.unload_finality_progress(transaction, &claim_bytes)
-            .unwrap(),
-        UnloadFinalityProgressV1::NotStarted
-    );
-    assert!(a.confirm_ledger_unload(transaction, &claim_bytes).is_err());
-    let mut wrong_transaction = transaction;
-    wrong_transaction[0] ^= 1;
-    assert_eq!(
-        a.unload_finality_progress(wrong_transaction, &claim_bytes)
-            .unwrap(),
-        UnloadFinalityProgressV1::NotStarted
-    );
     let instruction = KagemushaWalletLedgerV1::new(
         scheme.scheme_id(),
         KagemushaWalletLedgerActionV1::Unload(claim_bytes.clone()),
@@ -288,8 +274,9 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
         a.ledger_instruction(2, &claim_bytes).unwrap(),
         norito::encode_canonical(&instruction).unwrap()
     );
+    // The test, not Native, verifies the recorded prefix to locate the certified block.
     let mut independent = (*sources.genesis).clone();
-    let mut confirmation = None;
+    let mut certified = None;
     for height in 1..=through {
         let bytes = original(
             capture_root,
@@ -308,121 +295,54 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
         }
         if height == unload_height {
             require_success(&verified, transaction, &setup.accounts[1], &instruction);
-            confirmation = Some(LedgerProgressV1 {
-                height,
-                block_hash: *verified.block().hash().as_ref(),
-            });
+            certified = Some(verified);
         }
-        let prior = a
-            .unload_finality_progress(transaction, &claim_bytes)
-            .unwrap();
-        for limits in [
-            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
-            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-        ] {
-            let refusal = norito::with_decode_limits_scope(limits, || {
-                a.ingest_unload_finality(transaction, &claim_bytes, &bytes)
-            });
-            assert!(
-                matches!(refusal, Err(state::Error::DecodeResource(ref cause)) if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
-            );
-            assert_eq!(
-                a.unload_finality_progress(transaction, &claim_bytes)
-                    .unwrap(),
-                prior
-            );
-            assert_eq!(a.snapshot().unwrap(), before);
-            assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
-        }
-        let progress = a
-            .ingest_unload_finality(transaction, &claim_bytes, &bytes)
-            .unwrap();
-        assert_eq!(progress.height, height);
-        assert_eq!(progress.block_hash, *verified.block().hash().as_ref());
-        assert_eq!(
-            a.ingest_unload_finality(transaction, &claim_bytes, &bytes)
-                .unwrap(),
-            progress
+    }
+    let certified = certified.unwrap();
+    let signed = certified
+        .block()
+        .external_transactions()
+        .next()
+        .unwrap()
+        .clone();
+    let wire = signed.encode_wire_v1().unwrap();
+    let awaiting = state::LedgerAttemptOutcomeV1::Awaiting {
+        entrypoint: transaction,
+    };
+    assert_eq!(
+        a.unload_attempt_outcome(&claim_bytes, &wire).unwrap(),
+        awaiting
+    );
+    let finality = ledger_finality_original(&certified, &signed);
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let refusal = norito::with_decode_limits_scope(limits, || {
+            a.ingest_unload_finality(&claim_bytes, &wire, &finality)
+        });
+        assert!(
+            matches!(refusal, Err(state::Error::DecodeResource(ref cause)) if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
-        if let Some(expected) = confirmation {
-            assert_eq!(
-                a.unload_finality_progress(transaction, &claim_bytes)
-                    .unwrap(),
-                UnloadFinalityProgressV1::Confirmed(expected)
-            );
-            assert_eq!(
-                a.confirm_ledger_unload(transaction, &claim_bytes).unwrap(),
-                expected
-            );
-        } else {
-            assert_eq!(
-                a.unload_finality_progress(transaction, &claim_bytes)
-                    .unwrap(),
-                UnloadFinalityProgressV1::Verifying(progress)
-            );
-            assert!(a.confirm_ledger_unload(transaction, &claim_bytes).is_err());
-        }
-        if [load_height, unload_height, through].contains(&height) {
-            drop(a);
-            a = sources.open(&device, &f, &frames);
-            let expected = confirmation.map_or(
-                UnloadFinalityProgressV1::Verifying(progress),
-                UnloadFinalityProgressV1::Confirmed,
-            );
-            assert_eq!(
-                a.unload_finality_progress(transaction, &claim_bytes)
-                    .unwrap(),
-                expected
-            );
-            if let Some(expected) = confirmation {
-                assert_eq!(
-                    a.confirm_ledger_unload(transaction, &claim_bytes).unwrap(),
-                    expected
-                );
-            }
-        }
+        assert_eq!(
+            a.unload_attempt_outcome(&claim_bytes, &wire).unwrap(),
+            awaiting
+        );
         assert_eq!(a.snapshot().unwrap(), before);
-        assert_eq!(a.epoch_progress().unwrap(), epoch);
-        assert_eq!(a.ledger_progress().unwrap(), general_cursor);
-        assert_eq!(
-            a.unload_claim_bytes(&unload_request, Some(&beneficiary))
-                .unwrap(),
-            claim_bytes
-        );
         assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
     }
-    let expected = confirmation.unwrap();
+    let state::LedgerAttemptIngestV1::Outcome(state::LedgerAttemptOutcomeV1::Confirmed(expected)) =
+        a.ingest_unload_finality(&claim_bytes, &wire, &finality)
+            .unwrap()
+    else {
+        panic!("the charged Unload confirms from one direct original");
+    };
     assert_eq!(expected.height, 8);
-    // Exact last-proof and confirmation repeats are idempotent. Earlier proof replay
-    // after H12 is refused; neither kind of retry replays the monetary Unload or Load.
-    for height in [load_height, unload_height] {
-        let stale = original(
-            capture_root,
-            &capture,
-            &format!("native-proof-{height}.norito"),
-            LEDGER_PROOF_MAX_BYTES_V1,
-        );
-        assert!(matches!(
-            a.ingest_unload_finality(transaction, &claim_bytes, &stale),
-            Err(state::Error::Invalid("Unload cursor next height"))
-        ));
-    }
-    let terminal = original(
-        capture_root,
-        &capture,
-        "native-proof-12.norito",
-        LEDGER_PROOF_MAX_BYTES_V1,
-    );
+    assert_eq!(expected.commit_hash, certified.core_hash().0);
+    let confirmed = state::LedgerAttemptOutcomeV1::Confirmed(expected);
+    // Exact retries are idempotent; altered claims are refused; neither replays the
+    // monetary Unload or Load.
     for _ in 0..2 {
-        assert!(
-            a.confirm_ledger_unload(wrong_transaction, &claim_bytes)
-                .is_err()
-        );
-        assert_eq!(
-            a.unload_finality_progress(wrong_transaction, &claim_bytes)
-                .unwrap(),
-            UnloadFinalityProgressV1::NotStarted
-        );
         for mode in 0..4 {
             let mut changed = claim.clone();
             match mode {
@@ -458,15 +378,14 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
             }
             let changed = norito::encode_canonical(&changed).unwrap();
             assert_ne!(changed, claim_bytes);
-            assert!(a.confirm_ledger_unload(transaction, &changed).is_err());
-            assert!(a.unload_finality_progress(transaction, &changed).is_err());
+            assert!(a.unload_attempt_outcome(&changed, &wire).is_err());
             assert!(
-                a.ingest_unload_finality(transaction, &changed, &terminal)
+                a.ingest_unload_finality(&changed, &wire, &finality)
                     .is_err()
             );
             assert_eq!(
-                a.confirm_ledger_unload(transaction, &claim_bytes).unwrap(),
-                expected
+                a.unload_attempt_outcome(&claim_bytes, &wire).unwrap(),
+                confirmed
             );
             assert_eq!(a.snapshot().unwrap(), before);
             assert_eq!(
@@ -476,24 +395,16 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
             );
             assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
         }
-        let progress = a
-            .ingest_unload_finality(transaction, &claim_bytes, &terminal)
-            .unwrap();
-        assert_eq!(progress.height, 12);
         assert_eq!(
-            a.confirm_ledger_unload(transaction, &claim_bytes).unwrap(),
-            expected
+            a.ingest_unload_finality(&claim_bytes, &wire, &finality)
+                .unwrap(),
+            state::LedgerAttemptIngestV1::Outcome(confirmed)
         );
         drop(a);
         a = sources.open(&device, &f, &frames);
         assert_eq!(
-            a.unload_finality_progress(transaction, &claim_bytes)
-                .unwrap(),
-            UnloadFinalityProgressV1::Confirmed(expected)
-        );
-        assert_eq!(
-            a.confirm_ledger_unload(transaction, &claim_bytes).unwrap(),
-            expected
+            a.unload_attempt_outcome(&claim_bytes, &wire).unwrap(),
+            confirmed
         );
         assert_eq!(a.snapshot().unwrap(), before);
         assert_eq!(a.epoch_progress().unwrap(), epoch);
@@ -506,7 +417,7 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
         assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
     }
     let confirmation_bytes =
-        norito::encode_canonical(&(expected.height, expected.block_hash)).unwrap();
+        norito::encode_canonical(&(expected.height, expected.commit_hash)).unwrap();
     publish(&output.join("confirmation.norito"), &confirmation_bytes);
     publish(&output.join("result.json"), &norito::json::to_vec(&norito::json!({
         "schema":"iroha.kagemusha.native-charged-unload-confirmation.v1","origin":"core",
@@ -514,10 +425,10 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
         "producer_sha256":(sha(&producer_bytes)),"execution_sha256":(sha(&capture_bytes)),"absorption_sha256":(sha(&absorption_bytes)),
         "target_sha256":(sha(&target_bytes)),"executed_ledger_setup_sha256":(setup.manifest_sha256),
         "claim_sha256":(sha(&claim_bytes)),"payout_sha256":(sha(&payout_bytes)),"transaction_hash":(hex::encode(transaction)),
-        "confirmation_height":(expected.height),"confirmation_block_hash":(hex::encode(expected.block_hash)),"confirmation_sha256":(sha(&confirmation_bytes)),
-        "last_native_cursor_height":12,"payer_head":(hex::encode(before.head)),"payer_sequence":(before.sequence.to_string()),
+        "confirmation_height":(expected.height),"confirmation_commit_hash":(hex::encode(expected.commit_hash)),"confirmation_sha256":(sha(&confirmation_bytes)),
+        "native_finality_originals":1,"payer_head":(hex::encode(before.head)),"payer_sequence":(before.sequence.to_string()),
         "native_balance_atomic_units":"100","native_next_load":"2","gross_unload":"100","account_payout":"95","online_unload_charge":"5",
         "original_unload_retained":true,"exact_retry_after_restart":true,"new_payment_signatures":0,
-        "scope":"Same retained seed111 A confirms exact successful charged-Unload H8 inclusion from its actual Core chain after absorbing the later net100 Load. The dedicated cursor advances through H12 without changing the H8 confirmation, monetary head, balance, epoch, general ledger cursor or signature count. Altered claim/account/charge/quote/beneficiary and stale proof replay are refused; exact retries are idempotent and the historical Unload original remains recoverable. Test-signed committee and simulated hardware: no four live peers, physical durability or release qualification. The payout row is producer evidence; acknowledgement authority is the authenticated successful transaction inclusion, not a separately authenticated World-row proof."
+        "scope":"Same retained seed111 A confirms exact successful charged-Unload H8 inclusion from its actual Core chain after absorbing the later net100 Load. One direct finality original of H8 confirms it without changing the monetary head, balance, epoch, general ledger cursor or signature count. Altered claim/account/charge/quote/beneficiary are refused; exact retries are idempotent and the historical Unload original remains recoverable. Test-signed committee and simulated hardware: no four live peers, physical durability or release qualification. The payout row is producer evidence; acknowledgement authority is the authenticated successful transaction inclusion, not a separately authenticated World-row proof."
     })).unwrap());
 }

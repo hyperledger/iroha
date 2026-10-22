@@ -126,33 +126,29 @@ final class KagemushaMonetaryProbeManifestTests: XCTestCase {
 final class KagemushaActivationRetentionProbeTests: XCTestCase {
   private let runID = "AED28BDB-83D3-45E9-A976-D6B4E03224C9"
   private let wire = Data([0, 1, 2, 255])
+  private let awaiting = KagemushaWalletLedgerOutcomeV1.awaiting(entrypoint: Data(repeating: 0x0f, count: 32))
 
   func testReceiptBindsExactWireAndInvocationUsingOnlyStringFields() throws {
     let original = try XCTUnwrap(KagemushaActivationRetentionProbe.receipt(
-      signedWire: wire, hasConfirmation: false, rejected: false, verifiedHeight: nil,
-      blockHash: nil, returned: UInt64.max, invocation: runID, sequence: 3))
+      signedWire: wire, outcome: awaiting, returned: UInt64.max, invocation: runID, sequence: 3))
     let row = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: String])
     XCTAssertEqual(row, [
       "schema": "iroha.kagemusha.wallet-activation-retained.v1", "action": "retain-activation",
       "signedWireSHA256": EnrollmentProbeFiles.digest(wire), "signedWireBytes": "4",
-      "nativeResult": "not_started", "nativeReturnedTicks": String(UInt64.max),
-      "invocation": runID, "sequence": "3",
+      "nativeResult": "awaiting", "entrypointHex": String(repeating: "0f", count: 32),
+      "nativeReturnedTicks": String(UInt64.max), "invocation": runID, "sequence": "3",
     ])
     let changed = try XCTUnwrap(KagemushaActivationRetentionProbe.receipt(
-      signedWire: Data([0, 1, 2, 254]), hasConfirmation: false, rejected: false,
-      verifiedHeight: nil, blockHash: nil, returned: UInt64.max, invocation: runID, sequence: 3))
+      signedWire: Data([0, 1, 2, 254]), outcome: awaiting, returned: UInt64.max,
+      invocation: runID, sequence: 3))
     XCTAssertNotEqual(original, changed)
   }
 
   func testProgressConfirmationAndRejectionCannotAuthorizeInitialSubmission() throws {
-    for (confirmed, rejected, height, hash) in [
-      (true, false, nil as UInt64?, nil as Data?),
-      (false, true, nil, nil), (false, false, 1, nil),
-      (false, false, nil, Data()), (false, false, 4, Data(repeating: 1, count: 32)),
-    ] {
+    let commit = KagemushaWalletLedgerCommitV1(height: 4, commitHash: Data(repeating: 1, count: 32))
+    for outcome in [KagemushaWalletLedgerOutcomeV1.confirmed(commit), .rejected(commit)] {
       XCTAssertNil(try KagemushaActivationRetentionProbe.receipt(
-        signedWire: wire, hasConfirmation: confirmed, rejected: rejected, verifiedHeight: height,
-        blockHash: hash, returned: 1, invocation: runID, sequence: 1))
+        signedWire: wire, outcome: outcome, returned: 1, invocation: runID, sequence: 1))
     }
   }
 
@@ -165,8 +161,7 @@ final class KagemushaActivationRetentionProbeTests: XCTestCase {
       (wire, 1, runID, -1),
     ] {
       XCTAssertThrowsError(try KagemushaActivationRetentionProbe.receipt(
-        signedWire: bytes, hasConfirmation: false, rejected: false, verifiedHeight: nil,
-        blockHash: nil, returned: ticks, invocation: run, sequence: sequence))
+        signedWire: bytes, outcome: awaiting, returned: ticks, invocation: run, sequence: sequence))
     }
   }
 }

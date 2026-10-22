@@ -38,18 +38,19 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     XCTAssertThrowsError(try KagemushaWalletCollectionStatusV1(fold, expectedSequence: .init(low: 1, high: 0)))
   }
 
-  func testActivationHistoryAcceptsOnlyExactBoundedWireWithoutCallerAuthority() throws {
+  func testActivationAttemptAcceptsOnlyExactBoundedWireWithoutCallerAuthority() throws {
     var wire = Data(repeating: 9, count: 65_536)
     var proof = Data([7])
     let read = try KagemushaWalletSetupInputV1(selector: 37, first: wire)
-    let confirm = try KagemushaWalletSetupInputV1(selector: 35, first: wire)
     let retain = try KagemushaWalletSetupInputV1(selector: 46, first: wire)
     let ingest = try KagemushaWalletSetupInputV1(selector: 36, first: wire, second: proof)
     wire[0] = 0; proof[0] = 0
     XCTAssertEqual(read.first, Data(repeating: 9, count: 65_536))
-    XCTAssertEqual(confirm.first, read.first); XCTAssertEqual(ingest.second, Data([7]))
+    XCTAssertEqual(ingest.second, Data([7]))
     XCTAssertEqual(retain.first, read.first)
-    for selector in [UInt32(35), 36, 37, 46] {
+    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 36, first: wire, second: Data(repeating: 1, count: 1_327_104)))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 35, first: wire))
+    for selector in [UInt32(36), 37, 46] {
       let second = selector == 36 ? Data([1]) : Data()
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, second: second))
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, first: Data(repeating: 1, count: 65_537), second: second))
@@ -58,50 +59,53 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, amount: .init(low: 1, high: 0), first: wire, second: second))
     }
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 36, first: wire))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 36, first: wire, second: Data(repeating: 1, count: 36 * 1024 * 1024 + 1)))
-    for selector in [UInt32(35), 37, 46] {
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 36, first: wire, second: Data(repeating: 1, count: 1_327_105)))
+    for selector in [UInt32(37), 46] {
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, first: wire, second: Data([1])))
     }
   }
 
-  func testActivationProgressAndNotStartedNeverImplyConfirmation() throws {
-    let empty = try KagemushaWalletCallV1(status: 46, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: Data())
-    let absent = try KagemushaWalletActivationFinalityV1(empty)
-    XCTAssertNil(absent.confirmation); XCTAssertNil(absent.verifiedHeight); XCTAssertNil(absent.blockHash)
-    XCTAssertFalse(absent.rejected)
-    XCTAssertThrowsError(try empty.completion())
-    let result = try KagemushaWalletCallV1(status: 45, sequenceLow: .max, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 3, count: 32))
-    let progress = try KagemushaWalletActivationFinalityV1(result)
-    XCTAssertEqual(progress.verifiedHeight, UInt64.max); XCTAssertEqual(progress.blockHash, result.bytes)
-    XCTAssertNil(progress.confirmation)
-    XCTAssertFalse(progress.rejected)
-    XCTAssertThrowsError(try KagemushaWalletActivationConfirmationV1(result))
-    XCTAssertThrowsError(try result.completion())
-    let ledger = try KagemushaWalletCallV1(status: 33, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 3, count: 32))
-    XCTAssertThrowsError(try KagemushaWalletActivationFinalityV1(ledger))
+  func testAwaitingCarriesOnlyNativeEntrypointAndNeverImpliesConfirmation() throws {
+    let entrypoint = Data(repeating: 3, count: 32)
+    let awaiting = try KagemushaWalletCallV1(status: 46, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: entrypoint)
+    XCTAssertEqual(try KagemushaWalletLedgerOutcomeV1(awaiting), .awaiting(entrypoint: entrypoint))
+    // An offered original never answers Awaiting: it decides the attempt or names an epoch.
+    XCTAssertThrowsError(try KagemushaWalletLedgerIngestV1(awaiting))
+    XCTAssertThrowsError(try awaiting.completion())
+    for bytes in [Data(), Data(repeating: 3, count: 31), Data(repeating: 3, count: 33), Data(repeating: 0, count: 32)] {
+      XCTAssertThrowsError(try KagemushaWalletCallV1(status: 46, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: bytes))
+    }
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 46, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: entrypoint))
+    // The global ledger tip is not an attempt outcome.
+    let ledger = try KagemushaWalletCallV1(status: 33, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: entrypoint)
+    XCTAssertThrowsError(try KagemushaWalletLedgerOutcomeV1(ledger))
   }
 
   func testAuthenticatedRejectedAttemptNeverConfirmsActivation() throws {
-    let result = try KagemushaWalletCallV1(status: 49, sequenceLow: 2, sequenceHigh: 0,
+    let result = try KagemushaWalletCallV1(status: 61, sequenceLow: 2, sequenceHigh: 0,
       detail: 0, bytes: Data(repeating: 5, count: 32))
-    let rejected = try KagemushaWalletActivationFinalityV1(result)
-    XCTAssertTrue(rejected.rejected)
-    XCTAssertNil(rejected.confirmation)
-    XCTAssertEqual(rejected.verifiedHeight, 2)
-    XCTAssertEqual(rejected.blockHash, result.bytes)
+    let commit = KagemushaWalletLedgerCommitV1(height: 2, commitHash: Data(repeating: 5, count: 32))
+    XCTAssertEqual(try KagemushaWalletLedgerOutcomeV1(result), .rejected(commit))
+    XCTAssertEqual(try KagemushaWalletLedgerIngestV1(result), .outcome(.rejected(commit)))
     XCTAssertThrowsError(try result.completion())
-    XCTAssertThrowsError(try KagemushaWalletActivationConfirmationV1(result))
-    XCTAssertThrowsError(try KagemushaWalletUnloadFinalityV1(result))
   }
 
-  func testActivationConfirmationRejectsMalformedResultAuthority() throws {
+  func testLedgerCommitRejectsMalformedResultAuthority() throws {
     var hash = Data(repeating: 4, count: 32)
-    let result = try KagemushaWalletCallV1(status: 44, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: hash)
+    let result = try KagemushaWalletCallV1(status: 62, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: hash)
     hash[0] = 0
-    let confirmation = try XCTUnwrap(KagemushaWalletActivationFinalityV1(result).confirmation)
-    XCTAssertEqual(confirmation.height, 2); XCTAssertEqual(confirmation.blockHash, Data(repeating: 4, count: 32))
+    guard case .confirmed(let confirmation) = try KagemushaWalletLedgerOutcomeV1(result) else {
+      return XCTFail("kind 62 is the confirmed outcome")
+    }
+    XCTAssertEqual(confirmation.height, 2); XCTAssertEqual(confirmation.commitHash, Data(repeating: 4, count: 32))
     XCTAssertThrowsError(try result.completion()); XCTAssertThrowsError(try result.unloadClaimOriginal())
-    for status in [Int32(44), 45, 49] {
+    let required = try KagemushaWalletCallV1(status: 60, sequenceLow: 3_601, sequenceHigh: 0, detail: 0, bytes: Data())
+    XCTAssertEqual(try KagemushaWalletLedgerIngestV1(required), .epochRequired(targetHeight: 3_601))
+    XCTAssertThrowsError(try KagemushaWalletLedgerOutcomeV1(required))
+    for (low, high, detail, bytes) in [(UInt64(0), UInt64(0), UInt32(0), Data()), (1, 1, 0, Data()), (1, 0, 1, Data()), (1, 0, 0, Data([1]))] {
+      XCTAssertThrowsError(try KagemushaWalletCallV1(status: 60, sequenceLow: low, sequenceHigh: high, detail: detail, bytes: bytes))
+    }
+    for status in [Int32(61), 62] {
       XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32)))
       XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 0, count: 32)))
       XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 2, sequenceHigh: 1, detail: 0, bytes: Data(repeating: 1, count: 32)))
@@ -110,20 +114,23 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
         XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: count)))
       }
     }
-    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 44, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32)))
-    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 49, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32)))
-    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 46, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data()))
-    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 46, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: Data([1])))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 62, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32)))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 61, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32)))
+    // The walk's retired Confirmed44/Rejected49 had this exact shape with the Iroha header hash. A
+    // Native from before direct finality therefore cannot hand this SDK a terminal outcome.
+    for status in [Int32(44), 49] {
+      XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 4, count: 32)))
+    }
   }
 
   func testActualDriverCopiesEveryCurrentSetupStatusAndRejectsUnknownStatus() throws {
     let driver = try KagemushaWalletNativeDriverV1()
     // Test only the shared native reply decoder and malloc/free ownership. These bytes
     // are deliberately opaque DATA, not a qualified wallet, signed claim or proof.
-    for status in Int32(29)...56 where ![41, 43].contains(status) {
+    for status in Array(Int32(29)...56) + [61, 62] where ![41, 42, 43, 44, 45, 49].contains(status) {
       let bytes: Data
       switch status {
-      case 33, 42, 44, 45, 49, 54: bytes = Data(repeating: 0xa5, count: 32)
+      case 33, 46, 54, 61, 62: bytes = Data(repeating: 0xa5, count: 32)
       case 53: bytes = Data(repeating: 0xa5, count: 254)
       case 30, 31, 36, 37, 38, 40, 47, 48: bytes = Data(repeating: 0xa5, count: 7)
       default: bytes = Data()
@@ -132,8 +139,8 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
         output.pointee.status = status
         // Native WalletResult::default uses -1 for an absent failure reason.
         output.pointee.reason = -1
-        // Confirmed Unload and confirmed or rejected Activation require a post-genesis height.
-        output.pointee.sequence_low = [42, 44, 49].contains(status) ? 2 : ([33, 37, 38, 39, 45, 53].contains(status) ? 1 : 0)
+        // Confirmed or rejected ledger attempts require a post-genesis height.
+        output.pointee.sequence_low = [61, 62].contains(status) ? 2 : ([33, 37, 38, 39, 53].contains(status) ? 1 : 0)
         output.pointee.length = bytes.count
         if !bytes.isEmpty {
           let allocation = malloc(bytes.count)!.assumingMemoryBound(to: UInt8.self)
@@ -146,7 +153,7 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
       XCTAssertEqual(result.bytes, bytes)
       XCTAssertThrowsError(try result.completion())
     }
-    for status in [Int32(41), 43, 57] {
+    for status in [Int32(41), 42, 43, 44, 45, 49, 57, 63] {
       XCTAssertThrowsError(try driver.result { output in
         output.pointee.status = status
         output.pointee.reason = -1
@@ -225,7 +232,7 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
         return 0
       }
     }
-    for (selector, bound) in [5_268, 20_066, 20_066, 65_756, 131_072].enumerated() {
+    for (selector, bound) in [5_268, 20_134, 20_134, 65_756, 131_072].enumerated() {
       XCTAssertEqual(try observe(selector: UInt32(selector), count: bound).count, bound)
       XCTAssertThrowsError(try observe(selector: UInt32(selector), count: bound + 1)) { error in
         XCTAssertEqual(error as? KagemushaWalletErrorV1, .invalidNativeOutput)
@@ -378,7 +385,7 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     XCTAssertEqual(try result.unloadClaimOriginal(), bytes)
     let enrollment = try KagemushaWalletCallV1(status: 37, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data([1]))
     XCTAssertThrowsError(try enrollment.unloadClaimOriginal())
-    let activation = try KagemushaWalletCallV1(status: 44, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32))
+    let activation = try KagemushaWalletCallV1(status: 62, sequenceLow: 2, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: 32))
     XCTAssertThrowsError(try activation.unloadClaimOriginal())
     XCTAssertThrowsError(try result.completion()); XCTAssertThrowsError(try result.feeClaimOriginal())
     XCTAssertThrowsError(try KagemushaWalletCallV1(status: 48, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data([1])))
@@ -391,7 +398,7 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     XCTAssertThrowsError(try projection.unloadClaimOriginal())
     XCTAssertThrowsError(try projection.completion())
     XCTAssertThrowsError(try KagemushaWalletCallV1(status: 47, sequenceLow: 0, sequenceHigh: 0,
-      detail: 0, bytes: Data(repeating: 1, count: 10_093)))
+      detail: 0, bytes: Data(repeating: 1, count: 10_127)))
     XCTAssertThrowsError(try KagemushaWalletCallV1(status: 47, sequenceLow: 1, sequenceHigh: 0,
       detail: 0, bytes: projection.bytes))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 38,
@@ -413,27 +420,31 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 28, first: Data([1]), second: Data(repeating: 1, count: 8193)))
     for kind in UInt64(1)...3 { XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 29, token: kind, first: Data([1]))) }
     for kind in [UInt64(0), 4] { XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 29, token: kind, first: Data([1]))) }
-    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 30, identity: id, first: Data([1])))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 30, first: Data([1])))
-    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 33, identity: id, first: Data([1])))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 33, first: Data([1])))
+    for identity in [id, Data(repeating: 0, count: 32)] {
+      XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 30, identity: identity, first: Data([1])))
+    }
+    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 33, first: Data([1]), second: Data([2])))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 33, identity: id, first: Data([1]), second: Data([2])))
-    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 34, identity: id, first: Data([1]), second: Data([2])))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 34, identity: id, first: Data([1])))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 33, first: Data([1])))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 33, second: Data([2])))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 33, first: Data([1]), second: Data([2]), third: Data([3])))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 33, first: Data(repeating: 1, count: 16_385), second: Data([2])))
+    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 34, first: Data([1]), second: Data([2]), third: Data([3])))
+    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 34, first: Data([1]), second: Data([2]), third: Data(repeating: 3, count: 1_327_104)))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 34, identity: id, first: Data([1]), second: Data([2]), third: Data([3])))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 34, first: Data([1]), second: Data([2])))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 34, first: Data([1]), second: Data([2]), third: Data(repeating: 3, count: 1_327_105)))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 31, first: Data([1])))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 31))
   }
-  func testRetiredServerProvingResultsAreRefusedAndUnloadIsNotCompletion() throws {
-    for status in [Int32(41), 43] {
+  func testRetiredServerProvingAndWalkResultsAreRefused() throws {
+    for status in [Int32(41), 42, 43, 45] {
       for bytes in [Data(), Data([1]), Data(repeating: 2, count: 8)] {
         XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: bytes))
         XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 7, sequenceHigh: 0, detail: 0, bytes: bytes))
       }
     }
-    let confirmation = try KagemushaWalletCallV1(status: 42, sequenceLow: 7, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 9, count: 32))
-    XCTAssertThrowsError(try confirmation.completion())
-    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 42, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: confirmation.bytes))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status: 42, sequenceLow: 7, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 9, count: 32)))
     for (status, maximum) in [(Int32(40), 65_536)] {
       XCTAssertNoThrow(try KagemushaWalletCallV1(status: status, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: maximum)))
       XCTAssertThrowsError(try KagemushaWalletCallV1(status: status, sequenceLow: 0, sequenceHigh: 0, detail: 0, bytes: Data(repeating: 1, count: maximum + 1)))
@@ -466,7 +477,7 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector))
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, identity: id, first: Data([1])))
     }
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 21, first: Data(repeating: 1, count: 21_025)))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 21, first: Data(repeating: 1, count: 21_093)))
     XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 24))
     XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 25, identity: id, first: Data([1]), second: Data([2])))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 25, identity: id, first: Data([1])))

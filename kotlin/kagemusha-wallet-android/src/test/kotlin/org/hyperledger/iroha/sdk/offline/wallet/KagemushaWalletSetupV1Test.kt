@@ -79,7 +79,7 @@ class KagemushaWalletSetupV1Test {
         assertFailsWith<KagemushaWalletExceptionV1> { enrollment.unloadClaimOriginal() }
         val projection = KagemushaWalletCallV1(47, -1, 0, 0, 0, 0, byteArrayOf(1))
         assertFailsWith<KagemushaWalletExceptionV1> { projection.unloadClaimOriginal() }
-        val activation = KagemushaWalletCallV1(44, -1, 0, 2, 0, 0, ByteArray(32) { 1 })
+        val activation = KagemushaWalletCallV1(62, -1, 0, 2, 0, 0, ByteArray(32) { 1 })
         assertFailsWith<KagemushaWalletExceptionV1> { activation.unloadClaimOriginal() }
         assertContentEquals(bytes, result.unloadClaimOriginal())
         result.unloadClaimOriginal().fill(0)
@@ -118,7 +118,7 @@ class KagemushaWalletSetupV1Test {
             assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector) }
             assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(selector, identity = id, first = byteArrayOf(1)) }
         }
-        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(21, first = ByteArray(21_025)) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(21, first = ByteArray(21_093)) }
         KagemushaWalletSetupInputV1(24)
         KagemushaWalletSetupInputV1(25, identity = id, first = byteArrayOf(1), second = byteArrayOf(2))
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(25, identity = id, first = byteArrayOf(1)) }

@@ -931,10 +931,18 @@ submission attempts, each retaining its exact signed envelope. A new envelope
 must carry the identical retained Activation, with the same account, network,
 asset and incarnation; it does not repeat Bootstrap or initialize another head.
 Each candidate remains subject to ordinary transaction admission and fees.
-Expiry or an HTTP response is not evidence of non-inclusion. Native retains each
-attempt's independent verification cursor and confirms the wallet only after
-authenticating successful inclusion of one retained attempt. That confirmation
-proves activation of the wallet, not successful execution of every envelope.
+Expiry, an HTTP status or an absent lookup is not evidence of non-inclusion or
+rejection. For each retained attempt Native requests one direct finality original
+by the attempt's exact entrypoint hash: the inclusion block's original consensus
+header, BLS CommitQC and execution-result preimage, with Merkle membership of the
+exact entrypoint in the certified network-input root and of its joined Network
+output, at the output position equal to the entry's input index, in the certified
+output root. Native verifies it under the epoch authority selected by its
+protected manifest (§6.1), without walking or replaying earlier blocks, and
+retains the first authenticated outcome of each attempt immutably with its exact
+original. Successful execution of one retained attempt confirms the wallet;
+authenticated rejected execution closes only that attempt. Confirmation proves
+activation of the wallet, not successful execution of every envelope.
 An interrupted enrollment resumes the same installation; it never creates two
 initialized heads. The holder may abandon an unused enrollment, for example
 after an E1 refusal (§2.4) or an interruption that cannot resume, only while
@@ -1525,6 +1533,17 @@ exact height interval. A certificate outside that interval, a missing transition
 a foreign network or substituted receipt fails. Ordinary intermediate blocks
 need no recursive proof or full-history replay.
 
+Activate and Unload use the same direct reader. Each signed attempt is confirmed
+by one bounded `KagemushaWalletLedgerFinalityV1` (entrypoint hash, receipt-free
+CommitQC certificate, the joined Network output row, and entrypoint and output
+Merkle paths) read through the account-authenticated
+`/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality` route.
+Activate and Unload emit no ledger event; the certified transaction result is
+their outcome. Epoch transitions it needs are read through
+`…/ledger/{entrypoint}/epochs/{boundary}` and advance the same wallet-wide epoch
+index as Load. Native never walks blocks from genesis, imports a checkpoint, or
+treats a missing response as non-inclusion.
+
 Epoch synchronization requests one bounded original boundary certificate at a
 time. Only native BLS verification under the already selected incumbent can
 authorize its successor; the wallet durably publishes that authority through its
@@ -1572,7 +1591,15 @@ its fixed beneficiary and the account receives the remainder. Unload is possible
 folded head, and its amount is bounded by `balance − burned_total` with
 Ω(pred)'s `burned_total`. Retry returns
 the original result. No timeout restores an uncertain redemption to the wallet.
-Retain the claim until finalized payout. The remaining wallet balance continues
+Retain the claim until finalized payout. Native records a payout only from
+authenticated successful execution of a signed transaction whose explicit
+instruction carries the exact claim bytes, verified by the direct finality rule of
+§6.1. Any account may submit that transaction: the claim's own validation binds
+the paid account to its credential, and relaying never changes or retargets it.
+An authenticated rejected execution of one envelope is retained for that envelope
+only. It never restores offline value, releases, replaces or retargets the claim;
+a new envelope carries the identical claim and the ledger's nullifier pays it at
+most once. The remaining wallet balance continues
 to work offline. Unload spends the holder's current balance; it cannot reclaim
 an earlier Send.
 

@@ -263,7 +263,6 @@ struct Inputs {
     receipt: KagemushaWalletLoadReceiptV1,
     receipt_bytes: Vec<u8>,
     blocks: Vec<VerifiedSumeragiBlock>,
-    activation_proofs: Vec<Vec<u8>>,
     activation_bytes: Vec<u8>,
     event: MerkleProof<EventBox>,
     capture_sha256: String,
@@ -461,13 +460,9 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     capture_heights(rows, heights);
     let mut native = genesis.clone();
     let mut blocks = Vec::new();
-    let mut activation_proofs = Vec::new();
     for height in 1..=heights.load {
         let original = &frames[&format!("native-proof-{height}.norito")];
         let proof: SumeragiFinalityProof = decode(original);
-        if height <= heights.activation {
-            activation_proofs.push(original.clone());
-        }
         assert_eq!(proof.height(), height);
         assert_eq!(proof.block_wire, frames[&format!("block-{height}.wire")]);
         if height <= 2 {
@@ -559,7 +554,6 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
         receipt,
         receipt_bytes,
         blocks,
-        activation_proofs,
         activation_bytes: target_originals["activation.norito"].clone(),
         event,
         capture_sha256: sha(&capture_bytes),
@@ -736,8 +730,8 @@ fn activation_wire_selects_exact_original_without_block_shape_assumptions() {
 pub(super) fn confirm_existing_activation(
     wallet: &mut Wallet,
     sources: &Sources,
-) -> (Vec<u8>, state::LedgerProgressV1) {
-    use state::ActivationFinalityProgressV1 as Progress;
+) -> (Vec<u8>, state::LedgerCommitV1) {
+    use state::{LedgerAttemptIngestV1 as Ingest, LedgerAttemptOutcomeV1 as Outcome};
 
     let (scheme_id, manifest_digest) = sources.qualified.installation();
     let input = inputs(
@@ -761,32 +755,36 @@ pub(super) fn confirm_existing_activation(
         &input.receipt.payer_account_digest,
         &input.activation_bytes,
     );
+    let transaction = activation
+        .block()
+        .external_transactions()
+        .find(|transaction| transaction.encode_wire_v1().unwrap() == signed)
+        .unwrap();
+    let entrypoint = *transaction.hash_as_entrypoint().as_ref();
     assert_eq!(
         wallet.retain_activation_attempt(&signed).unwrap(),
-        Progress::NotStarted
+        Outcome::Awaiting { entrypoint }
+    );
+    // One original, whatever the height: the block's own certificate and membership.
+    let finality = ledger_finality_original(activation, transaction);
+    let Ingest::Outcome(Outcome::Confirmed(confirmed)) = wallet
+        .ingest_activation_finality(&signed, &finality)
+        .unwrap()
+    else {
+        panic!("the certified Activate confirms the wallet from one original");
+    };
+    assert_eq!(confirmed.height, input.heights.activation);
+    assert_eq!(confirmed.commit_hash, activation.core_hash().0);
+    assert_eq!(
+        wallet
+            .ingest_activation_finality(&signed, &finality)
+            .unwrap(),
+        Ingest::Outcome(Outcome::Confirmed(confirmed))
     );
     assert_eq!(
-        input.activation_proofs.len(),
-        usize::try_from(input.heights.activation).unwrap()
+        wallet.activation_attempt_outcome(&signed).unwrap(),
+        Outcome::Confirmed(confirmed)
     );
-    for (index, original) in input.activation_proofs.iter().enumerate() {
-        let height = u64::try_from(index + 1).unwrap();
-        let progress = wallet
-            .ingest_activation_finality(&signed, original)
-            .unwrap();
-        match progress {
-            Progress::Verifying(value) if height < input.heights.activation => {
-                assert_eq!(value.height, height)
-            }
-            Progress::Confirmed(value) if height == input.heights.activation => {
-                assert_eq!(value.height, input.heights.activation)
-            }
-            other => panic!("unexpected native activation status at {height}: {other:?}"),
-        }
-    }
-    let confirmed = wallet.confirm_ledger_activation(&signed).unwrap();
-    assert_eq!(confirmed.height, input.heights.activation);
-    assert_eq!(confirmed.block_hash, *activation.block().hash().as_ref());
     (signed, confirmed)
 }
 

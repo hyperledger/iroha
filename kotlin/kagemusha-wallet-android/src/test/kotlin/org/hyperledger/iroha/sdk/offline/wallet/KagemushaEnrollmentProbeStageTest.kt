@@ -53,7 +53,8 @@ class KagemushaEnrollmentProbeStageTest {
             "native-activation-exported-not-submitted", "native-activation-rejected",
             "native-load-plan-retained", "native-review-awaiting-explicit-decision",
             "native-peer-envelope-decoded-not-admitted", "native-unload-claim-exported-not-settled",
-            "native-unload-prefix-retained-not-confirmed", "native-current-head-not-folded",
+            "native-activation-unconfirmed", "native-activation-epoch-required", "native-unload-unconfirmed",
+            "native-unload-rejected", "native-unload-epoch-required", "native-current-head-not-folded",
         ) + (0..60).map { "native-call-status-$it" }
         for (outcome in outcomes) assertNull(enrollmentProbeStage(outcome), outcome)
         val recoveredBurned = listOf("native-call-status-10", "native-credit-evidence-BURNED")

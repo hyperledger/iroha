@@ -115,19 +115,39 @@ import LocalAuthentication
         ], sequence: sequence)
       return try released(original, observed: mach_continuous_time(), sequence: sequence)
     }
-    func activationState(
-      _ value: KagemushaWalletActivationFinalityV1, returned: UInt64, sequence: Int
+    // `kind` is "activation" or "unload"; Awaiting carries only Native's route selector.
+    func ledgerOutcomeState(
+      _ value: KagemushaWalletLedgerOutcomeV1, kind: String, event name: String, returned: UInt64,
+      sequence: Int
     ) throws -> String {
-      var row: [String: Any] = [
-        "nativeReturnedTicks": returned, "confirmed": value.confirmation != nil,
-        "rejected": value.rejected,
-      ]
-      if let height = value.verifiedHeight { row["height"] = String(height) }
-      if let hash = value.blockHash { row["blockHash"] = hash }
-      try event("activation-state", values: row, sequence: sequence)
-      return value.confirmation != nil
-        ? "native-activation-confirmed"
-        : (value.rejected ? "native-activation-rejected" : "native-activation-unconfirmed")
+      var row: [String: Any] = ["nativeReturnedTicks": returned]
+      let state: String
+      switch value {
+      case .awaiting(let entrypoint):
+        row["entrypoint"] = entrypoint
+        state = "unconfirmed"
+      case .rejected(let commit):
+        row["height"] = String(commit.height)
+        row["commitHash"] = commit.commitHash
+        state = "rejected"
+      case .confirmed(let commit):
+        row["height"] = String(commit.height)
+        row["commitHash"] = commit.commitHash
+        state = "confirmed"
+      }
+      row["confirmed"] = state == "confirmed"
+      row["rejected"] = state == "rejected"
+      try event(name, values: row, sequence: sequence)
+      return "native-\(kind)-\(state)"
+    }
+    func epochRequired(_ target: UInt64, kind: String, returned: UInt64, sequence: Int) throws
+      -> String
+    {
+      try event(
+        "\(kind)-epoch-required",
+        values: ["nativeReturnedTicks": returned, "targetHeight": String(target)],
+        sequence: sequence)
+      return "native-\(kind)-epoch-required"
     }
     func ledgerState(_ value: KagemushaWalletLedgerProgressV1?, returned: UInt64, sequence: Int)
       throws
@@ -279,37 +299,40 @@ import LocalAuthentication
           "activation-export", values: ["nativeReturnedTicks": returned, "confirmed": false],
           sequence: sequence)
         return "native-activation-exported-not-submitted"
-      case "retain-activation", "activation-status", "activation-finality", "confirm-activation":
+      case "retain-activation", "activation-status", "activation-finality":
         let wire = try input("signed-wire")
-        if command.action == "confirm-activation" {
-          let value = try wallet.confirmLedgerActivation(signedWire: wire)
+        if command.action == "activation-finality" {
+          let ingest = try wallet.ingestActivationFinality(
+            signedWire: wire, finality: input("finality"))
           let returned = mach_continuous_time()
-          try event(
-            "activation-confirmation",
-            values: [
-              "nativeReturnedTicks": returned, "height": String(value.height),
-              "blockHash": value.blockHash,
-            ], sequence: sequence)
-          return "native-activation-confirmed"
+          switch ingest {
+          case .outcome(let value):
+            return try ledgerOutcomeState(
+              value, kind: "activation", event: "activation-state", returned: returned,
+              sequence: sequence)
+          case .epochRequired(let target):
+            return try epochRequired(
+              target, kind: "activation", returned: returned, sequence: sequence)
+          }
         }
-        let value: KagemushaWalletActivationFinalityV1
-        switch command.action {
-        case "retain-activation": value = try wallet.retainActivationAttempt(signedWire: wire)
-        case "activation-finality":
-          value = try wallet.ingestActivationFinality(signedWire: wire, original: input("finality"))
-        default: value = try wallet.activationFinalityProgress(signedWire: wire)
+        let value: KagemushaWalletLedgerOutcomeV1
+        if command.action == "retain-activation" {
+          value = try wallet.retainActivationAttempt(signedWire: wire)
+        } else {
+          value = try wallet.activationAttemptOutcome(signedWire: wire)
         }
         let returned = mach_continuous_time()
         if command.action == "retain-activation",
           let receipt = try KagemushaActivationRetentionProbe.receipt(
-            signedWire: wire, hasConfirmation: value.confirmation != nil, rejected: value.rejected,
-            verifiedHeight: value.verifiedHeight, blockHash: value.blockHash, returned: returned,
+            signedWire: wire, outcome: value, returned: returned,
             invocation: config.invocation, sequence: sequence)
         {
           // Only the actual Native return may produce this original, before any controller POST.
           try output("activation-retained.json", receipt, sequence: sequence)
         }
-        return try activationState(value, returned: returned, sequence: sequence)
+        return try ledgerOutcomeState(
+          value, kind: "activation", event: "activation-state", returned: returned,
+          sequence: sequence)
       case "prepare-load":
         let identity = try id()
         let amount = try KagemushaMonetaryProbeManifest.amount(input("amount"))
@@ -511,34 +534,22 @@ import LocalAuthentication
           sequence: sequence)
         return "native-unload-claim-exported-not-settled"
       case "unload-status":
-        let value = try wallet.unloadFinalityProgress(
-          transactionHash: id("transaction-hash"), original: input("claim"))
-        let returned = mach_continuous_time()
-        var row: [String: Any] = [
-          "nativeReturnedTicks": returned, "confirmed": value.confirmation != nil,
-        ]
-        if let height = value.verifiedHeight { row["height"] = String(height) }
-        if let hash = value.blockHash { row["blockHash"] = hash }
-        try event("unload-status", values: row, sequence: sequence)
-        return value.confirmation == nil ? "native-unload-unconfirmed" : "native-unload-confirmed"
+        let value = try wallet.unloadAttemptOutcome(
+          claim: input("claim"), signedWire: input("signed-wire"))
+        return try ledgerOutcomeState(
+          value, kind: "unload", event: "unload-status", returned: mach_continuous_time(),
+          sequence: sequence)
       case "unload-finality":
-        let value = try wallet.ingestUnloadFinality(
-          transactionHash: id("transaction-hash"), original: input("claim"),
-          finality: input("finality"))
+        let ingest = try wallet.ingestUnloadFinality(
+          claim: input("claim"), signedWire: input("signed-wire"), finality: input("finality"))
         let returned = mach_continuous_time()
-        try ledgerState(value, returned: returned, sequence: sequence)
-        return "native-unload-prefix-retained-not-confirmed"
-      case "confirm-unload":
-        let value = try wallet.confirmLedgerUnload(
-          transactionHash: id("transaction-hash"), original: input("claim"))
-        let returned = mach_continuous_time()
-        try event(
-          "unload-confirmation",
-          values: [
-            "nativeReturnedTicks": returned, "height": String(value.height),
-            "blockHash": value.blockHash,
-          ], sequence: sequence)
-        return "native-unload-confirmed"
+        switch ingest {
+        case .outcome(let value):
+          return try ledgerOutcomeState(
+            value, kind: "unload", event: "unload-status", returned: returned, sequence: sequence)
+        case .epochRequired(let target):
+          return try epochRequired(target, kind: "unload", returned: returned, sequence: sequence)
+        }
       case "decode-offer", "decode-request", "decode-payment", "decode-credited":
         let kinds: [String: KagemushaWalletTransportKindV1] = [
           "decode-offer": .offer, "decode-request": .request, "decode-payment": .payment,

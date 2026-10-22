@@ -934,22 +934,62 @@ class HttpClientTransport private constructor(
         return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
     }
 
-    /** One original ordinary finality proof. Height is a locator, never a verified checkpoint. */
-    fun getKagemushaWalletLedgerFinalityOriginalV1(
-        height: BigInteger,
+    /** The one direct finality original of a retained Activate or Unload attempt. Only the typed
+     * 404 (not committed, or not this account's attempt) and 503 (retryable) are waits; every other
+     * status, including an untyped 404, fails. The bytes stay DATA until Native verifies them. */
+    fun getKagemushaWalletLedgerAttemptFinalityV1(
+        selection: ToriiKagemushaWalletLedgerSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
         requireCurrentOwner: Runnable,
-    ): CompletableFuture<ByteArray> {
+    ): CompletableFuture<KagemushaWalletLedgerReadV1> {
         requireCurrentOwner.run()
-        require(height.signum() > 0 && height.bitLength() <= 64) { "positive u64 finality height required" }
         config.requireLocalSigningContext()
-        val request = buildKagemushaWalletLedgerOriginalRequestV1("/v1/bridge/finality/$height", 36 * 1024 * 1024, null)
-        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
+        val request = buildKagemushaWalletLedgerOriginalRequestV1(selection.path + "/finality",
+            ToriiKagemushaWalletLedgerSelectionV1.FINALITY_MAXIMUM_BYTES, canonicalAuth)
+        return readKagemushaWalletLedgerResponseV1(request, requireCurrentOwner, ::ledgerAttemptWaitV1,
+            { bytes -> KagemushaWalletLedgerReadV1.Original(bytes) })
+    }
+
+    /** One epoch boundary below the attempt's inclusion height, chosen from Native's own epoch
+     * progress. Only Native's incumbent BLS verification may accept its successor. */
+    fun getKagemushaWalletLedgerAttemptEpochV1(
+        selection: ToriiKagemushaWalletLedgerSelectionV1,
+        boundaryHeight: BigInteger,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<KagemushaWalletLedgerReadV1> {
+        requireCurrentOwner.run()
+        require(boundaryHeight >= BigInteger.valueOf(2) && boundaryHeight.bitLength() <= 64) {
+            "u64 epoch boundary must follow genesis"
+        }
+        config.requireLocalSigningContext()
+        val request = buildKagemushaWalletLedgerOriginalRequestV1(selection.path + "/epochs/$boundaryHeight",
+            ToriiKagemushaWalletLedgerSelectionV1.EPOCH_MAXIMUM_BYTES, canonicalAuth)
+        return readKagemushaWalletLedgerResponseV1(request, requireCurrentOwner, ::ledgerAttemptWaitV1,
+            { bytes -> KagemushaWalletLedgerReadV1.Original(bytes) })
+    }
+
+    // Only the authoritative reject-code header types a wait; a body never does.
+    private fun ledgerAttemptWaitV1(response: TransportResponse): KagemushaWalletLedgerReadV1? {
+        val code = HttpErrorMessageExtractor.extractRejectCode(response.headers, "x-iroha-reject-code")
+        return when {
+            response.statusCode == 404 && code == "kagemusha_ledger_entry_not_committed" -> KagemushaWalletLedgerReadV1.NotCommitted
+            response.statusCode == 503 && code == "kagemusha_ledger_finality_unavailable" -> KagemushaWalletLedgerReadV1.Unavailable
+            else -> null
+        }
     }
 
     private fun readKagemushaWalletLedgerOriginalV1(request: TransportRequest,
         requireCurrentOwner: Runnable,
-        httpFailure: (ToriiApiException) -> Throwable = { it }): CompletableFuture<ByteArray> {
-        val result = CompletableFuture<ByteArray>()
+        httpFailure: (ToriiApiException) -> Throwable = { it }): CompletableFuture<ByteArray> =
+        readKagemushaWalletLedgerResponseV1(request, requireCurrentOwner, { null }, { it }, httpFailure)
+
+    private fun <T> readKagemushaWalletLedgerResponseV1(request: TransportRequest,
+        requireCurrentOwner: Runnable,
+        typedWait: (TransportResponse) -> T?,
+        original: (ByteArray) -> T,
+        httpFailure: (ToriiApiException) -> Throwable = { it }): CompletableFuture<T> {
+        val result = CompletableFuture<T>()
         val upstream = try {
             requireCurrentOwner.run()
             notifyRequest(request)
@@ -967,6 +1007,12 @@ class HttpClientTransport private constructor(
                 if (failure != null) throw unwrapCompletion(failure)
                 requireCurrentOwner.run()
                 requireExactSignedResponseProvenance(request, response, "KAGEMUSHA ledger original")
+                typedWait(response)?.let { wait ->
+                    notifyResponse(request, ClientResponse(response.statusCode, response.body, response.message))
+                    requireCurrentOwner.run()
+                    result.complete(wait)
+                    return@whenComplete
+                }
                 val body = response.body
                 require(body.isNotEmpty() && body.size.toLong() <= requireNotNull(request.maximumResponseBytes))
                 requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA ledger original")
@@ -976,7 +1022,7 @@ class HttpClientTransport private constructor(
                 requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA ledger original")
                 notifyResponse(request, ClientResponse(response.statusCode, body, response.message))
                 requireCurrentOwner.run()
-                result.complete(body.copyOf())
+                result.complete(original(body.copyOf()))
             } catch (error: Throwable) {
                 try { notifyFailure(request, error) } catch (observerError: Throwable) {
                     if (observerError !== error) error.addSuppressed(observerError)

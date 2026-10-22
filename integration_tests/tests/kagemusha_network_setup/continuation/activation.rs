@@ -62,7 +62,7 @@ fn decimal(value: &norito::json::Value) -> Result<u64> {
     Ok(parsed)
 }
 
-fn require_retention(receipt: &norito::json::Value, wire: &[u8]) -> Result<()> {
+fn require_retention(receipt: &norito::json::Value, wire: &[u8], entrypoint: &[u8]) -> Result<()> {
     closed(
         receipt,
         &[
@@ -71,6 +71,7 @@ fn require_retention(receipt: &norito::json::Value, wire: &[u8]) -> Result<()> {
             "signedWireSHA256",
             "signedWireBytes",
             "nativeResult",
+            "entrypointHex",
             "nativeReturnedTicks",
             "invocation",
             "sequence",
@@ -79,13 +80,18 @@ fn require_retention(receipt: &norito::json::Value, wire: &[u8]) -> Result<()> {
     ensure!(
         receipt["schema"].as_str() == Some("iroha.kagemusha.wallet-activation-retained.v1")
             && receipt["action"].as_str() == Some("retain-activation")
-            && receipt["nativeResult"].as_str() == Some("not_started"),
+            && receipt["nativeResult"].as_str() == Some("awaiting"),
         "initial successful native retention required"
     );
     ensure!(
         digest(&receipt["signedWireSHA256"])? == Sha256::digest(wire).as_slice()
             && decimal(&receipt["signedWireBytes"])? == u64::try_from(wire.len())?,
         "retained signed wire differs"
+    );
+    // Native derives the attempt's route selector from the retained wire itself.
+    ensure!(
+        digest(&receipt["entrypointHex"])? == entrypoint,
+        "retained entrypoint differs"
     );
     let invocation = receipt["invocation"]
         .as_str()
@@ -175,7 +181,7 @@ pub(super) fn retain_before_submission(
     )?;
     let (_, bytes) = selected(&acknowledgment, "retention", 16 << 10)?;
     let receipt: norito::json::Value = norito::json::from_slice(&bytes)?;
-    require_retention(&receipt, &wire)?;
+    require_retention(&receipt, &wire, transaction.hash().as_ref())?;
     publish(output, "activation-retained.json", &bytes)?;
     File::open(output)?.sync_all()?;
     ensure!(

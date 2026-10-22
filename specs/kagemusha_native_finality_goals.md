@@ -2,7 +2,7 @@
 
 ## Decision
 
-KAGEMUSHA Load finality is verified directly from Sumeragi BLS commit
+KAGEMUSHA Load, Activate and Unload finality is verified directly from Sumeragi BLS commit
 certificates, rooted in the application's independently authenticated signed
 genesis and authenticated validator changes. A finality prover, recursive block
 history, finality circuits and finality proving/verifying-key inventories are
@@ -31,6 +31,7 @@ required native checks before using its credential-bound signing key.
 | NF4 | Torii / config / tools | Serve ordinary native receipt evidence with no recursive-finality worker, proof journal, artifact compiler or proof-server provisioning/storage prerequisite. Delete retired configuration and packaging fields and reject their use. Register continues through native finality. |
 | NF5 | Integration / release | Pass focused model, proof, preparation, server and bridge tests, then genuine Load, restart, offline A-to-B-to-C and Unload on a four-validator network. Measure certificate bytes, verification latency and phone memory on the current candidate; do not transfer historical recursive-finality qualification or assert unmeasured millisecond/few-kilobyte results. |
 | NF6 | Native wallet / Torii / SDK | Implemented: serve one bounded original boundary certificate at a time, authenticate its incumbent authority before selecting the successor, durably retain epoch authority under the wallet manifest, and resume after restart. Receipt responses contain only the receipt certificate and event path. Importing an untrusted checkpoint or replaying every full block is not a substitute. Current-candidate release qualification remains part of NF5. |
+| NF7 | Native wallet / Torii / SDK / apps | Activate and Unload confirm each signed attempt from one direct CommitQC certificate with entrypoint and joined-output Merkle membership under the manifest-selected epoch. Per-attempt genesis walks, cursors, sessions and per-height SDK/app loops are deleted. Authenticated rejection is attempt-local; errors are never verdicts. The envelope bound derives from the certificate and genesis output-row limits. |
 
 ## Epoch synchronization
 
@@ -54,8 +55,14 @@ required native checks before using its credential-bound signing key.
   use retained older epoch authority. The SDK's 64-boundary work budget applies
   to one resumable call, not the chain's lifetime; each verified boundary is
   durably selected before the next request.
+- Torii also serves `/ledger/{entrypoint}/epochs/{boundary}` below the inclusion
+  height of an Activate or Unload attempt the caller owns (one it signed, or an
+  Unload whose claim pays it); the same native selection advances the wallet-wide
+  epoch index.
 - Torii must retain the original Kura boundary certificates and receipt event paths
-  required by outstanding wallets. Missing or pruned originals stop synchronization
+  required by outstanding wallets and, for every outstanding Activate/Unload
+  attempt, its inclusion block body (Network input and output rows) and
+  certificate. Missing or pruned originals stop synchronization
   and Load admission; neither an HTTP response nor an imported checkpoint fills a gap.
   Epoch verification skips ordinary blocks, while long-offline catch-up and source
   retention still require release qualification.

@@ -123,7 +123,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         Ok(progress(&checkpoint))
     }
 
-    fn ingest_epoch_original(
+    pub(super) fn ingest_epoch_original(
         &mut self,
         genesis: &SumeragiFinalityVerifier,
         expected_epoch: u64,

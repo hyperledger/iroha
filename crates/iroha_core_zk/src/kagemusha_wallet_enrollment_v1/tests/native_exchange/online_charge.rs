@@ -300,8 +300,8 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
     drop(a);
     let mut a = sources.open(&device, &f, &frames);
     assert_eq!(
-        a.confirm_ledger_activation(&signed_activation).unwrap(),
-        activation
+        a.activation_attempt_outcome(&signed_activation).unwrap(),
+        state::LedgerAttemptOutcomeV1::Confirmed(activation)
     );
     assert_eq!(a.snapshot().unwrap(), initial);
     assert_eq!(device.platform.with(|state| state.sign_calls), signatures);

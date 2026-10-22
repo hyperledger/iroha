@@ -77,14 +77,29 @@ internal class KagemushaWalletDeviceStages(
             "requestID" to hex(requestId), "operationID" to hex(original.operationId()))
         return released(original, SystemClock.elapsedRealtimeNanos(), sequence)
     }
-    private fun activationState(value: KagemushaWalletActivationFinalityV1, returned: Long, sequence: Int): String {
-        val row = mutableListOf("nativeReturnedTicks" to returned.toString(),
-            "confirmed" to (value.confirmation != null).toString(), "rejected" to value.rejected.toString())
-        value.verifiedHeightBits?.let { row.add("height" to unsigned(it)) }
-        value.blockHash()?.let { row.add("blockHash" to hex(it)) }
-        event("activation-state", sequence, *row.toTypedArray())
-        return if (value.confirmation != null) "native-activation-confirmed"
-            else if (value.rejected) "native-activation-rejected" else "native-activation-unconfirmed"
+    // `kind` is "activation" or "unload"; Awaiting carries only Native's route selector.
+    private fun ledgerOutcomeState(value: KagemushaWalletLedgerOutcomeV1, kind: String, name: String,
+        returned: Long, sequence: Int): String {
+        val row = mutableListOf("nativeReturnedTicks" to returned.toString())
+        val state = when (value) {
+            is KagemushaWalletLedgerOutcomeV1.Awaiting -> { row.add("entrypoint" to hex(value.entrypoint())); "unconfirmed" }
+            is KagemushaWalletLedgerOutcomeV1.Rejected -> { row.addAll(commit(value.commit)); "rejected" }
+            is KagemushaWalletLedgerOutcomeV1.Confirmed -> { row.addAll(commit(value.commit)); "confirmed" }
+        }
+        row.add("confirmed" to (state == "confirmed").toString()); row.add("rejected" to (state == "rejected").toString())
+        event(name, sequence, *row.toTypedArray())
+        return "native-$kind-$state"
+    }
+    private fun commit(value: KagemushaWalletLedgerCommitV1) =
+        listOf("height" to unsigned(value.heightBits), "commitHash" to hex(value.commitHash()))
+    private fun ledgerIngestState(value: KagemushaWalletLedgerIngestV1, kind: String, name: String,
+        returned: Long, sequence: Int): String = when (value) {
+        is KagemushaWalletLedgerIngestV1.Outcome -> ledgerOutcomeState(value.outcome, kind, name, returned, sequence)
+        is KagemushaWalletLedgerIngestV1.EpochRequired -> {
+            event("$kind-epoch-required", sequence, "nativeReturnedTicks" to returned.toString(),
+                "targetHeight" to unsigned(value.targetHeightBits))
+            "native-$kind-epoch-required"
+        }
     }
     private fun ledgerState(value: KagemushaWalletLedgerProgressV1?, returned: Long, sequence: Int) {
         val row = mutableListOf("nativeReturnedTicks" to returned.toString(), "present" to (value != null).toString())
@@ -121,26 +136,22 @@ internal class KagemushaWalletDeviceStages(
                 event("activation-export", sequence, "nativeReturnedTicks" to returned.toString(), "confirmed" to "false")
                 "native-activation-exported-not-submitted"
             }
-            "retain-activation", "activation-status", "activation-finality", "confirm-activation" -> {
+            "retain-activation", "activation-status", "activation-finality" -> {
                 val wire = input("signed-wire")
-                if (command.action == "confirm-activation") {
-                    val value = wallet.confirmLedgerActivation(wire); val returned = SystemClock.elapsedRealtimeNanos()
-                    event("activation-confirmation", sequence, "nativeReturnedTicks" to returned.toString(),
-                        "height" to unsigned(value.heightBits), "blockHash" to hex(value.blockHash()))
-                    "native-activation-confirmed"
+                if (command.action == "activation-finality") {
+                    val value = wallet.ingestActivationFinality(wire, input("finality"))
+                    ledgerIngestState(value, "activation", "activation-state", SystemClock.elapsedRealtimeNanos(), sequence)
                 } else {
-                    val value = when (command.action) {
-                        "retain-activation" -> wallet.retainActivationAttempt(wire)
-                        "activation-finality" -> wallet.ingestActivationFinality(wire, input("finality"))
-                        else -> wallet.activationFinalityProgress(wire)
-                    }
+                    val value = if (command.action == "retain-activation") wallet.retainActivationAttempt(wire)
+                        else wallet.activationAttemptOutcome(wire)
                     val returned = SystemClock.elapsedRealtimeNanos()
                     if (command.action == "retain-activation") {
+                        // Only the actual Native return may produce this original, before any controller POST.
                         activationRetentionReceipt(wire, value, returned, config.invocation, sequence)?.let {
                             output("activation-retained.json", it, sequence)
                         }
                     }
-                    activationState(value, returned, sequence)
+                    ledgerOutcomeState(value, "activation", "activation-state", returned, sequence)
                 }
             }
             "prepare-load" -> {
@@ -281,21 +292,12 @@ internal class KagemushaWalletDeviceStages(
                 "native-unload-claim-exported-not-settled"
             }
             "unload-status" -> {
-                val value = wallet.unloadFinalityProgress(id("transaction-hash"), input("claim")); val returned = SystemClock.elapsedRealtimeNanos()
-                val fields = mutableListOf("nativeReturnedTicks" to returned.toString(), "confirmed" to (value.confirmation != null).toString())
-                value.verifiedHeightBits?.let { fields.add("height" to unsigned(it)) }; value.blockHash()?.let { fields.add("blockHash" to hex(it)) }
-                event("unload-status", sequence, *fields.toTypedArray())
-                if (value.confirmation == null) "native-unload-unconfirmed" else "native-unload-confirmed"
+                val value = wallet.unloadAttemptOutcome(input("claim"), input("signed-wire"))
+                ledgerOutcomeState(value, "unload", "unload-status", SystemClock.elapsedRealtimeNanos(), sequence)
             }
             "unload-finality" -> {
-                val value = wallet.ingestUnloadFinality(id("transaction-hash"), input("claim"), input("finality"))
-                ledgerState(value, SystemClock.elapsedRealtimeNanos(), sequence); "native-unload-prefix-retained-not-confirmed"
-            }
-            "confirm-unload" -> {
-                val value = wallet.confirmLedgerUnload(id("transaction-hash"), input("claim")); val returned = SystemClock.elapsedRealtimeNanos()
-                event("unload-confirmation", sequence, "nativeReturnedTicks" to returned.toString(),
-                    "height" to unsigned(value.heightBits), "blockHash" to hex(value.blockHash()))
-                "native-unload-confirmed"
+                val value = wallet.ingestUnloadFinality(input("claim"), input("signed-wire"), input("finality"))
+                ledgerIngestState(value, "unload", "unload-status", SystemClock.elapsedRealtimeNanos(), sequence)
             }
             "decode-request", "decode-payment", "decode-credited" -> {
                 val kind = when (command.action) {

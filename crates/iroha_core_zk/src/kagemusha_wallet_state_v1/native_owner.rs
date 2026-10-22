@@ -2,18 +2,17 @@
 
 use super::*;
 mod activation;
-pub use activation::ActivationFinalityProgressV1;
 mod close_loads;
 mod deletion;
 pub(super) mod epochs;
 pub use epochs::NativeEpochProgressV1;
 mod ledger;
+mod ledger_outcome;
 mod ledger_producer;
 mod unload;
 pub use ledger::{LEDGER_PROOF_MAX_BYTES_V1, LedgerProgressV1, PAYOUT_RECORD_MAX_BYTES_V1};
-pub use ledger_producer::{
-    LEDGER_INSTRUCTION_MAX_BYTES_V1, NativePreparedLedgerLoadV1, UnloadFinalityProgressV1,
-};
+pub use ledger_outcome::{LedgerAttemptIngestV1, LedgerAttemptOutcomeV1, LedgerCommitV1};
+pub use ledger_producer::{LEDGER_INSTRUCTION_MAX_BYTES_V1, NativePreparedLedgerLoadV1};
 mod output;
 pub use output::{NativeReleasedOutputV1, NativeWalletMetadataV1};
 mod bootstrap;

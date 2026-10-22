@@ -2,7 +2,6 @@
 
 use super::*;
 mod confirmation;
-pub use confirmation::ActivationFinalityProgressV1;
 
 const PLAN_MAX: usize = KAGEMUSHA_WALLET_ACTIVATION_MAX_BYTES_V1 + 4096;
 

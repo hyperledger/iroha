@@ -1,16 +1,13 @@
-//! Exact signed Activate inclusion and source-selected durable confirmation.
+//! Exact signed Activate attempts and their direct ledger finality outcomes.
+use super::super::ledger_outcome::{
+    self, LedgerAttemptIngestV1, LedgerAttemptOutcomeV1, LedgerOutcome, OfferedOutcome,
+};
 use super::*;
-use crate::kagemusha_wallet_state_v1::{decode_attempt_error, finality_read_error};
-mod cursor;
-use iroha_crypto::HashOf;
+use crate::kagemusha_wallet_state_v1::decode_attempt_error;
 use iroha_data_model::{
     NetworkId,
     isi::kagemusha_wallet::{KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1},
-    query::CommittedTransaction,
-    sumeragi_finality::{
-        MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint, VerifiedSumeragiBlock,
-    },
-    transaction::{Executable, SignedTransaction, TransactionEntrypoint},
+    transaction::{Executable, SignedTransaction},
 };
 use iroha_version::codec::DecodeVersioned;
 
@@ -18,19 +15,40 @@ use iroha_version::codec::DecodeVersioned;
 const TRANSACTION_MAX: usize = 64 * 1024;
 const CONFIRMATION_MAX: usize = TRANSACTION_MAX + 1024;
 
-/// Durable status of a retained outer attempt or the common inner Activate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActivationFinalityProgressV1 {
-    /// No cursor has been selected for this original.
-    NotStarted,
-    /// Verified history has reached this height without this transaction's successful inclusion.
-    Verifying(LedgerProgressV1),
-    /// This registered outer attempt has exact authenticated rejected execution.
-    /// Its checkpoint remains retained; another attempt may still activate the wallet.
-    Rejected(LedgerProgressV1),
-    /// One retained attempt's exact successful inclusion durably activated the wallet.
-    /// This does not assert successful execution of every outer attempt.
-    Confirmed(LedgerProgressV1),
+/// One retained outer attempt over the wallet's single immutable Activate.
+#[derive(Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::ActivationAttemptV1")]
+pub(super) struct Attempt {
+    activation: [u8; 32],
+    // Exact immutable signed wire stored once, separately from its compact outcome.
+    signed_transaction: [u8; 32],
+    // The first authenticated rejected execution of this attempt, never replaced. Another
+    // attempt may still activate the wallet.
+    pub(super) rejection: Option<LedgerOutcome>,
+}
+impl Attempt {
+    fn require(&self, plan: &Plan, signed_wire: &[u8]) -> Result<(), Error> {
+        if Some(self.activation) != plan.output
+            || self.activation == [0; 32]
+            || self.signed_transaction == [0; 32]
+            || self.rejection.is_some_and(|outcome| outcome.accepted())
+        {
+            return Err(Error::WitnessLost("activation attempt binding"));
+        }
+        if let Some(rejection) = &self.rejection {
+            rejection.require()?;
+        }
+        if self.signed_transaction != attempt_key(signed_wire)? {
+            return Err(Error::OperationConflict);
+        }
+        Ok(())
+    }
+}
+fn attempt_key(signed_wire: &[u8]) -> Result<[u8; 32], Error> {
+    if signed_wire.is_empty() || signed_wire.len() > TRANSACTION_MAX {
+        return Err(Error::Invalid("activation attempt original bound"));
+    }
+    Ok(crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(signed_wire))
 }
 
 #[derive(Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -39,54 +57,21 @@ pub(super) struct Confirmation {
     version: u16,
     activation: [u8; 32],
     signed_transaction: Vec<u8>,
-    height: u64,
-    block_hash: [u8; 32],
-    checkpoint: [u8; 32],
+    outcome: LedgerOutcome,
 }
 impl Confirmation {
     fn require(&self, plan: &Plan) -> Result<(), Error> {
+        self.outcome.require()?;
         if self.version != 1
             || Some(self.activation) != plan.output
             || self.activation == [0; 32]
             || self.signed_transaction.is_empty()
             || self.signed_transaction.len() > TRANSACTION_MAX
-            || self.height < 2
-            || self.block_hash == [0; 32]
-            || self.checkpoint == [0; 32]
+            || !self.outcome.accepted()
         {
             return Err(Error::WitnessLost("activation confirmation binding"));
         }
         Ok(())
-    }
-    // Recheck the complete exact original read from the selected immutable archive address.
-    // This is custody/progress validation, not independent native finality authentication.
-    fn require_checkpoint_original(&self, original: &[u8]) -> Result<(), Error> {
-        if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(original)
-            != self.checkpoint
-        {
-            return Err(Error::WitnessLost(
-                "activation confirming checkpoint digest",
-            ));
-        }
-        let checkpoint =
-            SumeragiFinalityCheckpoint::decode_canonical(original).map_err(|error| {
-                finality_read_error(
-                    error,
-                    Error::WitnessLost("activation confirming checkpoint"),
-                )
-            })?;
-        if ledger::progress(&checkpoint) != self.progress() {
-            return Err(Error::WitnessLost(
-                "activation confirming checkpoint binding",
-            ));
-        }
-        Ok(())
-    }
-    fn progress(&self) -> LedgerProgressV1 {
-        LedgerProgressV1 {
-            height: self.height,
-            block_hash: self.block_hash,
-        }
     }
 }
 
@@ -158,90 +143,106 @@ fn signed_activate(
     Ok(transaction)
 }
 
-fn successful_inclusion(
-    verified: &VerifiedSumeragiBlock,
-    network: &NetworkId,
-    signed: SignedTransaction,
-) -> Result<LedgerProgressV1, Error> {
-    let (progress, accepted) = authenticated_inclusion(verified, network, signed)?;
-    if !accepted {
-        return Err(Error::Proof(
-            "activation successful authenticated execution",
-        ));
-    }
-    Ok(progress)
-}
-
-/// Classify only the outcome of an exact input/output whose ordinary finality has
-/// already been genuinely verified. A proof failure is never classified as rejection.
-fn authenticated_inclusion(
-    verified: &VerifiedSumeragiBlock,
-    network: &NetworkId,
-    signed: SignedTransaction,
-) -> Result<(LedgerProgressV1, bool), Error> {
-    if verified.height() < 2
-        || signed.network_id() != Some(network)
-        || signed.verify_signature().is_err()
-    {
-        return Err(Error::Proof("activation authenticated transaction binding"));
-    }
-    let expected = TransactionEntrypoint::External(signed);
-    let block = verified.block();
-    let index = block
-        .network_entrypoints()
-        .position(|value| value.hash() == expected.hash())
-        .ok_or(Error::Invalid("activation absent from selected block"))?;
-    let input_index = u32::try_from(index).map_err(|_| Error::Invalid("activation input index"))?;
-    let entrypoint = block
-        .network_entrypoint_at(index)
-        .ok_or(Error::Proof("activation input"))?
-        .clone();
-    // Bind the actual original, not a caller-provided transaction hash.
-    if entrypoint != expected {
-        return Err(Error::Proof("activation exact input"));
-    }
-    let (output_index, _) = block
-        .network_output_at(input_index)
-        .ok_or(Error::Proof("activation execution output"))?;
-    let output = block
-        .execution_outputs()
-        .get(output_index as usize)
-        .ok_or(Error::Proof("activation output index"))?
-        .clone();
-    let committed = CommittedTransaction {
-        block_hash: block.hash(),
-        entrypoint_hash: entrypoint.hash(),
-        entrypoint_proof: block
-            .network_input_proof(input_index)
-            .ok_or(Error::Proof("activation input membership"))?,
-        entrypoint,
-        output_hash: HashOf::new(&output),
-        output_proof: block
-            .output_proof(output_index)
-            .ok_or(Error::Proof("activation output membership"))?,
-        output,
-    };
-    if !committed.verify_inclusion_in_block(block) {
-        return Err(Error::Proof(
-            "activation authenticated input/output membership",
-        ));
-    }
-    let accepted = committed.result().is_ok();
-    if accepted {
-        verified
-            .verify_committed_transaction(network, &committed)
-            .map_err(|_| Error::Proof("activation successful authenticated execution"))?;
-    }
-    Ok((
-        LedgerProgressV1 {
-            height: verified.height(),
-            block_hash: *block.hash().as_ref(),
-        },
-        accepted,
-    ))
-}
-
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    pub(super) fn retained_activation_attempt(
+        &mut self,
+        plan: &Plan,
+        signed_wire: &[u8],
+    ) -> Result<Option<Attempt>, Error> {
+        let Some(value) = plan
+            .attempts
+            .get(&mut self.archive, &attempt_key(signed_wire)?)?
+        else {
+            return Ok(None);
+        };
+        let attempt: Attempt = archive::decode(&value)?;
+        attempt.require(plan, signed_wire)?;
+        if self
+            .archive
+            .read_object(&attempt.signed_transaction, TRANSACTION_MAX)?
+            != signed_wire
+        {
+            return Err(Error::WitnessLost("activation attempt original"));
+        }
+        Ok(Some(attempt))
+    }
+    fn plan_with_attempt(&mut self, plan: &Plan, attempt: &Attempt) -> Result<Plan, Error> {
+        let original = self
+            .archive
+            .read_object(&attempt.signed_transaction, TRANSACTION_MAX)?;
+        attempt.require(plan, &original)?;
+        let mut next = plan.clone();
+        // IndexRoot enforces a <=512-byte leaf and <=256 bounded nodes per access.
+        // COW metadata never repeats the up-to-64KiB signed transaction per attempt.
+        next.attempts = plan.attempts.set(
+            &mut self.archive,
+            attempt.signed_transaction,
+            &archive::encode(attempt)?,
+        )?;
+        Ok(next)
+    }
+    pub(super) fn publish_activation_attempt(
+        &mut self,
+        root: [u8; 32],
+        mut manifest: manifest::Manifest,
+        plan: &Plan,
+        signed_wire: &[u8],
+    ) -> Result<(), Error> {
+        let selected = manifest
+            .activation
+            .ok_or(Error::WitnessLost("activation attempt plan"))?;
+        if self.manifest()?.0 != root
+            || plan.confirmation.is_some()
+            || self.archive.read_object(&selected, PLAN_MAX)? != archive::encode(plan)?
+            || self
+                .retained_activation_attempt(plan, signed_wire)?
+                .is_some()
+        {
+            return Err(Error::OperationConflict);
+        }
+        let attempt = Attempt {
+            activation: plan
+                .output
+                .ok_or(Error::Invalid("activation output absent"))?,
+            signed_transaction: self.archive.write_object(signed_wire, TRANSACTION_MAX)?,
+            rejection: None,
+        };
+        let next = self.plan_with_attempt(plan, &attempt)?;
+        manifest.activation = Some(
+            self.archive
+                .write_object(&archive::encode(&next)?, PLAN_MAX)?,
+        );
+        self.publish_manifest(root, &manifest)?;
+        Ok(())
+    }
+    // Retain the first authenticated rejection of one attempt under the same fences as a
+    // confirmation: unchanged root, unchanged selected plan bytes and no family confirmation.
+    fn publish_activation_rejection(
+        &mut self,
+        root: [u8; 32],
+        mut manifest: manifest::Manifest,
+        plan: &Plan,
+        attempt: &Attempt,
+    ) -> Result<(), Error> {
+        let selected = manifest
+            .activation
+            .ok_or(Error::WitnessLost("activation attempt plan"))?;
+        if self.manifest()?.0 != root
+            || plan.confirmation.is_some()
+            || self.archive.read_object(&selected, PLAN_MAX)? != archive::encode(plan)?
+        {
+            return Err(Error::WitnessLost("activation outcome source changed"));
+        }
+        let next = self.plan_with_attempt(plan, attempt)?;
+        manifest.activation = Some(
+            self.archive
+                .write_object(&archive::encode(&next)?, PLAN_MAX)?,
+        );
+        self.publish_manifest(root, &manifest)?;
+        Ok(())
+    }
+    // Recheck the retained winning attempt and the complete exact finality original read from
+    // its immutable archive address. This is custody validation, not new finality authority.
     fn require_activation_confirmation_original(
         &mut self,
         plan: &Plan,
@@ -251,13 +252,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let attempt = self
             .retained_activation_attempt(plan, &value.signed_transaction)?
             .ok_or(Error::WitnessLost("activation confirming attempt absent"))?;
-        if attempt.rejected {
+        if attempt.rejection.is_some() {
             return Err(Error::WitnessLost("activation confirming attempt rejected"));
         }
-        let original = self
-            .archive
-            .read_object(&value.checkpoint, MAX_FINALITY_CHECKPOINT_BYTES)?;
-        value.require_checkpoint_original(&original)
+        let entrypoint = ledger_outcome::retained_entrypoint(&value.signed_transaction)?;
+        self.retained_ledger_original(&value.outcome, &entrypoint)
     }
     pub(super) fn retained_activation_confirmation(
         &mut self,
@@ -289,8 +288,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             return Err(Error::WitnessLost("activation confirmation source changed"));
         }
         let mut confirmed = plan.clone();
-        // Every attempt keeps its own selected prefix; the winning checkpoint is
-        // an independent immutable original, never an alias to a global cursor.
+        // Every attempt keeps its own originals; the winning finality original is an
+        // independent immutable object, never an alias to a global checkpoint.
         confirmed.confirmation = Some(
             self.archive
                 .write_object(&archive::encode(confirmation)?, CONFIRMATION_MAX)?,
@@ -319,77 +318,176 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::Invalid("ledger activation unconfirmed"))?;
         Ok(())
     }
+    fn selected_activation_plan(&mut self, manifest: &manifest::Manifest) -> Result<Plan, Error> {
+        let address = manifest
+            .activation
+            .ok_or(Error::Invalid("activation plan absent"))?;
+        archive::decode(&self.archive.read_object(&address, PLAN_MAX)?)
+    }
+    // The family confirmation, else this attempt's retained rejection, else Awaiting under the
+    // entrypoint hash Native derived from the retained wire. Reads never verify or write.
+    fn activation_outcome(
+        &mut self,
+        plan: &Plan,
+        signed_wire: &[u8],
+        signed: &SignedTransaction,
+    ) -> Result<LedgerAttemptOutcomeV1, Error> {
+        let attempt = self
+            .retained_activation_attempt(plan, signed_wire)?
+            .ok_or(Error::Invalid("activation attempt not retained"))?;
+        if let Some(confirmed) = self.retained_activation_confirmation(plan)? {
+            return Ok(LedgerAttemptOutcomeV1::Confirmed(
+                confirmed.outcome.commit(),
+            ));
+        }
+        let entrypoint = ledger_outcome::entrypoint(signed)?;
+        if let Some(rejection) = &attempt.rejection {
+            self.retained_ledger_original(rejection, &entrypoint)?;
+            return Ok(rejection.attempt());
+        }
+        Ok(LedgerAttemptOutcomeV1::Awaiting { entrypoint })
+    }
+    // Offer one original for an intake-checked attempt. A family confirmation answers every
+    // original without verification or a write. A retained rejection is reconciled and never
+    // replaced. Otherwise exactly one original is verified, written and selected with its
+    // outcome by one fenced manifest publication.
+    #[allow(clippy::too_many_arguments)]
+    fn ingest_activation_original(
+        &mut self,
+        root: [u8; 32],
+        manifest: manifest::Manifest,
+        genesis: &SumeragiFinalityVerifier,
+        plan: &Plan,
+        signed_wire: &[u8],
+        signed: &SignedTransaction,
+        bytes: &[u8],
+    ) -> Result<LedgerAttemptIngestV1, Error> {
+        if let Some(confirmed) = self.retained_activation_confirmation(plan)? {
+            return Ok(LedgerAttemptIngestV1::Outcome(
+                LedgerAttemptOutcomeV1::Confirmed(confirmed.outcome.commit()),
+            ));
+        }
+        let mut attempt = self
+            .retained_activation_attempt(plan, signed_wire)?
+            .ok_or(Error::Invalid("activation attempt not retained"))?;
+        let entrypoint = ledger_outcome::entrypoint(signed)?;
+        if let Some(rejection) = attempt.rejection {
+            self.retained_ledger_original(&rejection, &entrypoint)?;
+            return self
+                .reconcile_ledger_original(&manifest, genesis, &rejection, signed, bytes)
+                .map(LedgerAttemptIngestV1::Outcome);
+        }
+        let verified = match self.verify_ledger_original(&manifest, genesis, signed, bytes)? {
+            OfferedOutcome::EpochRequired(target_height) => {
+                return Ok(LedgerAttemptIngestV1::EpochRequired { target_height });
+            }
+            OfferedOutcome::Verified(verified) => verified,
+        };
+        let outcome = self.write_ledger_original(&verified, bytes)?;
+        if outcome.accepted() {
+            let confirmation = Confirmation {
+                version: 1,
+                activation: plan
+                    .output
+                    .ok_or(Error::WitnessLost("activation output absent"))?,
+                signed_transaction: signed_wire.to_vec(),
+                outcome,
+            };
+            self.publish_activation_confirmation(root, manifest, plan, &confirmation)?;
+        } else {
+            attempt.rejection = Some(outcome);
+            self.publish_activation_rejection(root, manifest, plan, &attempt)?;
+        }
+        Ok(LedgerAttemptIngestV1::Outcome(outcome.attempt()))
+    }
 }
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send>
     Coordinator<AdvanceHandle<F, P>, ProviderArchive<F, P>, NativeWalletProofsV1<F, P, S>>
 {
-    /// Confirm a registered signed Activate against its cursor or the selected native ledger tip.
-    /// Successful return follows durable publication. Exact retry remains local after restart
-    /// or later ledger advancement. HTTP receipts and caller transaction hashes are not authority.
-    /// # Errors
-    /// Missing/mismatched originals, another transaction, failed execution, unverified prefix,
-    /// changed selection, unavailable custody, or uncertain publication never allow first Load.
-    pub fn confirm_ledger_activation(
+    // Full intake on every call, before any retained outcome is consulted: the selected plan,
+    // the admitted incarnation, credential set and Bootstrap package proofs, then the exact
+    // signed outer transaction over the retained Activate.
+    fn activation_intake(
         &mut self,
+        plan: &Plan,
         signed_wire: &[u8],
-    ) -> Result<LedgerProgressV1, Error> {
-        self.clean_activation_cursor(signed_wire)?;
-        let (root, manifest) = self.sync_manifest()?;
-        let address = manifest
-            .activation
-            .ok_or(Error::Invalid("activation plan absent"))?;
-        let plan: Plan = archive::decode(&self.archive.read_object(&address, PLAN_MAX)?)?;
+    ) -> Result<SignedTransaction, Error> {
         plan.require(&self.scheme_id, &self.wallet_id, &self.proofs.asset)?;
-        self.authenticate_activation_plan(&plan)?;
-        let activation = self
-            .retained_activation(&plan)?
-            .ok_or(Error::Invalid("activation output absent"))?;
+        self.authenticate_activation_plan(plan)?;
         let genesis = Arc::clone(&self.proofs.genesis);
-        let network = &genesis.initial_epoch().network_id;
-        let signed = signed_activate(
+        self.require_ledger_root(&genesis)?;
+        let original = self
+            .retained_activation(plan)?
+            .ok_or(Error::Invalid("activation output absent"))?;
+        signed_activate(
             signed_wire,
-            network,
+            &genesis.initial_epoch().network_id,
             &self.scheme_id,
             &plan.credential.body.account_digest,
-            &activation,
-        )?;
-        if let Some(confirmed) = self.retained_activation_confirmation(&plan)? {
-            return Ok(confirmed.progress());
+            &original,
+        )
+    }
+    /// Retain one exact account-authorized outer transaction over the immutable Activate.
+    /// This is DATA intake, not expiry, non-inclusion or financial authority. Every first
+    /// POST must follow successful retention. Repeating known bytes is local and idempotent.
+    /// # Errors
+    /// Wrong account/network/inner original, new intake after family confirmation, unavailable
+    /// or uncertain custody, or a changed selected plan never authorize a replacement or reset.
+    pub fn retain_activation_attempt(
+        &mut self,
+        signed_wire: &[u8],
+    ) -> Result<LedgerAttemptOutcomeV1, Error> {
+        let (root, manifest) = self.sync_manifest()?;
+        let plan = self.selected_activation_plan(&manifest)?;
+        let signed = self.activation_intake(&plan, signed_wire)?;
+        if self
+            .retained_activation_attempt(&plan, signed_wire)?
+            .is_none()
+        {
+            self.publish_activation_attempt(root, manifest, &plan, signed_wire)?;
         }
-        // Prefer the independent cursor. The global tip is only a convenience when
-        // no cursor exists, and cannot overwrite or skip a selected activation cursor.
-        let (verifier, checkpoint) =
-            if let Some(cursor) = self.retained_activation_cursor(&plan, signed_wire)? {
-                let (verifier, checkpoint) = self.restore_activation_cursor(&cursor)?;
-                (verifier, checkpoint)
-            } else {
-                let (verifier, checkpoint) = self.selected_ledger(&manifest, &genesis)?;
-                let checkpoint = checkpoint.ok_or(Error::Invalid("activation ledger absent"))?;
-                (verifier, checkpoint)
-            };
-        let decision = verifier
-            .verify_retained_decision(checkpoint.tip())
-            .map_err(|error| {
-                finality_read_error(error, Error::Proof("activation selected native decision"))
-            })?;
-        let progress = successful_inclusion(&decision, network, signed)?;
-        let confirmation = Confirmation {
-            version: 1,
-            activation: plan
-                .output
-                .ok_or(Error::WitnessLost("activation output absent"))?,
-            signed_transaction: signed_wire.to_vec(),
-            height: progress.height,
-            block_hash: progress.block_hash,
-            checkpoint: self.archive.write_object(
-                &checkpoint
-                    .encode_canonical()
-                    .map_err(|_| Error::Proof("activation confirmation checkpoint encoding"))?,
-                MAX_FINALITY_CHECKPOINT_BYTES,
-            )?,
-        };
-        self.publish_activation_confirmation(root, manifest, &plan, &confirmation)?;
-        Ok(progress)
+        let (_, manifest) = self.sync_manifest()?;
+        let plan = self.selected_activation_plan(&manifest)?;
+        self.activation_outcome(&plan, signed_wire, &signed)
+    }
+    /// Read this retained attempt's outcome: the wallet's family activation, this attempt's
+    /// authenticated rejection, or Awaiting with the natively derived entrypoint hash that
+    /// selects its finality read. Confirmed never asserts that every attempt executed.
+    /// # Errors
+    /// Changed transaction, missing selected original, lost custody or untrusted installation.
+    pub fn activation_attempt_outcome(
+        &mut self,
+        signed_wire: &[u8],
+    ) -> Result<LedgerAttemptOutcomeV1, Error> {
+        let (_, manifest) = self.sync_manifest()?;
+        let plan = self.selected_activation_plan(&manifest)?;
+        let signed = self.activation_intake(&plan, signed_wire)?;
+        self.activation_outcome(&plan, signed_wire, &signed)
+    }
+    /// Verify one direct ledger finality original for this retained attempt under the
+    /// manifest-selected epoch, then atomically retain its first authenticated outcome. An
+    /// authenticated rejection is terminal only for this attempt and never opens Load.
+    /// # Errors
+    /// Invalid, foreign or forged originals, another transaction, a conflicting outcome, lost
+    /// custody or uncertain publication remain errors and never become a Rejected outcome.
+    pub fn ingest_activation_finality(
+        &mut self,
+        signed_wire: &[u8],
+        finality: &[u8],
+    ) -> Result<LedgerAttemptIngestV1, Error> {
+        let (root, manifest) = self.sync_manifest()?;
+        let plan = self.selected_activation_plan(&manifest)?;
+        let signed = self.activation_intake(&plan, signed_wire)?;
+        let genesis = Arc::clone(&self.proofs.genesis);
+        self.ingest_activation_original(
+            root,
+            manifest,
+            &genesis,
+            &plan,
+            signed_wire,
+            &signed,
+            finality,
+        )
     }
 }
 

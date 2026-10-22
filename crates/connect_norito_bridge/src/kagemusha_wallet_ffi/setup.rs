@@ -49,25 +49,20 @@ pub(crate) enum Setup {
         kind: u64,
         original: Vec<u8>,
     },
-    ConfirmUnload {
-        transaction: [u8; 32],
-        original: Vec<u8>,
+    UnloadOutcome {
+        claim: Vec<u8>,
+        signed: Vec<u8>,
     },
-    UnloadProofProgress {
-        transaction: [u8; 32],
-        original: Vec<u8>,
-    },
-    UnloadProofStep {
-        transaction: [u8; 32],
-        original: Vec<u8>,
+    UnloadFinality {
+        claim: Vec<u8>,
+        signed: Vec<u8>,
         finality: Vec<u8>,
     },
-    ConfirmActivation(Vec<u8>),
     RetainActivationAttempt(Vec<u8>),
-    ActivationProofProgress(Vec<u8>),
-    ActivationProofStep {
+    ActivationOutcome(Vec<u8>),
+    ActivationFinality {
         signed: Vec<u8>,
-        original: Vec<u8>,
+        finality: Vec<u8>,
     },
     LedgerFinality(Vec<u8>),
     LedgerStatus,
@@ -129,26 +124,33 @@ pub(crate) enum Setup {
         certificate: Vec<u8>,
     },
 }
-fn activation_progress(value: state::ActivationFinalityProgressV1) -> Response {
-    let (kind, progress) = match value {
-        state::ActivationFinalityProgressV1::Confirmed(progress) => (44, Some(progress)),
-        state::ActivationFinalityProgressV1::Verifying(progress) => (45, Some(progress)),
-        state::ActivationFinalityProgressV1::Rejected(progress) => (49, Some(progress)),
-        state::ActivationFinalityProgressV1::NotStarted => (46, None),
+// Kind 46 Awaiting carries the entrypoint hash Native derived from the retained wire, the
+// caller's only route selector. Kinds 62 Confirmed and 61 Rejected carry the certified height
+// and native commit hash, which is not the Iroha header hash. They never reuse the walk's
+// retired 44/49, which had this shape with the header hash, so a mixed SDK/Native pair refuses.
+fn ledger_outcome(value: state::LedgerAttemptOutcomeV1) -> Response {
+    let (kind, height, bytes) = match value {
+        state::LedgerAttemptOutcomeV1::Awaiting { entrypoint } => (46, 0, entrypoint),
+        state::LedgerAttemptOutcomeV1::Rejected(commit) => (61, commit.height, commit.commit_hash),
+        state::LedgerAttemptOutcomeV1::Confirmed(commit) => (62, commit.height, commit.commit_hash),
     };
-    let mut response = ledger_progress(progress);
-    response.kind = kind;
-    response
+    Response {
+        kind,
+        sequence: u128::from(height),
+        bytes: bytes.to_vec(),
+        ..Response::default()
+    }
 }
-fn unload_progress(value: state::UnloadFinalityProgressV1) -> Response {
-    let (kind, progress) = match value {
-        state::UnloadFinalityProgressV1::Confirmed(progress) => (42, Some(progress)),
-        state::UnloadFinalityProgressV1::Verifying(progress) => (33, Some(progress)),
-        state::UnloadFinalityProgressV1::NotStarted => (34, None),
-    };
-    let mut response = ledger_progress(progress);
-    response.kind = kind;
-    response
+// Kind 60 EpochRequired is DATA from selectors 34 and 36 only: the untrusted target height.
+fn ledger_ingest(value: state::LedgerAttemptIngestV1) -> Response {
+    match value {
+        state::LedgerAttemptIngestV1::Outcome(outcome) => ledger_outcome(outcome),
+        state::LedgerAttemptIngestV1::EpochRequired { target_height } => Response {
+            kind: 60,
+            sequence: u128::from(target_height),
+            ..Response::default()
+        },
+    }
 }
 pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
     Ok(match selector {
@@ -169,18 +171,23 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
             KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
             0,
         ],
-        35 | 37 | 46 => [state::LEDGER_INSTRUCTION_MAX_BYTES_V1, 0, 0],
+        37 | 46 => [state::LEDGER_INSTRUCTION_MAX_BYTES_V1, 0, 0],
         36 => [
             state::LEDGER_INSTRUCTION_MAX_BYTES_V1,
-            state::LEDGER_PROOF_MAX_BYTES_V1,
+            KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1,
+            0,
+        ],
+        33 => [
+            KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
+            state::LEDGER_INSTRUCTION_MAX_BYTES_V1,
             0,
         ],
         34 => [
+            KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
             state::LEDGER_INSTRUCTION_MAX_BYTES_V1,
-            state::LEDGER_PROOF_MAX_BYTES_V1,
-            0,
+            KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1,
         ],
-        29 | 30 | 33 => [state::LEDGER_INSTRUCTION_MAX_BYTES_V1, 0, 0],
+        29 => [state::LEDGER_INSTRUCTION_MAX_BYTES_V1, 0, 0],
         21 | 22 => [state::FEE_CLAIM_MAX_BYTES_V1, 0, 0],
         23 => [state::LEDGER_PROOF_MAX_BYTES_V1, 0, 0],
         45 => [KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1, 0, 0],
@@ -231,7 +238,7 @@ pub(crate) fn request(
     let bounds = bounds(selector)?;
     if (matches!(
         selector,
-        2 | 19 | 20 | 25 | 27 | 30 | 33 | 34 | 39 | 41 | 42 | 43 | 44 | 45 | 54
+        2 | 19 | 20 | 25 | 27 | 39 | 41 | 42 | 43 | 44 | 45 | 54
     ) != (id != [0; 32]))
         || (!matches!(selector, 47 | 53) && (matches!(selector, 2 | 27 | 39) != (amount != 0)))
         || (selector == 53 && amount > u128::from(u64::MAX))
@@ -282,25 +289,22 @@ pub(crate) fn request(
             kind: token,
             original: first.to_vec(),
         },
-        30 if !first.is_empty() => Setup::ConfirmUnload {
-            transaction: id,
-            original: first.to_vec(),
+        33 if !first.is_empty() && !second.is_empty() => Setup::UnloadOutcome {
+            claim: first.to_vec(),
+            signed: second.to_vec(),
         },
-        33 if !first.is_empty() => Setup::UnloadProofProgress {
-            transaction: id,
-            original: first.to_vec(),
-        },
-        34 if !first.is_empty() && !second.is_empty() => Setup::UnloadProofStep {
-            transaction: id,
-            original: first.to_vec(),
+        34 if !first.is_empty() && !second.is_empty() && !third.is_empty() => {
+            Setup::UnloadFinality {
+                claim: first.to_vec(),
+                signed: second.to_vec(),
+                finality: third.to_vec(),
+            }
+        }
+        36 if !first.is_empty() && !second.is_empty() => Setup::ActivationFinality {
+            signed: first.to_vec(),
             finality: second.to_vec(),
         },
-        35 if !first.is_empty() => Setup::ConfirmActivation(first.to_vec()),
-        36 if !first.is_empty() && !second.is_empty() => Setup::ActivationProofStep {
-            signed: first.to_vec(),
-            original: second.to_vec(),
-        },
-        37 if !first.is_empty() => Setup::ActivationProofProgress(first.to_vec()),
+        37 if !first.is_empty() => Setup::ActivationOutcome(first.to_vec()),
         46 if !first.is_empty() => Setup::RetainActivationAttempt(first.to_vec()),
         23 if !first.is_empty() => Setup::LedgerFinality(first.to_vec()),
         24 => Setup::LedgerStatus,
@@ -505,56 +509,34 @@ where
                     ..Response::default()
                 });
             }
-            Setup::ConfirmUnload {
-                transaction,
-                original,
-            } => {
-                let mut response = ledger_progress(Some(
-                    self.wallet.confirm_ledger_unload(transaction, &original)?,
-                ));
-                response.kind = 42;
-                return Ok(response);
-            }
-            Setup::UnloadProofProgress {
-                transaction,
-                original,
-            } => {
-                return Ok(unload_progress(
-                    self.wallet
-                        .unload_finality_progress(transaction, &original)?,
+            Setup::UnloadOutcome { claim, signed } => {
+                return Ok(ledger_outcome(
+                    self.wallet.unload_attempt_outcome(&claim, &signed)?,
                 ));
             }
-            Setup::UnloadProofStep {
-                transaction,
-                original,
+            Setup::UnloadFinality {
+                claim,
+                signed,
                 finality,
             } => {
-                return Ok(ledger_progress(Some(self.wallet.ingest_unload_finality(
-                    transaction,
-                    &original,
-                    &finality,
-                )?)));
-            }
-            Setup::ConfirmActivation(signed) => {
-                return Ok(activation_progress(
-                    state::ActivationFinalityProgressV1::Confirmed(
-                        self.wallet.confirm_ledger_activation(&signed)?,
-                    ),
+                return Ok(ledger_ingest(
+                    self.wallet
+                        .ingest_unload_finality(&claim, &signed, &finality)?,
                 ));
             }
             Setup::RetainActivationAttempt(signed) => {
-                return Ok(activation_progress(
+                return Ok(ledger_outcome(
                     self.wallet.retain_activation_attempt(&signed)?,
                 ));
             }
-            Setup::ActivationProofProgress(signed) => {
-                return Ok(activation_progress(
-                    self.wallet.activation_finality_progress(&signed)?,
+            Setup::ActivationOutcome(signed) => {
+                return Ok(ledger_outcome(
+                    self.wallet.activation_attempt_outcome(&signed)?,
                 ));
             }
-            Setup::ActivationProofStep { signed, original } => {
-                return Ok(activation_progress(
-                    self.wallet.ingest_activation_finality(&signed, &original)?,
+            Setup::ActivationFinality { signed, finality } => {
+                return Ok(ledger_ingest(
+                    self.wallet.ingest_activation_finality(&signed, &finality)?,
                 ));
             }
             Setup::LedgerFinality(original) => {
@@ -778,20 +760,55 @@ mod tests {
     }
 
     #[test]
-    fn unload_settlement_union_preserves_native_confirmation_and_absence() {
-        let progress = state::LedgerProgressV1 {
-            height: 2,
-            block_hash: [7; 32],
+    fn ledger_outcome_union_carries_native_entrypoint_commit_or_epoch_target() {
+        let commit = state::LedgerCommitV1 {
+            height: u64::MAX,
+            commit_hash: [9; 32],
         };
-        let absent = unload_progress(state::UnloadFinalityProgressV1::NotStarted);
-        assert_eq!(absent.kind, 34);
-        assert!(absent.bytes.is_empty());
-        let verifying = unload_progress(state::UnloadFinalityProgressV1::Verifying(progress));
-        assert_eq!(verifying.kind, 33);
-        assert_eq!(verifying.bytes, [7; 32]);
-        let confirmed = unload_progress(state::UnloadFinalityProgressV1::Confirmed(progress));
-        assert_eq!(confirmed.kind, 42);
-        assert_eq!(confirmed.bytes, [7; 32]);
+        for (value, expected) in [
+            (
+                state::LedgerAttemptOutcomeV1::Awaiting {
+                    entrypoint: [7; 32],
+                },
+                (46, 0, vec![7; 32]),
+            ),
+            (
+                state::LedgerAttemptOutcomeV1::Rejected(commit),
+                (61, u128::from(u64::MAX), vec![9; 32]),
+            ),
+            (
+                state::LedgerAttemptOutcomeV1::Confirmed(commit),
+                (62, u128::from(u64::MAX), vec![9; 32]),
+            ),
+        ] {
+            for output in [
+                ledger_outcome(value),
+                ledger_ingest(state::LedgerAttemptIngestV1::Outcome(value)),
+            ] {
+                assert_eq!(
+                    (output.kind, output.sequence, output.bytes, output.detail),
+                    (expected.0, expected.1, expected.2.clone(), 0)
+                );
+            }
+        }
+        let output = ledger_ingest(state::LedgerAttemptIngestV1::EpochRequired {
+            target_height: 3_601,
+        });
+        assert_eq!(
+            (output.kind, output.sequence, output.bytes, output.detail),
+            (60, 3_601, vec![], 0)
+        );
+        // Kinds 60/61/62 are new: distinct from the enrollment kinds 58/59, the global tip 33/34,
+        // the retired 41/42/43/45 and the walk's retired Confirmed44/Rejected49. Those had the
+        // height-plus-hash shape of 61/62 with the Iroha header hash, so reusing them would let
+        // an SDK and a Native from opposite sides of direct finality read each other's outcome.
+        let rejected = ledger_outcome(state::LedgerAttemptOutcomeV1::Rejected(commit)).kind;
+        let confirmed = ledger_outcome(state::LedgerAttemptOutcomeV1::Confirmed(commit)).kind;
+        for kind in [output.kind, rejected, confirmed] {
+            for taken in [33, 34, 41, 42, 43, 44, 45, 46, 49, 57, 58, 59] {
+                assert_ne!(kind, taken);
+            }
+        }
     }
     #[test]
     fn credit_projection_intake_has_exact_role_bounds_and_no_foreign_authority() {
@@ -1038,16 +1055,16 @@ mod tests {
         assert!(request(&id, 45, 0, 0, [&vec![1; 16_385], &[], &[]]).is_err());
         assert!(request(&id, 45, 0, 0, [&[], &[1], &[]]).is_err());
         assert!(request(&id, 45, 0, 0, [&[], &[], &[1]]).is_err());
-        assert!(request(&id, 33, 0, 0, [&[]; 3]).is_err());
+        assert!(request(&id, 33, 0, 0, [&[1], &[2], &[]]).is_err());
         assert!(matches!(
-            request(&id, 33, 0, 0, [&[1], &[], &[]]).unwrap(),
-            Setup::UnloadProofProgress { transaction, .. } if transaction == id
+            request(&[0; 32], 33, 0, 0, [&[1], &[2], &[]]).unwrap(),
+            Setup::UnloadOutcome { claim, signed } if claim == [1] && signed == [2]
         ));
     }
     #[test]
-    fn activation_intake_and_progress_are_closed_and_exact() {
+    fn activation_intake_is_closed_exact_and_bounded_by_the_derived_finality_frame() {
         let zero = [0; 32];
-        for selector in [35, 36, 37, 46] {
+        for selector in [36, 37, 46] {
             let second: &[u8] = if selector == 36 { &[2] } else { &[] };
             assert!(request(&zero, selector, 0, 0, [&[1], second, &[]]).is_ok());
             assert!(request(&zero, selector, 0, 0, [&[], second, &[]]).is_err());
@@ -1058,29 +1075,19 @@ mod tests {
             assert!(request(&zero, selector, 0, 0, [&vec![0; 65_537], second, &[]]).is_err());
         }
         assert!(request(&zero, 36, 0, 0, [&[1], &[], &[]]).is_err());
-        for selector in [35, 37, 46] {
+        assert_eq!(bounds(36).unwrap(), [65_536, 1_327_104, 0]);
+        assert!(request(&zero, 36, 0, 0, [&[1], &vec![0; 1_327_104], &[]]).is_ok());
+        assert!(request(&zero, 36, 0, 0, [&[1], &vec![0; 1_327_105], &[]]).is_err());
+        for selector in [37, 46] {
             assert!(request(&zero, selector, 0, 0, [&[1], &[2], &[]]).is_err());
         }
-        let progress = state::LedgerProgressV1 {
-            height: u64::MAX,
-            block_hash: [9; 32],
-        };
-        for (value, kind) in [
-            (state::ActivationFinalityProgressV1::Confirmed(progress), 44),
-            (state::ActivationFinalityProgressV1::Verifying(progress), 45),
-            (state::ActivationFinalityProgressV1::Rejected(progress), 49),
-        ] {
-            let output = activation_progress(value);
-            assert_eq!(
-                (output.kind, output.sequence, output.detail, output.bytes),
-                (kind, u128::from(u64::MAX), 0, vec![9; 32])
-            );
-        }
-        let output = activation_progress(state::ActivationFinalityProgressV1::NotStarted);
-        assert_eq!(
-            (output.kind, output.sequence, output.detail, output.bytes),
-            (46, 0, 0, vec![])
-        );
+        assert!(matches!(
+            request(&zero, 36, 0, 0, [&[1], &[2], &[]]).unwrap(),
+            Setup::ActivationFinality { signed, finality } if signed == [1] && finality == [2]
+        ));
+        // Confirmation by a separate selector and caller-chosen progress are gone.
+        assert!(bounds(35).is_err());
+        assert!(request(&zero, 35, 0, 0, [&[1], &[], &[]]).is_err());
     }
     #[test]
     fn ledger_and_fee_setup_enforce_bounds_identity_and_progress_shape() {
@@ -1133,7 +1140,7 @@ mod tests {
         assert!(request(&zero, 27, 1, 0, [&[]; 3]).is_err());
         assert!(request(&id, 27, 1, 0, [&[1], &[], &[]]).is_err());
         assert_eq!(bounds(29).unwrap(), [65_536, 0, 0]);
-        assert_eq!(bounds(30).unwrap(), [65_536, 0, 0]);
+        assert!(bounds(30).is_err());
         for token in [1, 2, 3] {
             assert!(matches!(
                 request(&zero, 29, 0, token, [&[1], &[], &[]]).unwrap(),
@@ -1155,19 +1162,37 @@ mod tests {
             assert!(request(&zero, selector, 0, 0, [&vec![1; 513], &[2], &[]]).is_err());
             assert!(request(&id, selector, 0, 0, [&[1], &[2], &[]]).is_err());
         }
-        for selector in [30, 33] {
-            assert!(request(&id, selector, 0, 0, [&[1], &[], &[]]).is_ok());
-            assert!(request(&zero, selector, 0, 0, [&[1], &[], &[]]).is_err());
-            assert!(request(&id, selector, 1, 0, [&[1], &[], &[]]).is_err());
-            assert!(request(&id, selector, 0, 1, [&[1], &[], &[]]).is_err());
-            assert!(request(&id, selector, 0, 0, [&[]; 3]).is_err());
-            assert!(request(&id, selector, 0, 0, [&[1], &[2], &[]]).is_err());
-            assert!(request(&id, selector, 0, 0, [&[1], &[], &[3]]).is_err());
+        // The Unload attempt is the exact claim and signed wire; Native derives its entrypoint.
+        assert!(request(&zero, 30, 0, 0, [&[1], &[], &[]]).is_err());
+        assert!(request(&id, 30, 0, 0, [&[1], &[], &[]]).is_err());
+        assert_eq!(bounds(33).unwrap(), [16_384, 65_536, 0]);
+        assert!(request(&zero, 33, 0, 0, [&[1], &[2], &[]]).is_ok());
+        for originals in [
+            [&[1][..], &[][..], &[][..]],
+            [&[][..], &[2][..], &[][..]],
+            [&[1][..], &[2][..], &[3][..]],
+        ] {
+            assert!(request(&zero, 33, 0, 0, originals).is_err());
         }
-        assert!(request(&id, 34, 0, 0, [&[1], &[2], &[]]).is_ok());
-        assert!(request(&id, 34, 0, 0, [&[1], &[], &[]]).is_err());
-        assert!(request(&zero, 34, 0, 0, [&[1], &[2], &[]]).is_err());
-        assert_eq!(bounds(34).unwrap(), [65_536, 36 * 1024 * 1024, 0]);
+        assert!(request(&id, 33, 0, 0, [&[1], &[2], &[]]).is_err());
+        assert!(request(&zero, 33, 1, 0, [&[1], &[2], &[]]).is_err());
+        assert!(request(&zero, 33, 0, 1, [&[1], &[2], &[]]).is_err());
+        assert!(request(&zero, 33, 0, 0, [&vec![1; 16_385], &[2], &[]]).is_err());
+        assert_eq!(bounds(34).unwrap(), [16_384, 65_536, 1_327_104]);
+        assert!(matches!(
+            request(&zero, 34, 0, 0, [&[1], &[2], &[3]]).unwrap(),
+            Setup::UnloadFinality { claim, signed, finality }
+                if claim == [1] && signed == [2] && finality == [3]
+        ));
+        for originals in [
+            [&[1][..], &[2][..], &[][..]],
+            [&[1][..], &[][..], &[3][..]],
+            [&[][..], &[2][..], &[3][..]],
+        ] {
+            assert!(request(&zero, 34, 0, 0, originals).is_err());
+        }
+        assert!(request(&id, 34, 0, 0, [&[1], &[2], &[3]]).is_err());
+        assert!(request(&zero, 34, 0, 0, [&[1], &[2], &vec![3; 1_327_105]]).is_err());
     }
     #[test]
     fn malformed_time_response_retires_only_its_owned_exchange_before_decoding() {

@@ -35,9 +35,30 @@ impl NativeFinalityFixture {
         Self::short_npos_boundary_chain_parameters(seats, true)
     }
 
+    /// The explicit-parameter boundary chain with a caller-built H4, the first block of the
+    /// successor epoch, for tests that need their own transactions there. `build` receives the
+    /// fixture and the H4 header; its synthetic results are the caller's.
+    #[must_use]
+    pub fn short_npos_boundary_chain_with_successor_block(
+        seats: usize,
+        build: impl FnOnce(&Self, BlockHeader) -> SignedBlock,
+    ) -> (Self, Vec<SumeragiFinalityProof>) {
+        Self::short_npos_boundary_chain_built(seats, true, build)
+    }
+
     fn short_npos_boundary_chain_parameters(
         seats: usize,
         explicit_parameters: bool,
+    ) -> (Self, Vec<SumeragiFinalityProof>) {
+        Self::short_npos_boundary_chain_built(seats, explicit_parameters, |fixture, header| {
+            fixture.block_with_submitted_work(header)
+        })
+    }
+
+    fn short_npos_boundary_chain_built(
+        seats: usize,
+        explicit_parameters: bool,
+        build: impl FnOnce(&Self, BlockHeader) -> SignedBlock,
     ) -> (Self, Vec<SumeragiFinalityProof>) {
         let parameters = crate::parameter::system::SumeragiNposParameters {
             epoch_length_blocks: NonZeroU64::new(3).unwrap(),
@@ -148,7 +169,7 @@ impl NativeFinalityFixture {
         );
         chain.push(fixture.certify_result(block, &result));
         fixture.epoch = successor;
-        let block = fixture.block_with_submitted_work(fixture.next_header());
+        let block = build(&fixture, fixture.next_header());
         chain.push(fixture.certify(block));
         (fixture, chain)
     }

@@ -1050,6 +1050,8 @@ with no decoder or transition path for a manifest lacking the operation index.
 | Ordinary Load receipt (unsigned) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ request_id ‖ LE128 ordinal ‖ LE128 amount ‖ LE128 online_charge ‖ charge_quote ‖ transaction_hash ‖ LE64 block_height ‖ payer_account_digest` (282 bytes) | Digest `P_bytes(kgwolod1, transcript)`. Ordinary successful `IssueLoad` execution, authenticated by the installed genesis-rooted native certificate verifier. `block_height ≥ 2`; `amount > 0`; nonzero request identity; `charge_quote` nonzero iff `online_charge > 0`, and then a Load quote with the same scheme, asset, wallet, ordinal, amount and charge; `amount + online_charge` and `ordinal + 1` fit. A state absorbs only its `next_load`. Decoding or recomputing the digest grants no authority. |
 | Load finality (local custody frame) | `{version, receipt_digest, certificate: SumeragiCommitCertificateV1, event_proof: MerkleProof<EventBox>}` | Complete frame at most 262,144 bytes, containing only the receipt certificate and counted event path. The certificate carries the canonical consensus header, ordinary BLS CommitQC and execution-result preimage. Native selects its epoch authority from independently authenticated signed global genesis or its protected local epoch archive, then verifies the exact receipt before Advance signing. No finality prover, history-vector layout, accumulator or caller verdict is accepted. This local frame is not carried in each Payment; the 10,034-byte peer bound is unchanged. |
 | Epoch boundary (online DATA frame) | `SumeragiCommitCertificateV1 {consensus_header, commit_qc, result_preimage}` | At most 262,144 bytes. Request one exact incumbent boundary through the payer-authenticated `/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}` route. The boundary must precede the retained receipt. Native verifies the incumbent's exact-quorum certificate before atomically selecting the successor under its rollback-sensitive manifest; it never imports a peer checkpoint. Older selected epochs remain available for delayed receipts. Each read and checkpoint is bounded independently of chain lifetime, with no ordinary-block replay. |
+| Ledger finality (online DATA and local custody original) | `{version, entrypoint_hash, certificate: SumeragiCommitCertificateV1, inclusion: {entry_proof: MerkleProof<TransactionEntrypoint>, output: ExecutionOutputV1, output_proof: MerkleProof<ExecutionOutputV1>}}` | Complete frame ≤1,327,104 bytes: certificate ≤262,144, one output row ≤1,048,576 (the genesis `ExecutionOutputPolicyV1.max_output_bytes`), paths and framing ≤16,384; a genesis that raises the row limit raises this bound in the same change. Each audit path ≤32 siblings; output is the Network row. Read through the account-authenticated `/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality`. Torii serves only an External entrypoint that carries the path scheme's Activate or Unload for the path wallet and whose attempt the caller owns: the caller is the entrypoint's authority or, for an Unload, the account its claim pays, because any account may relay an Unload. A relayed Unload is served to its relayer and to its claim account; an Activate only to its signer. Anything else, and an uncommitted entrypoint, answers 404 `kagemusha_ledger_entry_not_committed`. 503 `kagemusha_ledger_finality_unavailable` is a retryable wait; any other status is an error. Native recomputes the entrypoint hash from its retained signed wire, restores the certificate's epoch from its protected index, verifies the exact-quorum CommitQC, global scope, entry membership in `transaction_input_commitment` and joined-output membership in `transaction_output_commitment` with the entry leaf index, the output leaf index and `input_index` all equal. `Ok` confirms; `Err` is that attempt's authenticated rejection. Absence, 404/503, expiry, decode or proof failure are never verdicts. The first authenticated outcome per entrypoint is retained immutably with its exact original; a different original that verifies to the same entrypoint, height, commit hash and result is idempotent, and a differing verified outcome is a proof error. |
+| Ledger epoch boundary (online DATA frame) | `SumeragiCommitCertificateV1` | At most 262,144 bytes. Request one boundary through `…/ledger/{entrypoint}/epochs/{boundary}`; Torii refuses `boundary` not below the attempt's inclusion height before reading any block body, and serves only an attempt the caller owns under the ledger finality row's rule. Native selection is identical to, and shared with, Load epoch synchronization. |
 | Unload claim | `{version, credential, package, account: AccountId, charge, certificates}`; charge None 0 or Quoted 1 `{quote, beneficiary: AccountId}` | Certificates exactly the issuer plus the quote signer when quoted. `H("account", account)` equals the credential's account digest. The package is a verified Unload carrying Ω(pred), which names the credential's wallet and payment key and passes the consumer checks; `charge` is Quoted iff the effect names a quote, which must be an Unload quote for the effect's exact terms, with `H("account", beneficiary)` as its beneficiary. Payout `amount − online_charge`. |
 | Fee claim | `{version, payment, beneficiary: AccountId}` | Structurally a valid Payment naming a fee schedule with `fee > 0`. The payout is checked against the historical schedule the Payment names (digest, scheme, asset, `fee = fee(amount)`), and `H("account", beneficiary)` equals its beneficiary. Full verification takes the schedule, the receiver's Request and the payer's credential and certificates from the ledger's records by the digests the Payment binds, and verifies the Payment as at Receive. |
 | Ledger control (signed under `kgwlctl1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ tag action ‖ fields zero-filled to 80 ‖ nonce` | Actions Activate 1 `{package_digest}`, CloseLoads 2 `{package_digest, LE128 next_load}`, Abandon 3 `{enrollment_id, LE128 marker_generation, terminal_marker_digest}`. Signed by the wallet payment key; nonzero digests; `marker_generation ≥ 1`. |
@@ -1067,18 +1069,20 @@ Activation recovery may retain additional ordinary account-signed transaction
 envelopes containing the exact same Activation frame. This does not alter the
 Activation wire, payment key, account identity or Bootstrap proof. Each envelope
 has its own exact transaction identity, admission and fee checks, transport DATA
-and Native finality cursor. App time can schedule a retry but cannot prove that
+and Native outcome. App time can schedule a retry but cannot prove that
 an earlier attempt did not commit. Successful authenticated inclusion of any
 retained attempt confirms the same wallet; it does not imply that other attempts
-succeeded. Preserve all signed attempts, each selected verification checkpoint
-and the winning finality original. Superseded checkpoints may be retired only
-after durable replacement within the same attempt. Native/app/Core integration
+succeeded. Preserve all signed attempts, every retained outcome with its exact
+finality original, and the winning finality original. Native/app/Core integration
 and installed execution of this recovery path remain under qualification.
 An attempt may be marked rejected only after Native authenticates its exact
-transaction and rejected execution output in a verified finalized block. A proof,
+transaction and rejected execution output under a verified CommitQC (§3.6 Ledger
+finality). A proof,
 storage or transport error never supplies that verdict. Rejection does not enable
 Load and does not prevent another retained same-Activation attempt from proving
-successful inclusion.
+successful inclusion. Unload envelopes follow the same rule: each envelope's
+outcome is retained by its entrypoint hash, and a rejection never changes the
+claim or the offline balance.
 
 ## 4. Measured sizes
 
@@ -1507,6 +1511,24 @@ partial progress; callers repeat until its boundary covers the receipt. Retries 
 progress. The subsequent native Load independently restores its receipt epoch from the
 protected index and verifies its BLS certificate and counted event before signing Advance.
 
+## Native Activate/Unload direct finality bridge
+
+Setup **46** retains an Activate attempt and **37** reads its outcome (first = exact signed
+wire, ≤65,536 bytes). Setup **36** ingests one ledger finality original for that attempt
+(second, ≤1,327,104 bytes). Setup **33** reads and **34** ingests an Unload attempt (zero
+identity; first = exact claim ≤16,384 bytes, second = exact signed wire ≤65,536 bytes,
+third = finality original for 34). Results: kind **46** Awaiting (bytes = the 32-byte
+entrypoint hash Native derived from the retained wire; the caller uses it only as the route
+selector), **61** Rejected and **62** Confirmed (`sequence_low` = height, 32-byte certified
+commit hash, which is not the Iroha header hash), and, from 36/34 only, **60** EpochRequired
+(`sequence_low` = untrusted target height, no bytes). EpochRequired is DATA: the caller
+synchronizes boundaries (Setup 52/53) through the ledger epoch route until they cover that
+height, then repeats the same original. Selectors 30 and 35 and result kinds 42, 44, 45 and
+49 are removed and never reused. The walk's Confirmed 44 and Rejected 49 had the same height
+and 32-byte shape with the Iroha header hash, so an SDK and a Native from opposite sides of
+this change refuse each other's outcome instead of misreading it. Result kinds 33 and 34
+remain the selected global ledger tip of Setup 23/24.
+
 ## Native retained-history collection boundary
 
 The installed wallet setup selector **47** performs one bounded collection turn for the
@@ -1516,7 +1538,8 @@ nonmembership path. Native selects the latest fully verified covering Ω and its
 pending-map descriptor, checks that exact root and derives Send nonmembership itself.
 Collection writes its source-bound durable intent before removing any object and resumes
 that same intent after interruption. The current head and undelivered Sends cannot be
-collected; required fee, activation and Unload originals and permanent replay records remain.
+collected; required fee, activation and Unload originals (including every retained ledger
+finality original) and permanent replay records remain.
 
 Results **50 Idle**, **51 Progress**, **52 Collected** contain no bytes and `detail=0`.
 Idle has sequence zero; Progress/Collected return the exact requested sequence. Collection

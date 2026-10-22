@@ -1,28 +1,16 @@
-//! Current ledger instruction preparation and native Unload confirmation.
+//! Current ledger instruction preparation and native Unload direct finality outcomes.
+use super::ledger_outcome::{
+    self, LedgerAttemptIngestV1, LedgerAttemptOutcomeV1, LedgerOutcome, OfferedOutcome,
+};
 use super::*;
-use crate::kagemusha_wallet_state_v1::finality_read_error;
 mod projection;
-mod unload_session;
 use iroha_data_model::{
     isi::kagemusha_wallet::{KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1},
-    sumeragi_finality::{
-        MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityProof, VerifiedSumeragiBlock,
-    },
+    transaction::SignedTransaction,
 };
 pub use projection::NativePreparedLedgerLoadV1;
 /// One complete current ledger instruction, including its original signed transport.
 pub const LEDGER_INSTRUCTION_MAX_BYTES_V1: usize = 64 * 1024;
-
-/// Exact transaction-and-claim-bound Unload settlement state selected by Native custody.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UnloadFinalityProgressV1 {
-    /// No independently verified history has been retained for this transaction.
-    NotStarted,
-    /// A genuine prefix is retained, but successful inclusion is not yet established.
-    Verifying(LedgerProgressV1),
-    /// Exact successful inclusion was authenticated and durably retained.
-    Confirmed(LedgerProgressV1),
-}
 
 #[derive(Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::LedgerLoadPlanV1")]
@@ -33,80 +21,45 @@ struct LoadPlan {
     instruction: Vec<u8>,
 }
 
-#[derive(Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
-#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::UnloadConfirmationV1")]
-struct UnloadConfirmation {
+/// First authenticated outcome of one exact signed Unload envelope over one exact claim,
+/// keyed by the envelope's natively derived entrypoint hash.
+#[derive(Clone, Copy, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::UnloadOutcomeV1")]
+struct UnloadOutcome {
     original_digest: [u8; 32],
-    height: u64,
-    block_hash: [u8; 32],
+    outcome: LedgerOutcome,
 }
 
-impl UnloadConfirmation {
-    fn progress(&self, original_digest: &[u8; 32]) -> Result<LedgerProgressV1, Error> {
-        if self.original_digest != *original_digest || self.height < 2 || self.block_hash == [0; 32]
-        {
-            return Err(Error::WitnessLost("retained Unload confirmation"));
-        }
-        Ok(LedgerProgressV1 {
-            height: self.height,
-            block_hash: self.block_hash,
-        })
-    }
-}
-
-// Verify the already selected original decision before the caller checks successful Unload
-// inclusion. Keep read refusals separate from a completed invalid-proof verdict; this helper
-// selects no cursor, authenticates no claim and publishes nothing.
-fn selected_unload_decision(
-    verifier: &SumeragiFinalityVerifier,
-    tip: &SumeragiFinalityProof,
-) -> Result<VerifiedSumeragiBlock, Error> {
-    verifier.verify_retained_decision(tip).map_err(|error| {
-        finality_read_error(error, Error::Proof("Unload selected native decision"))
-    })
-}
-
-fn retained_unload_confirmation(
-    archive: &mut impl index::ObjectStore,
-    confirmations: &index::IndexRoot,
-    transaction: &[u8; 32],
-    original_digest: &[u8; 32],
-) -> Result<Option<LedgerProgressV1>, Error> {
-    confirmations
-        .get(archive, transaction)?
-        .map(|bytes| archive::decode::<UnloadConfirmation>(&bytes)?.progress(original_digest))
-        .transpose()
-}
-
-// Inclusion is checked while each certified original is selected, before its cursor can move.
-// Absence is ordinary history; a located but foreign or unsuccessful input is an error.
-// The submitter may relay the claim: its authenticated original binds the payout account,
-// while successful certified execution authenticates the exact instruction and result.
-fn contains_successful_unload(
-    verified: &iroha_data_model::sumeragi_finality::VerifiedSumeragiBlock,
+/// DATA intake of one exact signed envelope carrying the exact retained claim. Any account
+/// may submit (relay) the claim: the claim's own canonical validation binds the paid account
+/// to its credential, and the caller binds that credential to this wallet. Certified
+/// execution then authenticates the exact instruction and its result.
+fn signed_unload(
+    bytes: &[u8],
     network: &iroha_data_model::NetworkId,
-    scheme: [u8; 32],
-    transaction: &[u8; 32],
-    original: &[u8],
-) -> Result<bool, Error> {
-    use iroha_crypto::HashOf;
-    use iroha_data_model::{query::CommittedTransaction, transaction::TransactionEntrypoint};
-    let block = verified.block();
-    let Some(index) = block
-        .network_entrypoints()
-        .position(|input| input.hash().as_ref() == transaction)
-    else {
-        return Ok(false);
-    };
-    let input_index = u32::try_from(index).map_err(|_| Error::Invalid("Unload input index"))?;
-    let entrypoint = block
-        .network_entrypoint_at(index)
-        .ok_or(Error::Proof("Unload input"))?
-        .clone();
-    let TransactionEntrypoint::External(signed) = &entrypoint else {
-        return Err(Error::Invalid("Unload external input"));
-    };
-    if !signed
+    scheme: &[u8; 32],
+    claim: &[u8],
+) -> Result<SignedTransaction, Error> {
+    let transaction = ledger_outcome::signed_original(bytes)?;
+    let public = transaction
+        .authority()
+        .try_signatory()
+        .ok_or(Error::Invalid("Unload single account key"))?;
+    let (algorithm, key) = public
+        .try_to_bytes()
+        .map_err(|_| Error::Invalid("Unload account key"))?;
+    if transaction.network_id() != Some(network)
+        || transaction.multisig_signatures().is_some()
+        || transaction.signature_count() != 1
+        || algorithm != iroha_crypto::Algorithm::Ed25519
+        || key.len() != 32
+    {
+        return Err(Error::Invalid("Unload signed transaction authority"));
+    }
+    transaction
+        .verify_signature()
+        .map_err(|_| Error::Proof("Unload submitter signature"))?;
+    if !transaction
         .instructions()
         .explicit_instructions()
         .any(|instruction| {
@@ -114,39 +67,96 @@ fn contains_successful_unload(
                 .as_any()
                 .downcast_ref::<KagemushaWalletLedgerV1>()
                 .is_some_and(|instruction| {
-                    instruction.scheme == scheme
+                    instruction.scheme == *scheme
                         && matches!(&instruction.action,
-                    KagemushaWalletLedgerActionV1::Unload(bytes) if bytes == original)
+                    KagemushaWalletLedgerActionV1::Unload(bytes) if bytes == claim)
                 })
         })
     {
         return Err(Error::Invalid("Unload exact original instruction"));
     }
-    let (output_index, _) = block
-        .network_output_at(input_index)
-        .ok_or(Error::Proof("Unload execution output"))?;
-    let output = block
-        .execution_outputs()
-        .get(output_index as usize)
-        .ok_or(Error::Proof("Unload output index"))?
-        .clone();
-    let committed = CommittedTransaction {
-        block_hash: block.hash(),
-        entrypoint_hash: entrypoint.hash(),
-        entrypoint_proof: block
-            .network_input_proof(input_index)
-            .ok_or(Error::Proof("Unload input membership"))?,
-        entrypoint,
-        output_hash: HashOf::new(&output),
-        output_proof: block
-            .output_proof(output_index)
-            .ok_or(Error::Proof("Unload output membership"))?,
-        output,
-    };
-    verified
-        .verify_committed_transaction(network, &committed)
-        .map_err(|_| Error::Proof("Unload successful authenticated execution"))?;
-    Ok(true)
+    Ok(transaction)
+}
+
+impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    // The retained first outcome for this envelope, rechecked against its exact original.
+    // The same envelope can never be reread under another claim.
+    fn retained_unload_outcome(
+        &mut self,
+        manifest: &manifest::Manifest,
+        entrypoint: &[u8; 32],
+        original_digest: &[u8; 32],
+    ) -> Result<Option<LedgerOutcome>, Error> {
+        let Some(bytes) = manifest
+            .ledger_unload_outcomes
+            .get(&mut self.archive, entrypoint)?
+        else {
+            return Ok(None);
+        };
+        let row: UnloadOutcome = archive::decode(&bytes)?;
+        if row.original_digest != *original_digest {
+            return Err(Error::OperationConflict);
+        }
+        self.retained_ledger_original(&row.outcome, entrypoint)?;
+        Ok(Some(row.outcome))
+    }
+    // Read only: the retained outcome, else Awaiting under the natively derived entrypoint.
+    fn unload_outcome(
+        &mut self,
+        manifest: &manifest::Manifest,
+        original_digest: &[u8; 32],
+        signed: &SignedTransaction,
+    ) -> Result<LedgerAttemptOutcomeV1, Error> {
+        let entrypoint = ledger_outcome::entrypoint(signed)?;
+        Ok(
+            match self.retained_unload_outcome(manifest, &entrypoint, original_digest)? {
+                Some(outcome) => outcome.attempt(),
+                None => LedgerAttemptOutcomeV1::Awaiting { entrypoint },
+            },
+        )
+    }
+    // Offer one original for an intake-checked envelope. A retained outcome is reconciled and
+    // never replaced. Otherwise exactly one original is verified, written and selected with
+    // its outcome row by one fenced manifest publication. A rejected row has no other reader:
+    // it never restores balance, releases, replaces or retargets the claim.
+    fn ingest_unload_original(
+        &mut self,
+        root: [u8; 32],
+        mut manifest: manifest::Manifest,
+        genesis: &SumeragiFinalityVerifier,
+        original_digest: [u8; 32],
+        signed: &SignedTransaction,
+        bytes: &[u8],
+    ) -> Result<LedgerAttemptIngestV1, Error> {
+        let entrypoint = ledger_outcome::entrypoint(signed)?;
+        if let Some(retained) =
+            self.retained_unload_outcome(&manifest, &entrypoint, &original_digest)?
+        {
+            return self
+                .reconcile_ledger_original(&manifest, genesis, &retained, signed, bytes)
+                .map(LedgerAttemptIngestV1::Outcome);
+        }
+        let verified = match self.verify_ledger_original(&manifest, genesis, signed, bytes)? {
+            OfferedOutcome::EpochRequired(target_height) => {
+                return Ok(LedgerAttemptIngestV1::EpochRequired { target_height });
+            }
+            OfferedOutcome::Verified(verified) => verified,
+        };
+        let outcome = self.write_ledger_original(&verified, bytes)?;
+        if self.manifest()?.0 != root {
+            return Err(Error::WitnessLost("Unload outcome source changed"));
+        }
+        manifest.ledger_unload_outcomes = manifest.ledger_unload_outcomes.set(
+            &mut self.archive,
+            entrypoint,
+            &archive::encode(&UnloadOutcome {
+                original_digest,
+                outcome,
+            })?,
+        )?;
+        self.publish_manifest(root, &manifest)?;
+        Ok(LedgerAttemptIngestV1::Outcome(outcome.attempt()))
+    }
 }
 
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send>
@@ -257,67 +267,70 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             action,
         })
     }
-    /// Return the durably retained exact successful Unload input/output inclusion.
-    /// The transaction hash is a locator. The complete retained block, signature, execution
-    /// result and original Unload claim independently authenticate the returned confirmation.
-    /// # Errors
-    /// Absent/rejected transaction, another claim or wallet, invalid inclusion or changed source.
-    pub fn confirm_ledger_unload(
-        &mut self,
-        transaction: [u8; 32],
-        original: &[u8],
-    ) -> Result<LedgerProgressV1, Error> {
+    // Claim intake: canonical claim validation, then this wallet's enrollment scope. The
+    // claim digest binds every outcome row to the exact retained claim bytes.
+    fn unload_original_digest(&self, original: &[u8]) -> Result<[u8; 32], Error> {
+        if original.is_empty() || original.len() > KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1 {
+            return Err(Error::Invalid("Unload claim bound"));
+        }
         let claim = read_model_original(
             || KagemushaWalletUnloadClaimV1::decode_canonical(original, &self.scheme_id),
             Error::Invalid("G1 validation"),
         )?;
-        if transaction == [0; 32]
-            || claim.credential.body.wallet_id != self.wallet_id
+        if claim.credential.body.wallet_id != self.wallet_id
             || claim.credential.body.account_digest != self.proofs.enrollment.body.account_digest
         {
-            return Err(Error::Invalid("Unload confirmation scope"));
+            return Err(Error::Invalid("Unload claim wallet scope"));
         }
-        let original_digest = self.unload_original_digest(&transaction, original)?;
-        let (selected, mut manifest) = self.sync_manifest()?;
-        if let Some(confirmed) = retained_unload_confirmation(
-            &mut self.archive,
-            &manifest.ledger_unload_confirmations,
-            &transaction,
-            &original_digest,
-        )? {
-            return Ok(confirmed);
-        }
-        let genesis = Arc::clone(&self.proofs.genesis);
-        let (verifier, checkpoint) =
-            self.selected_unload_cursor(&manifest, &transaction, &original_digest)?;
-        let checkpoint = checkpoint.ok_or(Error::Invalid("Unload confirmation ledger absent"))?;
-        let decision = selected_unload_decision(&verifier, checkpoint.tip())?;
-        if !contains_successful_unload(
-            &decision,
-            &genesis.initial_epoch().network_id,
-            self.scheme_id,
-            &transaction,
-            original,
-        )? {
-            return Err(Error::Invalid(
-                "Unload transaction absent from selected block",
-            ));
-        }
-        if self.manifest()?.0 != selected {
-            return Err(Error::WitnessLost("Unload confirmation source changed"));
-        }
-        let progress = ledger::progress(&checkpoint);
-        let confirmation = UnloadConfirmation {
-            original_digest,
-            height: progress.height,
-            block_hash: progress.block_hash,
-        };
-        manifest.ledger_unload_confirmations = manifest.ledger_unload_confirmations.set(
-            &mut self.archive,
-            transaction,
-            &archive::encode(&confirmation)?,
+        Ok(*iroha_crypto::Hash::new(original).as_ref())
+    }
+    fn unload_intake(
+        &self,
+        claim: &[u8],
+        signed_wire: &[u8],
+    ) -> Result<([u8; 32], SignedTransaction), Error> {
+        let original_digest = self.unload_original_digest(claim)?;
+        self.require_ledger_root(&self.proofs.genesis)?;
+        let signed = signed_unload(
+            signed_wire,
+            &self.proofs.genesis.initial_epoch().network_id,
+            &self.scheme_id,
+            claim,
         )?;
-        self.publish_manifest(selected, &manifest)?;
-        Ok(progress)
+        Ok((original_digest, signed))
+    }
+    /// Read the retained outcome of this exact signed envelope over this exact claim, or
+    /// Awaiting with the entrypoint hash Native derived from the envelope. Only a Confirmed
+    /// outcome establishes the payout; a Rejected one closes this envelope only.
+    /// # Errors
+    /// Foreign/changed claim or envelope, lost custody or an invalid selected genesis.
+    pub fn unload_attempt_outcome(
+        &mut self,
+        claim: &[u8],
+        signed_wire: &[u8],
+    ) -> Result<LedgerAttemptOutcomeV1, Error> {
+        let (original_digest, signed) = self.unload_intake(claim, signed_wire)?;
+        let (_, manifest) = self.sync_manifest()?;
+        self.unload_outcome(&manifest, &original_digest, &signed)
+    }
+    /// Verify one direct ledger finality original for this exact envelope under the
+    /// manifest-selected epoch and retain its first authenticated outcome. No caller height,
+    /// transaction hash or HTTP status supplies inclusion or rejection authority.
+    /// # Errors
+    /// Invalid, foreign or forged originals, a conflicting outcome, lost custody or uncertain
+    /// publication remain errors and never become an outcome.
+    pub fn ingest_unload_finality(
+        &mut self,
+        claim: &[u8],
+        signed_wire: &[u8],
+        finality: &[u8],
+    ) -> Result<LedgerAttemptIngestV1, Error> {
+        let (original_digest, signed) = self.unload_intake(claim, signed_wire)?;
+        let (root, manifest) = self.sync_manifest()?;
+        let genesis = Arc::clone(&self.proofs.genesis);
+        self.ingest_unload_original(root, manifest, &genesis, original_digest, &signed, finality)
     }
 }
+
+#[cfg(test)]
+mod tests;

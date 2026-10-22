@@ -43,8 +43,7 @@ The closed commands and exact sets of input names are:
 | `activation` | none | Export Native Activate original and ledger instruction |
 | `retain-activation` | `signed-wire` | Retain actual outer signed transaction **before** external dispatch |
 | `activation-status` | `signed-wire` | Observe that exact retained attempt |
-| `activation-finality` | `signed-wire`, `finality` | Ingest one next actual finalized block |
-| `confirm-activation` | `signed-wire` | Native successful inclusion confirmation |
+| `activation-finality` | `signed-wire`, `finality` | Ingest the attempt's one direct finality original (or report the epoch it needs) |
 | `prepare-load` | `request-id`, `amount` | Persist/export the exact Native Load instruction |
 | `prepared-load` | `request-id` | Observe the retained plan, without selecting another ordinal |
 | `load` | `request-id`, `receipt`, `finality` | Admit actual matching ordinary-ledger receipt and finality |
@@ -66,8 +65,8 @@ The closed commands and exact sets of input names are:
 | `retry`, `released-operation` | `operation-id` | Retry/observe the exact Native operation |
 | `resume` | none | Reconcile/finish the selected Native operation |
 | `unload-claim` | `request-id`; optionally `beneficiary` | Export actual retained claim and ledger instruction |
-| `unload-finality` | `transaction-hash`, `claim`, `finality` | Verify next block for the exact submitted claim |
-| `unload-status`, `confirm-unload` | `transaction-hash`, `claim` | Observe history or confirm exact successful settlement |
+| `unload-finality` | `claim`, `signed-wire`, `finality` | Verify the envelope's one direct finality original (or report the epoch it needs) |
+| `unload-status` | `claim`, `signed-wire` | Observe the envelope's retained outcome, or Awaiting with Native's entrypoint |
 | `begin-time`, `cancel-time` | none | Actual owner-local direct issuer time exchange |
 | `finish-time` | `anchor`, `certificate` | Consume native exchange with actual issuer response |
 | `refresh-time` | `request-id`, `anchor`, `certificates` | Native TimeAnchor refresh after direct exchange retention |

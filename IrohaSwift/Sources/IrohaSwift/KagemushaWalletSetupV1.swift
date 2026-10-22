@@ -84,21 +84,24 @@ struct KagemushaWalletSetupInputV1 {
     case 25: limits = [32 * 1024 * 1024, 1024, 0]
     case 26: limits = [21_092, 16_384, 0]
     case 45: limits = [16_384, 0, 0]
-    case 29, 30, 33, 35, 37, 46: limits = [65_536, 0, 0]
-    case 34, 36: limits = [65_536, 36 * 1024 * 1024, 0]
+    case 29, 37, 46: limits = [65_536, 0, 0]
+    case 33: limits = [16_384, 65_536, 0]
+    case 34: limits = [16_384, 65_536, 1_327_104]
+    case 36: limits = [65_536, 1_327_104, 0]
     case 2: limits = [0, 1_024, 512]
     case 3, 8...10, 12...14, 16...17, 41, 42, 54, 55: limits = [10_034, 0, 0]
     case 39, 40, 44: limits = [10_034, 10_034, 0]
     case 5: limits = [512, 512, 0]
     default: throw KagemushaWalletErrorV1.invalidInput
     }
-    guard identity.count == 32, ([2, 19, 20, 25, 27, 30, 33, 34, 39, 41, 42, 43, 44, 45, 54].contains(selector)) == identity.contains(where: { $0 != 0 }),
+    guard identity.count == 32, ([2, 19, 20, 25, 27, 39, 41, 42, 43, 44, 45, 54].contains(selector)) == identity.contains(where: { $0 != 0 }),
       ([47, 53].contains(selector) || ([2, 27, 39].contains(selector)) == (amount.low != 0 || amount.high != 0)), ([5, 6, 29, 49, 51].contains(selector)) == (token != 0),
       selector != 53 || (amount.high == 0 && !first.isEmpty),
       token <= UInt64(Int64.max), selector != 29 || ((1...3).contains(token) && !first.isEmpty), zip([first, second, third], limits).allSatisfy({ $0.count <= $1 }),
-      ![30, 33, 35, 37, 41, 42, 44, 46, 54, 55].contains(selector) || !first.isEmpty,
+      ![33, 34, 36, 37, 41, 42, 44, 46, 54, 55].contains(selector) || !first.isEmpty,
       selector != 2 || second.isEmpty == third.isEmpty, selector != 39 || first.isEmpty == second.isEmpty,
-      (selector != 3 && !(8...10).contains(selector) && !(12...14).contains(selector) && !(16...17).contains(selector) && !(21...23).contains(selector)) || !first.isEmpty, ![5, 25, 26, 34, 36, 40].contains(selector) || (!first.isEmpty && !second.isEmpty)
+      (selector != 3 && !(8...10).contains(selector) && !(12...14).contains(selector) && !(16...17).contains(selector) && !(21...23).contains(selector)) || !first.isEmpty, ![5, 25, 26, 33, 34, 36, 40].contains(selector) || (!first.isEmpty && !second.isEmpty),
+      selector != 34 || !third.isEmpty
     else { throw KagemushaWalletErrorV1.invalidInput }
     self.selector = selector; self.identity = kagemushaWalletSetupCopyV1(identity)
     self.amount = amount; self.token = token
