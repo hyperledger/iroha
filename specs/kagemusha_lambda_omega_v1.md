@@ -756,10 +756,13 @@ Rules:
    terms into contiguous passes of at most 16 coset columns (`ProverConfig::quotient_columns`)
    and keeps the columns consecutive passes share; it costs about 1.2–1.4× the quotient's
    coset FFTs. Its bound replaces the coset term by the evaluator's columns plus the same
-   `2n_l + 3` slack. Admission (§5.3) requires the lean bound; each fold proves fused when the
-   memory available at that moment covers the fused bound, and below it widens the passes by
-   one column per 2.4 MB (one k16 vector with margin) above the lean bound. Live generation
-   (2026-10-22): fused 1.051 GiB, lean 0.892 GiB (W); the intake staging allowance is 0.902 GiB.
+   `2n_l + 3` slack and counts passes at least 16 columns wide. Admission (§5.3) requires the
+   largest lean bound (σ steps, which always prove fused, count their fused bound). Each proof
+   of a fold chooses its own plan from the memory available when the fold started: fused when
+   that covers its relation's fused bound, so small relations stay fused while a larger one
+   takes passes; otherwise passes widened by one column per 2.4 MB (one k16 vector with margin)
+   above that relation's lean bound. Live generation (2026-10-22): fused 1.051 GiB, lean
+   0.892 GiB (W); the intake staging allowance is 0.902 GiB.
 
 ## 7. Soundness argument
 

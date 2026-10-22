@@ -509,12 +509,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
     ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
-        // Prove fused when this phone has the memory for it now, else in passes as wide as
-        // its memory allows.
-        let worker = self.worker.with_quotient_columns(
-            self.proving_memory()?
-                .quotient_columns(self.observations.available_memory()),
-        );
+        // Each proof of this job chooses its quotient plan from this reading and its own
+        // relation's bounds.
+        let worker = self
+            .worker
+            .with_available_memory(self.observations.available_memory());
         // The original store is lent to the locked prepare only; the job never holds it.
         let mut originals = self
             .originals

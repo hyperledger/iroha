@@ -24,7 +24,9 @@ use iroha_kagemusha_proof::{
     omega::native as omega,
 };
 use iroha_pasta::{CancellationToken, Ep, Eq, Fp, Fq, PastaCurve, msm::MemoryBudget};
-use iroha_plonk::{ProverConfig, ProverRandomness, keys::pk::artifact::ReadConfig};
+use iroha_plonk::{
+    ProverConfig, ProverRandomness, cs::ProtocolDescriptor, keys::pk::artifact::ReadConfig,
+};
 use iroha_plonk_recursion::{FoldConfig, FoldTape};
 use sha2::{Digest, Sha256};
 
@@ -41,6 +43,7 @@ use crate::kagemusha_wallet_artifacts_v1::{
         OriginalSourceV1, QualifiedOperationOwnerV1, QualifiedWalletSourcesV1, WalletSourcesErrorV1,
     },
 };
+use crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_quotient_columns_v1;
 use crate::kagemusha_wallet_proofs_v1::randomness;
 
 mod incoming;
@@ -62,8 +65,9 @@ pub(crate) struct NativeFoldWorkerV1 {
     sources: Arc<QualifiedWalletSourcesV1>,
     read: ReadConfig,
     budget: MemoryBudget,
-    // `ProverConfig::quotient_columns` of every proof this worker's jobs run.
-    quotient_columns: Option<usize>,
+    // Memory available to the app when this worker's job was prepared, `None` without an OS
+    // answer. Each proof chooses its quotient plan from it and its own relation's bounds.
+    available_memory: Option<u64>,
 }
 
 /// Already reconstructed typed native inputs. Native `prepare` remains mandatory
@@ -189,15 +193,14 @@ impl NativeFoldWorkerV1 {
             sources,
             read,
             budget,
-            quotient_columns: None,
+            available_memory: None,
         })
     }
 
-    /// This worker proving with `quotient_columns` (see
-    /// [`KagemushaWalletProvingMemoryV1::quotient_columns`](crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1::quotient_columns)).
-    pub(crate) fn with_quotient_columns(&self, quotient_columns: Option<usize>) -> Self {
+    /// This worker proving with `available_memory` bytes, read when its job is prepared.
+    pub(crate) fn with_available_memory(&self, available_memory: Option<u64>) -> Self {
         Self {
-            quotient_columns,
+            available_memory,
             ..self.clone()
         }
     }
@@ -316,11 +319,21 @@ impl NativeFoldWorkerV1 {
             ..FoldConfig::default()
         }
     }
-    fn prover_config<'a>(&self, cancellation: &'a Cancellation) -> ProverConfig<'a> {
+    /// The configuration of one proof of `descriptor`: its quotient plan comes from this
+    /// relation's own bounds, so a small proof stays fused while a larger one needs passes
+    /// ([`kagemusha_wallet_quotient_columns_v1`]).
+    fn prover_config<'a>(
+        &self,
+        cancellation: &'a Cancellation,
+        descriptor: &ProtocolDescriptor,
+    ) -> ProverConfig<'a> {
         ProverConfig {
             msm_budget: self.budget,
             cancellation: Some(cancellation.prover_token()),
-            quotient_columns: self.quotient_columns,
+            quotient_columns: kagemusha_wallet_quotient_columns_v1(
+                descriptor,
+                self.available_memory,
+            ),
         }
     }
 
@@ -349,8 +362,11 @@ impl NativeFoldWorkerV1 {
             Some(cancellation.prover_token()),
         ))?;
         cancellation.check()?;
-        let output =
-            proof(session.prove(ProverRandomness::os(), self.prover_config(cancellation)))?;
+        let config = self.prover_config(
+            cancellation,
+            self.sources.omega().key().binding().descriptor(),
+        );
+        let output = proof(session.prove(ProverRandomness::os(), config))?;
         cancellation.check()?;
         Ok(output.transport())
     }

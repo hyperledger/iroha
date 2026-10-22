@@ -13,7 +13,9 @@ impl ConstraintFilter for CancelInQuotient<'_> {
     }
 }
 
-fn cancellation_resumes_identically<C: PastaCurve>()
+/// Cancellation inside the quotient, fused or in bounded passes of `quotient_columns`: a typed
+/// result, a zeroized workspace, and a retry with the same seed that writes the fused bytes.
+fn cancellation_resumes_identically<C: PastaCurve>(quotient_columns: Option<usize>)
 where
     C::ScalarExt: PoseidonField,
     C::Base: PoseidonField,
@@ -44,7 +46,7 @@ where
         let config = ProverConfig {
             msm_budget: MemoryBudget::DEFAULT,
             cancellation: Some(&token),
-            ..ProverConfig::default()
+            quotient_columns,
         };
         let mut workspace = QuotientWorkspace::new(8 << 20);
         let result = pool.install(|| {
@@ -88,7 +90,7 @@ where
         let config = ProverConfig {
             msm_budget: MemoryBudget::DEFAULT,
             cancellation: Some(&fresh),
-            ..ProverConfig::default()
+            quotient_columns,
         };
         let resumed = pool
             .install(|| {
@@ -113,8 +115,10 @@ where
 
 #[test]
 fn prover_cancellation_resumes_identically() {
-    cancellation_resumes_identically::<Ep>();
-    cancellation_resumes_identically::<Eq>();
+    for quotient_columns in [None, Some(1), Some(3)] {
+        cancellation_resumes_identically::<Ep>(quotient_columns);
+        cancellation_resumes_identically::<Eq>(quotient_columns);
+    }
 }
 
 #[test]

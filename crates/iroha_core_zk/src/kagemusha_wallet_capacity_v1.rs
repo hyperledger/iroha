@@ -11,10 +11,11 @@
 //! transforms every coset column at once and is the fastest, and the lean quotient, which
 //! evaluates the same terms in passes of at most [`KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1`]
 //! columns and costs extra coset FFTs. Admission requires the lean bound, so a phone with less
-//! memory still pays offline. Each fold proves fused whenever the memory available at that
-//! moment covers the fused bound; below it, every column's worth of memory above the lean bound
-//! widens the passes by one column, so more memory means fewer passes and fewer FFTs
-//! ([`KagemushaWalletProvingMemoryV1::quotient_columns`]). Both plans write identical proof
+//! memory still pays offline. Each proof of a fold proves fused whenever the memory available
+//! when the fold started covers its own relation's fused bound, so small relations stay fused
+//! while a larger one needs passes; below that bound, every column's worth of memory above the
+//! relation's lean bound widens the passes by one column, so more memory means fewer passes
+//! and fewer FFTs ([`kagemusha_wallet_quotient_columns_v1`]). Both plans write identical proof
 //! bytes.
 //!
 //! Both bounds come from the installed, authenticated relation descriptors and checkpoint
@@ -285,6 +286,18 @@ pub fn kagemusha_wallet_relation_proving_memory_v1(
     })
 }
 
+/// The quotient plan of one proof of `descriptor` with `available` bytes: that relation's own
+/// [`KagemushaWalletProvingMemoryV1::quotient_columns`], so a relation whose fused bound fits
+/// proves fused while a larger one needs passes. `None`, the fused plan, also for a descriptor
+/// whose bound cannot be computed; admission computed every installed one.
+#[must_use]
+pub fn kagemusha_wallet_quotient_columns_v1(
+    descriptor: &ProtocolDescriptor,
+    available: Option<u64>,
+) -> Option<usize> {
+    kagemusha_wallet_relation_proving_memory_v1(descriptor)?.quotient_columns(available)
+}
+
 /// `MemAvailable` of one `/proc/meminfo` text, in bytes; `None` when absent or malformed.
 #[must_use]
 pub fn kagemusha_wallet_meminfo_available_v1(text: &str) -> Option<u64> {
@@ -514,6 +527,56 @@ mod tests {
                 kagemusha_wallet_meminfo_available_v1(malformed),
                 None,
                 "{malformed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_proof_chooses_its_plan_from_its_own_relation() {
+        let (pack, _) =
+            crate::kagemusha_wallet_artifacts_v1::engineering_fixture::signed_inventory();
+        let bindings: Vec<_> = pack
+            .steps
+            .iter()
+            .map(|step| step.artifact.descriptor.as_slice())
+            .chain([pack.lineage.descriptor.as_slice()])
+            .map(|bytes| iroha_plonk::keys::DescriptorBinding::decode_v2(bytes).unwrap())
+            .collect();
+        let memory: Vec<_> = bindings
+            .iter()
+            .map(|binding| kagemusha_wallet_relation_proving_memory_v1(binding.descriptor()))
+            .collect::<Option<_>>()
+            .unwrap();
+        let lean = KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1;
+        for (binding, memory) in bindings.iter().zip(&memory) {
+            let columns =
+                |available| kagemusha_wallet_quotient_columns_v1(binding.descriptor(), available);
+            assert_eq!(columns(None), None);
+            assert_eq!(columns(Some(memory.fused_bytes)), None);
+            if memory.lean_bytes < memory.fused_bytes {
+                assert_eq!(columns(Some(memory.lean_bytes)), Some(lean));
+                assert!(columns(Some(memory.fused_bytes - 1)).is_some_and(|wide| wide >= lean));
+            }
+        }
+        // Memory that covers the smallest relation's fused bound but not the largest one's:
+        // the small proof stays fused while the large proof takes passes.
+        let (small, large) = (
+            (0..memory.len())
+                .min_by_key(|&index| memory[index].fused_bytes)
+                .unwrap(),
+            (0..memory.len())
+                .max_by_key(|&index| memory[index].fused_bytes)
+                .unwrap(),
+        );
+        let available = Some(memory[small].fused_bytes);
+        assert_eq!(
+            kagemusha_wallet_quotient_columns_v1(bindings[small].descriptor(), available),
+            None
+        );
+        if memory[small].fused_bytes < memory[large].fused_bytes {
+            assert!(
+                kagemusha_wallet_quotient_columns_v1(bindings[large].descriptor(), available)
+                    .is_some()
             );
         }
     }
