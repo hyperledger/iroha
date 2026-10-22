@@ -349,10 +349,11 @@ keys used by the rails you enable (replace only the human-readable strings):
 <key>NSCameraUsageDescription</key>
 <string>Scan a wallet transfer QR code.</string>
 
-<!-- Info.plist: Google Nearby. Keep the Bonjour service exact. -->
+<!-- Info.plist: Google Nearby. Keep the Bonjour service exact: it is
+     IrohaPeerNearbyV1.bonjourService, derived from IrohaPeerNearbyV1.serviceID. -->
 <key>NSBonjourServices</key>
 <array>
-    <string>_F2EBA4BCB49B._tcp</string>
+    <string>_D543FE801144._tcp</string>
 </array>
 <key>NSBluetoothAlwaysUsageDescription</key>
 <string>Discover a nearby device for a wallet transfer.</string>

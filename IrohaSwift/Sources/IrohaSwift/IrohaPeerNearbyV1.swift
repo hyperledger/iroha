@@ -9,7 +9,13 @@ import Foundation
 /// must never skip either verification step.
 public enum IrohaPeerNearbyV1 {
     public static let serviceID = "org.hyperledger.iroha.kagemusha.transfer.v1"
-    public static let bonjourService = "_F2EBA4BCB49B._tcp"
+    /// Google Nearby's Wi-Fi LAN Bonjour type for `serviceID`: "_", the first six bytes of
+    /// SHA-256(serviceID) in uppercase hex, then "._tcp". iOS hosts list it in
+    /// `NSBonjourServices`; iOS refuses an undeclared type, so Nearby's Wi-Fi way never
+    /// runs and the system never asks for local network access.
+    public static let bonjourService = "_"
+        + SHA256.hash(data: Data(serviceID.utf8)).prefix(6).map { String(format: "%02X", $0) }.joined()
+        + "._tcp"
     public static let wireVersion: UInt8 = 1
     public static let maximumCertificateBytes = 16 * 1_024
     /// Leaves a conservative 64-byte record-overhead budget inside 32 KiB.

@@ -4,6 +4,14 @@ import XCTest
 @testable import IrohaSwift
 
 final class IrohaPeerNearbyV1Tests: XCTestCase {
+    /// Google Nearby browses and advertises "_" + hex(SHA-256(serviceID)[0..<6]) + "._tcp"
+    /// (WifiLan::GenerateServiceType). The README and host apps' NSBonjourServices list this
+    /// exact value; the retired service ID's "_F2EBA4BCB49B._tcp" left iPhones without Wi-Fi.
+    func testBonjourServiceIsNearbysWifiLanTypeForTheServiceID() {
+        XCTAssertEqual(IrohaPeerNearbyV1.serviceID, "org.hyperledger.iroha.kagemusha.transfer.v1")
+        XCTAssertEqual(IrohaPeerNearbyV1.bonjourService, "_D543FE801144._tcp")
+    }
+
     func testEncryptedRequestPreservesCompanionAndRejectsRecordReplay() throws {
         // Local transport signing keys authenticate this test channel, not wallet monetary DATA.
         let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .request, payload: Data([0x31]))
