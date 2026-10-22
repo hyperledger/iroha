@@ -751,6 +751,15 @@ Rules:
    A circuit whose measured peak exceeds 0.85 GiB is split: A by the A-split, Q by moving a
    slot to another leaf.
 8. Preemption frees memory (§5.6).
+9. Two quotient plans, identical proof bytes [S `crates/iroha_plonk/src/prover/quotient/bounded.rs`].
+   The fused plan transforms every coset column at once. The lean plan cuts the canonical
+   terms into contiguous passes of at most 16 coset columns (`ProverConfig::quotient_columns`)
+   and keeps the columns consecutive passes share; it costs about 1.2–1.4× the quotient's
+   coset FFTs. Its bound replaces the coset term by the evaluator's columns plus the same
+   `2n_l + 3` slack. Admission (§5.3) requires the lean bound; each fold proves fused when the
+   memory available at that moment covers the fused bound, and below it widens the passes by
+   one column per 2.4 MB (one k16 vector with margin) above the lean bound. Live generation
+   (2026-10-22): fused 1.051 GiB, lean 0.892 GiB (W); the intake staging allowance is 0.902 GiB.
 
 ## 7. Soundness argument
 

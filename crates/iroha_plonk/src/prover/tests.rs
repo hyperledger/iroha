@@ -283,6 +283,51 @@ where
     }
 }
 
+/// Quotient passes of a few columns keep every proof byte under every protocol option.
+fn bounded_quotient_parity<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>])
+where
+    C: PastaCurve,
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+    Ci: Circuit<C::ScalarExt> + Sync,
+{
+    for choice in CHOICES {
+        let setup = setup::<C, _>(circuit, choice);
+        let witness = Witness::from_circuit(&setup.pk, circuit, instances).expect("witness");
+        let randomness = || ProverRandomness::fixed_seed_for_tests([29; 32]);
+        let reference = create_proof(
+            &setup.params,
+            &setup.pk,
+            &witness,
+            randomness(),
+            ProverConfig::default(),
+        )
+        .expect("fused proof");
+        for columns in [0, 1, 3, 8] {
+            let proof = create_proof(
+                &setup.params,
+                &setup.pk,
+                &witness,
+                randomness(),
+                ProverConfig {
+                    quotient_columns: Some(columns),
+                    ..ProverConfig::default()
+                },
+            )
+            .expect("bounded proof");
+            assert_eq!(proof, reference, "{choice:?}, {columns} columns");
+        }
+        assert_eq!(setup.verify(instances, &reference), Ok(()));
+    }
+}
+
+#[test]
+fn bounded_quotient_proof_bytes_identical() {
+    bounded_quotient_parity::<Ep, _>(&ARITHMETIC, &ARITHMETIC.instances::<Fq>());
+    bounded_quotient_parity::<Eq, _>(&LOOKUPS, &[]);
+    bounded_quotient_parity::<Ep, _>(&PERMUTATIONS, &PERMUTATIONS.instances::<Fq>());
+}
+
 #[test]
 fn owned_witness_prover_bytes_identical() {
     owned_proof_parity::<Ep, _>(&ARITHMETIC, &ARITHMETIC.instances::<Fq>());
@@ -508,6 +553,7 @@ where
             ProverConfig {
                 cancellation: None,
                 msm_budget: MemoryBudget::new(0),
+                ..ProverConfig::default()
             },
         ),
         Err(ProverError::Msm(_))

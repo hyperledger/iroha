@@ -88,6 +88,7 @@ macro_rules! prove_admin {
                     ProverConfig {
                         msm_budget: budget,
                         cancellation: self.cancellation,
+                        ..ProverConfig::default()
                     },
                 )
                 .map_err(|error| {
@@ -205,6 +206,7 @@ impl PreparationV1<'_> {
                 ProverConfig {
                     msm_budget: budget,
                     cancellation: self.cancellation,
+                    ..ProverConfig::default()
                 },
             )
             .map_err(|error| {

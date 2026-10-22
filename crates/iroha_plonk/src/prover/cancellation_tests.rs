@@ -44,6 +44,7 @@ where
         let config = ProverConfig {
             msm_budget: MemoryBudget::DEFAULT,
             cancellation: Some(&token),
+            ..ProverConfig::default()
         };
         let mut workspace = QuotientWorkspace::new(8 << 20);
         let result = pool.install(|| {
@@ -87,6 +88,7 @@ where
         let config = ProverConfig {
             msm_budget: MemoryBudget::DEFAULT,
             cancellation: Some(&fresh),
+            ..ProverConfig::default()
         };
         let resumed = pool
             .install(|| {

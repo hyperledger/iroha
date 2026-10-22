@@ -48,7 +48,7 @@ struct AdmittedReceive {
     omega: KeyArtifact<Ep>,
     a_seals: Vec<InstalledSourceSealV1<Eq>>,
     w_seals: Vec<InstalledSourceSealV1<Ep>>,
-    stage_memory: u64,
+    stage_memory: crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1,
 }
 
 impl AdmittedReceive {

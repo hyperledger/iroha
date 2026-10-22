@@ -1505,3 +1505,131 @@ fn quotient_beta_hoist_matches_row_reference_across_tasks() {
     check::<Ep>();
     check::<Eq>();
 }
+
+/// The bounded evaluator against the fused one for pass splits from one column per pass to
+/// one pass, both key policies, omitted terms in every stage and two worker counts.
+fn bounded_parity<C: PastaCurve>() {
+    const BOUNDARY_K: u32 = 10;
+    let params = PinnedParams::<C>::derive(BOUNDARY_K).unwrap();
+    let pools: Vec<_> = [1, 4]
+        .into_iter()
+        .map(|workers| {
+            (
+                workers,
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(workers)
+                    .build()
+                    .unwrap(),
+            )
+        })
+        .collect();
+    let mut rng = ChaCha20Rng::seed_from_u64(9113);
+    for gate_count in [7, 17] {
+        for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
+            let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
+            config.coset_cache = policy;
+            let pk = keygen_pk(&params, &GateFoldBoundary(gate_count), &config).unwrap();
+            let protocol = Protocol::new(pk.binding().descriptor()).unwrap();
+            let shape = protocol.shape();
+            assert!(shape.lookups > 1 && shape.permutation_sets > 1);
+            let compiled = CompiledExpressions::compile(pk.binding().descriptor(), true).unwrap();
+            let mut columns = |count: usize| -> Vec<Vec<C::ScalarExt>> {
+                (0..count)
+                    .map(|_| {
+                        (0..shape.n)
+                            .map(|_| C::ScalarExt::random(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            };
+            let advice = columns(shape.num_advice);
+            let instance = columns(shape.num_instance);
+            let products = columns(shape.permutation_sets);
+            let lookup_polys = columns(3 * shape.lookups);
+            let inputs = QuotientInputs {
+                advice: &advice,
+                instance: &instance,
+                permutation_products: products.iter().map(Vec::as_slice).collect(),
+                lookups: lookup_polys
+                    .chunks_exact(3)
+                    .map(|column| LookupPolys {
+                        product: &column[0],
+                        input: &column[1],
+                        table: &column[2],
+                    })
+                    .collect(),
+            };
+            let challenges = Challenges {
+                theta: C::ScalarExt::from(3),
+                beta: C::ScalarExt::from(5),
+                gamma: C::ScalarExt::from(7),
+                y: C::ScalarExt::from(11),
+            };
+            let filters = [
+                OmitTerms(Vec::new()),
+                OmitTerms(vec![
+                    ConstraintTerm::Gate { polynomial: 0 },
+                    ConstraintTerm::Gate {
+                        polynomial: gate_count - 1,
+                    },
+                    ConstraintTerm::PermutationFirst,
+                    ConstraintTerm::PermutationLink { set: 1 },
+                    ConstraintTerm::PermutationProduct {
+                        set: shape.permutation_sets - 1,
+                    },
+                    ConstraintTerm::Lookup {
+                        lookup: 1,
+                        part: LookupConstraint::Step,
+                    },
+                ]),
+            ];
+            let fused = workspace_elements(&pk, &protocol).unwrap();
+            for filter in &filters {
+                let expected = evaluate_cancellable(
+                    &pk, &protocol, &compiled, &inputs, challenges, filter, None,
+                )
+                .unwrap();
+                for limit in [0, 1, 2, 3, 5, 8, 13, usize::MAX] {
+                    let elements = bounded::workspace_elements(&pk, &protocol, limit).unwrap();
+                    assert!(elements <= fused, "limit {limit}: {elements} > {fused}");
+                    let mut workspace =
+                        QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
+                    for (workers, pool) in &pools {
+                        let actual = pool
+                            .install(|| {
+                                bounded::evaluate_cancellable(
+                                    &pk,
+                                    &protocol,
+                                    &inputs,
+                                    None,
+                                    challenges,
+                                    filter,
+                                    limit,
+                                    Some(&mut workspace),
+                                    None,
+                                )
+                            })
+                            .unwrap();
+                        assert_eq!(
+                            actual, expected,
+                            "G={gate_count}, cache={policy:?}, limit={limit}, \
+                             workers={workers}, omitted={:?}",
+                            filter.0
+                        );
+                        assert!(workspace.is_zeroized());
+                    }
+                }
+            }
+            let narrow = bounded::workspace_elements(&pk, &protocol, 1).unwrap();
+            if policy == CosetCachePolicy::OnDemand {
+                assert!(narrow < fused, "{narrow} >= {fused}");
+            }
+        }
+    }
+}
+
+#[test]
+fn bounded_passes_match_the_fused_quotient_on_both_fields() {
+    bounded_parity::<Ep>();
+    bounded_parity::<Eq>();
+}

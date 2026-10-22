@@ -201,6 +201,12 @@ pub struct NativeObservationsV1<F: KagemushaWalletFsV1, P> {
 }
 
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> NativeObservationsV1<F, P> {
+    /// Memory currently available to the app; `None` without an OS answer or a usable
+    /// provider handle. It only selects a quotient plan.
+    pub(crate) fn available_memory(&self) -> Option<u64> {
+        self.provider.lock().ok()?.available_memory()
+    }
+
     pub(crate) fn time(&self) -> Result<KagemushaWalletMonotonicReadingV1, ProviderError> {
         self.provider
             .lock()

@@ -103,18 +103,18 @@ pub use opening_metrics::{
     QualificationMetricsV1,
 };
 
-/// Largest design §5.3 peak proving memory over the installed descriptors of `keys`.
-/// Metadata only: no proving key is read and no artifact field is added.
+/// Largest design §5.3 peak proving memory, under both quotient plans, over the installed
+/// descriptors of `keys`. Metadata only: no proving key is read and no artifact field is added.
 fn peak_proving_memory<'a, C: PastaCurve + 'a>(
     keys: impl IntoIterator<
         Item = &'a iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact<C>,
     >,
-) -> Result<u64, Error> {
-    keys.into_iter().try_fold(0_u64, |peak, key| {
-        crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_relation_peak_memory_v1(
+) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1, Error> {
+    keys.into_iter().try_fold(Default::default(), |peak, key| {
+        crate::kagemusha_wallet_capacity_v1::kagemusha_wallet_relation_proving_memory_v1(
             key.binding().descriptor(),
         )
-        .map(|bytes| peak.max(bytes))
+        .map(|memory| memory.max(peak))
         .ok_or(Error::Inventory)
     })
 }

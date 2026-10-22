@@ -62,6 +62,8 @@ pub(crate) struct NativeFoldWorkerV1 {
     sources: Arc<QualifiedWalletSourcesV1>,
     read: ReadConfig,
     budget: MemoryBudget,
+    // `ProverConfig::quotient_columns` of every proof this worker's jobs run.
+    quotient_columns: Option<usize>,
 }
 
 /// Already reconstructed typed native inputs. Native `prepare` remains mandatory
@@ -187,7 +189,17 @@ impl NativeFoldWorkerV1 {
             sources,
             read,
             budget,
+            quotient_columns: None,
         })
+    }
+
+    /// This worker proving with `quotient_columns` (see
+    /// [`KagemushaWalletProvingMemoryV1::quotient_columns`](crate::kagemusha_wallet_capacity_v1::KagemushaWalletProvingMemoryV1::quotient_columns)).
+    pub(crate) fn with_quotient_columns(&self, quotient_columns: Option<usize>) -> Self {
+        Self {
+            quotient_columns,
+            ..self.clone()
+        }
     }
 
     /// Design §5.3: the largest custody bytes one step's fold adds until a durable Ω covers it,
@@ -308,6 +320,7 @@ impl NativeFoldWorkerV1 {
         ProverConfig {
             msm_budget: self.budget,
             cancellation: Some(cancellation.prover_token()),
+            quotient_columns: self.quotient_columns,
         }
     }
 
