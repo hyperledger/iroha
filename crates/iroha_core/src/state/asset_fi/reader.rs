@@ -81,7 +81,13 @@ pub(crate) fn link_revision_for_contract(
 ) -> Result<(u64, QueryExecutionStats), AssetFiLinkRevisionError> {
     let mut stats = QueryExecutionStats::default();
     stats.record_item(&context.contract_address, Some(budget))?;
-    if !crate::executor::valid_contract_runtime_subject(world, authority, Some(context)) {
+    if !crate::executor::valid_contract_runtime_subject_for_admission(
+        world,
+        authority,
+        Some(context),
+    )
+    .map_err(AssetFiLinkRevisionError::Local)?
+    {
         return Err(reject("FI revision read requires its exact active contract runtime").into());
     }
     stats.record_item(definition, Some(budget))?;
@@ -320,6 +326,34 @@ pub(crate) mod tests {
                 ample_budget(),
             )
         }
+    }
+
+    #[test]
+    fn fi_revision_retains_original_runtime_scope_decode_refusal() {
+        let (f, state) = Fixture::new();
+        let mut block = state.block(header());
+        let mut tx = block.transaction();
+        f.install(&mut tx);
+        assert_eq!(f.read(tx.world()).unwrap().0, u64::MAX);
+        let (refused, _) = norito::core::with_decode_limits_measured(
+            norito::DecodeLimits::new(1, 1, 1, 1, 1),
+            || f.read(tx.world()),
+        );
+        let Err(AssetFiLinkRevisionError::Local(original)) = refused else {
+            panic!(
+                "scope decoding must retain local refusal, not reject the controller: {refused:?}"
+            );
+        };
+        assert!(original.decode_refusal().is_some());
+        assert!(original.allocation_refusal().is_none());
+        assert_eq!(f.read(tx.world()).unwrap().0, u64::MAX);
+        tx.world
+            .contract_instances
+            .remove(f.context.contract_address.clone());
+        assert!(matches!(
+            f.read(tx.world()),
+            Err(AssetFiLinkRevisionError::Execution(_))
+        ));
     }
 
     #[test]

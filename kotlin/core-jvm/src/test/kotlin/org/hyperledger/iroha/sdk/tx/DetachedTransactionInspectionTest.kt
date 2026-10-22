@@ -73,6 +73,67 @@ class DetachedTransactionInspectionTest {
         assertFails { parse(review(sequence.replace("transfer_instruction_sequence", "asset_transfer_batch"))) }
     }
 
+    private val fiLink = """{"kind":"asset_fi_link_set","asset_definition_id":"ds","account_id":"owner","fi_account_id":"fi","reference_digest":"42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8","fi_revision":18446744073709551615,"attestation_revision":18446744073709551614,"revision":18446744073709551613,"enabled":true,"controller":"irohac1controller","waterfall":true,"reverse_waterfall":false,"expected_policy_revision":18446744073709551612}"""
+
+    @Test fun fiLinkRetainsAllFieldsRawReferenceAndFullUnsignedRevisions() {
+        val maximum = BigInteger("18446744073709551615")
+        for (enabled in listOf(false, true)) {
+            for (controller in listOf("null", "\"irohac1controller\"")) {
+                val json = fiLink.replace("\"enabled\":true", "\"enabled\":$enabled")
+                    .replace("\"controller\":\"irohac1controller\"", "\"controller\":$controller")
+                val link = assertIs<DetachedExecutableInspection.AssetFiLinkSet>(parse(review(json)).executable)
+                assertEquals("ds", link.assetDefinitionId)
+                assertEquals("owner", link.accountId)
+                assertEquals("fi", link.fiAccountId)
+                assertEquals("42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8", link.referenceDigestHex)
+                assertEquals(maximum, link.fiRevision)
+                assertEquals(maximum - BigInteger.ONE, link.attestationRevision)
+                assertEquals(maximum - BigInteger.valueOf(2), link.revision)
+                assertEquals(maximum - BigInteger.valueOf(3), link.expectedPolicyRevision)
+                assertEquals(enabled, link.enabled)
+                assertEquals(if (controller == "null") null else "irohac1controller", link.controller)
+                assertEquals(true, link.waterfall)
+                assertEquals(false, link.reverseWaterfall)
+            }
+        }
+        val flipped = fiLink.replace("\"waterfall\":true", "\"waterfall\":false")
+            .replace("\"reverse_waterfall\":false", "\"reverse_waterfall\":true")
+        val link = assertIs<DetachedExecutableInspection.AssetFiLinkSet>(parse(review(flipped)).executable)
+        assertEquals(false, link.waterfall)
+        assertEquals(true, link.reverseWaterfall)
+    }
+
+    @Test fun fiLinkRejectsHiddenMissingDuplicateAndWrongScalarFields() {
+        val fields = mapOf(
+            "asset_definition_id" to "\"ds\"", "account_id" to "\"owner\"", "fi_account_id" to "\"fi\"",
+            "reference_digest" to "\"42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8\"",
+            "fi_revision" to "18446744073709551615", "attestation_revision" to "18446744073709551614",
+            "revision" to "18446744073709551613", "enabled" to "true", "controller" to "\"irohac1controller\"",
+            "waterfall" to "true", "reverse_waterfall" to "false", "expected_policy_revision" to "18446744073709551612",
+        )
+        for ((key, value) in fields) {
+            val field = "\"$key\":$value"
+            for (hostile in listOf(
+                fiLink.replace(field, "\"unknown_$key\":$value"),
+                fiLink.replace(field, "$field,$field"),
+                fiLink.replace(field, "\"$key\":[]"),
+            )) assertFails(key) { parse(review(hostile)) }
+        }
+        for ((key, value) in fields.filterKeys { it.endsWith("revision") }) {
+            for (wrong in listOf("-1", "1.0", "1e0", "\"1\"", "true", "null", "18446744073709551616")) {
+                assertFails("$key=$wrong") { parse(review(fiLink.replace("\"$key\":$value", "\"$key\":$wrong"))) }
+            }
+        }
+        for (hostile in listOf(
+            fiLink.replace("\"kind\":", "\"hidden_transfer\":true,\"kind\":"),
+            fiLink.replace("asset_fi_link_set", "asset_fi_link_attestation_set"),
+            fiLink.replace("42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8", "AB"),
+            fiLink.replace("\"controller\":\"irohac1controller\"", "\"controller\":\"\""),
+            fiLink.replace("\"enabled\":true", "\"enabled\":1"),
+            """{"kind":"transfer_instruction_sequence","transfers":[$fiLink,$fiLink]}""",
+        )) assertFails { parse(review(hostile)) }
+    }
+
     @Test fun unknownInstructionsMissingBindingsAndNestedSubstitutionsAreUnreviewable() {
         for (text in listOf(
             review(batch.replace("independent", "best_effort")),

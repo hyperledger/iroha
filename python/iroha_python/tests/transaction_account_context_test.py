@@ -74,6 +74,58 @@ def test_quote_only_updates_maxima_and_failure_retains_selected_draft(prefix: in
     builder.add_instruction_json(typed_instruction(prefix))
     assert json.loads(builder.payload_json())["authority"] == account(prefix)
 
+
+def escrow_account(seed: int, prefix: int) -> str:
+    return Ed25519KeyPair.from_private_key(bytes([seed]) * 32).account_id(discriminant=prefix)
+
+def escrow_arguments(prefix: int) -> tuple:
+    conditions = [
+        {"kind": "Oracle", "value": {
+            "id": "specification", "attestor": escrow_account(0x55, prefix), "sequence": 1,
+            "predicate": {"kind": "Equals", "value": {"kind": "Text", "value": "i7"}},
+        }},
+        {"kind": "Oracle", "value": {
+            "id": "delivered", "attestor": escrow_account(0x56, prefix), "sequence": 2,
+            "predicate": {"kind": "QuantityAtMost", "value": "259200"},
+        }},
+        {"kind": "Within", "value": {"id": "confirmation", "duration_ms": 604_800_000}},
+    ]
+    return ("selected-context-escrow", "66owaQmAQMuHxPzxUN3bqZ6FJfDa",
+            escrow_account(0x54, prefix), "20", conditions, 604_800_042)
+
+@pytest.mark.parametrize("prefix", PREFIXES)
+def test_conditional_escrow_draft_forwards_selected_context_to_real_native_constructor(prefix: int) -> None:
+    arguments = escrow_arguments(prefix)
+    draft = TransactionDraft(config(prefix))
+    assert draft.open_conditional_escrow(*arguments) is draft
+    expected = Instruction.open_conditional_escrow(*arguments, chain_discriminant=prefix)
+    assert [entry.to_norito_bytes() for entry in draft.instructions] == [expected.to_norito_bytes()]
+
+@pytest.mark.parametrize("prefix", PREFIXES)
+def test_conditional_escrow_refuses_each_foreign_account_without_changing_draft(prefix: int) -> None:
+    draft = TransactionDraft(config(prefix))
+    draft.add_instruction(Instruction.from_json(typed_instruction(prefix), chain_discriminant=prefix))
+    before = [entry.to_norito_bytes() for entry in draft.instructions]
+    for foreign in set(PREFIXES) - {prefix}:
+        for field in ("beneficiary", "first_attestor", "second_attestor"):
+            arguments = list(escrow_arguments(prefix))
+            if field == "beneficiary":
+                arguments[2] = escrow_account(0x54, foreign)
+            else:
+                index = 0 if field == "first_attestor" else 1
+                arguments[4][index]["value"]["attestor"] = escrow_account(0x55 + index, foreign)
+            with pytest.raises(ValueError):
+                draft.open_conditional_escrow(*arguments)
+            assert [entry.to_norito_bytes() for entry in draft.instructions] == before
+
+def test_conditional_escrow_presentations_preserve_exact_signed_native_wire() -> None:
+    wires = []
+    for prefix in PREFIXES:
+        draft = TransactionDraft(config(prefix))
+        draft.open_conditional_escrow(*escrow_arguments(prefix))
+        wires.append(draft.sign(KEY.private_key).signed_transaction_versioned)
+    assert wires[0] == wires[1] == wires[2]
+
 class IntSubclass(int):
     pass
 
@@ -86,12 +138,15 @@ def test_native_and_python_boundaries_reject_non_exact_u16_context(bad: object) 
     with pytest.raises((TypeError, ValueError)):
         Instruction.from_json(typed_instruction(369), chain_discriminant=bad)
     with pytest.raises((TypeError, ValueError)):
+        Instruction.open_conditional_escrow(*escrow_arguments(369), chain_discriminant=bad)
+    with pytest.raises((TypeError, ValueError)):
         build_signed_transaction(NETWORK, account(369), KEY.private_key, fee_payment=fee(369), chain_discriminant=bad)
 
 def test_omitted_context_never_implicitly_selects_753() -> None:
     with pytest.raises(TypeError): TransactionBuilder(NETWORK, account(753), json.dumps(fee(753)))
     with pytest.raises(TypeError): TransactionConfig(network_id=NETWORK, authority=account(753), fee_payment=fee(753))
     with pytest.raises(TypeError): Instruction.from_json(typed_instruction(753))
+    with pytest.raises(TypeError): Instruction.open_conditional_escrow(*escrow_arguments(753))
     client = ToriiClient("https://example.invalid", local_signing_context=LocalSigningContext(NETWORK))
     with pytest.raises(ValueError, match="explicit.*chain_discriminant"):
         client._transaction_draft(authority=account(753), fee_payment=fee(753))

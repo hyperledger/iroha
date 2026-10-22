@@ -118,24 +118,39 @@ pub(super) fn transfer(
     let custody_to_beneficiary = amount
         .checked_sub(&custody_to_fi)
         .map_err(|_| MathError::Overflow)?;
-    let binding = asset_uid::encode(&(
+    // Norito tuples encode owned field types. Reuse these same values in the
+    // verified batch after encoding, avoiding a second clone of retained custody.
+    let binding_values = (
         "controlled-lock-owner-waterfall-v1",
+        record.clone(),
+        beneficiary.clone(),
+        amount.clone(),
+        policy,
+        link,
+        control,
+        sweep,
+        custody_to_fi,
+        custody_to_beneficiary,
+    );
+    let binding = asset_uid::encode(&binding_values)?;
+    let (
+        _,
         record,
         beneficiary,
-        amount,
-        &policy,
-        &link,
-        &control,
-        &sweep,
-        &custody_to_fi,
-        &custody_to_beneficiary,
-    ))?;
+        draw,
+        _policy,
+        link,
+        _control,
+        sweep,
+        custody_to_fi,
+        custody_to_beneficiary,
+    ) = binding_values;
     let verified = VerifiedControlledWaterfallBatch {
-        record: record.clone(),
+        record,
         authority: authority.clone(),
-        beneficiary: beneficiary.clone(),
+        beneficiary,
         fi: link.fi_account_id,
-        draw: amount.clone(),
+        draw,
         sweep,
         custody_to_fi,
         custody_to_beneficiary,

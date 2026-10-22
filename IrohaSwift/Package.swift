@@ -34,6 +34,29 @@ let configuredLocalUnitArtifactDirectory = ProcessInfo.processInfo.environment[
 let configuredDeviceDemoArtifactDirectory = ProcessInfo.processInfo.environment[
     "MOBILE_SDK_APPLE_DEVICE_DEMO_ARTIFACT_DIR"
 ]
+// A consumer-only diagnostic choice. The native producer's original commit and
+// artifact evidence stay authoritative; this never selects a Release artifact.
+let deviceDemoSourceHeadDriftInput = ProcessInfo.processInfo.environment[
+    "MOBILE_SDK_APPLE_DEVICE_DEMO_ALLOW_SOURCE_HEAD_DRIFT"
+]
+guard deviceDemoSourceHeadDriftInput == nil
+    || deviceDemoSourceHeadDriftInput == "0"
+    || deviceDemoSourceHeadDriftInput == "1"
+else {
+    fatalError("error: MOBILE_SDK_APPLE_DEVICE_DEMO_ALLOW_SOURCE_HEAD_DRIFT must be exactly 0 or 1.")
+}
+let allowDeviceDemoSourceHeadDrift = deviceDemoSourceHeadDriftInput == "1"
+let deviceDemoConsumptionReceipt = ProcessInfo.processInfo.environment[
+    "MOBILE_SDK_APPLE_DEVICE_DEMO_CONSUMPTION_RECEIPT"
+]
+if allowDeviceDemoSourceHeadDrift || deviceDemoConsumptionReceipt != nil {
+    guard configuredDeviceDemoArtifactDirectory != nil else {
+        fatalError("error: source-head drift and its receipt require the physical-device demo selector.")
+    }
+}
+if allowDeviceDemoSourceHeadDrift && deviceDemoConsumptionReceipt == nil {
+    fatalError("error: source-head drift requires a separate physical-device demo consumption receipt.")
+}
 let selectedArtifactDirectory = configuredDeviceDemoArtifactDirectory ?? configuredLocalUnitArtifactDirectory ?? configuredArtifactDirectory
 let requireExternalArtifactInput = ProcessInfo.processInfo.environment[
     "MOBILE_SDK_REQUIRE_EXTERNAL_APPLE_ARTIFACT"
@@ -169,6 +192,48 @@ func localUnitSHA256(_ url: URL) -> String? {
     return digest.finalize().map { String(format: "%02x", $0) }.joined()
 }
 
+func deviceDemoSourceCommit() -> String? {
+    let git = Process(); let output = Pipe()
+    git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    git.arguments = ["-C", repositoryDirectory.path, "rev-parse", "HEAD"]
+    git.standardOutput = output
+    do { try git.run(); git.waitUntilExit() } catch { return nil }
+    guard git.terminationStatus == 0,
+        let commit = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+        commit.count == 40,
+        commit.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) })
+    else { return nil }
+    return commit
+}
+
+func validateDeviceDemoConsumption(_ record: [String: Any], outside artifactRoot: URL) -> String? {
+    guard let selectedPath = deviceDemoConsumptionReceipt else { return nil }
+    let destination = URL(fileURLWithPath: selectedPath)
+    let parent = destination.deletingLastPathComponent()
+    guard selectedPath.hasPrefix("/"), destination.path == selectedPath,
+        canonicalExistingFilesystemPath(parent.path) == parent.path,
+        !selectedPath.hasPrefix(artifactRoot.deletingLastPathComponent().path + "/"),
+        selectedPath != artifactRoot.deletingLastPathComponent().path,
+        let bytes = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+    else { return "error: device-demo consumption receipt requires a canonical path outside the artifact directory." }
+    // SwiftPM evaluates manifests in a read-only sandbox. The explicit consumer
+    // wrapper retains this separate record first; this owner checks every field
+    // against its own successful artifact validation and never rewrites evidence.
+    guard FileManager.default.fileExists(atPath: selectedPath) else {
+        return "error: device-demo consumption requires a prepared receipt from the consumer wrapper."
+    }
+    guard canonicalExistingFilesystemPath(selectedPath) == selectedPath,
+        let attributes = try? FileManager.default.attributesOfItem(atPath: selectedPath),
+        attributes[.type] as? FileAttributeType == .typeRegular,
+        let existing = try? Data(contentsOf: destination),
+        let object = try? JSONSerialization.jsonObject(with: existing),
+        let canonical = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+        canonical == bytes
+    else { return "error: existing device-demo consumption receipt differs; select a fresh receipt path." }
+    return nil
+}
+
 func validateDeviceDemoArtifact(
     at artifactRoot: URL,
     libraries: [[String: Any]],
@@ -182,6 +247,7 @@ func validateDeviceDemoArtifact(
         manifest["target_triple"] as? String == "aarch64-apple-ios",
         manifest["source_root"] as? String == repositoryDirectory.path,
         let commit = manifest["source_commit"] as? String, commit.count == 40,
+        commit.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
         libraries.count == 1, let library = libraries.first,
         library["LibraryIdentifier"] as? String == identifier,
         library["LibraryPath"] as? String == "libNoritoBridge.a",
@@ -196,16 +262,12 @@ func validateDeviceDemoArtifact(
         Set(evidence.keys) == Set(["producer-launch.json", "producer-record.json", "cargo-messages.jsonl",
                                   "pqcrypto-normalization.json", "consumer", "source-observation.json"])
     else { return "error: physical-device demo metadata or archive is not exact." }
-    let git = Process(); let output = Pipe()
-    git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    git.arguments = ["-C", repositoryDirectory.path, "rev-parse", "HEAD"]
-    git.standardOutput = output
-    do { try git.run(); git.waitUntilExit() }
-    catch { return "error: unable to observe the selected source commit." }
-    guard git.terminationStatus == 0,
-        String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) == commit
+    guard let currentCommit = deviceDemoSourceCommit()
+    else { return "error: unable to observe the selected source commit." }
+    guard currentCommit == commit || allowDeviceDemoSourceHeadDrift
     else { return "error: physical-device demo source commit differs from the selected checkout." }
+    guard let manifestHash = localUnitSHA256(artifactRoot.appendingPathComponent("NoritoBridge.artifacts.json"))
+    else { return "error: physical-device demo manifest has no canonical file identity." }
     for (name, hash) in evidence {
         guard localUnitSHA256(artifactRoot.appendingPathComponent("evidence/" + name)) == hash
         else { return "error: physical-device demo evidence changed: \(name)." }
@@ -231,7 +293,25 @@ func validateDeviceDemoArtifact(
             localUnitSHA256(artifactRoot.appendingPathComponent(identifier + "/Headers/" + name)) == sourceHash
         else { return "error: physical-device demo header differs from current source: \(name)." }
     }
-    return nil
+    guard deviceDemoSourceCommit() == currentCommit,
+        localUnitSHA256(artifactRoot.appendingPathComponent("NoritoBridge.artifacts.json")) == manifestHash,
+        localUnitSHA256(artifactRoot.appendingPathComponent(identifier + "/libNoritoBridge.a")) == hashes[identifier],
+        evidence.allSatisfy({ localUnitSHA256(artifactRoot.appendingPathComponent("evidence/" + $0.key)) == $0.value })
+    else { return "error: physical-device demo source or artifact changed during validation." }
+    return validateDeviceDemoConsumption([
+        "schema": "iroha.norito-bridge-device-demo-consumption.v1",
+        "purpose": "physical-ios-debug",
+        "artifact_root": artifactRoot.path,
+        "artifact_source_commit": commit,
+        "current_source_commit": currentCommit,
+        "allow_source_head_drift": allowDeviceDemoSourceHeadDrift,
+        "source_head_drifted": currentCommit != commit,
+        "native_bridge_abi_version": requiredBridgeAbiVersion,
+        "target_triple": "aarch64-apple-ios",
+        "archive_sha256": hashes[identifier]!,
+        "artifact_manifest_sha256": manifestHash,
+        "evidence": evidence
+    ], outside: artifactRoot)
 }
 
 func validateLocalUnitArtifact(

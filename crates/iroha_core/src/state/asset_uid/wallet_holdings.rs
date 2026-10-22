@@ -246,4 +246,5 @@ pub(crate) fn collect(
 }
 
 #[cfg(test)]
+#[path = "wallet_holdings/tests.rs"]
 mod tests;

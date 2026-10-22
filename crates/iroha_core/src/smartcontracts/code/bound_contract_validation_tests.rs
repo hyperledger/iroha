@@ -336,12 +336,36 @@ fn bound_contract_validation_retains_local_decode_refusal() {
     let validation = norito::core::with_decode_limits_scope(limits(), || {
         validate_bound_contract_records_by_subject(&transaction)
     });
-    assert!(matches!(eager, Err(ExecutionAttemptError::Deferred(_))));
-    assert!(matches!(
-        validation,
-        Err(ExecutionAttemptError::Deferred(_))
-    ));
-    assert_eq!(outcome(eager).map(|_| ()), outcome(validation));
+    let Err(ExecutionAttemptError::Deferred(eager)) = eager else {
+        panic!("eager lookup must retain its local decode refusal");
+    };
+    let Err(ExecutionAttemptError::Deferred(validation)) = validation else {
+        panic!("borrowed validation must retain its local decode refusal");
+    };
+    assert_eq!(
+        eager.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(validation.reason(), eager.reason());
+    let eager_owner = eager.decode_refusal().expect("original eager decode owner");
+    let validation_owner = validation
+        .decode_refusal()
+        .expect("original borrowed validation decode owner");
+    assert_eq!(
+        eager_owner.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert_eq!(validation_owner.kind(), eager_owner.kind());
+    assert_eq!(
+        validation_owner.resource_error(),
+        eager_owner.resource_error()
+    );
+    assert_ne!(
+        validation_owner, eager_owner,
+        "independent decode attempts retain distinct opaque scope identities"
+    );
+    assert!(eager.allocation_refusal().is_none());
+    assert!(validation.allocation_refusal().is_none());
 }
 
 #[test]

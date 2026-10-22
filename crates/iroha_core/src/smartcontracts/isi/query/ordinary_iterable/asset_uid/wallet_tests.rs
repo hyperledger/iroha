@@ -132,10 +132,11 @@ fn actual_admitted_route_returns_requested_product_at_captured_time_and_height()
         9_000,
         0,
     ));
+    let query_params = params();
     let (mut rows, stats) = super::super::execute::<AssetUidPolicyViewV1, _, Error>(
         query.clone(),
         CompoundPredicate::PASS,
-        &params(),
+        &query_params,
         OrdinaryCursorMode::Stored,
         Some(limits()),
         &view,

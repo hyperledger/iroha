@@ -20,6 +20,244 @@ fn context_builder(prefix: u16) -> TransactionBuilder {
     builder.add_instruction_json(&context_typed_instruction(prefix)).unwrap();
     builder
 }
+
+fn context_conditional_model() -> OpenConditionalEscrow {
+    use iroha_data_model::escrow::{
+        ConditionalEscrowCondition, ConditionalEscrowOracleCondition, ConditionalEscrowPredicate,
+        ConditionalEscrowValue, ConditionalEscrowWithinCondition,
+    };
+    let account =
+        |seed: u8| AccountId::new(PublicKey::from(parse_private_key(&[seed; 32]).unwrap()));
+    OpenConditionalEscrow::new(
+        iroha_data_model::escrow::EscrowId::new(iroha_crypto::Hash::new(
+            b"selected-context-escrow",
+        )),
+        "66owaQmAQMuHxPzxUN3bqZ6FJfDa".parse().unwrap(),
+        account(0x54),
+        iroha_primitives::numeric::Quantity::from(20_u64),
+        vec![
+            ConditionalEscrowCondition::Oracle(ConditionalEscrowOracleCondition {
+                id: "product".parse().unwrap(),
+                attestor: account(0x55),
+                predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Text(
+                    "i7".to_owned(),
+                )),
+                sequence: std::num::NonZeroU32::new(1).unwrap(),
+            }),
+            ConditionalEscrowCondition::Oracle(ConditionalEscrowOracleCondition {
+                id: "delivery".parse().unwrap(),
+                attestor: account(0x56),
+                predicate: ConditionalEscrowPredicate::QuantityAtMost(
+                    iroha_primitives::numeric::Quantity::from(259_200_u64),
+                ),
+                sequence: std::num::NonZeroU32::new(2).unwrap(),
+            }),
+            ConditionalEscrowCondition::Within(ConditionalEscrowWithinCondition {
+                id: "confirmation".parse().unwrap(),
+                duration_ms: std::num::NonZeroU64::new(604_800_000).unwrap(),
+            }),
+        ],
+        604_800_042,
+    )
+}
+
+fn context_conditional_conditions_json(prefix: u16) -> String {
+    let _guard = ChainDiscriminantGuard::enter(prefix);
+    json::to_json(&context_conditional_model().conditions).unwrap()
+}
+
+fn context_conditional_instruction(
+    py: Python<'_>,
+    prefix: u16,
+    beneficiary: &str,
+    conditions_json: &str,
+    expires_at_ms: u64,
+) -> PyResult<Instruction> {
+    let conditions = py
+        .import("json")?
+        .call_method1("loads", (conditions_json,))?;
+    Instruction::open_conditional_escrow(
+        &py.get_type::<Instruction>(),
+        py,
+        "selected-context-escrow",
+        "66owaQmAQMuHxPzxUN3bqZ6FJfDa",
+        beneficiary,
+        "20",
+        &conditions,
+        expires_at_ms,
+        prefix,
+        None,
+    )
+}
+
+#[test]
+fn conditional_escrow_account_context_preserves_independent_native_wire() {
+    ensure_python();
+    let ambient = iroha_data_model::account::address::chain_discriminant();
+    let expected_model = context_conditional_model();
+    let expected: InstructionBox = expected_model.clone().into();
+    let expected_wire = norito::to_bytes(&expected).unwrap();
+    Python::attach(|py| {
+        for prefix in [117, 369, 753] {
+            let conditions = context_conditional_conditions_json(prefix);
+            for seed in [0x55, 0x56] {
+                assert!(conditions.contains(&context_account(seed, prefix)));
+            }
+            let instruction = context_conditional_instruction(
+                py,
+                prefix,
+                &context_account(0x54, prefix),
+                &conditions,
+                604_800_042,
+            )
+            .unwrap();
+            let actual = instruction
+                .inner
+                .as_any()
+                .downcast_ref::<OpenConditionalEscrow>()
+                .expect("native conditional escrow instruction");
+            assert_eq!(actual.beneficiary, expected_model.beneficiary);
+            assert_eq!(actual.conditions, expected_model.conditions);
+            assert_eq!(norito::to_bytes(&instruction.inner).unwrap(), expected_wire);
+            assert_eq!(
+                iroha_data_model::account::address::chain_discriminant(),
+                ambient
+            );
+        }
+    });
+}
+
+#[test]
+fn conditional_escrow_account_context_rejects_each_foreign_identity() {
+    ensure_python();
+    Python::attach(|py| {
+        for prefix in [117, 369, 753] {
+            let beneficiary = context_account(0x54, prefix);
+            let conditions = context_conditional_conditions_json(prefix);
+            let before =
+                context_conditional_instruction(py, prefix, &beneficiary, &conditions, 604_800_042)
+                    .unwrap();
+            let before_wire = norito::to_bytes(&before.inner).unwrap();
+            for foreign in [117, 369, 753].into_iter().filter(|value| *value != prefix) {
+                assert!(
+                    context_conditional_instruction(
+                        py,
+                        prefix,
+                        &context_account(0x54, foreign),
+                        &conditions,
+                        604_800_042,
+                    )
+                    .is_err(),
+                    "foreign scalar beneficiary must be rejected"
+                );
+                for seed in [0x55, 0x56] {
+                    let changed = conditions.replace(
+                        &context_account(seed, prefix),
+                        &context_account(seed, foreign),
+                    );
+                    assert_ne!(changed, conditions);
+                    assert!(
+                        context_conditional_instruction(
+                            py,
+                            prefix,
+                            &beneficiary,
+                            &changed,
+                            604_800_042,
+                        )
+                        .is_err(),
+                        "foreign nested attestor {seed} must be rejected"
+                    );
+                }
+            }
+            for seed in [0x55, 0x56] {
+                let malformed =
+                    conditions.replace(&context_account(seed, prefix), "not-an-account");
+                assert_ne!(malformed, conditions);
+                assert!(
+                    context_conditional_instruction(
+                        py,
+                        prefix,
+                        &beneficiary,
+                        &malformed,
+                        604_800_042,
+                    )
+                    .is_err()
+                );
+            }
+            let after =
+                context_conditional_instruction(py, prefix, &beneficiary, &conditions, 604_800_042)
+                    .unwrap();
+            assert_eq!(norito::to_bytes(&before.inner).unwrap(), before_wire);
+            assert_eq!(norito::to_bytes(&after.inner).unwrap(), before_wire);
+        }
+    });
+}
+
+#[test]
+fn conditional_escrow_account_context_restores_outer_guard_on_every_exit() {
+    ensure_python();
+    let ambient = iroha_data_model::account::address::chain_discriminant();
+    {
+        let _outer = ChainDiscriminantGuard::enter(19);
+        Python::attach(|py| {
+            for prefix in [117, 369, 753] {
+                let beneficiary = context_account(0x54, prefix);
+                let conditions = context_conditional_conditions_json(prefix);
+                assert_eq!(iroha_data_model::account::address::chain_discriminant(), 19);
+                context_conditional_instruction(py, prefix, &beneficiary, &conditions, 604_800_042)
+                    .unwrap();
+                assert_eq!(iroha_data_model::account::address::chain_discriminant(), 19);
+                let foreign = if prefix == 117 { 369 } else { 117 };
+                let failures = [
+                    (
+                        context_account(0x54, foreign),
+                        conditions.clone(),
+                        604_800_042,
+                    ),
+                    (
+                        beneficiary.clone(),
+                        conditions.replace(
+                            &context_account(0x55, prefix),
+                            &context_account(0x55, foreign),
+                        ),
+                        604_800_042,
+                    ),
+                    (
+                        beneficiary.clone(),
+                        conditions.replace(
+                            &context_account(0x56, prefix),
+                            &context_account(0x56, foreign),
+                        ),
+                        604_800_042,
+                    ),
+                    (beneficiary.clone(), "[{}]".to_owned(), 604_800_042),
+                    (beneficiary.clone(), conditions.clone(), 0),
+                ];
+                for (selected_beneficiary, selected_conditions, expiry) in failures {
+                    assert!(
+                        context_conditional_instruction(
+                            py,
+                            prefix,
+                            &selected_beneficiary,
+                            &selected_conditions,
+                            expiry,
+                        )
+                        .is_err()
+                    );
+                    assert_eq!(iroha_data_model::account::address::chain_discriminant(), 19);
+                }
+                context_conditional_instruction(py, prefix, &beneficiary, &conditions, 604_800_042)
+                    .unwrap();
+                assert_eq!(iroha_data_model::account::address::chain_discriminant(), 19);
+            }
+        });
+    }
+    assert_eq!(
+        iroha_data_model::account::address::chain_discriminant(),
+        ambient
+    );
+}
+
 #[test]
 fn transaction_account_context_matrix_preserves_wire_and_all_envelope_paths() {
     ensure_python();

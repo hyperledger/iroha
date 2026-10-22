@@ -1,10 +1,8 @@
 //! Exact controller grants and private beneficial-holdings quotes.
 
 use super::*;
+#[path = "asset_uid_reader/same_uid.rs"]
 mod same_uid;
-pub(crate) use same_uid::same_uid_for_contract;
-#[cfg(test)]
-pub(crate) use same_uid::tests::Fixture as SameUidReaderFixture;
 use crate::executor::ContractRuntimeExecutionContext;
 use iroha_data_model::{
     asset::uid::{
@@ -15,6 +13,9 @@ use iroha_data_model::{
     smart_contract::ContractAddress,
 };
 use iroha_primitives::numeric::Quantity;
+pub(crate) use same_uid::same_uid_for_contract;
+#[cfg(test)]
+pub(crate) use same_uid::tests::Fixture as SameUidReaderFixture;
 
 pub(crate) const READER_ROOT: &str = "asset_uid_reader_v1/";
 type Error = InstructionExecutionError;
@@ -145,7 +146,13 @@ pub(crate) fn quote_for_contract(
     let mut stats = QueryExecutionStats::default();
     // The active-frame check touches a fixed number of exact native bindings.
     stats.record_item(&context.contract_address, Some(budget))?;
-    if !crate::executor::valid_contract_runtime_subject(world, authority, Some(context)) {
+    if !crate::executor::valid_contract_runtime_subject_for_admission(
+        world,
+        authority,
+        Some(context),
+    )
+    .map_err(AssetUidHoldingQuoteError::Local)?
+    {
         return Err(reject("UID quote requires its exact active contract runtime").into());
     }
     let bytes = world

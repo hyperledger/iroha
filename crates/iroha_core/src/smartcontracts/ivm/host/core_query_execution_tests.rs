@@ -173,6 +173,264 @@ fn get_account_balance_syscall_returns_canonical_quantity_pointer() {
         .into_quantity();
     assert_eq!(value, Quantity::from(42_u32));
 }
+fn account_balance_syscall_fixture(
+    amount: Option<u32>,
+    policy: AssetBalancePolicy,
+) -> (State, AccountId, AccountId, AssetDefinitionId) {
+    let holder = fixture_account("alice");
+    let reader = fixture_account("bob");
+    let domain_id = DomainId::try_new("wonderland", "universal").unwrap();
+    let asset_definition =
+        AssetDefinitionId::derive_from_components(domain_id.clone(), "rose".parse().unwrap());
+    let owning_domain = matches!(policy, AssetBalancePolicy::DataspaceRestricted)
+        .then(|| domain_id.clone());
+    let definition = AssetDefinition::numeric(
+        asset_definition.clone(),
+        "rose".to_owned(),
+        policy,
+        owning_domain,
+    )
+    .build(&holder);
+    let assets = amount.map(|amount| {
+        Asset::new(
+            AssetId::of(asset_definition.clone(), holder.clone()),
+            Quantity::from(amount),
+        )
+    });
+    let mut world = World::with_assets(
+        [Domain::new(domain_id).build(&holder)],
+        [
+            build_fixture_account(&holder, &holder),
+            build_fixture_account(&reader, &holder),
+        ],
+        [definition],
+        assets,
+        [],
+    );
+    world.account_permissions.insert(
+        reader.clone(),
+        [Permission::from(
+            iroha_executor_data_model::permission::query::CanReadAccountData {
+                account: holder.clone(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    (
+        State::new_for_testing(
+            world,
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        ),
+        holder,
+        reader,
+        asset_definition,
+    )
+}
+
+fn read_account_balance_syscall(
+    state: &State,
+    authority: &AccountId,
+    account: &AccountId,
+    asset_definition: &AssetDefinitionId,
+    gas_limit: u64,
+) -> Result<(Quantity, u64), ivm::VMError> {
+    let view = state.view();
+    let mut host = CoreHostImpl::new(authority.clone());
+    host.set_query_state(&view);
+    let mut vm = IVM::new(gas_limit);
+    let account_ptr = store_tlv(&mut vm, PointerType::AccountId, &norito_blob(account));
+    let definition_ptr = store_tlv(
+        &mut vm,
+        PointerType::AssetDefinitionId,
+        &norito_blob(asset_definition),
+    );
+    vm.set_register(10, account_ptr);
+    vm.set_register(11, definition_ptr);
+    match host.syscall(ivm_sys::SYSCALL_GET_ACCOUNT_BALANCE, &mut vm) {
+        Ok(gas) => {
+            let tlv = vm.memory.validate_tlv(vm.register(10)).unwrap();
+            assert_eq!(tlv.type_id, PointerType::Quantity);
+            Ok((
+                QuantityValueV1::decode_frame(tlv.payload)
+                    .unwrap()
+                    .into_quantity(),
+                gas,
+            ))
+        }
+        Err(error) => {
+            assert_eq!(
+                vm.register(10),
+                account_ptr,
+                "refusal publishes no result pointer"
+            );
+            Err(error)
+        }
+    }
+}
+
+#[test]
+fn get_account_balance_syscall_returns_zero_for_authorized_absent_holding() {
+    let (state, holder, reader, definition) =
+        account_balance_syscall_fixture(None, AssetBalancePolicy::Global);
+    for authority in [&holder, &reader] {
+        let (balance, gas) =
+            read_account_balance_syscall(&state, authority, &holder, &definition, 10_000).unwrap();
+        assert_eq!(balance, Quantity::zero());
+        assert!(gas > CoreHost::QUERY_GAS_BASE_SINGULAR + CoreHost::QUERY_GAS_PER_ITEM);
+    }
+    assert!(
+        state
+            .view()
+            .world()
+            .assets()
+            .get(&AssetId::of(definition, holder))
+            .is_none(),
+        "read does not materialize an asset"
+    );
+}
+
+#[test]
+fn get_account_balance_syscall_returns_zero_after_native_full_transfer() {
+    let (state, holder, reader, definition) =
+        account_balance_syscall_fixture(Some(10), AssetBalancePolicy::Global);
+    let id = AssetId::of(definition.clone(), holder.clone());
+    let mut block = state.block(BlockHeader::new(
+        1_u64.try_into().unwrap(),
+        None,
+        None,
+        0,
+        0,
+    ));
+    // Admit the same bounded component invocation owner as native transfer tests;
+    // this grants no network input or finalized-block publication authority.
+    let mut tx = block.transaction_for_fastpq_testing(Hash::new(b"zero-balance full transfer"));
+    Transfer::asset_quantity(id.clone(), Quantity::from(10_u32), reader.clone())
+        .execute(&holder, &mut tx)
+        .expect("native full transfer");
+    assert!(
+        tx.world.assets().get(&id).is_none(),
+        "native debit removes the exhausted holding"
+    );
+    tx.apply();
+    block.commit_world_overlay_for_testing().unwrap();
+    assert_eq!(
+        read_account_balance_syscall(&state, &reader, &holder, &definition, 10_000)
+            .unwrap()
+            .0,
+        Quantity::zero()
+    );
+    assert_eq!(
+        read_account_balance_syscall(&state, &reader, &reader, &definition, 10_000)
+            .unwrap()
+            .0,
+        Quantity::from(10_u32)
+    );
+}
+
+#[test]
+fn get_account_balance_syscall_does_not_hide_unknown_identity_or_scope() {
+    let (mut state, holder, reader, definition) =
+        account_balance_syscall_fixture(None, AssetBalancePolicy::Global);
+    state.world.account_permissions.insert(
+        reader.clone(),
+        [Permission::from(
+            iroha_executor_data_model::permission::query::CanReadAllLedgerData,
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let unknown_account = fixture_account("charlie");
+    let unknown_definition = AssetDefinitionId::derive_from_components(
+        DomainId::try_new("wonderland", "universal").unwrap(),
+        "missing".parse().unwrap(),
+    );
+    for (account, definition) in [
+        (&unknown_account, &definition),
+        (&holder, &unknown_definition),
+    ] {
+        let error =
+            read_account_balance_syscall(&state, &reader, account, definition, 10_000).unwrap_err();
+        assert!(matches!(error.as_unmetered(), ivm::VMError::DecodeError));
+    }
+    let (state, holder, reader, definition) =
+        account_balance_syscall_fixture(None, AssetBalancePolicy::DataspaceRestricted);
+    let error =
+        read_account_balance_syscall(&state, &reader, &holder, &definition, 10_000).unwrap_err();
+    assert!(matches!(error.as_unmetered(), ivm::VMError::DecodeError));
+}
+
+#[test]
+fn get_account_balance_syscall_preserves_absent_holding_permission_refusal() {
+    let (state, holder, reader, definition) =
+        account_balance_syscall_fixture(None, AssetBalancePolicy::Global);
+    let error =
+        read_account_balance_syscall(&state, &holder, &reader, &definition, 10_000).unwrap_err();
+    assert!(matches!(
+        error.as_unmetered(),
+        ivm::VMError::PermissionDenied
+    ));
+    let world = World::with([], [build_fixture_account(&holder, &holder)], []);
+    {
+        let mut executor = world.executor.block();
+        *executor = crate::executor::denying_executor_for_testing("queries disabled");
+        executor.commit();
+    }
+    let state = State::new_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let error =
+        read_account_balance_syscall(&state, &holder, &holder, &definition, 10_000).unwrap_err();
+    assert!(matches!(
+        error.as_unmetered(),
+        ivm::VMError::PermissionDenied
+    ));
+}
+
+#[test]
+fn get_account_balance_syscall_absent_holding_obeys_item_and_byte_budget() {
+    let (state, holder, _, definition) =
+        account_balance_syscall_fixture(None, AssetBalancePolicy::Global);
+    let view = state.view();
+    let request = || {
+        QueryRequest::Singular(SingularQueryBox::FindAssetById(FindAssetById::new(
+            AssetId::of(definition.clone(), holder.clone()),
+        )))
+    };
+    for budget in [
+        QueryExecutionBudget::from_weighted_limit(0, 1, 0),
+        QueryExecutionBudget::from_weighted_limit(1, 0, 1),
+    ] {
+        let error =
+            execute_account_balance_query_on_state(&view, &holder, request(), Some(budget))
+                .err()
+                .expect("zero balance must fit its query budget");
+        assert!(matches!(error.as_unmetered(), ivm::VMError::OutOfGas));
+    }
+    let error = read_account_balance_syscall(
+        &state,
+        &holder,
+        &holder,
+        &definition,
+        CoreHost::QUERY_GAS_BASE_SINGULAR + CoreHost::QUERY_GAS_PER_ITEM + 1,
+    )
+    .unwrap_err();
+    assert!(matches!(error.as_unmetered(), ivm::VMError::OutOfGas));
+    assert!(
+        matches!(
+            execute_query_on_state_with_budget(&view, &holder, request(), None)
+                .err()
+                .unwrap()
+                .as_unmetered(),
+            ivm::VMError::DecodeError
+        ),
+        "ordinary FindAssetById still reports absence"
+    );
+}
+
 #[test]
 fn core_queries_return_typed_handles_and_specialists_remain_norito() {
     let authority: AccountId = fixture_account("alice");

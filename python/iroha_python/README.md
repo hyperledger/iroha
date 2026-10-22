@@ -1439,6 +1439,14 @@ Boolean values, omission, and foreign-prefix textual account literals are reject
 then refuse before dispatch. The client preserves selected literals instead of
 rewriting them. This presentation context does not authenticate a network.
 
+`Instruction.open_conditional_escrow(..., chain_discriminant=...)` requires the
+same explicit context for the beneficiary and every nested Oracle attestor.
+`TransactionDraft.open_conditional_escrow` forwards its selected configuration.
+Foreign-prefix accounts are rejected before appending an instruction; selecting
+another presentation prefix does not change the canonical instruction or signed
+transaction bytes for the same accounts and terms. Constructor failures restore
+the prior ambient account context.
+
 `Instruction.from_norito_bytes` and `Instruction.to_json` operate on canonical
 prefix-neutral controller bytes. The latter returns a framed-base64 JSON string,
 not a textual account projection. `Instruction.from_json(..., chain_discriminant=...)`

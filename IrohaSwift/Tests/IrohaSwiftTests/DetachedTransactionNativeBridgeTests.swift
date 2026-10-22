@@ -219,6 +219,94 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
         }
     }
 
+    private var fiLinkReview: String {
+        """
+        {"kind":"asset_fi_link_set","asset_definition_id":"ds","account_id":"owner","fi_account_id":"fi",
+        "reference_digest":"42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8",
+        "fi_revision":18446744073709551615,"attestation_revision":18446744073709551614,
+        "revision":18446744073709551613,"enabled":true,"controller":"irohac1controller",
+        "waterfall":true,"reverse_waterfall":false,"expected_policy_revision":18446744073709551612}
+        """
+    }
+
+    func testFiLinkInspectionPreservesAllFieldsRawDigestAndFullUnsignedRevisions() throws {
+        for enabled in [false, true] {
+            for controller in ["null", "\"irohac1controller\""] {
+                let json = fiLinkReview
+                    .replacingOccurrences(of: "\"enabled\":true", with: "\"enabled\":\(enabled)")
+                    .replacingOccurrences(of: "\"controller\":\"irohac1controller\"", with: "\"controller\":\(controller)")
+                let result = try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(json))
+                guard case let .assetFiLinkSet(link) = result.executable else { return XCTFail("FI owner link") }
+                XCTAssertEqual(link.assetDefinitionId, "ds")
+                XCTAssertEqual(link.accountId, "owner")
+                XCTAssertEqual(link.fiAccountId, "fi")
+                XCTAssertEqual(link.referenceDigest.map { String(format: "%02x", $0) }.joined(),
+                               "42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8")
+                XCTAssertEqual(link.referenceDigest.last, 0xb8)
+                XCTAssertEqual(link.fiRevision, UInt64.max)
+                XCTAssertEqual(link.attestationRevision, UInt64.max - 1)
+                XCTAssertEqual(link.revision, UInt64.max - 2)
+                XCTAssertEqual(link.expectedPolicyRevision, UInt64.max - 3)
+                XCTAssertEqual(link.enabled, enabled)
+                XCTAssertEqual(link.controller, controller == "null" ? nil : "irohac1controller")
+                XCTAssertTrue(link.waterfall)
+                XCTAssertFalse(link.reverseWaterfall)
+            }
+        }
+        let zero = fiLinkReview.replacingOccurrences(
+            of: "42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8",
+            with: String(repeating: "00", count: 32)
+        )
+        guard case let .assetFiLinkSet(zeroLink) = try DetachedTransactionBridgeJSONCodec
+            .decodeInspection(monetaryReview(zero)).executable else { return XCTFail("FI owner link") }
+        XCTAssertEqual(zeroLink.referenceDigest, Data(repeating: 0, count: 32))
+        let flipped = fiLinkReview.replacingOccurrences(of: "\"waterfall\":true", with: "\"waterfall\":false")
+            .replacingOccurrences(of: "\"reverse_waterfall\":false", with: "\"reverse_waterfall\":true")
+        guard case let .assetFiLinkSet(link) = try DetachedTransactionBridgeJSONCodec
+            .decodeInspection(monetaryReview(flipped)).executable else { return XCTFail("FI owner link") }
+        XCTAssertFalse(link.waterfall)
+        XCTAssertTrue(link.reverseWaterfall)
+    }
+
+    func testFiLinkInspectionRejectsHiddenMissingDuplicateAndWrongScalarFields() {
+        let fields: [(String, String)] = [
+            ("asset_definition_id", "\"ds\""), ("account_id", "\"owner\""), ("fi_account_id", "\"fi\""),
+            ("reference_digest", "\"42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8\""),
+            ("fi_revision", "18446744073709551615"), ("attestation_revision", "18446744073709551614"),
+            ("revision", "18446744073709551613"), ("enabled", "true"),
+            ("controller", "\"irohac1controller\""), ("waterfall", "true"),
+            ("reverse_waterfall", "false"), ("expected_policy_revision", "18446744073709551612"),
+        ]
+        for (key, value) in fields {
+            let field = "\"\(key)\":\(value)"
+            for hostile in [
+                fiLinkReview.replacingOccurrences(of: field, with: "\"unknown_\(key)\":\(value)"),
+                fiLinkReview.replacingOccurrences(of: field, with: field + "," + field),
+                fiLinkReview.replacingOccurrences(of: field, with: "\"\(key)\":[]"),
+            ] {
+                XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)), key)
+            }
+        }
+        for (key, value) in fields where key.hasSuffix("revision") {
+            for wrong in ["-1", "1.0", "1e0", "\"1\"", "true", "null", "18446744073709551616"] {
+                let hostile = fiLinkReview.replacingOccurrences(of: "\"\(key)\":\(value)", with: "\"\(key)\":\(wrong)")
+                XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)), key + wrong)
+            }
+        }
+        for hostile in [
+            fiLinkReview.replacingOccurrences(of: "\"kind\":", with: "\"hidden_transfer\":true,\"kind\":"),
+            fiLinkReview.replacingOccurrences(of: "asset_fi_link_set", with: "asset_fi_link_attestation_set"),
+            fiLinkReview.replacingOccurrences(of: "42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8", with: "AB"),
+            fiLinkReview.replacingOccurrences(of: "42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8", with: String(repeating: "+a", count: 32)),
+            fiLinkReview.replacingOccurrences(of: "42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8", with: String(repeating: "+0", count: 32)),
+            fiLinkReview.replacingOccurrences(of: "\"controller\":\"irohac1controller\"", with: "\"controller\":\"\""),
+            fiLinkReview.replacingOccurrences(of: "\"enabled\":true", with: "\"enabled\":1"),
+            "{\"kind\":\"transfer_instruction_sequence\",\"transfers\":[\(fiLinkReview),\(fiLinkReview)]}",
+        ] {
+            XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)))
+        }
+    }
+
     func testBridgeStatusMapsNewFailClosedErrors() {
         XCTAssertEqual(NativeBridgeError.fromStatus(-501), .detachedTransactionScaffold)
         XCTAssertEqual(NativeBridgeError.fromStatus(-502), .detachedTransactionSignature)

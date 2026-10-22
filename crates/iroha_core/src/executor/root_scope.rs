@@ -180,9 +180,9 @@ pub(crate) fn ensure_committed_artifact_scope(
     artifact: &iroha_data_model::smart_contract::ContractArtifactId,
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     use crate::execution_attempt::ExecutionAttemptError;
-    let scope = match read_committed_root_scope(world) {
+    let scope = match crate::sumeragi::lanes::routing::read_routing_root_scope(world) {
         Ok(Some(scope)) => scope,
-        Err(error)
+        Err(original)
             if !cfg!(all(
                 test,
                 any(
@@ -191,22 +191,7 @@ pub(crate) fn ensure_committed_artifact_scope(
                 )
             )) =>
         {
-            let reason = match error {
-                norito::json::Error::DecodeResourceLimit
-                | norito::json::Error::DecodeResource(
-                    norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
-                ) => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
-                norito::json::Error::AllocationFailed
-                | norito::json::Error::DecodeResource(
-                    norito::core::DecodeResourceError::AllocationFailed { .. },
-                ) => ivm::error::ExecutionDeferral::AllocationUnavailable,
-                _ => return Err(denied("artifact access requires immutable root scope").into()),
-            };
-            return Err(ExecutionAttemptError::Deferred(reason.into()));
+            return Err(ExecutionAttemptError::Deferred(original));
         }
         Ok(None) | Err(_) => {
             return Err(denied("artifact access requires immutable root scope").into());

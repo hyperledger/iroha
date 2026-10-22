@@ -81,6 +81,23 @@ public struct DetachedAssetTransferInspection: Sendable, Equatable {
     public let amount: String
 }
 
+/// Exact owner-approved FI link fields; inspection does not establish current ledger policy.
+public struct DetachedAssetFiLinkInspection: Sendable, Equatable {
+    public let assetDefinitionId: String
+    public let accountId: String
+    public let fiAccountId: String
+    /// Raw 32-byte reference commitment, without typed-Hash normalization.
+    public let referenceDigest: Data
+    public let fiRevision: UInt64
+    public let attestationRevision: UInt64
+    public let revision: UInt64
+    public let enabled: Bool
+    public let controller: String?
+    public let waterfall: Bool
+    public let reverseWaterfall: Bool
+    public let expectedPolicyRevision: UInt64
+}
+
 public enum DetachedTransactionExecutableInspection: Sendable, Equatable {
     case contractCall(DetachedContractCallInspection)
     case assetTransfer(DetachedAssetTransferInspection)
@@ -88,6 +105,7 @@ public enum DetachedTransactionExecutableInspection: Sendable, Equatable {
     case transferInstructionSequence([DetachedAssetTransferInspection])
     case assetTransferBatch(DetachedAssetTransferBatchInspection)
     case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
+    case assetFiLinkSet(DetachedAssetFiLinkInspection)
 }
 
 public struct DetachedTransactionScaffoldInspection: Sendable, Equatable {
@@ -159,6 +177,7 @@ private enum ExecutableDTO: Decodable {
     case transferInstructionSequence([AssetTransferDTO])
     case assetTransferBatch(DetachedAssetTransferBatchInspection)
     case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
+    case assetFiLinkSet(AssetFiLinkDTO)
 
     private enum CodingKeys: String, CodingKey {
         case kind, transfers
@@ -179,6 +198,8 @@ private enum ExecutableDTO: Decodable {
             self = .assetTransferBatch(try DetachedAssetTransferBatchInspection(from: decoder))
         case "conditional_escrow_open":
             self = .conditionalEscrowOpen(try DetachedConditionalEscrowInspection(from: decoder))
+        case "asset_fi_link_set":
+            self = .assetFiLinkSet(try AssetFiLinkDTO(from: decoder))
         case let kind:
             throw DecodingError.dataCorruptedError(
                 forKey: .kind,
@@ -186,6 +207,33 @@ private enum ExecutableDTO: Decodable {
                 debugDescription: "Unsupported detached executable kind \(kind)"
             )
         }
+    }
+}
+
+private struct AssetFiLinkDTO: Decodable {
+    let assetDefinitionId: String
+    let accountId: String
+    let fiAccountId: String
+    let referenceDigest: String
+    let fiRevision: UInt64
+    let attestationRevision: UInt64
+    let revision: UInt64
+    let enabled: Bool
+    let controller: String?
+    let waterfall: Bool
+    let reverseWaterfall: Bool
+    let expectedPolicyRevision: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case assetDefinitionId = "asset_definition_id"
+        case accountId = "account_id"
+        case fiAccountId = "fi_account_id"
+        case referenceDigest = "reference_digest"
+        case fiRevision = "fi_revision"
+        case attestationRevision = "attestation_revision"
+        case revision, enabled, controller, waterfall
+        case reverseWaterfall = "reverse_waterfall"
+        case expectedPolicyRevision = "expected_policy_revision"
     }
 }
 
@@ -322,6 +370,21 @@ enum DetachedTransactionBridgeJSONCodec {
             executable = .assetTransferBatch(batch)
         case let .conditionalEscrowOpen(escrow):
             executable = .conditionalEscrowOpen(escrow)
+        case let .assetFiLinkSet(link):
+            guard !link.assetDefinitionId.isEmpty, !link.accountId.isEmpty,
+                  !link.fiAccountId.isEmpty, link.controller?.isEmpty != true,
+                  link.referenceDigest.utf8.count == 64,
+                  link.referenceDigest.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else {
+                throw NativeBridgeError.invalidDetachedTransactionOutput
+            }
+            executable = .assetFiLinkSet(DetachedAssetFiLinkInspection(
+                assetDefinitionId: link.assetDefinitionId, accountId: link.accountId,
+                fiAccountId: link.fiAccountId, referenceDigest: try decodeHash(link.referenceDigest),
+                fiRevision: link.fiRevision, attestationRevision: link.attestationRevision,
+                revision: link.revision, enabled: link.enabled, controller: link.controller,
+                waterfall: link.waterfall, reverseWaterfall: link.reverseWaterfall,
+                expectedPolicyRevision: link.expectedPolicyRevision
+            ))
         }
         return DetachedTransactionScaffoldInspection(
             payloadSigningHash: try decodeHash(dto.payloadSigningHashHex),
@@ -397,6 +460,23 @@ enum DetachedTransactionBridgeJSONCodec {
             for transfer in transfers {
                 guard transfer["kind"] as? String == "asset_transfer" else { throw NativeBridgeError.invalidDetachedTransactionOutput }
                 try validateTransferShape(transfer)
+            }
+        case "asset_fi_link_set":
+            guard Set(executable.keys) == [
+                "kind", "asset_definition_id", "account_id", "fi_account_id", "reference_digest",
+                "fi_revision", "attestation_revision", "revision", "enabled", "controller",
+                "waterfall", "reverse_waterfall", "expected_policy_revision",
+            ] else { throw NativeBridgeError.invalidDetachedTransactionOutput }
+            // JSONDecoder can coerce integral floating tokens to UInt64. Retain
+            // the exact native integer grammar without restricting metadata.
+            let lexemes = try ExactJSONNumberLexemeScanner.scan(data)
+            for key in [AssetFiLinkDTO.CodingKeys.fiRevision, .attestationRevision,
+                        .revision, .expectedPolicyRevision] {
+                let path = exactJSONNumberCodingPathKey([ScaffoldDTO.CodingKeys.executable, key])
+                guard let token = lexemes[path], let value = UInt64(token),
+                      String(value) == token else {
+                    throw NativeBridgeError.invalidDetachedTransactionOutput
+                }
             }
         case "asset_transfer_batch", "conditional_escrow_open":
             // Each native monetary DTO rejects unknown fields recursively.

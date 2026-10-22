@@ -27,7 +27,7 @@ impl Execute for SetAssetUidPolicyReaderV1 {
         }
         tx.world.account(&self.controller.subject_id())?;
         if self.enabled
-            && (!tx.world.contract_instances.contains_key(&self.controller)
+            && (tx.world.contract_instances.get(&self.controller).is_none()
                 || tx
                     .world
                     .contract_subject_addresses

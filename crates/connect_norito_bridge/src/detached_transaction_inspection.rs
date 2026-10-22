@@ -1,8 +1,9 @@
-//! Typed monetary instruction reviews derived only from canonical native scaffolds.
+//! Typed instruction reviews derived only from canonical native scaffolds.
 use super::*;
 use iroha_data_model::{
     escrow::{ConditionalEscrowCondition, ConditionalEscrowPredicate, ConditionalEscrowValue},
     isi::{
+        asset_fi::SetAssetFiLinkV1,
         escrow::OpenConditionalEscrow,
         transfer::{BatchMode, TransferAssetBatch},
     },
@@ -15,7 +16,32 @@ pub(super) fn instruction_json(instruction: &InstructionBox) -> BridgeResult<Jso
     if let Some(escrow) = instruction.as_any().downcast_ref::<OpenConditionalEscrow>() {
         return Ok(escrow_json(escrow));
     }
+    if let Some(link) = instruction.as_any().downcast_ref::<SetAssetFiLinkV1>() {
+        return Ok(fi_link_json(link));
+    }
     detached_asset_transfer_json(instruction)
+}
+
+fn fi_link_json(instruction: &SetAssetFiLinkV1) -> JsonValue {
+    let link = &instruction.link;
+    let controller = link.controller.as_ref().map_or(JsonValue::Null, |address| {
+        JsonValue::from(address.to_string())
+    });
+    ::norito::json!({
+        "kind": "asset_fi_link_set",
+        "asset_definition_id": (link.asset_definition_id.to_string()),
+        "account_id": (link.account_id.to_string()),
+        "fi_account_id": (link.fi_account_id.to_string()),
+        "reference_digest": (hex::encode(link.reference_digest)),
+        "fi_revision": (link.fi_revision),
+        "attestation_revision": (link.attestation_revision),
+        "revision": (link.revision),
+        "enabled": (link.enabled),
+        "controller": controller,
+        "waterfall": (link.waterfall),
+        "reverse_waterfall": (link.reverse_waterfall),
+        "expected_policy_revision": (instruction.expected_policy_revision),
+    })
 }
 
 fn batch_json(batch: &TransferAssetBatch) -> JsonValue {

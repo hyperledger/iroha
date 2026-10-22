@@ -138,16 +138,20 @@ impl Fixture {
                     .map(|(n, r)| (&r.custody, (n as u32 + 1) * 3)),
             )
             .map(|(a, n)| Asset::new(AssetId::new(definition.clone(), a.clone()), n));
-        let world = World::with_assets(
-            [],
-            members.map(|a| Account::new(a.clone()).build(&wallet)),
-            [
-                AssetDefinition::numeric(definition, "DS", AssetBalancePolicy::Global, None)
-                    .build(&wallet),
-            ],
-            assets,
-            [],
-        );
+        let world =
+            World::with_assets(
+                [],
+                members.map(|a| Account::new(a.clone()).build(&wallet)),
+                [AssetDefinition::numeric(
+                    definition.clone(),
+                    "DS",
+                    AssetBalancePolicy::Global,
+                    None,
+                )
+                .build(&wallet)],
+                assets,
+                [],
+            );
         {
             let mut state = world.smart_contract_state.block();
             for a in &policy.accounts {

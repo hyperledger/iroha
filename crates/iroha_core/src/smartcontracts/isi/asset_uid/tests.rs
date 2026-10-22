@@ -359,6 +359,77 @@ fn uid_expiry_refunds_above_reduced_cap_without_resetting_usage() {
 }
 
 #[test]
+fn uid_expiry_refund_preserves_exhausted_outgoing_budget_after_cap_reduction() {
+    use iroha_data_model::asset::uid::AssetUidDailyWindowV1;
+
+    // Both the exact exhausted ceiling and a later reduction must allow the
+    // original payer to recover custody without charging the same funds again.
+    for outgoing_after in [1_000_u32, 999] {
+        let (f, state) = fixture(1_400, 100);
+        let now = 1_792_843_200_000;
+        let id = EscrowId::new(Hash::new("uid-exhausted-outgoing-refund"));
+        {
+            let mut block = state.block(header(1, now));
+            let mut tx = block
+                .transaction_for_fastpq_testing(Hash::new("uid-exhausted-outgoing-refund-open"));
+            let mut policy = f.policy(1, 1_500, 1_000);
+            policy.daily_window = AssetUidDailyWindowV1::JerusalemDay;
+            policy.daily_outgoing_limit = Some(1_000_u32.into());
+            SetAssetUidPolicyV1 {
+                policy: policy.clone(),
+            }
+            .execute(&f.owner, &mut tx)
+            .unwrap();
+            f.escrow("uid-exhausted-outgoing-refund", 1_000, now + 1_000)
+                .execute(&f.first, &mut tx)
+                .expect("funding may consume exactly the two daily ceilings");
+            f.transfer(&mut tx, &f.second, &f.payee, 1)
+                .expect_err("sibling wallets share the exhausted outgoing ceiling");
+            assert_eq!(f.balance(&tx, &f.first), Quantity::from(400_u32));
+            assert_eq!(f.balance(&tx, &f.second), Quantity::from(100_u32));
+            assert_eq!(f.balance(&tx, &f.payee), Quantity::zero());
+            let used = asset_uid::views(tx.world(), &f.definition, Some(&[7; 32]), now, 1)
+                .unwrap()
+                .remove(0);
+            assert_eq!(used.daily_spend_usage, Quantity::from(1_000_u32));
+            assert_eq!(used.daily_outgoing_usage, Quantity::from(1_000_u32));
+            policy.revision = 2;
+            policy.holding_limit = Some(200_u32.into());
+            policy.daily_outgoing_limit = Some(outgoing_after.into());
+            SetAssetUidPolicyV1 { policy }
+                .execute(&f.owner, &mut tx)
+                .unwrap();
+            tx.apply();
+            block.commit_world_overlay_for_testing().unwrap();
+        }
+        let mut block = state.block(header(2, now + 1_001));
+        let mut tx =
+            block.transaction_for_fastpq_testing(Hash::new("uid-exhausted-outgoing-refund-expire"));
+        ExpireConditionalEscrow::new(id)
+            .execute(&f.attestor, &mut tx)
+            .expect("already charged custody returns despite exhausted or reduced ceilings");
+        assert_eq!(f.balance(&tx, &f.first), Quantity::from(1_400_u32));
+        assert_eq!(f.balance(&tx, &f.second), Quantity::from(100_u32));
+        assert_eq!(f.holdings(&tx), Quantity::from(1_500_u32));
+        f.transfer(&mut tx, &f.second, &f.payee, 1)
+            .expect_err("recovery does not renew either daily allowance");
+        assert_eq!(f.balance(&tx, &f.second), Quantity::from(100_u32));
+        assert_eq!(f.balance(&tx, &f.payee), Quantity::zero());
+        let after = asset_uid::views(tx.world(), &f.definition, Some(&[7; 32]), now + 1_001, 2)
+            .unwrap()
+            .remove(0);
+        assert_eq!(after.daily_spend_usage, Quantity::from(1_000_u32));
+        assert_eq!(after.daily_outgoing_usage, Quantity::from(1_000_u32));
+        assert_eq!(after.policy.daily_spend_limit, Some(1_000_u32.into()));
+        assert_eq!(
+            after.policy.daily_outgoing_limit,
+            Some(outgoing_after.into())
+        );
+        asset_uid::validate_persistence(tx.world()).unwrap();
+    }
+}
+
+#[test]
 fn uid_native_lock_cannot_create_an_alternative_holding_bucket() {
     let (f, state) = fixture(40, 10);
     let mut block = state.block(header(1, 1_000));

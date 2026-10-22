@@ -1108,6 +1108,20 @@ pub trait QueryStateExecute {
     ) -> Result<QueryExecutionResult, ivm::VMError>
     where
         Self: Sized;
+    /// Execute the authorized global-balance query, representing only an absent
+    /// holding of an existing account and global asset definition as zero.
+    ///
+    /// # Errors
+    ///
+    /// Preserves query authorization, scope, budget, and unrelated execution failures.
+    fn execute_account_balance_query(
+        self,
+        authority: &AccountId,
+        request: QueryRequest,
+        budget: Option<QueryExecutionBudget>,
+    ) -> Result<QueryExecutionResult, ivm::VMError>
+    where
+        Self: Sized;
     /// Execute one singular query while representing a missing entity as
     /// `None` instead of a VM failure.
     ///
@@ -1153,6 +1167,14 @@ impl QueryStateExecute for QueryStateRef<'_, '_, '_> {
         budget: Option<QueryExecutionBudget>,
     ) -> Result<QueryExecutionResult, ivm::VMError> {
         QueryStateRef::execute_query_with_budget(self, authority, request, budget)
+    }
+    fn execute_account_balance_query(
+        self,
+        authority: &AccountId,
+        request: QueryRequest,
+        budget: Option<QueryExecutionBudget>,
+    ) -> Result<QueryExecutionResult, ivm::VMError> {
+        QueryStateRef::execute_account_balance_query(self, authority, request, budget)
     }
     fn execute_optional_singular_query(
         self,
@@ -1323,6 +1345,67 @@ fn execute_bounded_query_on_state_with_budget<R: StateReadOnly>(
         QueryCountMode::Bounded,
     )
 }
+// The balance syscall alone defines an absent holding as zero. Ordinary singular
+// asset queries still report absence, and no validation failure is converted.
+fn execute_account_balance_query_on_state<R: StateReadOnly>(
+    state: &R,
+    authority: &AccountId,
+    request: QueryRequest,
+    budget: Option<QueryExecutionBudget>,
+) -> Result<QueryExecutionResult, ivm::VMError> {
+    let QueryRequest::Singular(SingularQueryBox::FindAssetById(query)) = &request else {
+        return Err(ivm::VMError::DecodeError);
+    };
+    let asset_id = query.asset_id().clone();
+    let mut validator = HostQueryValidator { authority, state };
+    let validated = ValidQueryRequest::validate_for_ivm(
+        request,
+        &mut validator,
+        QueryLimits::from_pipeline(state.pipeline()),
+    )
+    .map_err(map_query_validation_error)?;
+    let (response, execution_stats) = match validated.execute_ephemeral_with_stats(
+        state.query_handle(),
+        state,
+        authority,
+        budget,
+    ) {
+        Ok(result) => result,
+        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+            QueryExecutionFail::Find(iroha_data_model::query::error::FindError::Asset(missing)),
+        )) if *missing == asset_id
+            && *asset_id.scope() == AssetBalanceScope::Global
+            && state.world().accounts().get(asset_id.account()).is_some()
+            && state.world().assets().get(&asset_id).is_none()
+            && state
+                .world()
+                .asset_definitions()
+                .get(asset_id.definition())
+                .is_some_and(|definition| {
+                    definition.balance_scope_policy() == AssetBalancePolicy::Global
+                }) =>
+        {
+            // Charge the synthetic source item and framed response before publishing
+            // a Quantity TLV, just as a real query response is budget-admitted.
+            let output = SingularQueryOutputBox::Asset(Asset::new(asset_id, Quantity::zero()));
+            let mut stats = QueryExecutionStats::default();
+            stats
+                .record_item(&output, budget)
+                .map_err(|error| map_query_execution_error(error.into()))?;
+            let response = QueryResponse::Singular(output);
+            stats
+                .record_response(&response, budget)
+                .map_err(|error| map_query_execution_error(error.into()))?;
+            (response, stats)
+        }
+        Err(error) => return Err(map_query_execution_error(error)),
+    };
+    Ok(QueryExecutionResult {
+        response,
+        processed_items: execution_stats.processed_items(),
+        processed_bytes: execution_stats.processed_bytes(),
+    })
+}
 fn execute_optional_singular_query_on_state<R: StateReadOnly>(
     state: &R,
     authority: &AccountId,
@@ -1480,6 +1563,27 @@ where
             }
             QueryStateRef::Transaction(tx) => {
                 execute_query_on_state_with_budget(tx, authority, request, budget)
+            }
+        }
+    }
+    fn execute_account_balance_query(
+        self,
+        authority: &AccountId,
+        request: QueryRequest,
+        budget: Option<QueryExecutionBudget>,
+    ) -> Result<QueryExecutionResult, ivm::VMError> {
+        match self {
+            QueryStateRef::View(view) => {
+                execute_account_balance_query_on_state(view, authority, request, budget)
+            }
+            QueryStateRef::QueryView(view) => {
+                execute_account_balance_query_on_state(view, authority, request, budget)
+            }
+            QueryStateRef::Block(block) => {
+                execute_account_balance_query_on_state(block, authority, request, budget)
+            }
+            QueryStateRef::Transaction(tx) => {
+                execute_account_balance_query_on_state(tx, authority, request, budget)
             }
         }
     }
@@ -8794,8 +8898,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         if budget.max_items() == 0 {
             return Err(ivm::VMError::OutOfGas);
         }
-        let query_result =
-            state_ref.execute_query_with_budget(&self.authority, request, Some(budget))?;
+        let query_result = if syscall == ivm::syscalls::SYSCALL_GET_ACCOUNT_BALANCE {
+            state_ref.execute_account_balance_query(&self.authority, request, Some(budget))?
+        } else {
+            state_ref.execute_query_with_budget(&self.authority, request, Some(budget))?
+        };
         let output = match query_result.response {
             QueryResponse::Singular(output) => output,
             QueryResponse::Iterable(_) => return Err(ivm::VMError::DecodeError),

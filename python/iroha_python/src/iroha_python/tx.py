@@ -989,7 +989,7 @@ class TransactionDraft:
         *,
         evidence_digests: Optional[Sequence[FixedBytesLike]] = None,
     ) -> TransactionDraft:
-        """Append an ordered native ``OpenConditionalEscrow`` instruction."""
+        """Append ordered escrow terms under the draft's selected account context."""
 
         if isinstance(conditions, (str, bytes, bytearray, memoryview)):
             raise TypeError("conditions must be a sequence")
@@ -1019,6 +1019,7 @@ class TransactionDraft:
                 _normalize_positive_quantity(amount, "amount"),
                 normalized_conditions,
                 expires_at_ms,
+                chain_discriminant=self._config.chain_discriminant,
                 evidence_digests=list(evidence_digests or []),
             )
         )

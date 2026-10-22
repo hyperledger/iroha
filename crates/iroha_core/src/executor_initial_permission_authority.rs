@@ -3038,14 +3038,33 @@ pub(crate) fn valid_contract_runtime_subject(
     authority: &AccountId,
     contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
 ) -> bool {
+    valid_contract_runtime_subject_for_admission(world, authority, contract_runtime_context)
+        .unwrap_or(false)
+}
+/// Retain an unfinished native binding read without granting runtime authority.
+/// Completed scope or binding rejection remains false; local refusal keeps its original owner.
+pub(crate) fn valid_contract_runtime_subject_for_admission(
+    world: &impl WorldReadOnly,
+    authority: &AccountId,
+    contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
+) -> Result<bool, crate::execution_attempt::ExecutionDeferred> {
     let Some(context) = contract_runtime_context else {
-        return true;
+        return Ok(true);
     };
-    let live_subject = code::bound_contract_subject_from_world(world, &context.contract_address);
-    context.contract_subject == *authority
+    let live_subject = match code::try_borrow_bound_contract_subject_from_world(
+        world,
+        &context.contract_address,
+    ) {
+        Ok(subject) => subject,
+        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(_)) => return Ok(false),
+        Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) => {
+            return Err(original);
+        }
+    };
+    Ok(context.contract_subject == *authority
         && context.contract_address.subject_id() == context.contract_subject
-        && live_subject.as_ref() == Some(authority)
-        && world.contract_subject_addresses().get(authority) == Some(&context.contract_address)
+        && live_subject == Some(authority)
+        && world.contract_subject_addresses().get(authority) == Some(&context.contract_address))
 }
 fn normalize_role_permission_for_initial_executor(
     state_transaction: &StateTransaction<'_, '_>,

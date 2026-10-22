@@ -4,6 +4,16 @@
 The ordinary Rust target emits `cdylib`, `staticlib`, and `rlib` outputs; Rust
 consumers and tests retain the `rlib` interface.
 
+Detached scaffold inspection exposes a single `SetAssetFiLinkV1` as
+`asset_fi_link_set`, retaining all twelve instruction fields. The reference
+digest is raw 32-byte lowercase hex, without typed-Hash parity or normalization;
+all four revisions retain the complete u64 range and controller remains an
+explicit canonical address or null. FI attestations, off-ramp instructions and
+mixed or Batch executables are not admitted as owner FI-link consent. Swift
+and Kotlin expose a distinct typed case. Applications must still compare the
+complete instruction and envelope with their independently admitted wallet,
+FI, UID/controller and fee context before permitting an owner signature.
+
 The Apple owner is `scripts/build_norito_xcframework.sh`. It builds five
 `staticlib` slices using the source-sealed `apple-release` Cargo profile and
 whole-graph ThinLTO. Its final bridge optimization level is O1 so the ThinLTO

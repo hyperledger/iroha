@@ -97,6 +97,25 @@ class DetachedTransactionInspection private constructor(
                     }
                     DetachedExecutableInspection.AssetTransferBatch(mode, entries)
                 }
+                "asset_fi_link_set" -> {
+                    value.exact(
+                        "kind", "asset_definition_id", "account_id", "fi_account_id", "reference_digest",
+                        "fi_revision", "attestation_revision", "revision", "enabled", "controller",
+                        "waterfall", "reverse_waterfall", "expected_policy_revision",
+                    )
+                    val controller = value["controller"]?.let {
+                        require(it is String && it.isNotEmpty()) { "Invalid FI link controller" }
+                        it
+                    }
+                    DetachedExecutableInspection.AssetFiLinkSet(
+                        value.text("asset_definition_id"), value.text("account_id"), value.text("fi_account_id"),
+                        // Syntax only: the reference is raw32, never an Iroha Hash.
+                        value.hash("reference_digest"), value.uint("fi_revision"),
+                        value.uint("attestation_revision"), value.uint("revision"), value.bool("enabled"),
+                        controller, value.bool("waterfall"), value.bool("reverse_waterfall"),
+                        value.uint("expected_policy_revision"),
+                    )
+                }
                 "conditional_escrow_open" -> {
                     value.exact("kind", "escrow_id", "asset_definition_id", "beneficiary", "amount", "conditions", "expires_at_ms", "evidence_hashes")
                     val conditions = value.list("conditions").map { condition(obj(it)) }
@@ -184,6 +203,9 @@ class DetachedTransactionInspection private constructor(
         private fun Map<String, Any?>.hash(key: String): String = text(key).also {
             require(Regex("[0-9a-f]{64}").matches(it)) { "Invalid native inspection hash" }
         }
+        private fun Map<String, Any?>.bool(key: String): Boolean =
+            get(key) as? Boolean ?: throw IllegalArgumentException("Invalid native inspection boolean")
+
         private fun Map<String, Any?>.uint(key: String, positive: Boolean = false): BigInteger {
             val value = get(key)
             val number = when (value) {
@@ -220,6 +242,13 @@ sealed class DetachedExecutableInspection private constructor() {
         private val owned = entries.toList()
         val entries: List<DetachedTransferBatchLeg> get() = owned.toList()
     }
+    /** Lossless owner-approved FI link fields; these do not prove current ledger policy. */
+    class AssetFiLinkSet internal constructor(
+        val assetDefinitionId: String, val accountId: String, val fiAccountId: String,
+        val referenceDigestHex: String, val fiRevision: BigInteger, val attestationRevision: BigInteger,
+        val revision: BigInteger, val enabled: Boolean, val controller: String?,
+        val waterfall: Boolean, val reverseWaterfall: Boolean, val expectedPolicyRevision: BigInteger,
+    ) : DetachedExecutableInspection()
     class ConditionalEscrowOpen internal constructor(
         val escrowId: String, val assetDefinitionId: String, val beneficiary: String, val amount: String,
         conditions: List<DetachedEscrowCondition>, val expiresAtMs: BigInteger, evidenceHashes: List<String>,

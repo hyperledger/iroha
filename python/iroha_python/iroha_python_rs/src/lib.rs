@@ -10284,9 +10284,9 @@ impl Instruction {
         );
         Ok(Instruction::new(instruction.into()))
     }
-    /// Open an ordered, all-of conditional escrow with an immutable on-chain policy.
+    /// Open an ordered conditional escrow with all accounts bound to the selected context.
     #[classmethod]
-    #[pyo3(signature = (escrow_id, asset_definition_id, beneficiary, amount, conditions, expires_at_ms, *, evidence_digests=None))]
+    #[pyo3(signature = (escrow_id, asset_definition_id, beneficiary, amount, conditions, expires_at_ms, *, chain_discriminant, evidence_digests=None))]
     #[allow(clippy::too_many_arguments)]
     fn open_conditional_escrow<'py>(
         _cls: &Bound<'py, PyType>,
@@ -10297,8 +10297,10 @@ impl Instruction {
         amount: &str,
         conditions: &Bound<'py, PyAny>,
         expires_at_ms: u64,
+        #[pyo3(from_py_with = exact_chain_discriminant)] chain_discriminant: u16,
         evidence_digests: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Self> {
+        let _guard = ChainDiscriminantGuard::enter(chain_discriminant);
         if expires_at_ms == 0 {
             return Err(PyValueError::new_err(
                 "conditional escrow expires_at_ms must be greater than zero",
@@ -10310,7 +10312,8 @@ impl Instruction {
                 "invalid asset definition id `{asset_definition_id}`: {err}"
             ))
         })?;
-        let beneficiary = parse_account_id(beneficiary)?;
+        let beneficiary =
+            parse_selected_account_id(beneficiary, "beneficiary", chain_discriminant)?;
         let amount = parse_typed_quantity(amount, "conditional escrow amount")?;
         if amount.is_zero() {
             return Err(PyValueError::new_err(

@@ -987,16 +987,38 @@ pub fn borrow_bound_contract_subject_from_world<'a>(
     world: &'a impl WorldReadOnly,
     contract_address: &ContractAddress,
 ) -> Option<&'a AccountId> {
-    let code_hash = world.contract_instances().get(contract_address)?;
-    let artifact_id = ContractArtifactId::for_address(contract_address, *code_hash).ok()?;
-    crate::executor::root_scope::ensure_committed_artifact_scope(world, &artifact_id).ok()?;
-    let binding = world.contract_subject_bindings().get(contract_address)?;
-    binding.validate_for(contract_address).ok()?;
-    if binding.lifecycle.active_code_hash.as_ref() != Some(code_hash) {
-        return None;
+    try_borrow_bound_contract_subject_from_world(world, contract_address)
+        .ok()
+        .flatten()
+}
+/// Validate an active runtime authority without treating an unfinished scope read as absence.
+///
+/// Exact binding, lifecycle and account checks remain identical to the borrowed registry read.
+/// Local decode or allocation refusal retains its original non-wire owner.
+pub(crate) fn try_borrow_bound_contract_subject_from_world<'a>(
+    world: &'a impl WorldReadOnly,
+    contract_address: &ContractAddress,
+) -> Result<Option<&'a AccountId>, ExecutionAttemptError<ValidationFail>> {
+    let Some(code_hash) = world.contract_instances().get(contract_address) else {
+        return Ok(None);
+    };
+    let Ok(artifact_id) = ContractArtifactId::for_address(contract_address, *code_hash) else {
+        return Ok(None);
+    };
+    crate::executor::root_scope::ensure_committed_artifact_scope(world, &artifact_id)?;
+    let Some(binding) = world.contract_subject_bindings().get(contract_address) else {
+        return Ok(None);
+    };
+    if binding.validate_for(contract_address).is_err() {
+        return Ok(None);
     }
-    world.accounts().get(&binding.subject)?;
-    Some(&binding.subject)
+    if binding.lifecycle.active_code_hash.as_ref() != Some(code_hash) {
+        return Ok(None);
+    }
+    if world.accounts().get(&binding.subject).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(&binding.subject))
 }
 /// Resolve a bound instance without cloning its manifest or bytecode.
 ///

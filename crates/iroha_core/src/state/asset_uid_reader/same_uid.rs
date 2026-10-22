@@ -87,7 +87,13 @@ pub(crate) fn same_uid_for_contract(
 ) -> Result<(bool, QueryExecutionStats), AssetUidHoldingQuoteError> {
     let mut stats = QueryExecutionStats::default();
     stats.record_item(&context.contract_address, Some(budget))?;
-    if !crate::executor::valid_contract_runtime_subject(world, authority, Some(context)) {
+    if !crate::executor::valid_contract_runtime_subject_for_admission(
+        world,
+        authority,
+        Some(context),
+    )
+    .map_err(AssetUidHoldingQuoteError::Local)?
+    {
         return Err(reject("same-UID read requires its exact active contract runtime").into());
     }
     stats.record_item(definition, Some(budget))?;
@@ -307,6 +313,34 @@ pub(crate) mod tests {
             )
         }
     }
+    #[test]
+    fn same_uid_retains_original_runtime_scope_decode_refusal() {
+        let (f, state) = Fixture::new();
+        let mut block = state.block(header());
+        let mut tx = block.transaction();
+        f.install(&mut tx);
+        assert!(f.read(tx.world(), &f.source, &f.destination).unwrap().0);
+        let (refused, _) = norito::core::with_decode_limits_measured(
+            norito::DecodeLimits::new(1, 1, 1, 1, 1),
+            || f.read(tx.world(), &f.source, &f.destination),
+        );
+        let Err(AssetUidHoldingQuoteError::Local(original)) = refused else {
+            panic!(
+                "scope decoding must retain local refusal, not reject the controller: {refused:?}"
+            );
+        };
+        assert!(original.decode_refusal().is_some());
+        assert!(original.allocation_refusal().is_none());
+        assert!(f.read(tx.world(), &f.source, &f.destination).unwrap().0);
+        tx.world
+            .contract_instances
+            .remove(f.context.contract_address.clone());
+        assert!(matches!(
+            f.read(tx.world(), &f.source, &f.destination),
+            Err(AssetUidHoldingQuoteError::Execution(_))
+        ));
+    }
+
     #[test]
     fn same_uid_compares_only_exact_native_identity_not_equal_revisions_caps_or_addresses() {
         let (f, state) = Fixture::new();

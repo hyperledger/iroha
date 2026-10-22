@@ -4923,6 +4923,371 @@ mod detached_transaction_scaffold_tests {
             .expect("valid detached scaffold");
         norito::json::from_slice_value(&json).expect("inspection JSON")
     }
+    mod asset_fi_link_tests {
+        use super::*;
+        use iroha_data_model::{
+            asset::fi_link::{AssetFiLinkAttestationV1, AssetFiLinkV1},
+            isi::asset_fi::{SetAssetFiLinkAttestationV1, SetAssetFiLinkV1, TransferToLinkedFiV1},
+            transaction::ExecutableBatchItem,
+        };
+
+        fn fixture(key: &KeyPair) -> SetAssetFiLinkV1 {
+            let account_id = AccountId::new(key.public_key().clone());
+            SetAssetFiLinkV1 {
+                link: AssetFiLinkV1 {
+                    asset_definition_id: AssetDefinitionId::derive_from_components(
+                        DomainId::try_new("wallet", "universal").unwrap(),
+                        "coin".parse().unwrap(),
+                    ),
+                    account_id: account_id.clone(),
+                    fi_account_id: AccountId::new(fixture_keypair(0x62).public_key().clone()),
+                    reference_digest: [0x22; 32],
+                    fi_revision: u64::MAX,
+                    attestation_revision: u64::MAX - 1,
+                    revision: u64::MAX - 2,
+                    enabled: true,
+                    controller: Some(
+                        ContractAddress::derive(
+                            &detached_test_network_id(),
+                            &account_id,
+                            9,
+                            DataSpaceId::UNIVERSAL,
+                        )
+                        .unwrap(),
+                    ),
+                    waterfall: true,
+                    reverse_waterfall: false,
+                },
+                expected_policy_revision: u64::MAX - 3,
+            }
+        }
+
+        fn scaffold(key: &KeyPair, instruction: SetAssetFiLinkV1) -> SignedTransaction {
+            scaffold_transaction(
+                key,
+                Executable::from([InstructionBox::from(instruction)]),
+                |_| {},
+            )
+        }
+
+        #[test]
+        fn inspection_retains_every_owner_approved_field() {
+            let key = fixture_keypair(0x61);
+            for (with_controller, digest) in [(true, [0x22; 32]), (false, [0; 32])] {
+                let mut instruction = fixture(&key);
+                instruction.link.reference_digest = digest;
+                instruction.link.enabled = with_controller;
+                instruction.link.waterfall = with_controller;
+                instruction.link.reverse_waterfall = !with_controller;
+                if !with_controller {
+                    instruction.link.controller = None;
+                }
+                let tx = scaffold(&key, instruction.clone());
+                let inspection = inspect_value(&tx);
+                let root = inspection.as_object().unwrap();
+                let link = &instruction.link;
+                let controller = link
+                    .controller
+                    .as_ref()
+                    .map_or(JsonValue::Null, |value| JsonValue::from(value.to_string()));
+                assert_eq!(
+                    root.get("executable"),
+                    Some(&::norito::json!({
+                        "kind": "asset_fi_link_set",
+                        "asset_definition_id": (link.asset_definition_id.to_string()),
+                        "account_id": (link.account_id.to_string()),
+                        "fi_account_id": (link.fi_account_id.to_string()),
+                        "reference_digest": (if with_controller { "22".repeat(32) } else { "00".repeat(32) }),
+                        "fi_revision": (u64::MAX),
+                        "attestation_revision": (u64::MAX - 1),
+                        "revision": (u64::MAX - 2),
+                        "enabled": with_controller,
+                        "controller": controller,
+                        "waterfall": with_controller,
+                        "reverse_waterfall": (!with_controller),
+                        "expected_policy_revision": (u64::MAX - 3),
+                    }))
+                );
+                let executable = root.get("executable").unwrap().as_object().unwrap();
+                assert_eq!(executable.len(), 13);
+                for (field, expected) in [
+                    ("fi_revision", u64::MAX),
+                    ("attestation_revision", u64::MAX - 1),
+                    ("revision", u64::MAX - 2),
+                    ("expected_policy_revision", u64::MAX - 3),
+                ] {
+                    assert_eq!(
+                        executable.get(field).and_then(JsonValue::as_u64),
+                        Some(expected)
+                    );
+                }
+                assert_ne!(link.account_id, link.fi_account_id);
+                assert_eq!(
+                    root.get("authority"),
+                    Some(&JsonValue::from(tx.authority().to_string()))
+                );
+                assert_eq!(
+                    root.get("network_id"),
+                    Some(&norito::json::to_value(tx.network_id().unwrap()).unwrap())
+                );
+                assert_eq!(
+                    root.get("fee_payment"),
+                    Some(&norito::json::to_value(tx.fee_payment_intent()).unwrap())
+                );
+                assert_eq!(
+                    root.get("creation_time_ms").and_then(JsonValue::as_u64),
+                    Some(1_700_000_000_123)
+                );
+                assert_eq!(
+                    root.get("time_to_live_ms").and_then(JsonValue::as_u64),
+                    Some(60_000)
+                );
+                assert_eq!(
+                    root.get("metadata"),
+                    Some(&norito::json::to_value(tx.metadata()).unwrap())
+                );
+                assert_eq!(
+                    root.get("payload_signing_hash_hex"),
+                    Some(&JsonValue::from(hex::encode(
+                        iroha_crypto::HashOf::new(tx.payload()).as_ref()
+                    )))
+                );
+                let payload = norito::encode_canonical(tx.payload()).unwrap();
+                assert_eq!(
+                    root.get("payload_hash_hex"),
+                    Some(&JsonValue::from(hex::encode(Hash::new(&payload).as_ref())))
+                );
+                assert_eq!(
+                    root.get("entrypoint_hash_hex"),
+                    Some(&JsonValue::from(hex::encode(
+                        tx.hash_as_entrypoint().as_ref()
+                    )))
+                );
+            }
+        }
+
+        #[test]
+        fn each_reviewed_field_changes_projection_and_signing_hash() {
+            type Change = fn(&mut SetAssetFiLinkV1);
+            let changes: [(&str, Change); 12] = [
+                ("asset_definition_id", |value| {
+                    value.link.asset_definition_id = AssetDefinitionId::derive_from_components(
+                        DomainId::try_new("wallet", "universal").unwrap(),
+                        "other".parse().unwrap(),
+                    )
+                }),
+                ("account_id", |value| {
+                    value.link.account_id =
+                        AccountId::new(fixture_keypair(0x63).public_key().clone())
+                }),
+                ("fi_account_id", |value| {
+                    value.link.fi_account_id =
+                        AccountId::new(fixture_keypair(0x64).public_key().clone())
+                }),
+                ("reference_digest", |value| {
+                    value.link.reference_digest = [0x23; 32]
+                }),
+                ("fi_revision", |value| value.link.fi_revision -= 1),
+                ("attestation_revision", |value| {
+                    value.link.attestation_revision -= 1
+                }),
+                ("revision", |value| value.link.revision -= 1),
+                ("enabled", |value| value.link.enabled = false),
+                ("controller", |value| value.link.controller = None),
+                ("waterfall", |value| value.link.waterfall = false),
+                ("reverse_waterfall", |value| {
+                    value.link.reverse_waterfall = true
+                }),
+                ("expected_policy_revision", |value| {
+                    value.expected_policy_revision -= 1
+                }),
+            ];
+            let key = fixture_keypair(0x61);
+            let original = fixture(&key);
+            let baseline = inspect_value(&scaffold(&key, original.clone()));
+            let baseline = baseline.as_object().unwrap();
+            let before = baseline.get("executable").unwrap().as_object().unwrap();
+            for (changed_field, change) in changes {
+                let mut changed = original.clone();
+                change(&mut changed);
+                let inspection = inspect_value(&scaffold(&key, changed));
+                let root = inspection.as_object().unwrap();
+                let after = root.get("executable").unwrap().as_object().unwrap();
+                assert_eq!(after.len(), before.len());
+                for (field, old_value) in before {
+                    if field == changed_field {
+                        assert_ne!(
+                            after.get(field),
+                            Some(old_value),
+                            "{changed_field} must be exposed"
+                        );
+                    } else {
+                        assert_eq!(
+                            after.get(field),
+                            Some(old_value),
+                            "unexpected field change: {field}"
+                        );
+                    }
+                }
+                assert_ne!(
+                    root.get("payload_signing_hash_hex"),
+                    baseline.get("payload_signing_hash_hex"),
+                    "{changed_field} must be signed"
+                );
+                assert_ne!(
+                    root.get("payload_hash_hex"),
+                    baseline.get("payload_hash_hex"),
+                    "{changed_field} must bind the canonical payload"
+                );
+            }
+        }
+
+        #[test]
+        fn refuses_attestation_offramp_and_mixed_executables() {
+            let key = fixture_keypair(0x61);
+            let approved = fixture(&key);
+            let link = &approved.link;
+            let attestation = SetAssetFiLinkAttestationV1 {
+                attestation: AssetFiLinkAttestationV1 {
+                    asset_definition_id: link.asset_definition_id.clone(),
+                    account_id: link.account_id.clone(),
+                    fi_account_id: link.fi_account_id.clone(),
+                    reference_digest: link.reference_digest,
+                    revision: link.attestation_revision,
+                    enabled: true,
+                },
+            };
+            let offramp = TransferToLinkedFiV1 {
+                asset_definition_id: link.asset_definition_id.clone(),
+                account_id: link.account_id.clone(),
+                amount: Quantity::from(1_u32),
+                expected_link_revision: link.revision,
+                expected_policy_revision: approved.expected_policy_revision,
+            };
+            for other in [
+                InstructionBox::from(attestation),
+                InstructionBox::from(offramp),
+            ] {
+                let tx = scaffold_transaction(&key, Executable::from([other]), |_| {});
+                assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
+            }
+            let fi = InstructionBox::from(approved.clone());
+            let ordinary = transfer_scaffold(&key, false);
+            let Executable::Instructions(transfers) = ordinary.instructions() else {
+                panic!("native transfer fixture");
+            };
+            let transfer = transfers[0].clone();
+            assert_eq!(
+                inspect_value(&ordinary)
+                    .as_object()
+                    .unwrap()
+                    .get("executable")
+                    .unwrap()
+                    .as_object()
+                    .unwrap()
+                    .get("kind")
+                    .and_then(JsonValue::as_str),
+                Some("asset_transfer"),
+                "ordinary transfers stay distinct; the FI owner reviewer must reject this kind",
+            );
+            for instructions in [
+                vec![fi.clone(), transfer.clone()],
+                vec![transfer.clone(), fi.clone()],
+                vec![fi.clone(), fi.clone()],
+            ] {
+                let tx = scaffold_transaction(&key, Executable::from(instructions), |_| {});
+                assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
+            }
+            for instructions in [
+                vec![fi.clone()],
+                vec![fi.clone(), transfer.clone()],
+                vec![transfer, fi.clone()],
+                vec![fi.clone(), fi],
+            ] {
+                let entries = instructions
+                    .into_iter()
+                    .map(ExecutableBatchItem::Instruction)
+                    .collect::<Vec<_>>();
+                let tx = scaffold_transaction(&key, Executable::Batch(entries.into()), |_| {});
+                assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
+            }
+            assert!(
+                inspect_detached_transaction_scaffold(&scaffold(&key, approved).encode_versioned())
+                    .is_ok()
+            );
+        }
+
+        #[test]
+        fn finalizer_preserves_exact_payload_and_rejects_changed_link() {
+            let key = fixture_keypair(0x61);
+            let approved = fixture(&key);
+            let original = scaffold(&key, approved.clone());
+            let signing_hash = iroha_crypto::HashOf::new(original.payload());
+            let signature = Signature::try_new(key.private_key(), signing_hash.as_ref()).unwrap();
+            let public_key = key.public_key().to_bytes().1;
+            let mut changed = approved;
+            changed.link.reference_digest[31] ^= 1;
+            let changed = scaffold(&key, changed);
+            for (tx, accepted) in [(&original, true), (&changed, false)] {
+                let wire = tx.encode_versioned();
+                let mut signed_ptr = ptr::dangling_mut::<u8>();
+                let mut signed_len = 99;
+                let mut json_ptr = ptr::dangling_mut::<u8>();
+                let mut json_len = 99;
+                let status = unsafe {
+                    connect_norito_detached_transaction_scaffold_finalize_ed25519_v1(
+                        wire.as_ptr(),
+                        wire.len() as c_ulong,
+                        public_key.as_ptr(),
+                        public_key.len() as c_ulong,
+                        signature.payload().as_ptr(),
+                        signature.payload().len() as c_ulong,
+                        &mut signed_ptr,
+                        &mut signed_len,
+                        &mut json_ptr,
+                        &mut json_len,
+                    )
+                };
+                if !accepted {
+                    assert_ne!(status, 0);
+                    assert!(signed_ptr.is_null());
+                    assert_eq!(signed_len, 0);
+                    assert!(json_ptr.is_null());
+                    assert_eq!(json_len, 0);
+                    continue;
+                }
+                assert_eq!(status, 0);
+                assert!(!signed_ptr.is_null() && signed_len > 0);
+                assert!(!json_ptr.is_null() && json_len > 0);
+                let signed_bytes =
+                    unsafe { slice::from_raw_parts(signed_ptr, signed_len as usize) }.to_vec();
+                let json = unsafe { slice::from_raw_parts(json_ptr, json_len as usize) }.to_vec();
+                connect_norito_free(signed_ptr);
+                connect_norito_free(json_ptr);
+                let signed = SignedTransaction::decode_all_versioned(&signed_bytes).unwrap();
+                signed.verify_signature().unwrap();
+                assert_eq!(signed.authority(), original.authority());
+                assert_eq!(signed.payload(), original.payload());
+                assert_eq!(signed.instructions(), original.instructions());
+                let value = norito::json::from_slice_value(&json).unwrap();
+                let result = value.as_object().unwrap();
+                assert_eq!(
+                    result.get("payload_signing_hash_hex"),
+                    Some(&JsonValue::from(hex::encode(signing_hash.as_ref())))
+                );
+                assert_eq!(
+                    result.get("transaction_hash_hex"),
+                    Some(&JsonValue::from(hex::encode(signed.hash().as_ref())))
+                );
+                assert_eq!(
+                    result.get("entrypoint_hash_hex"),
+                    Some(&JsonValue::from(hex::encode(
+                        signed.hash_as_entrypoint().as_ref()
+                    )))
+                );
+            }
+        }
+    }
     #[test]
     fn inspection_binds_canonical_payload_wire_and_explicit_fees() {
         let tx = transfer_scaffold(&fixture_keypair(0x42), false);

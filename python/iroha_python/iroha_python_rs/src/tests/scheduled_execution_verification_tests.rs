@@ -25,6 +25,8 @@ struct Fixture {
 
 impl Fixture {
     fn new(reject: bool) -> Self {
+        // Error assertions must also work when this module runs in isolation.
+        pyo3::Python::initialize();
         let key = KeyPair::from_seed(vec![0x51; 32], Algorithm::Ed25519);
         let authority = AccountId::new(key.public_key().clone());
         let world = World::with([], [Account::new(authority.clone()).build(&authority)], []);
@@ -408,6 +410,7 @@ impl Fixture {
     }
 
     fn bounded_output_sequence(reject: bool, mixed: bool) -> Self {
+        pyo3::Python::initialize();
         assert!(!mixed || reject);
         use iroha_data_model::parameter::{BlockParameter, ExecutionOutputPolicyV1, Parameter};
         let key = KeyPair::from_seed(vec![0x51; 32], Algorithm::Ed25519);
