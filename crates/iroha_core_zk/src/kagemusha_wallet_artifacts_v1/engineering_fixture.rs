@@ -142,7 +142,7 @@ pub fn signed_inventory() -> (VerifierPackV1, InstallationV1) {
 pub(crate) fn signed_inventory_with_catalog(
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
-    build_inventory(Vec::new(), None, catalog)
+    build_inventory(Vec::new(), None, catalog, None)
 }
 
 /// Replace selected sigma originals before any allowlist or authority derivation.
@@ -151,7 +151,7 @@ pub(crate) fn signed_inventory_with_catalog(
 pub(crate) fn signed_inventory_with_step_originals(
     steps: Vec<StepOriginalV1>,
 ) -> (VerifierPackV1, InstallationV1) {
-    let (pack, installation, _) = build_inventory(steps, None, |_| None);
+    let (pack, installation, _) = build_inventory(steps, None, |_| None, None);
     (pack, installation)
 }
 
@@ -162,7 +162,7 @@ pub(crate) fn signed_inventory_with_step_originals(
 pub(crate) fn signed_inventory_with_lineage(
     lineage: ArtifactOriginalV1,
 ) -> (VerifierPackV1, InstallationV1) {
-    let (pack, installation, _) = build_inventory(Vec::new(), Some(lineage), |_| None);
+    let (pack, installation, _) = build_inventory(Vec::new(), Some(lineage), |_| None, None);
     (pack, installation)
 }
 
@@ -173,13 +173,26 @@ pub(crate) fn signed_inventory_with_sources(
     steps: Vec<StepOriginalV1>,
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
-    build_inventory(steps, None, catalog)
+    build_inventory(steps, None, catalog, None)
+}
+
+/// Sign the engineering inventory as an earlier producer generation would have: every
+/// binding is actual except the native producer profile its manifest names. Only
+/// verifier-only admission may mount it.
+#[cfg(test)]
+pub(crate) fn signed_inventory_with_profile(
+    native_profile_digest: [u8; 32],
+) -> (VerifierPackV1, InstallationV1) {
+    let (pack, installation, _) =
+        build_inventory(Vec::new(), None, |_| None, Some(native_profile_digest));
+    (pack, installation)
 }
 
 fn build_inventory(
     replacements: Vec<StepOriginalV1>,
     lineage: Option<ArtifactOriginalV1>,
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
+    native_profile: Option<[u8; 32]>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
     let mut selected: [Option<StepOriginalV1>; 11] = core::array::from_fn(|_| None);
     for replacement in replacements {
@@ -252,9 +265,24 @@ fn build_inventory(
     if let Some(bytes) = &producer {
         pack.producer_catalog_digest = artifact_digest(b"producer-catalog", bytes);
     }
-    let runtime = pack
-        .runtime_bindings()
-        .expect("actual complete native inventory");
+    let runtime = match native_profile {
+        None => pack.runtime_bindings(),
+        Some(profile) => pack.verifier_bindings(profile),
+    }
+    .expect("actual complete native inventory");
+    let key_set = allowlist
+        .verifying_key_set_digest()
+        .expect("actual key set");
+    let (pack, installation) = sign_inventory(pack, &runtime, key_set);
+    (pack, installation, producer)
+}
+
+/// Sign the engineering scheme, Artifact-role certificate and manifest over `runtime`.
+fn sign_inventory(
+    mut pack: VerifierPackV1,
+    runtime: &RuntimeBindings,
+    verifying_key_set_digest: [u8; 32],
+) -> (VerifierPackV1, InstallationV1) {
     let root = SigningKey::from_bytes((&[0x11; 32]).into()).expect("public fixture root");
     let artifact = SigningKey::from_bytes((&[0x18; 32]).into()).expect("public fixture signer");
     let scheme = KagemushaWalletSchemeV1 {
@@ -265,9 +293,7 @@ fn build_inventory(
             &runtime.eq_protocol_digest,
             &runtime.ep_protocol_digest,
             &runtime.native_profile_digest,
-            &allowlist
-                .verifying_key_set_digest()
-                .expect("actual key set"),
+            &verifying_key_set_digest,
             &runtime.artifact_inventory_digest,
         ),
         provider_contract: kagemusha_wallet_provider_contract_v1(),
@@ -292,9 +318,7 @@ fn build_inventory(
         eq_protocol_digest: runtime.eq_protocol_digest,
         ep_protocol_digest: runtime.ep_protocol_digest,
         native_profile_digest: runtime.native_profile_digest,
-        verifying_key_set_digest: allowlist
-            .verifying_key_set_digest()
-            .expect("actual key set"),
+        verifying_key_set_digest,
         artifact_inventory_digest: runtime.artifact_inventory_digest,
         provider_contract: scheme.provider_contract,
         signer_certificate: signer.certificate_digest(),
@@ -314,7 +338,32 @@ fn build_inventory(
             scheme_id: scheme.scheme_id(),
             manifest_digest: manifest.manifest_digest(),
         },
-        producer,
+    )
+}
+
+/// Sign a new engineering scheme and manifest naming `native_profile_digest` while keeping
+/// every other binding, including the artifact inventory digest computed under the original
+/// profile. The scheme's relation id binds the profile, so another profile needs a new scheme.
+#[cfg(test)]
+pub(crate) fn resigned_with_profile(
+    pack: &VerifierPackV1,
+    installation: InstallationV1,
+    native_profile_digest: [u8; 32],
+) -> (VerifierPackV1, InstallationV1) {
+    let scheme = KagemushaWalletSchemeV1::decode_canonical(&pack.scheme, &installation.scheme_id)
+        .expect("retained engineering scheme");
+    let body = KagemushaWalletArtifactManifestV1::decode_canonical(&pack.manifest, &scheme)
+        .expect("retained engineering manifest")
+        .body;
+    sign_inventory(
+        pack.clone(),
+        &RuntimeBindings {
+            eq_protocol_digest: body.eq_protocol_digest,
+            ep_protocol_digest: body.ep_protocol_digest,
+            native_profile_digest,
+            artifact_inventory_digest: body.artifact_inventory_digest,
+        },
+        body.verifying_key_set_digest,
     )
 }
 

@@ -406,6 +406,15 @@ impl VerifierPackV1 {
     /// Rejects incomplete catalogs, wrong native profiles, substituted VKs, noncanonical
     /// originals or an allowlist with a different actual complete key digest/proof length.
     pub fn artifact_inventory_transcript(&self) -> Result<Vec<u8>, Error> {
+        self.inventory_transcript(artifact_digest(
+            b"native-profile",
+            &native_profile_transcript_v1()?,
+        ))
+    }
+
+    /// The inventory preimage under one native producer-profile identity: the compiled one
+    /// when packaging, or the signed manifest's for verifier-only admission.
+    fn inventory_transcript(&self, native_profile_digest: [u8; 32]) -> Result<Vec<u8>, Error> {
         self.inventory_bounds()?;
         let allowlist: KagemushaWalletVerifyingKeyAllowlistV1 =
             norito::decode_canonical_with_limits(
@@ -420,8 +429,6 @@ impl VerifierPackV1 {
         let step_protocol_digest = artifact_digest(b"eq-protocol", &eq_protocol_transcript_v1()?);
         let lineage_protocol_digest =
             artifact_digest(b"ep-protocol", &ep_protocol_transcript_v1()?);
-        let native_profile_digest =
-            artifact_digest(b"native-profile", &native_profile_transcript_v1()?);
         let mut inventory = Vec::new();
         inventory.extend_from_slice(&self.version.to_le_bytes());
         inventory.extend_from_slice(&step_protocol_digest);
@@ -474,6 +481,23 @@ impl VerifierPackV1 {
             artifact_inventory_digest: artifact_digest(
                 b"artifact-inventory",
                 &self.artifact_inventory_transcript()?,
+            ),
+        })
+    }
+
+    /// Verifier-only bindings: the locally recomputed protocol identities and the actual
+    /// originals' inventory under the native producer profile the signed manifest names.
+    /// Verification reads only the pack's descriptors, keys and allowlist, so a pack built
+    /// from another producer profile verifies exactly as when it was installed. This is no
+    /// producer qualification: packaging and Native admission use [`Self::runtime_bindings`].
+    fn verifier_bindings(&self, native_profile_digest: [u8; 32]) -> Result<RuntimeBindings, Error> {
+        Ok(RuntimeBindings {
+            eq_protocol_digest: artifact_digest(b"eq-protocol", &eq_protocol_transcript_v1()?),
+            ep_protocol_digest: artifact_digest(b"ep-protocol", &ep_protocol_transcript_v1()?),
+            native_profile_digest,
+            artifact_inventory_digest: artifact_digest(
+                b"artifact-inventory",
+                &self.inventory_transcript(native_profile_digest)?,
             ),
         })
     }
@@ -556,6 +580,15 @@ fn parse_artifact<C: PastaCurve>(
     })
 }
 
+/// Which native profile an admitted pack must carry.
+#[derive(Clone, Copy)]
+enum Admission {
+    /// This source's compiled profile: packaging and Native wallet runtimes.
+    Producer,
+    /// The profile its signed manifest names: ledger verification of any installed pack.
+    Verifier,
+}
+
 impl InstalledVerifierPackV1 {
     /// Admit the actual complete mounted pack against independently provisioned authority.
     /// The manifest cannot choose protocol/profile digests; every binding is recomputed.
@@ -563,6 +596,29 @@ impl InstalledVerifierPackV1 {
     /// Rejects all canonical, inventory, native-profile, original-key, signature, scheme,
     /// manifest-identity or exact-proof-length mismatches before returning a verifier.
     pub fn load(original: &[u8], installation: InstallationV1) -> Result<Self, Error> {
+        Self::admit(original, installation, Admission::Producer)
+    }
+
+    /// Admit an installed pack for ledger verification only. Every authority, inventory,
+    /// original-key and exact-length check of [`Self::load`] runs; the native producer
+    /// profile is the one the signed manifest names instead of this source's compiled
+    /// profile, so a ledger keeps verifying (and replaying) packs built by an earlier
+    /// producer generation. Only the verifier is returned: no producer inventory or wallet
+    /// admission can follow from it.
+    /// # Errors
+    /// As [`Self::load`], except for a different compiled native profile.
+    pub fn load_verifier(
+        original: &[u8],
+        installation: InstallationV1,
+    ) -> Result<ArtifactSet, Error> {
+        Self::admit(original, installation, Admission::Verifier).map(|installed| installed.verifier)
+    }
+
+    fn admit(
+        original: &[u8],
+        installation: InstallationV1,
+        admission: Admission,
+    ) -> Result<Self, Error> {
         if installation.scheme_id == [0; 32] || installation.manifest_digest == [0; 32] {
             return Err(Error::RuntimeBinding);
         }
@@ -590,7 +646,10 @@ impl InstalledVerifierPackV1 {
             &pack.allowlist,
             &manifest.body,
         ))?;
-        let runtime = pack.runtime_bindings()?;
+        let runtime = match admission {
+            Admission::Producer => pack.runtime_bindings()?,
+            Admission::Verifier => pack.verifier_bindings(manifest.body.native_profile_digest)?,
+        };
         let steps: Vec<_> = pack
             .steps
             .iter()
