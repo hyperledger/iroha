@@ -911,6 +911,7 @@ fn iso_native_business_locator_refuses_absent_and_private_root_authority() {
             .remove_custom_parameter(
                 &iroha_data_model::parameter::system::consensus_metadata::handshake_meta_id()
             )
+            .expect("remove fixture root metadata")
             .is_some(),
         "remove the Global root metadata seeded by the general test app helper"
     );

@@ -2521,7 +2521,14 @@ fn incoming_static_openapi_contracts_remain_bound_to_runtime_routes() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from(["classical-rom", "pq-qrom"])
     );
-    let catalog_commitment = schemas["PrivacyExact12CatalogCommitmentV1"]["const"]
+    let catalog_schema = &schemas["PrivacyExact12CatalogCommitmentV1"];
+    for bound in ["minItems", "maxItems"] {
+        assert_eq!(
+            catalog_schema[bound].as_u64(),
+            Some(iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::BYTES as u64)
+        );
+    }
+    let catalog_commitment = catalog_schema["const"]
         .as_array()
         .expect("pinned Exact12 catalog commitment")
         .iter()
@@ -2533,8 +2540,8 @@ fn incoming_static_openapi_contracts_remain_bound_to_runtime_routes() {
     assert_eq!(
         catalog_commitment,
         iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::canonical()
-            .digest()
-            .to_le_bytes()
+            .as_bytes()
+            .to_vec()
     );
     let details = openapi_operation(&document, "/v1/pipeline/transactions/details", "post");
     assert_eq!(

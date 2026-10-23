@@ -11,8 +11,8 @@ use iroha_data_model::{
     Level,
     isi::Log,
     transaction::{
-        FeePaymentIntent, MultisigSignature, MultisigSignatures, SignedTransaction,
-        TransactionBuilder, TransactionEntrypoint,
+        FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionEntrypoint,
+        signed::{MultisigSignature, MultisigSignatures},
     },
 };
 use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};

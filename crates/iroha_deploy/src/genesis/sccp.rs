@@ -228,7 +228,7 @@ mod tests {
             cadence.max(
                 iroha_data_model::parameter::system::Parameters::default()
                     .sumeragi()
-                    .payload_retry_interval_ms()
+                    .payload_retry_interval_ms
                     .get(),
             ),
         )
@@ -304,7 +304,7 @@ mod tests {
         for cadence in [100, 1_000, 4_000, 7_000] {
             let profile = append_profile(manifest(cadence), [1; 32]).unwrap();
             let parameters = profile.effective_parameters().unwrap();
-            assert!(parameters.sumeragi().payload_retry_interval_ms().get() >= cadence);
+            assert!(parameters.sumeragi().payload_retry_interval_ms.get() >= cadence);
             let npos = SumeragiNposParameters::from_custom_parameter(
                 parameters
                     .custom()
