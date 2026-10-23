@@ -645,6 +645,7 @@ async fn zk_attachment_route_authenticates_before_decode_and_rejects_replay() {
     let admission = AppRoutedReadHttpAdmission {
         reservation: reservation.clone(),
         decode_plan: torii_routed_read_request_preflight_plan(&app).expect("test decode plan"),
+        canonical_auth: std::sync::Arc::new(std::sync::OnceLock::new()),
     };
     let accepted = APP_ROUTED_READ_HTTP_ADMISSION
         .scope(admission, router.clone().oneshot(admitted_request))

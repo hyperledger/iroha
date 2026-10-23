@@ -7660,35 +7660,44 @@ async fn enforce_canonical_account_body_authentication(
         }
     };
     let network_id = state.app.signed_query_admission.network_id();
-    let verified = match crate::app_auth::authorize_after_publication(
-        &state.app.auth_publication_waiters,
-        state.app.query_queue_timeout,
-        || {
-            crate::app_auth::verify_canonical_network_request(
-                &state.app.state,
-                &network_id,
-                &parts.headers,
-                crate::app_auth::CanonicalRequestParts {
-                    method: &parts.method,
-                    uri: &parts.uri,
-                    body: body.as_ref(),
-                },
-                None,
-                authentication_owner.allocation_context(),
-            )
-        },
-    )
-    .await
-    {
-        Ok(Some(verified)) => verified,
-        Ok(None) => {
-            return Error::AppUnauthorized {
-                code: state.missing_auth_code,
-                message: state.missing_auth_message.to_owned(),
+    // A routed read retried with a larger owner keeps the authentication its first
+    // attempt verified; verifying again would find its own nonce already published.
+    let verified = if let Some(Some(verified)) = routed_read_canonical_auth() {
+        verified
+    } else {
+        match crate::app_auth::authorize_after_publication(
+            &state.app.auth_publication_waiters,
+            state.app.query_queue_timeout,
+            || {
+                crate::app_auth::verify_canonical_network_request(
+                    &state.app.state,
+                    &network_id,
+                    &parts.headers,
+                    crate::app_auth::CanonicalRequestParts {
+                        method: &parts.method,
+                        uri: &parts.uri,
+                        body: body.as_ref(),
+                    },
+                    None,
+                    authentication_owner.allocation_context(),
+                )
+            },
+        )
+        .await
+        {
+            Ok(Some(verified)) => {
+                remember_routed_read_canonical_auth(Some(&verified));
+                verified
             }
-            .into_response();
+            Ok(None) => {
+                return Error::AppUnauthorized {
+                    code: state.missing_auth_code,
+                    message: state.missing_auth_message.to_owned(),
+                }
+                .into_response();
+            }
+            Err(error) => return error.into_response(),
         }
-        Err(error) => return error.into_response(),
     };
     parts.extensions.insert(verified);
     let mut response = next
@@ -7727,31 +7736,42 @@ async fn enforce_optional_canonical_account_body_authentication(
         }
     };
     let network_id = state.app.signed_query_admission.network_id();
-    let visibility = match crate::app_auth::authorize_after_publication(
-        &state.app.auth_publication_waiters,
-        state.app.query_queue_timeout,
-        || {
-            crate::app_auth::verify_canonical_network_request(
-                &state.app.state,
-                &network_id,
-                &parts.headers,
-                crate::app_auth::CanonicalRequestParts {
-                    method: &parts.method,
-                    uri: &parts.uri,
-                    body: body.as_ref(),
-                },
-                None,
-                authentication_owner.allocation_context(),
-            )
+    // A routed read retried with a larger owner keeps the visibility its first
+    // attempt verified; verifying again would find its own nonce already published.
+    let verified = match routed_read_canonical_auth() {
+        Some(verified) => verified,
+        None => match crate::app_auth::authorize_after_publication(
+            &state.app.auth_publication_waiters,
+            state.app.query_queue_timeout,
+            || {
+                crate::app_auth::verify_canonical_network_request(
+                    &state.app.state,
+                    &network_id,
+                    &parts.headers,
+                    crate::app_auth::CanonicalRequestParts {
+                        method: &parts.method,
+                        uri: &parts.uri,
+                        body: body.as_ref(),
+                    },
+                    None,
+                    authentication_owner.allocation_context(),
+                )
+            },
+        )
+        .await
+        {
+            Ok(verified) => {
+                remember_routed_read_canonical_auth(verified.as_ref());
+                verified
+            }
+            Err(error) => {
+                return crate::app_auth::canonical_authentication_error(error).into_response();
+            }
         },
-    )
-    .await
-    {
-        Ok(Some(verified)) => ToriiAccountReadVisibility::Signed(verified.account),
-        Ok(None) => ToriiAccountReadVisibility::None,
-        Err(error) => {
-            return crate::app_auth::canonical_authentication_error(error).into_response();
-        }
+    };
+    let visibility = match verified {
+        Some(verified) => ToriiAccountReadVisibility::Signed(verified.account),
+        None => ToriiAccountReadVisibility::None,
     };
     parts.extensions.insert(visibility);
     let mut response = next

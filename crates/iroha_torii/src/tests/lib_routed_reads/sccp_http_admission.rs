@@ -133,6 +133,7 @@ async fn sccp_query_extractor_retains_text_and_rejects_unknown_fields_under_real
             AppRoutedReadHttpAdmission {
                 reservation,
                 decode_plan,
+                canonical_auth: std::sync::Arc::new(std::sync::OnceLock::new()),
             },
             async {
                 let (mut parts, _) = Request::builder()
