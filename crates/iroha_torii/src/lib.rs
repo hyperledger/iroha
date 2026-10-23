@@ -15958,10 +15958,12 @@ fn torii_account_assets_route_visibility(
                 return Err(torii_signed_query_permission_denied_response(&caller, 1));
             }
             // One execution answers for every authorized route of the account.
-            Ok(routing::DataspaceReadVisibility::exact_account(
-                routes.iter().map(|route| route.dataspace_id).collect(),
-                path_account,
-            ))
+            Ok(
+                torii_dataspace_read_visibility(app, Some(&caller)).with_exact_account(
+                    routes.iter().map(|route| route.dataspace_id).collect(),
+                    path_account,
+                ),
+            )
         }
         ToriiFanoutRouteScopeV1::VisibleAccount {
             caller_account_id: None,
