@@ -1,6 +1,8 @@
 //! Generic asset escrow records and identifiers.
 
 pub mod control;
+/// Asset-owner-scoped escrow completeness originals.
+pub mod scoped;
 
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
 use crate::{account::AccountId, asset::AssetDefinitionId};

@@ -504,6 +504,9 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
 
 #[tokio::test]
 async fn pipeline_block_event_reads_recent_original_carrier_and_preserves_refused_event() {
+    // Keep retired fixture State versions charged while measuring the event
+    // read's exact pool usage, independent of the global collector's schedule.
+    let _retirement = crossbeam_epoch::pin();
     let (app, _, mut chain) = canonical_outcome_test_fixture(false);
     chain.commit(Vec::new());
     chain.commit(Vec::new());

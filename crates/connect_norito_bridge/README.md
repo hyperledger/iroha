@@ -8,11 +8,20 @@ Detached scaffold inspection exposes a single `SetAssetFiLinkV1` as
 `asset_fi_link_set`, retaining all twelve instruction fields. The reference
 digest is raw 32-byte lowercase hex, without typed-Hash parity or normalization;
 all four revisions retain the complete u64 range and controller remains an
-explicit canonical address or null. FI attestations, off-ramp instructions and
-mixed or Batch executables are not admitted as owner FI-link consent. Swift
+explicit canonical address or null. FI attestations and mixed or Batch
+executables are not admitted as owner FI-link consent. Swift
 and Kotlin expose a distinct typed case. Applications must still compare the
 complete instruction and envelope with their independently admitted wallet,
 FI, UID/controller and fee context before permitting an owner signature.
+
+A single direct `TransferToLinkedFiV1` has a separate `asset_fi_link_transfer`
+inspection with exactly five signed fields: `asset_definition_id`, `account_id`,
+`amount`, `expected_link_revision` and `expected_policy_revision`. Swift and
+Kotlin preserve the decimal amount as text and both complete u64 revisions.
+This inspection contains no FI destination or reference evidence. Applications
+must authenticate the current native relationship before signing and join the
+retained original to certified historical execution before reporting completion.
+The typed inspector alone does not enable defunding or waterfall execution.
 
 The Apple owner is `scripts/build_norito_xcframework.sh`. It builds five
 `staticlib` slices using the source-sealed `apple-release` Cargo profile and

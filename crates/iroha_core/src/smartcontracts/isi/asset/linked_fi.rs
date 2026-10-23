@@ -4,12 +4,12 @@ pub(in crate::smartcontracts::isi) fn execute_verified_linked_fi_transfer(
     state_transaction: &mut StateTransaction<'_, '_>,
     verified: crate::smartcontracts::isi::asset_fi::VerifiedLinkedFiTransfer,
 ) -> Result<(), Error> {
-    let (authority, source, destination, amount, binding) = verified.into_parts();
+    let (authority, source, destination, amount, binding, receipt) = verified.into_parts();
     // The private capability was constructed only after exact FI eligibility,
     // authenticated reference, owner consent, runtime frame and revision checks.
     // Its purpose changes UID spending classification, never source reserves,
     // availability, receiving limits or the separate gross outgoing ceiling.
-    execute_numeric_asset_movement(
+    PreparedNumericAssetMovement::prepare(
         state_transaction,
         source,
         destination,
@@ -25,5 +25,6 @@ pub(in crate::smartcontracts::isi) fn execute_verified_linked_fi_transfer(
             control_policy: NumericAssetTransferControlPolicy::Enforce,
             destination_admission: NumericAssetDestinationAdmissionPolicy::ExistingAccount,
         },
-    )
+    )?
+    .apply_with_fi_receipt(state_transaction, receipt)
 }

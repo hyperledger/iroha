@@ -32,11 +32,22 @@ pub struct ProducerBudget {
     response_metadata: AllocationBudget,
     allocations: DecodeBudgetContext,
     allocation_limits: DecodeLimits,
+    /// Set when a limit derived from this owner refused the read, so the admission
+    /// that granted it may serve the same read again with a larger owner.
+    owner_limit_refused: std::sync::atomic::AtomicBool,
 }
 
 impl ProducerBudget {
     pub(crate) fn response_metadata(&self) -> &AllocationBudget {
         &self.response_metadata
+    }
+    pub(crate) fn note_owner_limit_refused(&self) {
+        self.owner_limit_refused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    pub(crate) fn owner_limit_refused(&self) -> bool {
+        self.owner_limit_refused
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
     /// Derive corridors from an already admitted envelope, never a configured or response cap.
     pub(crate) fn from_admitted(
@@ -104,6 +115,7 @@ impl ProducerBudget {
             response_metadata,
             allocations,
             allocation_limits,
+            owner_limit_refused: std::sync::atomic::AtomicBool::new(false),
         };
         ChargedShared::from_reservation(budget, &mut reservation).map_err(|_| capacity())
     }
@@ -271,8 +283,9 @@ impl HistoryProducerOwner {
     /// A present invalid or foreign-generation token is a refusal, never a standalone grant.
     pub(crate) fn authentication_read(app: &crate::SharedAppState) -> Result<Self, Error> {
         if let Some(owner) = Self::current_if_admitted()? {
+            // A routed read's owner is sized for that read, at most the configured one.
             if owner.budget.pool_generation != app.query_fanout_inflight.generation()
-                || owner.budget.envelope.working_set_bytes != app.query_fanout_working_set_bytes
+                || owner.budget.envelope.working_set_bytes > app.query_fanout_working_set_bytes
             {
                 return Err(capacity());
             }
@@ -281,6 +294,40 @@ impl HistoryProducerOwner {
         let reservation =
             crate::try_acquire_new_query_fanout_memory(app).map_err(|_| capacity())?;
         Self::from_reservation(&reservation)
+    }
+
+    /// Reuse the request's admitted owner (`borrowed == true`), or wait in the query
+    /// admission queue for the smallest owner whose phase covers `unit_bytes`, the
+    /// request's largest representation; an unknown size takes the configured owner.
+    pub(crate) async fn authentication_read_waiting(
+        app: &crate::SharedAppState,
+        unit_bytes: Option<usize>,
+    ) -> Result<(Self, bool), axum::response::Response> {
+        use axum::response::IntoResponse as _;
+        if let Some(owner) = Self::current_if_admitted().map_err(Error::into_response)? {
+            if owner.budget.pool_generation != app.query_fanout_inflight.generation()
+                || owner.budget.envelope.working_set_bytes > app.query_fanout_working_set_bytes
+            {
+                return Err(capacity().into_response());
+            }
+            return Ok((owner, true));
+        }
+        let working_set = crate::authentication_owner_working_set(app, unit_bytes);
+        let reservation = crate::acquire_app_routed_read_http_memory(app, working_set).await?;
+        Ok((
+            Self::from_reservation(&reservation).map_err(Error::into_response)?,
+            false,
+        ))
+    }
+
+    /// The complete working set this owner was admitted with.
+    pub(crate) fn working_set_bytes(&self) -> usize {
+        self.budget.envelope.working_set_bytes
+    }
+
+    /// Record that a limit derived from this owner refused its request.
+    pub(crate) fn note_owner_limit_refused(&self) {
+        self.budget.note_owner_limit_refused();
     }
 
     /// Acquire one fresh fail-fast owner for a background worker's off-chain history read.
@@ -307,18 +354,24 @@ impl HistoryProducerOwner {
         self.budget.envelope.final_body_bytes
     }
 
+    /// Refuse a read that outgrew this owner's own limits, and record that the owner refused it.
+    fn owner_capacity(&self) -> Error {
+        self.budget.note_owner_limit_refused();
+        capacity()
+    }
+
     /// Admit exact native collection backing before allocation, without geometric overgrowth.
     pub(crate) fn selected<T>(&self, count: usize) -> Result<Vec<T>, Error> {
         let bytes = std::alloc::Layout::array::<T>(count)
-            .map_err(|_| capacity())?
+            .map_err(|_| self.owner_capacity())?
             .size();
         if bytes > self.retained_bytes() {
-            return Err(capacity());
+            return Err(self.owner_capacity());
         }
         self.scope(|| norito::core::reserve_decode_allocation(bytes))
-            .map_err(|_| capacity())?;
+            .map_err(|_| self.owner_capacity())?;
         crate::torii_routed_read_exact_vec(count, "history selected records", bytes)
-            .map_err(|_| capacity())
+            .map_err(|_| self.owner_capacity())
     }
 
     /// Encode a borrowed projection under the unchanged cumulative owner.
@@ -339,9 +392,10 @@ impl HistoryProducerOwner {
             .scope(|| {
                 norito::json::to_json_bounded_boxed(payload, limit.min(self.response_bytes()))
             })
-            .map_err(|_| capacity())?;
-        let bytes = crate::response_memory_custody::owned(encoded, self).map_err(|_| capacity())?;
-        crate::response_memory_custody::json(bytes, self).map_err(|_| capacity())
+            .map_err(|_| self.owner_capacity())?;
+        let bytes = crate::response_memory_custody::owned(encoded, self)
+            .map_err(|_| self.owner_capacity())?;
+        crate::response_memory_custody::json(bytes, self).map_err(|_| self.owner_capacity())
     }
 
     /// Stream one single-line canonical JSON event into exact native response backing.
@@ -366,8 +420,8 @@ impl HistoryProducerOwner {
         }
         let encoded = self
             .scope(|| norito::json::to_json_bounded_boxed(&Event(payload), self.response_bytes()))
-            .map_err(|_| capacity())?;
-        crate::response_memory_custody::owned(encoded, self).map_err(|_| capacity())
+            .map_err(|_| self.owner_capacity())?;
+        crate::response_memory_custody::owned(encoded, self).map_err(|_| self.owner_capacity())
     }
 }
 

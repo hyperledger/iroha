@@ -728,6 +728,44 @@ fn consensus_digest_is_sensitive_to_every_consensus_input() {
 }
 
 #[test]
+fn genesis_fee_authoring_orders_exemptions_and_rejects_duplicates() {
+    let discriminant = defaults::common::chain_discriminant();
+    let _chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(discriminant);
+    let defaults = defaults::nexus::fees::genesis_policy();
+    let mut accounts = [
+        defaults.fee_sink_account_id.clone(),
+        defaults.sponsor_vault_custody_account_id.clone(),
+    ];
+    accounts.sort();
+    let author = |exemptions: Vec<String>| GenesisRootFeesFile {
+        fee_asset_id: defaults.fee_asset_id.canonical_address(),
+        fee_sink_account_id: defaults.fee_sink_account_id.to_string(),
+        sponsor_vault_custody_account_id: defaults.sponsor_vault_custody_account_id.to_string(),
+        successful_claim_fee_exempt_authorities: exemptions,
+        base_fee: defaults.base_fee.clone(),
+        per_byte_fee: defaults.per_byte_fee.clone(),
+        per_instruction_fee: defaults.per_instruction_fee.clone(),
+        per_gas_unit_fee: defaults.per_gas_unit_fee.clone(),
+    };
+    let policy = author(accounts.iter().rev().map(ToString::to_string).collect())
+        .into_policy(discriminant)
+        .expect("unordered authored exemptions are canonicalized");
+    assert_eq!(
+        policy
+            .successful_claim_fee_exempt_authorities
+            .iter()
+            .collect::<Vec<_>>(),
+        accounts.iter().collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        author(vec![accounts[0].to_string(), accounts[0].to_string()])
+            .into_policy(discriminant)
+            .unwrap_err(),
+        "genesis fee exemptions repeat an account",
+    );
+}
+
+#[test]
 fn consensus_digest_binds_every_signed_root_fee_field() {
     let base = sora();
     let consensus = base.consensus_digest(4).unwrap();
@@ -749,7 +787,8 @@ fn consensus_digest_binds_every_signed_root_fee_field() {
             2 => fees.sponsor_vault_custody_account_id = alternate.clone(),
             3 => {
                 fees.successful_claim_fee_exempt_authorities
-                    .insert(alternate.clone());
+                    .try_insert(alternate.clone())
+                    .expect("fixture fee exemption");
             }
             4 => fees.base_fee = 17_u32.into(),
             5 => fees.per_byte_fee = 19_u32.into(),

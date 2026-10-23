@@ -3264,6 +3264,27 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
             record_observability: bool,
         ) -> Result<(), Error> {
+            self.apply_with_capture(state_transaction, record_observability, None)
+        }
+        /// Carry the admitted FI occurrence through the original movement owner.
+        fn apply_with_fi_receipt(
+            self,
+            state_transaction: &mut StateTransaction<'_, '_>,
+            receipt: crate::state::asset_fi::receipt::Capture,
+        ) -> Result<(), Error> {
+            self.apply_with_capture(state_transaction, true, Some(receipt))
+        }
+        fn apply_with_capture(
+            self,
+            state_transaction: &mut StateTransaction<'_, '_>,
+            record_observability: bool,
+            receipt: Option<crate::state::asset_fi::receipt::Capture>,
+        ) -> Result<(), Error> {
+            if !record_observability && receipt.is_some() {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "linked FI capture requires its prepared transfer occurrence".into(),
+                ));
+            }
             let transcript_identity = self.transcript_identity(state_transaction)?;
             let applied = if record_observability {
                 // The precheck owns the exact full-quantity delta. Finish transcript and
@@ -3283,7 +3304,16 @@ pub mod isi {
                             state_transaction,
                             transcript_identity,
                             &legs,
-                            |state_transaction| self.plan.apply(state_transaction),
+                            |state_transaction| {
+                                if let Some(receipt) = receipt {
+                                    receipt.insert_before_movement(
+                                        state_transaction,
+                                        transcript_identity,
+                                        &self.plan.prechecked_delta,
+                                    )?;
+                                }
+                                self.plan.apply(state_transaction)
+                            },
                         )
                     },
                 )?

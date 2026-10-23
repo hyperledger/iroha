@@ -1588,10 +1588,11 @@ mod tests {
 
     /// Admit one real-node scenario before its wall-clock progress bounds begin.
     ///
-    /// Independent scenarios share the process-wide execution witness recorder. Keep
-    /// their networks from competing for that recorder while preserving all validators
-    /// and concurrent data space roots inside each scenario. Acquire at test entry,
-    /// before fixture owners, so every worker stops before the guard is released.
+    /// Keep real-node networks from competing for host time. Scenarios with committed-work
+    /// deadlines also use the maintained isolated harness to exclude unrelated tests'
+    /// process-wide witness recorder and logging. Preserve all validators and concurrent
+    /// data space roots inside each scenario. Acquire before child dispatch and fixture
+    /// owners so every worker stops before the parent releases the guard.
     fn real_node_scenario_guard() -> parking_lot::MutexGuard<'static, ()> {
         static SCENARIO: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
         SCENARIO.lock()
@@ -2230,6 +2231,11 @@ mod tests {
     #[test]
     fn a_fixed_lane_carries_transactions_the_global_chain_merges() {
         let _scenario = real_node_scenario_guard();
+        if crate::unit_test_support::run_in_isolated_harness(
+            "sumeragi::node::tests::a_fixed_lane_carries_transactions_the_global_chain_merges",
+        ) {
+            return;
+        }
         let lane = iroha_model_base::topology::LaneId::new(2);
         let chain = chain_with(4, 200, fixed_lane_policy);
         let disks = disks(&chain);
@@ -2384,6 +2390,11 @@ mod tests {
     #[test]
     fn autoscale_opens_an_elastic_lane_under_load_and_retires_it_when_idle() {
         let _scenario = real_node_scenario_guard();
+        if crate::unit_test_support::run_in_isolated_harness(
+            "sumeragi::node::tests::autoscale_opens_an_elastic_lane_under_load_and_retires_it_when_idle",
+        ) {
+            return;
+        }
         let elastic = iroha_model_base::topology::LaneId::new(16);
         let chain = chain_with(4, 200, elastic_lane_policy);
         let disks = disks(&chain);
@@ -2549,6 +2560,11 @@ mod tests {
         use mv::storage::StorageReadOnly as _;
 
         let _scenario = real_node_scenario_guard();
+        if crate::unit_test_support::run_in_isolated_harness(
+            "sumeragi::node::tests::idle_chain_never_advances_and_real_work_survives_restart",
+        ) {
+            return;
+        }
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2628,6 +2644,11 @@ mod tests {
     #[test]
     fn all_seat_restart_reproduces_missing_original_context_archives_from_certified_execution() {
         let _scenario = real_node_scenario_guard();
+        if crate::unit_test_support::run_in_isolated_harness(
+            "sumeragi::node::tests::all_seat_restart_reproduces_missing_original_context_archives_from_certified_execution",
+        ) {
+            return;
+        }
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2713,6 +2734,11 @@ mod tests {
     fn replay_rejects_a_block_whose_certified_result_differs() {
         use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
         let _scenario = real_node_scenario_guard();
+        if crate::unit_test_support::run_in_isolated_harness(
+            "sumeragi::node::tests::replay_rejects_a_block_whose_certified_result_differs",
+        ) {
+            return;
+        }
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2910,6 +2936,11 @@ mod tests {
     #[test]
     fn every_committed_block_contains_work_before_and_after_restart() {
         let _scenario = real_node_scenario_guard();
+        if crate::unit_test_support::run_in_isolated_harness(
+            "sumeragi::node::tests::every_committed_block_contains_work_before_and_after_restart",
+        ) {
+            return;
+        }
         // Explicit queue notifications must bypass even a long rebuild retry interval.
         let chain = chain(4, 600_000);
         let disks = disks(&chain);

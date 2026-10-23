@@ -1170,10 +1170,102 @@ pub fn canonical_authentication_error(error: crate::Error) -> crate::Error {
     }
 }
 
+thread_local! {
+    /// The block publication that refused this thread's authorization view, recorded only while
+    /// a caller that can wait for it captures (`Some`); `None` when nobody captures.
+    static PUBLICATION_RELEASE: std::cell::RefCell<Option<Option<iroha_allocation::release::ReleaseWait>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 pub fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
     match error {
-        iroha_core::state::StateViewError::Busy(_) => canonical_request_capacity_error(),
+        iroha_core::state::StateViewError::Busy(release) => {
+            PUBLICATION_RELEASE.with(|slot| {
+                if let Some(captured) = slot.borrow_mut().as_mut() {
+                    *captured = Some(release);
+                }
+            });
+            canonical_request_capacity_error()
+        }
         error => crate::Error::Query(ValidationFail::InternalError(error.to_string())),
+    }
+}
+
+/// Run one synchronous authorization and return the block publication that refused its view.
+fn capture_publication_release<T>(
+    authorize: impl FnOnce() -> T,
+) -> (T, Option<iroha_allocation::release::ReleaseWait>) {
+    struct Restore(Option<Option<iroha_allocation::release::ReleaseWait>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let outer = self.0.take();
+            PUBLICATION_RELEASE.with(|slot| *slot.borrow_mut() = outer);
+        }
+    }
+    let _restore = Restore(PUBLICATION_RELEASE.with(|slot| slot.replace(Some(None))));
+    let result = authorize();
+    let release = PUBLICATION_RELEASE
+        .with(|slot| slot.borrow_mut().take())
+        .flatten();
+    (result, release)
+}
+
+/// Authorize a canonical request, waiting out block publication instead of refusing it.
+///
+/// A request that lands while a block is being published finds its authorization view busy.
+/// Replay evidence is published only after a successful view, so the same request is authorized
+/// again once that exact publication releases, until `wait` elapses. After the deadline, or when
+/// no waiter registration fits `waiters`, the original capacity refusal is returned unchanged.
+pub(crate) async fn authorize_after_publication<T>(
+    waiters: &iroha_core::state::AllocationBudget,
+    wait: std::time::Duration,
+    authorize: impl FnMut() -> Result<T, crate::Error>,
+) -> Result<T, crate::Error> {
+    authorize_after_publication_outcome(waiters, wait, authorize)
+        .await
+        .0
+}
+
+/// [`authorize_after_publication`], also reporting whether its final refusal came from a
+/// block publication (`true`) rather than from the request or its owner's limits.
+pub(crate) async fn authorize_after_publication_outcome<T>(
+    waiters: &iroha_core::state::AllocationBudget,
+    wait: std::time::Duration,
+    mut authorize: impl FnMut() -> Result<T, crate::Error>,
+) -> (Result<T, crate::Error>, bool) {
+    use iroha_allocation::release::ReleaseRegistration;
+    let deadline = tokio::time::Instant::now() + wait;
+    let mut registration = None;
+    loop {
+        let (result, release) = capture_publication_release(&mut authorize);
+        let Some(release) = release else {
+            return (result, false);
+        };
+        if result.is_ok() {
+            return (result, false);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return (result, true);
+        }
+        if registration.is_none() {
+            let Ok(mut prepaid) = waiters.try_reserve(ReleaseRegistration::allocation_layout())
+            else {
+                return (result, true);
+            };
+            let Ok(node) = ReleaseRegistration::from_reservation(&mut prepaid) else {
+                return (result, true);
+            };
+            registration = Some(node);
+        }
+        let Some(registration) = registration.as_mut() else {
+            return (result, true);
+        };
+        if tokio::time::timeout_at(deadline, release.wait_for_release(registration))
+            .await
+            .is_err()
+        {
+            return (result, true);
+        }
     }
 }
 
@@ -2091,6 +2183,113 @@ pub fn verify_fee_quote_canonical_request(
 }
 #[cfg(all(test, feature = "app_api"))]
 mod tests {
+    fn one_publication_waiter() -> iroha_core::state::AllocationBudget {
+        iroha_core::state::AllocationBudget::new(
+            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+        )
+    }
+
+    fn refused_by(release: &iroha_allocation::release::ReleaseWait) -> crate::Error {
+        authorization_view_error(iroha_core::state::StateViewError::Busy(release.clone()))
+    }
+
+    fn is_capacity_refusal(error: &crate::Error) -> bool {
+        matches!(
+            error,
+            crate::Error::Query(ValidationFail::QueryFailed(
+                QueryExecutionFail::CapacityLimit
+            ))
+        )
+    }
+
+    #[tokio::test]
+    async fn authorization_waits_for_the_publication_that_refused_its_view() {
+        let notification = iroha_allocation::release::ReleaseNotification::new_charged(());
+        let publishing = notification.guard(());
+        let refused = notification.observe();
+        let waiters = one_publication_waiter();
+        let attempts = std::cell::Cell::new(0_u32);
+        let (authorized, ()) = tokio::join!(
+            authorize_after_publication(&waiters, std::time::Duration::from_secs(5), || {
+                attempts.set(attempts.get() + 1);
+                if attempts.get() == 1 {
+                    Err(refused_by(&refused))
+                } else {
+                    Ok(7_u8)
+                }
+            }),
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                drop(publishing);
+            },
+        );
+        assert_eq!(authorized.expect("authorized after publication"), 7);
+        assert_eq!(attempts.get(), 2);
+        assert_eq!(waiters.reserved_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn authorization_keeps_the_capacity_refusal_after_its_deadline() {
+        let notification = iroha_allocation::release::ReleaseNotification::new_charged(());
+        let _publishing = notification.guard(());
+        let refused = notification.observe();
+        let waiters = one_publication_waiter();
+        for wait in [
+            std::time::Duration::ZERO,
+            std::time::Duration::from_millis(20),
+        ] {
+            let mut attempts = 0_u32;
+            let started = tokio::time::Instant::now();
+            let error = authorize_after_publication(&waiters, wait, || -> Result<(), _> {
+                attempts += 1;
+                Err(refused_by(&refused))
+            })
+            .await
+            .expect_err("still publishing");
+            assert!(is_capacity_refusal(&error));
+            assert_eq!(attempts, 1);
+            assert!(started.elapsed() >= wait);
+        }
+        assert_eq!(waiters.reserved_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn authorization_without_a_waiter_registration_refuses_unchanged() {
+        let notification = iroha_allocation::release::ReleaseNotification::new_charged(());
+        let _publishing = notification.guard(());
+        let refused = notification.observe();
+        let no_waiters = iroha_core::state::AllocationBudget::new(0);
+        let error = authorize_after_publication(
+            &no_waiters,
+            std::time::Duration::from_secs(5),
+            || -> Result<(), _> { Err(refused_by(&refused)) },
+        )
+        .await
+        .expect_err("no registration fits");
+        assert!(is_capacity_refusal(&error));
+    }
+
+    #[test]
+    fn publication_release_is_captured_only_inside_its_own_scope() {
+        let notification = iroha_allocation::release::ReleaseNotification::new_charged(());
+        let _publishing = notification.guard(());
+        let refused = notification.observe();
+        // Outside any capture the refusal is unchanged and nothing is retained.
+        assert!(is_capacity_refusal(&refused_by(&refused)));
+        assert!(capture_publication_release(|| ()).1.is_none());
+        let ((inner, outer_after_inner), outer) = capture_publication_release(|| {
+            let inner = capture_publication_release(|| drop(refused_by(&refused))).1;
+            let outer_after_inner =
+                PUBLICATION_RELEASE.with(|slot| slot.borrow().as_ref().map(Option::is_some));
+            drop(refused_by(&refused));
+            (inner, outer_after_inner)
+        });
+        assert!(inner.is_some());
+        assert_eq!(outer_after_inner, Some(false));
+        assert!(outer.is_some());
+        assert!(PUBLICATION_RELEASE.with(|slot| slot.borrow().is_none()));
+    }
+
     #[test]
     fn canonical_authentication_mapping_preserves_capacity_and_internal_errors() {
         let capacity = canonical_authentication_error(canonical_request_capacity_error());

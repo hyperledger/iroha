@@ -7,12 +7,12 @@ use super::*;
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as object_digest;
 use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 
-// Two derivations, at most two IMT mutations each; each mutation performs at most
-// 68 Patricia updates, each emitting at most 258 bounded nodes. Six original roles
-// per derivation are a conservative bound over every supported refresh variant.
-// Fresh intake stages only its planning derivation; the two-derivation bound is kept.
-pub(in crate::kagemusha_wallet_state_v1) const DRAFT_OBJECTS: usize = 70_188;
-pub(in crate::kagemusha_wallet_state_v1) const DRAFT_BYTES: usize = 112_289_312;
+// One derivation: at most two IMT mutations, each performing at most 68 Patricia
+// updates that each emit at most 258 bounded nodes. Six original roles are a
+// conservative bound over every supported refresh variant. Fresh intake and a review's
+// speculation each stage only their one planning derivation.
+pub(in crate::kagemusha_wallet_state_v1) const DRAFT_OBJECTS: usize = 35_094;
+pub(in crate::kagemusha_wallet_state_v1) const DRAFT_BYTES: usize = 56_144_656;
 pub(in crate::kagemusha_wallet_state_v1) const BATCH_BYTES: usize =
     DRAFT_BYTES + DRAFT_OBJECTS * 512 + REQUEST_MAX_BYTES + PLAN_BOUND + 4096;
 

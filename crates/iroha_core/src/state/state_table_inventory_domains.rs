@@ -56,7 +56,7 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Name,
-        reason: "Reserved native storage-key prefixes for FI records and attestations, owner links, UID policy and membership, daily usage, enrollment, system-account classification, reader grants and controlled-lock terms. These name rows of world.smart_contract_state; the prefix literals compute no State digest or separate table root",
+        reason: "Reserved native storage-key prefixes for FI records and attestations, owner links and transfer receipts, escrow completeness scopes, UID policy and membership, daily usage, enrollment, system-account classification, reader grants and controlled-lock terms. These name rows of world.smart_contract_state; the prefix literals compute no State digest or separate table root",
         literals: &[
             r"asset_fi_link_attestation_v1/",
             r"asset_fi_link_v1/",
@@ -68,16 +68,21 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"asset_uid_reader_v1/",
             r"asset_uid_system_v1/",
             r"asset_uid_usage_v1/",
+            r"sc/native/asset_escrow_scope_v1/",
+            r"sc/native/asset_fi_transfer_receipt_v1/",
         ],
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Exact wire identities of native FI, UID and controlled-lock instructions, including their built-in dispatch entries. They select instruction layouts; neither the identifiers nor their registration compute a digest or grant the instruction authority",
+        reason: "Exact wire identities of native FI, escrow-scope, UID and controlled-lock instructions, including their built-in dispatch entries. They select instruction layouts; neither the identifiers nor their registration compute a digest or grant the instruction authority",
         literals: &[
+            r"iroha.asset.escrow.read_scope.initialize.v1",
+            r"iroha.asset.fi.context.assert.v1",
             r"iroha.asset.fi.link.attestation.set.v1",
             r"iroha.asset.fi.link.set.v1",
             r"iroha.asset.fi.link.transfer.v1",
             r"iroha.asset.fi.set.v1",
+            r"iroha.asset.fi.transfer_receipt.assert.v1",
             r"iroha.asset.lock.controlled.cancel.v1",
             r"iroha.asset.lock.controlled.drawdown.v1",
             r"iroha.asset.lock.controlled.expire.v1",
@@ -86,6 +91,15 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.asset.uid.policy.reader.set.v1",
             r"iroha.asset.uid.policy.set.v1",
             r"iroha.asset.uid.system.set.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Exact first-release iOS and Android FI request and binding schema names accepted by the closed request normalizer. They select unauthenticated input formats; neither a schema name nor normalization authenticates ledger state",
+        literals: &[
+            r"boi.wallet-fi-context-evidence.android.v1",
+            r"boi.wallet-fi-context-evidence.ios.v1",
+            r"boi.wallet-fi-context.v1",
         ],
     },
     OtherDomains {

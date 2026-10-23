@@ -868,7 +868,9 @@ Root {
             },
             fee_sink_account_id: sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV,
             sponsor_vault_custody_account_id: sorauﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT,
-            successful_claim_fee_exempt_authorities: {},
+            successful_claim_fee_exempt_authorities: RootFeeExemptions(
+                [],
+            ),
             base_fee: Quantity(
                 Numeric {
                     mantissa: 0,

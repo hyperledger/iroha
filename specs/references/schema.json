@@ -844,6 +844,14 @@
     ]
   },
   "ActionStatementDigestV1": "Array<u8, 32>",
+  "ActivateAssetUidEnrollmentV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
   "AdmissionHistoryRecordV1": {
     "Struct": [
       {
@@ -974,6 +982,46 @@
       }
     ]
   },
+  "AmxApprovalReadFailureV1": {
+    "Struct": [
+      {
+        "name": "approval_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "relay_header_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "requested_height",
+        "type": "u64"
+      },
+      {
+        "name": "reason",
+        "type": "AmxApprovalReadReasonV1"
+      },
+      {
+        "name": "observed_height",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "retry_after_ms",
+        "type": "Option<u64>"
+      }
+    ]
+  },
+  "AmxApprovalReadReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "CutChanged"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Capacity"
+      }
+    ]
+  },
   "AmxCertifiedBlockV1": {
     "Struct": [
       {
@@ -1074,11 +1122,29 @@
       }
     ]
   },
+  "AnonymousBallotRejectionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "outside_casting_window"
+      },
+      {
+        "discriminant": 1,
+        "tag": "duplicate_nullifier"
+      }
+    ]
+  },
   "ArchiveId": "Array<u8, 32>",
   "Array<Hash, 256>": {
     "Array": {
       "len": 256,
       "type": "Hash"
+    }
+  },
+  "Array<PrivateSettlementCommitteeKeyProofV1, 4>": {
+    "Array": {
+      "len": 4,
+      "type": "PrivateSettlementCommitteeKeyProofV1"
     }
   },
   "Array<u16, 8>": {
@@ -1156,6 +1222,86 @@
       {
         "name": "actual",
         "type": "Hash"
+      }
+    ]
+  },
+  "AssertAssetFiContextV1": {
+    "Struct": [
+      {
+        "name": "target",
+        "type": "AssetFiContextTargetV1"
+      },
+      {
+        "name": "expected_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "expected_uid",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "expected_context_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "request_sha256",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "challenge",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "minimum_height",
+        "type": "u64"
+      },
+      {
+        "name": "minimum_block_hash",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "AssertAssetFiTransferReceiptV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "expected_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "execution_call_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "transcript_index",
+        "type": "u64"
+      },
+      {
+        "name": "expected_receipt_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "request_sha256",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "challenge",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "minimum_height",
+        "type": "u64"
+      },
+      {
+        "name": "minimum_block_hash",
+        "type": "Array<u8, 32>"
       }
     ]
   },
@@ -1736,6 +1882,38 @@
       }
     ]
   },
+  "AssetEscrowScopeOriginalV1": {
+    "Struct": [
+      {
+        "name": "scope_original",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "records",
+        "type": "Vec<AssetEscrowRecord>"
+      }
+    ]
+  },
+  "AssetEscrowScopeV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "asset_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "record_count",
+        "type": "u64"
+      }
+    ]
+  },
   "AssetEscrowStatus": {
     "Enum": [
       {
@@ -1887,6 +2065,312 @@
       "repr": "u32"
     }
   },
+  "AssetFiContextSnapshotV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "asset_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "uid",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "fi_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "binding",
+        "type": "Option<AssetUidBindingV1>"
+      },
+      {
+        "name": "policy",
+        "type": "Option<AssetUidPolicyV1>"
+      },
+      {
+        "name": "fi",
+        "type": "Option<AssetFiV1>"
+      },
+      {
+        "name": "attestation",
+        "type": "Option<AssetFiLinkAttestationV1>"
+      },
+      {
+        "name": "link",
+        "type": "Option<AssetFiLinkV1>"
+      },
+      {
+        "name": "controller",
+        "type": "Option<AssetFiControllerBindingV1>"
+      }
+    ]
+  },
+  "AssetFiContextTargetV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "LinkApproval",
+        "type": "SetAssetFiLinkV1"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Transfer",
+        "type": "AssetFiContextTargetV1::Transfer"
+      }
+    ]
+  },
+  "AssetFiContextTargetV1::Transfer": {
+    "Struct": [
+      {
+        "name": "instruction",
+        "type": "TransferToLinkedFiV1"
+      },
+      {
+        "name": "fi_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "expected_fi_revision",
+        "type": "u64"
+      },
+      {
+        "name": "expected_attestation_revision",
+        "type": "u64"
+      }
+    ]
+  },
+  "AssetFiControllerBindingV1": {
+    "Struct": [
+      {
+        "name": "address",
+        "type": "ContractAddress"
+      },
+      {
+        "name": "subject",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "AssetFiLinkAttestationV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "fi_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      }
+    ]
+  },
+  "AssetFiLinkV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "fi_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "fi_revision",
+        "type": "u64"
+      },
+      {
+        "name": "attestation_revision",
+        "type": "u64"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      },
+      {
+        "name": "controller",
+        "type": "Option<ContractAddress>"
+      },
+      {
+        "name": "waterfall",
+        "type": "bool"
+      },
+      {
+        "name": "reverse_waterfall",
+        "type": "bool"
+      }
+    ]
+  },
+  "AssetFiRelationshipViewV1": {
+    "Struct": [
+      {
+        "name": "fi",
+        "type": "Option<AssetFiV1>"
+      },
+      {
+        "name": "attestation",
+        "type": "Option<AssetFiLinkAttestationV1>"
+      },
+      {
+        "name": "link",
+        "type": "Option<AssetFiLinkV1>"
+      },
+      {
+        "name": "ledger_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "as_of_height",
+        "type": "u64"
+      }
+    ]
+  },
+  "AssetFiTransferControllerV1": {
+    "Struct": [
+      {
+        "name": "address",
+        "type": "ContractAddress"
+      },
+      {
+        "name": "subject",
+        "type": "AccountId"
+      },
+      {
+        "name": "entrypoint",
+        "type": "String"
+      }
+    ]
+  },
+  "AssetFiTransferReceiptV1": {
+    "Struct": [
+      {
+        "name": "asset_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "network",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "execution_call_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "instruction_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "instruction",
+        "type": "TransferToLinkedFiV1"
+      },
+      {
+        "name": "authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "controller",
+        "type": "Option<AssetFiTransferControllerV1>"
+      },
+      {
+        "name": "fi",
+        "type": "AssetFiV1"
+      },
+      {
+        "name": "attestation",
+        "type": "AssetFiLinkAttestationV1"
+      },
+      {
+        "name": "link",
+        "type": "AssetFiLinkV1"
+      },
+      {
+        "name": "uid",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "uid_policy_revision",
+        "type": "u64"
+      },
+      {
+        "name": "uid_policy_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "execution_height",
+        "type": "u64"
+      },
+      {
+        "name": "execution_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "transcript_index",
+        "type": "u64"
+      }
+    ]
+  },
+  "AssetFiV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "fi_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      }
+    ]
+  },
   "AssetHandle": {
     "Struct": [
       {
@@ -1963,6 +2447,34 @@
       }
     ]
   },
+  "AssetLockControlV1": {
+    "Struct": [
+      {
+        "name": "controller",
+        "type": "ContractAddress"
+      },
+      {
+        "name": "release_until_ms",
+        "type": "Option<NonZero<u64>>"
+      },
+      {
+        "name": "cancel_not_before_ms",
+        "type": "Option<NonZero<u64>>"
+      }
+    ]
+  },
+  "AssetLockWaterfallSettlementV1": {
+    "Struct": [
+      {
+        "name": "expected_policy_revision",
+        "type": "u64"
+      },
+      {
+        "name": "expected_link_revision",
+        "type": "u64"
+      }
+    ]
+  },
   "AssetTransferAdmissionError": {
     "Enum": [
       {
@@ -2009,6 +2521,214 @@
       },
       {
         "name": "amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "AssetUidBindingV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "uid",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "AssetUidDailyWindowV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "UtcDay"
+      },
+      {
+        "discriminant": 1,
+        "tag": "JerusalemDay"
+      }
+    ]
+  },
+  "AssetUidEnrollmentV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "activated_at_height",
+        "type": "u64"
+      }
+    ]
+  },
+  "AssetUidEnrollmentViewV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "enrollment",
+        "type": "Option<AssetUidEnrollmentV1>"
+      },
+      {
+        "name": "ledger_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "as_of_height",
+        "type": "u64"
+      }
+    ]
+  },
+  "AssetUidPolicyV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "uid",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "accounts",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "holding_limit",
+        "type": "Option<Quantity>"
+      },
+      {
+        "name": "daily_window",
+        "type": "AssetUidDailyWindowV1"
+      },
+      {
+        "name": "daily_spend_limit",
+        "type": "Option<Quantity>"
+      },
+      {
+        "name": "daily_outgoing_limit",
+        "type": "Option<Quantity>"
+      }
+    ]
+  },
+  "AssetUidPolicyViewV1": {
+    "Struct": [
+      {
+        "name": "policy",
+        "type": "AssetUidPolicyV1"
+      },
+      {
+        "name": "beneficial_holdings",
+        "type": "Quantity"
+      },
+      {
+        "name": "wallet_holdings",
+        "type": "Option<AssetUidWalletHoldingsV1>"
+      },
+      {
+        "name": "day_start_ms",
+        "type": "u64"
+      },
+      {
+        "name": "daily_spend_usage",
+        "type": "Quantity"
+      },
+      {
+        "name": "daily_outgoing_usage",
+        "type": "Quantity"
+      },
+      {
+        "name": "ledger_time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "as_of_height",
+        "type": "u64"
+      }
+    ]
+  },
+  "AssetUidSystemAccountV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      }
+    ]
+  },
+  "AssetUidUsageV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "uid",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "daily_window",
+        "type": "AssetUidDailyWindowV1"
+      },
+      {
+        "name": "day_start_ms",
+        "type": "u64"
+      },
+      {
+        "name": "spend_amount",
+        "type": "Quantity"
+      },
+      {
+        "name": "outgoing_amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "AssetUidWalletHoldingsV1": {
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "asset_id",
+        "type": "AssetId"
+      },
+      {
+        "name": "spendable",
+        "type": "Quantity"
+      },
+      {
+        "name": "locked",
+        "type": "Quantity"
+      },
+      {
+        "name": "total",
+        "type": "Quantity"
+      },
+      {
+        "name": "pending_incoming",
         "type": "Quantity"
       }
     ]
@@ -4248,11 +4968,43 @@
     ]
   },
   "CanUpgradeExecutor": null,
+  "CancelAssetLock": {
+    "Struct": [
+      {
+        "name": "escrow_id",
+        "type": "EscrowId"
+      },
+      {
+        "name": "expected_remaining_amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "CancelControlledAssetLockV1": {
+    "Struct": [
+      {
+        "name": "cancel",
+        "type": "CancelAssetLock"
+      },
+      {
+        "name": "waterfall",
+        "type": "Option<AssetLockWaterfallSettlementV1>"
+      }
+    ]
+  },
   "CancelSmartContractCodeUpload": {
     "Struct": [
       {
         "name": "artifact_id",
         "type": "ContractArtifactId"
+      }
+    ]
+  },
+  "CanonicalAnonymousBallotEnvelopeV1": {
+    "Struct": [
+      {
+        "name": "bytes",
+        "type": "Vec<u8>"
       }
     ]
   },
@@ -4900,6 +5652,86 @@
       ],
       "repr": "u32"
     }
+  },
+  "ConsensusKeyId": {
+    "Struct": [
+      {
+        "name": "role",
+        "type": "ConsensusKeyRole"
+      },
+      {
+        "name": "name",
+        "type": "String"
+      }
+    ]
+  },
+  "ConsensusKeyRecord": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "ConsensusKeyId"
+      },
+      {
+        "name": "public_key",
+        "type": "PublicKey"
+      },
+      {
+        "name": "pop",
+        "type": "Option<Vec<u8>>"
+      },
+      {
+        "name": "activation_height",
+        "type": "u64"
+      },
+      {
+        "name": "expiry_height",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "replaces",
+        "type": "Option<ConsensusKeyId>"
+      },
+      {
+        "name": "status",
+        "type": "ConsensusKeyStatus"
+      }
+    ]
+  },
+  "ConsensusKeyRole": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Validator"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Committee"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Endorsement"
+      }
+    ]
+  },
+  "ConsensusKeyStatus": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Pending"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Active"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Retiring"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Disabled"
+      }
+    ]
   },
   "ConsensusMode": {
     "Enum": [
@@ -6909,6 +7741,34 @@
       }
     ]
   },
+  "DrawdownAssetLock": {
+    "Struct": [
+      {
+        "name": "escrow_id",
+        "type": "EscrowId"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      },
+      {
+        "name": "expected_remaining_amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "DrawdownControlledAssetLockV1": {
+    "Struct": [
+      {
+        "name": "drawdown",
+        "type": "DrawdownAssetLock"
+      },
+      {
+        "name": "waterfall",
+        "type": "Option<AssetLockWaterfallSettlementV1>"
+      }
+    ]
+  },
   "DurationFactorSet": {
     "Struct": [
       {
@@ -7745,6 +8605,26 @@
       {
         "name": "new_data_model",
         "type": "ExecutorDataModel"
+      }
+    ]
+  },
+  "ExpireAssetLock": {
+    "Struct": [
+      {
+        "name": "escrow_id",
+        "type": "EscrowId"
+      }
+    ]
+  },
+  "ExpireControlledAssetLockV1": {
+    "Struct": [
+      {
+        "name": "expiry",
+        "type": "ExpireAssetLock"
+      },
+      {
+        "name": "waterfall",
+        "type": "Option<AssetLockWaterfallSettlementV1>"
       }
     ]
   },
@@ -9518,6 +10398,74 @@
       {
         "name": "escrow_id",
         "type": "EscrowId"
+      }
+    ]
+  },
+  "FindAssetEscrowsByAssetDefinitionV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "expected_incarnation",
+        "type": "Hash"
+      }
+    ]
+  },
+  "FindAssetFiContextV1": {
+    "Struct": [
+      {
+        "name": "target",
+        "type": "AssetFiContextTargetV1"
+      },
+      {
+        "name": "expected_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "expected_uid",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "FindAssetFiTransferReceiptV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "expected_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "execution_call_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "transcript_index",
+        "type": "u64"
+      }
+    ]
+  },
+  "FindAssetUidPoliciesV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "uid",
+        "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "name": "wallet_account_id",
+        "type": "Option<AccountId>"
       }
     ]
   },
@@ -12416,6 +13364,22 @@
       {
         "name": "material",
         "type": "Vec<u8>"
+      }
+    ]
+  },
+  "InitializeAssetEscrowReadScopeV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "expected_incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "expected_revision",
+        "type": "u64"
       }
     ]
   },
@@ -18282,6 +19246,58 @@
     ]
   },
   "OpaqueAccountId": "Hash",
+  "OpenAssetLock": {
+    "Struct": [
+      {
+        "name": "escrow_id",
+        "type": "EscrowId"
+      },
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "destination",
+        "type": "AccountId"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      },
+      {
+        "name": "release_authority",
+        "type": "Option<AccountId>"
+      },
+      {
+        "name": "expires_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "evidence_hashes",
+        "type": "Vec<Hash>"
+      }
+    ]
+  },
+  "OpenControlledAssetLockV1": {
+    "Struct": [
+      {
+        "name": "source",
+        "type": "AccountId"
+      },
+      {
+        "name": "key",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "lock",
+        "type": "OpenAssetLock"
+      },
+      {
+        "name": "control",
+        "type": "AssetLockControlV1"
+      }
+    ]
+  },
   "Option<AccessSetHints>": {
     "Option": "AccessSetHints"
   },
@@ -18315,8 +19331,38 @@
   "Option<AssetEscrowStatus>": {
     "Option": "AssetEscrowStatus"
   },
+  "Option<AssetFiControllerBindingV1>": {
+    "Option": "AssetFiControllerBindingV1"
+  },
+  "Option<AssetFiLinkAttestationV1>": {
+    "Option": "AssetFiLinkAttestationV1"
+  },
+  "Option<AssetFiLinkV1>": {
+    "Option": "AssetFiLinkV1"
+  },
+  "Option<AssetFiTransferControllerV1>": {
+    "Option": "AssetFiTransferControllerV1"
+  },
+  "Option<AssetFiV1>": {
+    "Option": "AssetFiV1"
+  },
   "Option<AssetId>": {
     "Option": "AssetId"
+  },
+  "Option<AssetLockWaterfallSettlementV1>": {
+    "Option": "AssetLockWaterfallSettlementV1"
+  },
+  "Option<AssetUidBindingV1>": {
+    "Option": "AssetUidBindingV1"
+  },
+  "Option<AssetUidEnrollmentV1>": {
+    "Option": "AssetUidEnrollmentV1"
+  },
+  "Option<AssetUidPolicyV1>": {
+    "Option": "AssetUidPolicyV1"
+  },
+  "Option<AssetUidWalletHoldingsV1>": {
+    "Option": "AssetUidWalletHoldingsV1"
   },
   "Option<AxtEffectBinding>": {
     "Option": "AxtEffectBinding"
@@ -18353,6 +19399,9 @@
   },
   "Option<ConfidentialPolicyTransition>": {
     "Option": "ConfidentialPolicyTransition"
+  },
+  "Option<ConsensusKeyId>": {
+    "Option": "ConsensusKeyId"
   },
   "Option<ContractAddress>": {
     "Option": "ContractAddress"
@@ -20108,6 +21157,18 @@
       }
     ]
   },
+  "ParliamentCandidateTestingPolicyV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u16"
+      },
+      {
+        "name": "profile",
+        "type": "ProofProfileIdV1"
+      }
+    ]
+  },
   "ParliamentContractDeploymentOriginV1": {
     "Struct": [
       {
@@ -21814,6 +22875,7 @@
   },
   "PrivacyParameterDigestV1": "Array<u8, 32>",
   "PrivacyParameterIdV1": "Array<u8, 32>",
+  "PrivacyPoolIdV1": "Array<u8, 32>",
   "PrivacyProofSystemIdV1": {
     "Enum": [
       {
@@ -22327,6 +23389,7 @@
       }
     ]
   },
+  "PrivacyRootV1": "Array<u8, 32>",
   "PrivacySecurityClaimDigestV1": "Array<u8, 32>",
   "PrivacySecurityClaimV1": {
     "Struct": [
@@ -22531,27 +23594,287 @@
       }
     ]
   },
-  "RootFeePolicy": {
+  "PrivateSettlementBundleIdMaterialV1": {
     "Struct": [
       {
-        "name": "asset_definition_id",
-        "type": "AssetDefinitionId"
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
       },
       {
-        "name": "base_fee",
-        "type": "Quantity"
+        "name": "authority_context_height",
+        "type": "u64"
       },
       {
-        "name": "per_byte_fee",
-        "type": "Quantity"
+        "name": "expiry_height",
+        "type": "u64"
       },
       {
-        "name": "per_instruction_fee",
-        "type": "Quantity"
+        "name": "sponsor",
+        "type": "AccountId"
       },
       {
-        "name": "per_gas_unit_fee",
-        "type": "Quantity"
+        "name": "fee_intent_digest",
+        "type": "Hash"
+      },
+      {
+        "name": "reimbursement_terms_commitment",
+        "type": "Hash"
+      },
+      {
+        "name": "reimbursement_leg_ordinal",
+        "type": "u8"
+      },
+      {
+        "name": "legs",
+        "type": "Vec<PrivateSettlementBundleLegMaterialV1>"
+      }
+    ]
+  },
+  "PrivateSettlementBundleLegMaterialV1": {
+    "Struct": [
+      {
+        "name": "ordinal",
+        "type": "u8"
+      },
+      {
+        "name": "route",
+        "type": "PrivateSettlementRouteV1"
+      },
+      {
+        "name": "pool_id",
+        "type": "PrivacyPoolIdV1"
+      },
+      {
+        "name": "asset_binding_commitment",
+        "type": "Hash"
+      },
+      {
+        "name": "audit_policy_digest",
+        "type": "Hash"
+      }
+    ]
+  },
+  "PrivateSettlementCommitteeKeyProofV1": {
+    "Struct": [
+      {
+        "name": "index",
+        "type": "Vec<ConsensusKeyId>"
+      },
+      {
+        "name": "record",
+        "type": "ConsensusKeyRecord"
+      }
+    ]
+  },
+  "PrivateSettlementContextProofV1": {
+    "Struct": [
+      {
+        "name": "pool",
+        "type": "PrivateSettlementPoolCutProofV1"
+      },
+      {
+        "name": "lanes",
+        "type": "SumeragiLaneState"
+      },
+      {
+        "name": "committee_keys",
+        "type": "Array<PrivateSettlementCommitteeKeyProofV1, 4>"
+      }
+    ]
+  },
+  "PrivateSettlementContextRequestV1": {
+    "Struct": [
+      {
+        "name": "pools",
+        "type": "Vec<PrivateSettlementPoolKeyV1>"
+      }
+    ]
+  },
+  "PrivateSettlementContextsProofV1": {
+    "Struct": [
+      {
+        "name": "contexts",
+        "type": "Vec<PrivateSettlementContextProofV1>"
+      }
+    ]
+  },
+  "PrivateSettlementPoolCutProofV1": {
+    "Struct": [
+      {
+        "name": "world",
+        "type": "WorldStateSnapshotV1"
+      },
+      {
+        "name": "governance",
+        "type": "PrivateSettlementPoolGovernanceProjectionV1"
+      },
+      {
+        "name": "pool",
+        "type": "PrivateSettlementPoolStateV1"
+      }
+    ]
+  },
+  "PrivateSettlementPoolGovernanceLifecycleV1": {
+    "Struct": [
+      {
+        "name": "governance_revision",
+        "type": "u64"
+      },
+      {
+        "name": "activation_height",
+        "type": "u64"
+      },
+      {
+        "name": "retirement_height",
+        "type": "Option<u64>"
+      }
+    ]
+  },
+  "PrivateSettlementPoolGovernanceProjectionV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "route",
+        "type": "PrivateSettlementRouteV1"
+      },
+      {
+        "name": "pool_id",
+        "type": "PrivacyPoolIdV1"
+      },
+      {
+        "name": "asset_binding_commitment",
+        "type": "Hash"
+      },
+      {
+        "name": "audit_policy_digest",
+        "type": "Hash"
+      },
+      {
+        "name": "audit_key_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "lifecycle",
+        "type": "PrivateSettlementPoolGovernanceLifecycleV1"
+      },
+      {
+        "name": "governance_digest",
+        "type": "Hash"
+      },
+      {
+        "name": "prior_revisions",
+        "type": "Vec<PrivateSettlementPoolGovernanceRevisionV1>"
+      }
+    ]
+  },
+  "PrivateSettlementPoolGovernanceRevisionV1": {
+    "Struct": [
+      {
+        "name": "audit_policy_digest",
+        "type": "Hash"
+      },
+      {
+        "name": "audit_key_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "lifecycle",
+        "type": "PrivateSettlementPoolGovernanceLifecycleV1"
+      },
+      {
+        "name": "governance_digest",
+        "type": "Hash"
+      }
+    ]
+  },
+  "PrivateSettlementPoolKeyV1": {
+    "Struct": [
+      {
+        "name": "route",
+        "type": "PrivateSettlementRouteV1"
+      },
+      {
+        "name": "pool_id",
+        "type": "PrivacyPoolIdV1"
+      }
+    ]
+  },
+  "PrivateSettlementPoolStateV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "route",
+        "type": "PrivateSettlementRouteV1"
+      },
+      {
+        "name": "pool_id",
+        "type": "PrivacyPoolIdV1"
+      },
+      {
+        "name": "restricted_pool_policy_digest",
+        "type": "Hash"
+      },
+      {
+        "name": "epoch",
+        "type": "u64"
+      },
+      {
+        "name": "root",
+        "type": "PrivacyRootV1"
+      },
+      {
+        "name": "tree_size",
+        "type": "u64"
+      },
+      {
+        "name": "leaf",
+        "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "name": "ommers",
+        "type": "Vec<Array<u8, 32>>"
+      }
+    ]
+  },
+  "PrivateSettlementProofIntentV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "bundle_id",
+        "type": "Hash"
+      },
+      {
+        "name": "public_fee_intent",
+        "type": "FeePaymentIntent"
+      },
+      {
+        "name": "material",
+        "type": "PrivateSettlementBundleIdMaterialV1"
+      }
+    ]
+  },
+  "PrivateSettlementRouteV1": {
+    "Struct": [
+      {
+        "name": "dataspace_id",
+        "type": "DataSpaceId"
+      },
+      {
+        "name": "lane_id",
+        "type": "LaneId"
+      },
+      {
+        "name": "lane_incarnation",
+        "type": "Hash"
       }
     ]
   },
@@ -22807,6 +24130,7 @@
       }
     ]
   },
+  "ProofProfileIdV1": "Array<u8, 64>",
   "ProofPruneOrigin": {
     "Enum": [
       {
@@ -23521,6 +24845,36 @@
         "discriminant": 46,
         "tag": "BondRecord",
         "type": "Vec<BondRecord>"
+      },
+      {
+        "discriminant": 47,
+        "tag": "AssetUidPolicyViewV1",
+        "type": "Vec<AssetUidPolicyViewV1>"
+      },
+      {
+        "discriminant": 48,
+        "tag": "AssetFiRelationshipViewV1",
+        "type": "Vec<AssetFiRelationshipViewV1>"
+      },
+      {
+        "discriminant": 49,
+        "tag": "AssetUidEnrollmentViewV1",
+        "type": "Vec<AssetUidEnrollmentViewV1>"
+      },
+      {
+        "discriminant": 50,
+        "tag": "AssetEscrowScopeOriginalV1",
+        "type": "Vec<AssetEscrowScopeOriginalV1>"
+      },
+      {
+        "discriminant": 51,
+        "tag": "AssetFiTransferReceiptV1",
+        "type": "Vec<AssetFiTransferReceiptV1>"
+      },
+      {
+        "discriminant": 52,
+        "tag": "AssetFiContextSnapshotV1",
+        "type": "Vec<AssetFiContextSnapshotV1>"
       }
     ]
   },
@@ -25468,6 +26822,42 @@
       {
         "name": "permission",
         "type": "Permission"
+      }
+    ]
+  },
+  "RootFeePolicy": {
+    "Struct": [
+      {
+        "name": "fee_asset_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "fee_sink_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "sponsor_vault_custody_account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "successful_claim_fee_exempt_authorities",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "base_fee",
+        "type": "Quantity"
+      },
+      {
+        "name": "per_byte_fee",
+        "type": "Quantity"
+      },
+      {
+        "name": "per_instruction_fee",
+        "type": "Quantity"
+      },
+      {
+        "name": "per_gas_unit_fee",
+        "type": "Quantity"
       }
     ]
   },
@@ -27672,6 +29062,70 @@
       {
         "name": "salt",
         "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "SetAssetFiLinkAttestationV1": {
+    "Struct": [
+      {
+        "name": "attestation",
+        "type": "AssetFiLinkAttestationV1"
+      }
+    ]
+  },
+  "SetAssetFiLinkV1": {
+    "Struct": [
+      {
+        "name": "link",
+        "type": "AssetFiLinkV1"
+      },
+      {
+        "name": "expected_policy_revision",
+        "type": "u64"
+      }
+    ]
+  },
+  "SetAssetFiV1": {
+    "Struct": [
+      {
+        "name": "fi",
+        "type": "AssetFiV1"
+      }
+    ]
+  },
+  "SetAssetUidPolicyReaderV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "controller",
+        "type": "ContractAddress"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      }
+    ]
+  },
+  "SetAssetUidPolicyV1": {
+    "Struct": [
+      {
+        "name": "policy",
+        "type": "AssetUidPolicyV1"
+      }
+    ]
+  },
+  "SetAssetUidSystemAccountV1": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AssetUidSystemAccountV1"
       }
     ]
   },
@@ -32527,6 +33981,79 @@
       }
     ]
   },
+  "SumeragiLaneCustody": {
+    "Struct": [
+      {
+        "name": "lane",
+        "type": "LaneId"
+      },
+      {
+        "name": "incarnation",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "instance",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "created_at",
+        "type": "u64"
+      },
+      {
+        "name": "merged",
+        "type": "SumeragiLaneFrontier"
+      },
+      {
+        "name": "signer_count",
+        "type": "u32"
+      },
+      {
+        "name": "signers",
+        "type": "SumeragiLaneCustodySigners"
+      },
+      {
+        "name": "evidence_horizon",
+        "type": "u64"
+      },
+      {
+        "name": "slashing_delay",
+        "type": "u64"
+      },
+      {
+        "name": "retired_at",
+        "type": "Option<u64>"
+      }
+    ]
+  },
+  "SumeragiLaneCustodySigners": "Vec<SumeragiLaneSignerCustody>",
+  "SumeragiLaneFrontier": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "block_hash",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "result",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "SumeragiLaneMember": {
+    "Struct": [
+      {
+        "name": "peer",
+        "type": "PeerId"
+      },
+      {
+        "name": "pop",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
   "SumeragiLaneMerge": {
     "Struct": [
       {
@@ -32568,6 +34095,138 @@
       {
         "name": "merged_count",
         "type": "u32"
+      }
+    ]
+  },
+  "SumeragiLaneRecord": {
+    "Struct": [
+      {
+        "name": "da_layout",
+        "type": "DataAvailabilityLayout"
+      },
+      {
+        "name": "lane",
+        "type": "LaneId"
+      },
+      {
+        "name": "dataspace",
+        "type": "DataSpaceId"
+      },
+      {
+        "name": "incarnation",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "params",
+        "type": "SumeragiParameters"
+      },
+      {
+        "name": "committee",
+        "type": "Vec<SumeragiLaneMember>"
+      },
+      {
+        "name": "created_at",
+        "type": "u64"
+      },
+      {
+        "name": "active_from",
+        "type": "u64"
+      },
+      {
+        "name": "closing",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "anchor_freshness",
+        "type": "u64"
+      },
+      {
+        "name": "merged",
+        "type": "SumeragiLaneFrontier"
+      },
+      {
+        "name": "merged_at",
+        "type": "u64"
+      },
+      {
+        "name": "rescued",
+        "type": "u64"
+      }
+    ]
+  },
+  "SumeragiLaneSample": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "time_ms",
+        "type": "u64"
+      },
+      {
+        "name": "transactions",
+        "type": "u64"
+      },
+      {
+        "name": "lanes",
+        "type": "u32"
+      }
+    ]
+  },
+  "SumeragiLaneSignerCustody": {
+    "Struct": [
+      {
+        "name": "signer",
+        "type": "u32"
+      },
+      {
+        "name": "binding",
+        "type": "SumeragiLaneStakeBinding"
+      }
+    ]
+  },
+  "SumeragiLaneStakeBinding": {
+    "Struct": [
+      {
+        "name": "owner_lane",
+        "type": "LaneId"
+      },
+      {
+        "name": "validator",
+        "type": "Hash"
+      },
+      {
+        "name": "activation_height",
+        "type": "u64"
+      },
+      {
+        "name": "tenure",
+        "type": "Hash"
+      }
+    ]
+  },
+  "SumeragiLaneState": {
+    "Struct": [
+      {
+        "name": "lanes",
+        "type": "Vec<SumeragiLaneRecord>"
+      },
+      {
+        "name": "custody",
+        "type": "Vec<SumeragiLaneCustody>"
+      },
+      {
+        "name": "samples",
+        "type": "Vec<SumeragiLaneSample>"
+      },
+      {
+        "name": "last_transition",
+        "type": "u64"
+      },
+      {
+        "name": "incarnations",
+        "type": "u64"
       }
     ]
   },
@@ -33456,6 +35115,11 @@
         "discriminant": 2,
         "tag": "SealedReveal",
         "type": "SealedTransactionReveal"
+      },
+      {
+        "discriminant": 4,
+        "tag": "AnonymousBallot",
+        "type": "CanonicalAnonymousBallotEnvelopeV1"
       }
     ]
   },
@@ -33670,6 +35334,11 @@
         "discriminant": 4,
         "tag": "TriggerExecution",
         "type": "TriggerExecutionFail"
+      },
+      {
+        "discriminant": 5,
+        "tag": "AnonymousBallot",
+        "type": "AnonymousBallotRejectionV1"
       }
     ]
   },
@@ -33764,6 +35433,30 @@
       {
         "name": "siblings",
         "type": "Vec<Array<u8, 32>>"
+      }
+    ]
+  },
+  "TransferToLinkedFiV1": {
+    "Struct": [
+      {
+        "name": "asset_definition_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      },
+      {
+        "name": "expected_link_revision",
+        "type": "u64"
+      },
+      {
+        "name": "expected_policy_revision",
+        "type": "u64"
       }
     ]
   },
@@ -34618,8 +36311,26 @@
   "Vec<AssetEscrowRecord>": {
     "Vec": "AssetEscrowRecord"
   },
+  "Vec<AssetEscrowScopeOriginalV1>": {
+    "Vec": "AssetEscrowScopeOriginalV1"
+  },
+  "Vec<AssetFiContextSnapshotV1>": {
+    "Vec": "AssetFiContextSnapshotV1"
+  },
+  "Vec<AssetFiRelationshipViewV1>": {
+    "Vec": "AssetFiRelationshipViewV1"
+  },
+  "Vec<AssetFiTransferReceiptV1>": {
+    "Vec": "AssetFiTransferReceiptV1"
+  },
   "Vec<AssetId>": {
     "Vec": "AssetId"
+  },
+  "Vec<AssetUidEnrollmentViewV1>": {
+    "Vec": "AssetUidEnrollmentViewV1"
+  },
+  "Vec<AssetUidPolicyViewV1>": {
+    "Vec": "AssetUidPolicyViewV1"
   },
   "Vec<AttachmentReferenceV1>": {
     "Vec": "AttachmentReferenceV1"
@@ -34674,6 +36385,9 @@
   },
   "Vec<ConditionalEscrowConditionState>": {
     "Vec": "ConditionalEscrowConditionState"
+  },
+  "Vec<ConsensusKeyId>": {
+    "Vec": "ConsensusKeyId"
   },
   "Vec<ContractEnumTypeDescriptorV1>": {
     "Vec": "ContractEnumTypeDescriptorV1"
@@ -35098,6 +36812,18 @@
   "Vec<PrivateDataspaceRecord>": {
     "Vec": "PrivateDataspaceRecord"
   },
+  "Vec<PrivateSettlementBundleLegMaterialV1>": {
+    "Vec": "PrivateSettlementBundleLegMaterialV1"
+  },
+  "Vec<PrivateSettlementContextProofV1>": {
+    "Vec": "PrivateSettlementContextProofV1"
+  },
+  "Vec<PrivateSettlementPoolGovernanceRevisionV1>": {
+    "Vec": "PrivateSettlementPoolGovernanceRevisionV1"
+  },
+  "Vec<PrivateSettlementPoolKeyV1>": {
+    "Vec": "PrivateSettlementPoolKeyV1"
+  },
   "Vec<ProofId>": {
     "Vec": "ProofId"
   },
@@ -35194,8 +36920,23 @@
   "Vec<String>": {
     "Vec": "String"
   },
+  "Vec<SumeragiLaneCustody>": {
+    "Vec": "SumeragiLaneCustody"
+  },
+  "Vec<SumeragiLaneMember>": {
+    "Vec": "SumeragiLaneMember"
+  },
   "Vec<SumeragiLaneMerge>": {
     "Vec": "SumeragiLaneMerge"
+  },
+  "Vec<SumeragiLaneRecord>": {
+    "Vec": "SumeragiLaneRecord"
+  },
+  "Vec<SumeragiLaneSample>": {
+    "Vec": "SumeragiLaneSample"
+  },
+  "Vec<SumeragiLaneSignerCustody>": {
+    "Vec": "SumeragiLaneSignerCustody"
   },
   "Vec<TaikaiAliasRotationStatus>": {
     "Vec": "TaikaiAliasRotationStatus"

@@ -165,6 +165,7 @@ include!("host/contract_state_namespace.rs");
 // canonical root or include its delimiter. Matching reserves only the exact
 // root and `_`/`/` descendants so similarly named user keys remain available.
 const OPAQUE_SYSTEM_CONTRACT_STATE_PREFIXES: &[&str] = &[
+    iroha_data_model::escrow::scoped::SCOPE_ROOT,
     crate::smartcontracts::isi::escrow::controlled::STATE_ROOT,
     crate::state::retail_daily_limit_state::POLICY_ROOT,
     crate::state::asset_fi::FI_ROOT,

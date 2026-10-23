@@ -107,6 +107,7 @@ fn genesis_fee_defaults_do_not_consume_input_decode_quota() {
     drop(chain);
     let quota = norito::DecodeLimits::new(0, 0, 0, 0, 0);
     let policy = norito::with_decode_limits_scope(quota, fees::genesis_policy);
+    assert!(policy.successful_claim_fee_exempt_authorities.is_empty());
     assert_eq!(policy.fee_sink_account_id, expected_fee_sink);
     assert_eq!(policy.sponsor_vault_custody_account_id, expected_sponsor);
     // Runtime input parsing must still enforce the same caller-owned limit.

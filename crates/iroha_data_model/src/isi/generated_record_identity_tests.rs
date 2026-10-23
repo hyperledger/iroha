@@ -16,6 +16,7 @@ mod inventory;
 #[path = "kaigi_record_identity_tests.rs"]
 mod kaigi_records;
 
+mod fi_context_values;
 mod native_capture;
 mod uid_lock_values;
 
@@ -121,13 +122,13 @@ fn captured(nominal: &str) -> &'static Value {
             );
             assert_eq!(
                 hex(&Sha256::digest(source.as_bytes())),
-                "be8372e23062bd44fadaa9745c4541aa1a59b439dd321ffb1e214dd6e7b24f1a",
+                "2e2df5cb97289c4de50bb2abf9c17d63fb490de98a3424a319fbb38a8a6d37e0",
                 "instruction record capture digest drift"
             );
             let capture: Value =
                 json::from_str(source).expect("immutable instruction record capture");
             let rows = capture.as_array().expect("captured type rows");
-            assert_eq!(rows.len(), 353, "complete instantiated record inventory");
+            assert_eq!(rows.len(), 356, "complete instantiated record inventory");
             let mut previous = None;
             let mut case_count = 0;
             for row in rows {
@@ -145,12 +146,12 @@ fn captured(nominal: &str) -> &'static Value {
                     .expect("captured cases")
                     .len();
             }
-            assert_eq!(case_count, 396, "complete populated record case inventory");
+            assert_eq!(case_count, 400, "complete populated record case inventory");
             capture
         })
         .as_array()
         .expect("captured type rows");
-    assert_eq!(rows.len(), 353, "complete instantiated record inventory");
+    assert_eq!(rows.len(), 356, "complete instantiated record inventory");
     let mut matches = rows
         .iter()
         .filter(|row| row.get("nominal").and_then(Value::as_str) == Some(nominal));

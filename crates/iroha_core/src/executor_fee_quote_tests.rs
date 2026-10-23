@@ -14,7 +14,8 @@ fn successful_claim_fee_exempt_draft_returns_zero_quote_in_direct_mode() {
     nexus
         .fees
         .successful_claim_fee_exempt_authorities
-        .insert(payload.authority.clone());
+        .try_insert(payload.authority.clone())
+        .expect("fixture fee exemption");
     payload.metadata.insert(
         SORA_V2_CLAIM_TX_HASH_METADATA_KEY
             .parse()
@@ -43,7 +44,8 @@ fn successful_claim_fee_exemption_uses_exact_account_identity() {
     nexus
         .fees
         .successful_claim_fee_exempt_authorities
-        .insert(authority.clone());
+        .try_insert(authority.clone())
+        .expect("fixture fee exemption");
     assert!(successful_claim_fee_authority_allowed(&nexus, &authority));
     assert!(!successful_claim_fee_authority_allowed(
         &nexus,
@@ -94,7 +96,8 @@ fn original_claim_metadata_refusal_defers_fee_quote_and_retries_exact_payload() 
     nexus
         .fees
         .successful_claim_fee_exempt_authorities
-        .insert(authority);
+        .try_insert(authority)
+        .expect("fixture fee exemption");
     let original = payload.clone();
     author_component_fee_policy(&world, &nexus.fees);
     let quote = || {
@@ -143,7 +146,8 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
     nexus
         .fees
         .successful_claim_fee_exempt_authorities
-        .insert(authority.clone());
+        .try_insert(authority.clone())
+        .expect("fixture fee exemption");
     let asset = nexus.fees.fee_asset_id.clone();
     let payload =
         original_claim_fee_payload(authority, asset, "customer@fi.universal".into(), recipient);
@@ -264,7 +268,8 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
     seed_test_asset_supply(&mut world, &fee_asset);
     let mut fees = iroha_config::parameters::actual::Nexus::default().fees;
     fees.successful_claim_fee_exempt_authorities
-        .insert(authority.clone());
+        .try_insert(authority.clone())
+        .expect("fixture fee exemption");
     author_component_fee_policy(&world, &fees);
     let state = state_after_genesis(world);
     let mut payload = original_claim_fee_payload(

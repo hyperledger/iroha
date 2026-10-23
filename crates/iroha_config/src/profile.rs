@@ -535,9 +535,12 @@ impl GenesisRootFeesFile {
         if asset.canonical_address() != self.fee_asset_id {
             return Err("genesis fee currency requires its canonical asset identity".to_owned());
         }
-        let mut exemptions = std::collections::BTreeSet::new();
+        let mut exemptions = iroha_data_model::block::consensus::RootFeeExemptions::new();
         for literal in &self.successful_claim_fee_exempt_authorities {
-            if !exemptions.insert(account(literal)?) {
+            if !exemptions
+                .try_insert(account(literal)?)
+                .map_err(|error| error.to_string())?
+            {
                 return Err("genesis fee exemptions repeat an account".to_owned());
             }
         }

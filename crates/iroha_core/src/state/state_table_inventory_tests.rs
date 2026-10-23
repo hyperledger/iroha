@@ -9244,6 +9244,68 @@ fn state_hash_scan_preserves_typed_multisig_record_identity() {
     ));
 }
 
+/// Native UID snapshot diagnostics name record families; the private reader returns one UID.
+#[test]
+fn asset_uid_inventory_keeps_snapshot_names_and_record_identity() {
+    let path = "crates/iroha_core/src/state/deserialize_world.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    let owners = domain_owners();
+    assert!(scan.unlisted_domains.is_empty());
+    for literal in [
+        "world.smart_contract_state.asset_fi_v1",
+        "world.smart_contract_state.asset_lock_control_v1",
+        "world.smart_contract_state.asset_uid_enrollment_v1",
+        "world.smart_contract_state.asset_uid_reader_v1",
+        "world.smart_contract_state.asset_uid_v1",
+    ] {
+        assert_eq!(owners.get(literal), Some(&DomainOwner::Other(Use::Name)));
+        assert_eq!(
+            scan.literal_uses.get(literal),
+            Some(&BTreeMap::from([(path.to_owned(), 1)])),
+            "the diagnostic label retains its exact native snapshot source"
+        );
+    }
+    let shadow = "world.smart_contract_state.asset_uid_reader_shadow_v1";
+    let changed = format!("{text}\nconst SHADOW: &str = \"{shadow}\";\n");
+    assert_eq!(
+        scan_sources([(path, changed.as_str())])
+            .unlisted_domains
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{shadow} in {path}")],
+        "the reviewed diagnostic labels cannot exempt another record family"
+    );
+
+    let path = "crates/iroha_core/src/state/asset_uid_reader/same_uid.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert!(scan.unlisted_functions.is_empty());
+    assert_eq!(
+        scan.state_hash_functions,
+        BTreeMap::from([((path.to_owned(), "retail_uid".to_owned()), 1)]),
+        "the private native UID reader remains signature-detected"
+    );
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|listed| listed.path == path && listed.name == "retail_uid")
+        .collect();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, 1);
+    assert!(matches!(listed[0].owner, UseOwner::Other(Use::Record, _)));
+    let changed = format!(
+        "{text}\nmod shadow {{ fn retail_uid(world: &World) -> [u8; 32] {{ todo!() }} }}\n"
+    );
+    assert_eq!(
+        scan_sources([(path, changed.as_str())])
+            .unlisted_functions
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{path}: retail_uid: found 2, listed 1")],
+        "an additional State reader must not inherit the original classification"
+    );
+}
+
 /// The native exchange fixture checks a schema identifier, not a State hash domain.
 #[test]
 fn state_inventory_native_abc_result_tag_is_a_schema_name() {

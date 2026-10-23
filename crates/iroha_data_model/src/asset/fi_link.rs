@@ -150,3 +150,82 @@ pub struct AssetFiRelationshipViewV1 {
     /// Captured committed ledger height.
     pub as_of_height: u64,
 }
+
+/// Actual authenticated contract frame of a native linked-FI movement.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::asset::fi_link::AssetFiTransferControllerV1")]
+pub struct AssetFiTransferControllerV1 {
+    /// Contract instance admitted by the owner link.
+    pub address: ContractAddress,
+    /// Executing runtime subject of that instance.
+    pub subject: AccountId,
+    /// Actual executing entrypoint.
+    pub entrypoint: String,
+}
+
+/// Immutable native execution record for one linked-FI transfer occurrence.
+///
+/// Decoding a record grants no authority. Consumers must verify its certified
+/// membership and join its original execution and exact transcript occurrence.
+/// Later FI/link revisions do not replace the relationship captured here.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1")]
+pub struct AssetFiTransferReceiptV1 {
+    /// Exact asset-definition incarnation admitted for this native occurrence.
+    pub asset_incarnation: crate::nexus::AxtAssetIncarnationV1,
+    /// Network of the executing native state.
+    pub network: crate::NetworkId,
+    /// Identity selected by the native movement transcript resolver.
+    pub execution_call_hash: iroha_crypto::Hash,
+    /// Hash of the complete canonical native instruction box.
+    pub instruction_hash: iroha_crypto::Hash,
+    /// Exact five-field instruction executed by Native.
+    pub instruction: crate::isi::asset_fi::TransferToLinkedFiV1,
+    /// Actual debit authority.
+    pub authority: AccountId,
+    /// Actual contract frame, absent for direct owner execution.
+    pub controller: Option<AssetFiTransferControllerV1>,
+    /// Complete FI eligibility admitted for this occurrence.
+    pub fi: AssetFiV1,
+    /// Complete opaque-reference authentication admitted for this occurrence.
+    pub attestation: AssetFiLinkAttestationV1,
+    /// Complete owner approval admitted for this occurrence.
+    pub link: AssetFiLinkV1,
+    /// Native UID bound to the debited wallet.
+    #[norito(json = "crate::json_helpers::fixed_bytes")]
+    pub uid: [u8; 32],
+    /// Admitted UID policy revision.
+    pub uid_policy_revision: u64,
+    /// Hash of the complete canonical admitted UID policy.
+    pub uid_policy_hash: iroha_crypto::Hash,
+    /// Height of the actual execution.
+    pub execution_height: u64,
+    /// Certified block time used by the actual execution.
+    pub execution_time_ms: u64,
+    /// Zero-based occurrence within this call's native transfer transcript list.
+    pub transcript_index: u64,
+}

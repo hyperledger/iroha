@@ -1,11 +1,15 @@
 # Generated query identity capture
 
-`query_generated_identity_frames.json` records the current 129 query types and
-173 typed payloads. Each case retains canonical JSON and complete root, `Vec`,
-`Option` and `BTreeMap<u8, T>` frames (692 frames in total), together with the
+`query_generated_identity_frames.json` records the current 132 query types and
+178 typed payloads. Each case retains canonical JSON and complete root, `Vec`,
+`Option` and `BTreeMap<u8, T>` frames (712 frames in total), together with the
 actual native compiler name and both directional codec identity hashes.
 
-Fixture SHA-256: `dad58b68ffcd197b336236527e383dec9a061c1dade40d8487b3781edfb835ec`.
+Fixture SHA-256: `c58d726e802190a3da1e5ade8b188dc36e50c2d80acbd42218da5d7067d75ac7`.
+
+The native escrow-scope query is `FindAssetEscrowsByAssetDefinitionV1`; its
+capture binds the exact asset definition and expected asset incarnation. Native
+FI context and transfer-receipt queries retain their populated typed cases.
 
 The scoped contract-manifest query is `FindContractManifestByArtifactId`. Its
 native capture binds `DataSpaceId::new(u64::MAX)` and the canonical contract hash

@@ -1,6 +1,9 @@
 //! Explicit wire identifiers for the built-in instruction registry.
 use super::*;
-use crate::isi::{asset_fi, asset_uid, asset_uid_enrollment, retail_daily_limit};
+use crate::isi::{
+    asset_escrow_scope, asset_fi, asset_fi_context, asset_uid, asset_uid_enrollment,
+    retail_daily_limit,
+};
 type TypeName = fn() -> &'static str;
 /// One built-in instruction's Rust type and path-independent wire identity.
 #[derive(Clone, Copy)]
@@ -73,9 +76,12 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(asset_uid_enrollment::ActivateAssetUidEnrollmentV1 => "iroha.asset.uid.enrollment.activate.v1"),
     built_in_wire_id!(asset_uid_enrollment::SetAssetUidSystemAccountV1 => "iroha.asset.uid.system.set.v1"),
     built_in_wire_id!(asset_fi::SetAssetFiV1 => "iroha.asset.fi.set.v1"),
+    built_in_wire_id!(asset_escrow_scope::InitializeAssetEscrowReadScopeV1 => "iroha.asset.escrow.read_scope.initialize.v1"),
     built_in_wire_id!(asset_fi::SetAssetFiLinkAttestationV1 => "iroha.asset.fi.link.attestation.set.v1"),
     built_in_wire_id!(asset_fi::SetAssetFiLinkV1 => "iroha.asset.fi.link.set.v1"),
     built_in_wire_id!(asset_fi::TransferToLinkedFiV1 => "iroha.asset.fi.link.transfer.v1"),
+    built_in_wire_id!(asset_fi_context::AssertAssetFiContextV1 => "iroha.asset.fi.context.assert.v1"),
+    built_in_wire_id!(asset_fi_context::AssertAssetFiTransferReceiptV1 => "iroha.asset.fi.transfer_receipt.assert.v1"),
     built_in_wire_id!(retail_daily_limit::BindRetailIdentityV1 => "iroha.asset.retail_day.identity.bind.v1"),
     built_in_wire_id!(retail_daily_limit::RetailMonetaryMovementV1 => "iroha.asset.retail_day.monetary_movement.v1"),
     built_in_wire_id!(crate::isi::sumeragi_amx::RegisterAmxDataspaceV1 => "iroha.sumeragi.amx.register_dataspace.v1", register),

@@ -1493,7 +1493,7 @@ fn migrate_applies_data_model_from_entrypoint() {
                 .map(|permission| permission.name().to_owned()),
         )
         .collect();
-    let custom_parameters: BTreeMap<CustomParameterId, CustomParameter> = BTreeMap::new();
+    let custom_parameters = iroha_data_model::parameter::CustomParameters::new();
     let data_model = ExecutorDataModel::new(
         custom_parameters,
         BTreeSet::new(),

@@ -660,9 +660,7 @@ fn executor_reconciliation_cannot_replace_or_remove_the_committed_policy() {
         let mut transaction = block.transaction();
         // The migrated executor declares the parameter.
         let mut declares = ExecutorDataModel::default();
-        declares
-            .parameters
-            .insert(ZkValidityPolicyV1::parameter_id(), attacker.clone());
+        declares.parameters.insert(attacker.clone());
         transaction.world.apply_executor_data_model(declares);
         assert_eq!(
             committed(transaction.world.parameters.get()),
@@ -694,10 +692,9 @@ fn executor_reconciliation_cannot_replace_or_remove_the_committed_policy() {
     let mut block = state.block(header(2));
     let mut transaction = block.transaction();
     let mut declares = ExecutorDataModel::default();
-    declares.parameters.insert(
-        ZkValidityPolicyV1::parameter_id(),
-        committed_policy().into_custom_parameter(),
-    );
+    declares
+        .parameters
+        .insert(committed_policy().into_custom_parameter());
     transaction.world.apply_executor_data_model(declares);
     assert_eq!(committed(transaction.world.parameters.get()), Ok(None));
     assert!(

@@ -3,7 +3,7 @@ use super::*;
 use iroha_data_model::{
     escrow::{ConditionalEscrowCondition, ConditionalEscrowPredicate, ConditionalEscrowValue},
     isi::{
-        asset_fi::SetAssetFiLinkV1,
+        asset_fi::{SetAssetFiLinkV1, TransferToLinkedFiV1},
         escrow::OpenConditionalEscrow,
         transfer::{BatchMode, TransferAssetBatch},
     },
@@ -19,7 +19,24 @@ pub(super) fn instruction_json(instruction: &InstructionBox) -> BridgeResult<Jso
     if let Some(link) = instruction.as_any().downcast_ref::<SetAssetFiLinkV1>() {
         return Ok(fi_link_json(link));
     }
+    if let Some(transfer) = instruction.as_any().downcast_ref::<TransferToLinkedFiV1>() {
+        return Ok(fi_link_transfer_json(transfer));
+    }
     detached_asset_transfer_json(instruction)
+}
+
+// These five fields are the entire instruction. FI/reference/display facts are
+// deliberately absent: inspecting bytes does not authenticate current link state
+// or establish the complete historical relationship used by execution.
+fn fi_link_transfer_json(instruction: &TransferToLinkedFiV1) -> JsonValue {
+    ::norito::json!({
+        "kind": "asset_fi_link_transfer",
+        "asset_definition_id": (instruction.asset_definition_id.to_string()),
+        "account_id": (instruction.account_id.to_string()),
+        "amount": (instruction.amount.to_string()),
+        "expected_link_revision": (instruction.expected_link_revision),
+        "expected_policy_revision": (instruction.expected_policy_revision),
+    })
 }
 
 fn fi_link_json(instruction: &SetAssetFiLinkV1) -> JsonValue {

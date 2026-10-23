@@ -33,6 +33,33 @@ class NativeSignerBridge private constructor() {
 
         @JvmStatic private external fun nativeInspectDetachedTransactionScaffold(scaffold: ByteArray): ByteArray?
 
+        /** Verify the retained Ed25519 signature and finalize this exact scaffold without signing. */
+        @JvmStatic
+        fun finalizeDetachedTransactionScaffold(
+            scaffold: ByteArray,
+            publicKey: ByteArray,
+            signature: ByteArray,
+        ): org.hyperledger.iroha.sdk.tx.DetachedTransactionFinalization {
+            require(scaffold.isNotEmpty() && scaffold.size <= org.hyperledger.iroha.sdk.tx.DetachedTransactionInspection.MAX_BYTES) {
+                "Transaction scaffold exceeds the native finalization bound"
+            }
+            require(publicKey.size == 32) { "Detached finalization requires a 32-byte Ed25519 public key" }
+            require(signature.size == 64) { "Detached finalization requires a 64-byte Ed25519 signature" }
+            check(nativeAvailable) { "$LIBRARY_NAME is not available in this runtime" }
+            val result = checkNotNull(nativeFinalizeDetachedTransactionScaffold(
+                scaffold.copyOf(), publicKey.copyOf(), signature.copyOf(),
+            )) { "Native transaction finalization returned no result" }
+            check(result.size == 2) { "Native transaction finalization returned an invalid result" }
+            return org.hyperledger.iroha.sdk.tx.DetachedTransactionFinalization.fromNative(
+                checkNotNull(result[0]) { "Native transaction finalization returned no signed wire" },
+                checkNotNull(result[1]) { "Native transaction finalization returned no metadata" },
+            )
+        }
+
+        @JvmStatic private external fun nativeFinalizeDetachedTransactionScaffold(
+            scaffold: ByteArray, publicKey: ByteArray, signature: ByteArray,
+        ): Array<ByteArray?>?
+
         /** Admit a complete canonical account controller through the ABI-31 Rust owner. */
         @JvmStatic
         internal fun validateAccountAddressCanonical(canonical: ByteArray) {

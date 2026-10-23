@@ -36,19 +36,10 @@ fn path(value: String) -> StatePath {
 }
 
 pub(crate) fn policy_key(definition: &AssetDefinitionId, uid: &[u8; 32]) -> StatePath {
-    path(format!(
-        "{POLICY_ROOT}{}/{}",
-        digest(definition),
-        hex::encode(uid)
-    ))
+    super::asset_context_keys::uid_policy_native(definition, uid)
 }
-
 pub(crate) fn binding_key(definition: &AssetDefinitionId, account: &AccountId) -> StatePath {
-    path(format!(
-        "{BINDING_ROOT}{}/{}",
-        digest(definition),
-        digest(account)
-    ))
+    super::asset_context_keys::uid_binding_native(definition, &account.to_string())
 }
 
 pub(crate) fn usage_key(definition: &AssetDefinitionId, uid: &[u8; 32], day: u64) -> StatePath {

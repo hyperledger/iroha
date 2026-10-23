@@ -97,6 +97,14 @@ class DetachedTransactionInspection private constructor(
                     }
                     DetachedExecutableInspection.AssetTransferBatch(mode, entries)
                 }
+                "asset_fi_link_transfer" -> {
+                    value.exact("kind", "asset_definition_id", "account_id", "amount",
+                        "expected_link_revision", "expected_policy_revision")
+                    DetachedExecutableInspection.AssetFiLinkTransfer(
+                        value.text("asset_definition_id"), value.text("account_id"), value.text("amount"),
+                        value.uint("expected_link_revision"), value.uint("expected_policy_revision"),
+                    )
+                }
                 "asset_fi_link_set" -> {
                     value.exact(
                         "kind", "asset_definition_id", "account_id", "fi_account_id", "reference_digest",
@@ -242,6 +250,11 @@ sealed class DetachedExecutableInspection private constructor() {
         private val owned = entries.toList()
         val entries: List<DetachedTransferBatchLeg> get() = owned.toList()
     }
+    /** Exact signed fields only: no destination evidence, current link or execution proof. */
+    class AssetFiLinkTransfer internal constructor(
+        val assetDefinitionId: String, val accountId: String, val amount: String,
+        val expectedLinkRevision: BigInteger, val expectedPolicyRevision: BigInteger,
+    ) : DetachedExecutableInspection()
     /** Lossless owner-approved FI link fields; these do not prove current ledger policy. */
     class AssetFiLinkSet internal constructor(
         val assetDefinitionId: String, val accountId: String, val fiAccountId: String,

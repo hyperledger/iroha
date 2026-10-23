@@ -8541,3 +8541,24 @@ impl SortableQueryOutput for iroha_data_model::asset::uid_enrollment::AssetUidEn
     fn tiebreak_key(&self) -> Self::TiebreakKey { () }
     fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> { bounded_bare_encoded_len(&(), limit) }
 }
+
+impl SortableQueryOutput for iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1 {
+    type TiebreakKey = ();
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> { None }
+    fn tiebreak_key(&self) -> Self::TiebreakKey { () }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> { bounded_bare_encoded_len(&(), limit) }
+}
+
+impl SortableQueryOutput for iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1 {
+    type TiebreakKey = ();
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> { None }
+    fn tiebreak_key(&self) -> Self::TiebreakKey { () }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> { bounded_bare_encoded_len(&(), limit) }
+}
+
+impl SortableQueryOutput for iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1 {
+    type TiebreakKey = ();
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> { None }
+    fn tiebreak_key(&self) -> Self::TiebreakKey { () }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> { bounded_bare_encoded_len(&(), limit) }
+}

@@ -8595,13 +8595,15 @@ impl<'block> WorldTransaction<'block, '_> {
     pub(crate) fn insert_asset_escrow_entry(
         &mut self,
         record: AssetEscrowRecord,
-    ) -> Option<AssetEscrowRecord> {
+    ) -> Result<Option<AssetEscrowRecord>, Error> {
+        let scope = asset_escrow_scope::prepare_insert(self, &record)?;
         let previous = self.asset_escrows.insert(record.id, record.clone());
         if let Some(previous) = previous.as_ref() {
             self.untrack_asset_escrow_indexes(previous);
         }
         self.track_asset_escrow_indexes(&record);
-        previous
+        scope.apply(self);
+        Ok(previous)
     }
     fn settled_vpn_lease_key(record: &VpnLeaseRecordV1) -> Option<(u64, [u8; 32])> {
         (record.status == VpnLeaseStatusV1::Settled)
@@ -23071,9 +23073,15 @@ impl WorldTransaction<'_, '_> {
         // Consensus-owned parameters are written only by a validated
         // `SetParameter`; an executor data model can neither declare, replace
         // nor retire them.
-        executor_data_model
+        let consensus_parameters: Vec<_> = executor_data_model
             .parameters
-            .retain(|id, _| !is_consensus_owned_custom_parameter(id));
+            .keys()
+            .filter(|id| is_consensus_owned_custom_parameter(id))
+            .cloned()
+            .collect();
+        for id in &consensus_parameters {
+            executor_data_model.parameters.remove(id);
+        }
         let declared_permissions = executor_data_model.permissions().clone();
         let permission_is_declared = |permission: &Permission| {
             declared_permissions
@@ -37059,11 +37067,10 @@ mod consensus_owned_parameter_tests {
             // A migrated executor declares the identifier with another value,
             // next to a parameter of its own.
             let mut declares = ExecutorDataModel::default();
-            declares.parameters.insert(id.clone(), attacker.clone());
-            declares.parameters.insert(
-                own.clone(),
-                CustomParameter::new(own.clone(), Json::new("default")),
-            );
+            declares.parameters.insert(attacker.clone());
+            declares
+                .parameters
+                .insert(CustomParameter::new(own.clone(), Json::new("default")));
             transaction.world.apply_executor_data_model(declares);
             assert_eq!(
                 transaction.world.parameters.get().custom().get(&id),
@@ -37119,7 +37126,7 @@ mod consensus_owned_parameter_tests {
             let mut transaction = block.transaction_without_telemetry(LaneConfig::default(), 0);
             assert!(transaction.parameters.get().custom().get(&id).is_none());
             let mut declares = ExecutorDataModel::default();
-            declares.parameters.insert(id.clone(), attacker);
+            declares.parameters.insert(attacker);
             transaction.apply_executor_data_model(declares);
             assert!(
                 transaction.parameters.get().custom().get(&id).is_none(),
@@ -37158,7 +37165,7 @@ mod consensus_owned_parameter_tests {
             .set_parameter(Parameter::Custom(committed.clone()))
             .expect("install original typed owner");
         let mut declaration = ExecutorDataModel::default();
-        declaration.parameters.insert(id.clone(), attacker);
+        declaration.parameters.insert(attacker);
         transaction.apply_executor_data_model(declaration);
         assert_eq!(
             transaction.parameters.get().custom().get(&id),
@@ -37205,7 +37212,7 @@ mod consensus_owned_parameter_tests {
             .executor_data_model
             .get_mut()
             .parameters
-            .insert(id.clone(), committed.clone());
+            .insert(committed.clone());
         transaction.apply_executor_data_model(ExecutorDataModel::default());
         assert_eq!(
             transaction.parameters.get().custom().get(&id),
@@ -45264,6 +45271,10 @@ impl SnapshotNexusRuntime {
         }
     }
 }
+#[path = "state/asset_context_keys.rs"]
+pub(crate) mod asset_context_keys;
+#[path = "state/asset_escrow_scope.rs"]
+pub(crate) mod asset_escrow_scope;
 #[path = "state/asset_fi.rs"]
 pub(crate) mod asset_fi;
 #[path = "state/asset_uid.rs"]

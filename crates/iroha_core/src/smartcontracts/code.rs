@@ -2896,3 +2896,201 @@ seiyaku LifecycleAba { permission CanRunLifecycleAba;
         assert!(world.contract_subject_addresses.view().is_empty());
     }
 }
+
+/// The caller retains its query admission error separately from the native root owner.
+#[derive(Debug)]
+pub(crate) enum ContractObservationAttemptError<E> {
+    Admission(E),
+    Native(ExecutionAttemptError<ValidationFail>),
+}
+
+/// Observe one active native relationship without owning a derived key or authority.
+/// Broad resolver call sites are unchanged. The FI assertion and admitted FI query
+/// share this narrow observation path; the caller admits every hash-to-point attempt.
+pub(crate) fn try_borrow_active_contract_subject_for_observation<'a, E>(
+    world: &'a impl WorldReadOnly,
+    address: &ContractAddress,
+    height: u64,
+    mut admit_subject_attempt: impl FnMut(usize) -> Result<(), E>,
+) -> Result<Option<&'a AccountId>, ContractObservationAttemptError<E>> {
+    let Some(code_hash) = world.contract_instances().get(address) else {
+        return Ok(None);
+    };
+    crate::executor::root_scope::ensure_committed_address_artifact_scope(world, address)
+        .map_err(ContractObservationAttemptError::Native)?;
+    let Some(binding) = world.contract_subject_bindings().get(address) else {
+        return Ok(None);
+    };
+    let expected = address.try_subject_key_bytes(|bytes| {
+        admit_subject_attempt(bytes).map_err(ContractObservationAttemptError::Admission)
+    })?;
+    let subject_matches = binding
+        .subject
+        .try_signatory()
+        .and_then(|key| key.borrowed_parts().ok())
+        .is_some_and(|(algorithm, bytes)| {
+            algorithm == iroha_crypto::Algorithm::Ed25519 && bytes == expected
+        });
+    if !subject_matches
+        || binding.lifecycle.validate().is_err()
+        || binding.lifecycle.active_code_hash.as_ref() != Some(code_hash)
+        || binding.lifecycle.is_held_at(height)
+        || world.contract_subject_addresses().get(&binding.subject) != Some(address)
+        || world.accounts().get(&binding.subject).is_none()
+    {
+        return Ok(None);
+    }
+    Ok(Some(&binding.subject))
+}
+
+#[cfg(test)]
+mod fi_context_observation_tests {
+    use super::*;
+    use crate::state::asset_fi::FiLinkReaderFixture;
+    use iroha_data_model::smart_contract::{ContractArtifactId, ContractEmergencyHoldV1};
+    fn legacy<'a>(
+        world: &'a impl WorldReadOnly,
+        address: &ContractAddress,
+        height: u64,
+    ) -> Option<&'a AccountId> {
+        try_borrow_bound_contract_subject_from_world(world, address)
+            .unwrap()
+            .filter(|subject| {
+                world.contract_subject_addresses().get(*subject) == Some(address)
+                    && ensure_contract_execution_allowed(world, address, height).is_ok()
+            })
+    }
+    #[test]
+    fn fi_context_controller_observation_preserves_active_held_corrupt_and_reverse_semantics() {
+        let (f, state) = FiLinkReaderFixture::new();
+        let mut block = state.block(iroha_data_model::block::BlockHeader::new(
+            std::num::NonZeroU64::new(1).unwrap(),
+            None,
+            None,
+            1_000,
+            0,
+        ));
+        let mut tx = block.transaction();
+        f.install(&mut tx);
+        let address = &f.context.contract_address;
+        let observe = |world: &crate::state::WorldTransaction<'_, '_>, height| {
+            try_borrow_active_contract_subject_for_observation(world, address, height, |_| {
+                Ok::<_, core::convert::Infallible>(())
+            })
+            .unwrap()
+            .cloned()
+        };
+        assert_eq!(
+            observe(tx.world(), 1),
+            Some(f.context.contract_subject.clone())
+        );
+        assert_eq!(
+            observe(tx.world(), 1),
+            legacy(tx.world(), address, 1).cloned()
+        );
+        let original = tx
+            .world
+            .contract_subject_bindings
+            .get(address)
+            .unwrap()
+            .clone();
+        tx.world
+            .contract_subject_bindings
+            .get_mut(address)
+            .unwrap()
+            .lifecycle
+            .emergency_hold = Some(ContractEmergencyHoldV1 {
+            incident_digest: [1; 32],
+            proposal_content_id: [2; 32],
+            governance_attempt_id: [3; 32],
+            reason: "test containment".into(),
+            imposed_at_height: 1,
+            expires_at_height: 3,
+        });
+        for height in [0, 1, 2, 3] {
+            assert_eq!(
+                observe(tx.world(), height),
+                legacy(tx.world(), address, height).cloned()
+            );
+        }
+        tx.world
+            .contract_subject_bindings
+            .insert(address.clone(), original.clone());
+        tx.world
+            .contract_subject_bindings
+            .get_mut(address)
+            .unwrap()
+            .lifecycle
+            .active_code_hash = None;
+        assert!(observe(tx.world(), 1).is_none());
+        tx.world
+            .contract_subject_bindings
+            .insert(address.clone(), original.clone());
+        tx.world
+            .contract_subject_bindings
+            .get_mut(address)
+            .unwrap()
+            .lifecycle
+            .revision = 0;
+        assert!(observe(tx.world(), 1).is_none());
+        tx.world
+            .contract_subject_bindings
+            .insert(address.clone(), original.clone());
+        tx.world
+            .contract_subject_bindings
+            .get_mut(address)
+            .unwrap()
+            .subject = f.wallet.clone();
+        assert!(observe(tx.world(), 1).is_none());
+        tx.world
+            .contract_subject_bindings
+            .insert(address.clone(), original);
+        tx.world
+            .contract_subject_addresses
+            .remove(f.context.contract_subject.clone());
+        assert!(observe(tx.world(), 1).is_none());
+        tx.world
+            .contract_subject_addresses
+            .insert(f.context.contract_subject.clone(), address.clone());
+        tx.world.accounts.remove(f.context.contract_subject.clone());
+        assert!(observe(tx.world(), 1).is_none());
+    }
+    #[test]
+    fn fi_context_controller_observation_keeps_subject_and_root_admission_errors() {
+        let (f, state) = FiLinkReaderFixture::new();
+        let mut block = state.block(iroha_data_model::block::BlockHeader::new(
+            std::num::NonZeroU64::new(1).unwrap(),
+            None,
+            None,
+            1_000,
+            0,
+        ));
+        let mut tx = block.transaction();
+        f.install(&mut tx);
+        let address = &f.context.contract_address;
+        let refusal =
+            try_borrow_active_contract_subject_for_observation(tx.world(), address, 1, |_| {
+                Err("subject-work-refusal")
+            });
+        assert!(matches!(
+            refusal,
+            Err(ContractObservationAttemptError::Admission(
+                "subject-work-refusal"
+            ))
+        ));
+        let artifact =
+            ContractArtifactId::for_address(address, Hash::new("observation-root")).unwrap();
+        let limits = norito::DecodeLimits::new(0, 0, 0, 0, 0);
+        let original = norito::core::with_decode_limits_scope(limits, || {
+            crate::executor::root_scope::ensure_committed_artifact_scope(tx.world(), &artifact)
+        });
+        let borrowed = norito::core::with_decode_limits_scope(limits, || {
+            crate::executor::root_scope::ensure_committed_address_artifact_scope(
+                tx.world(),
+                address,
+            )
+        });
+        assert!(matches!(original, Err(ExecutionAttemptError::Deferred(_))));
+        assert!(matches!(borrowed, Err(ExecutionAttemptError::Deferred(_))));
+    }
+}

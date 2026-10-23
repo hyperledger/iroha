@@ -369,7 +369,7 @@ mod tests {
     fn test_state(mut world: World, policy: AccountAdmissionPolicy) -> State {
         let custom = policy.into_custom_parameter();
         let mut params = Parameters::default();
-        params.custom.insert(custom.id.clone(), custom);
+        params.custom.insert(custom);
         params.set_parameter(
             iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(
                 Algorithm::ALL.to_vec(),

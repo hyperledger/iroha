@@ -39,6 +39,12 @@ fn uid_fi_and_controlled_lock_export_contains_exact_public_schema_closure() {
         SetAssetFiLinkAttestationV1,
         SetAssetFiLinkV1,
         TransferToLinkedFiV1,
+        iroha_data_model::isi::asset_fi_context::AssertAssetFiContextV1,
+        iroha_data_model::isi::asset_fi_context::AssertAssetFiTransferReceiptV1,
+        iroha_data_model::asset::fi_context::AssetFiContextTargetV1,
+        iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1,
+        iroha_data_model::query::asset_fi_context::FindAssetFiContextV1,
+        iroha_data_model::asset::fi_context::AssetFiControllerBindingV1,
         OpenControlledAssetLockV1,
         DrawdownControlledAssetLockV1,
         CancelControlledAssetLockV1,
@@ -49,6 +55,12 @@ fn uid_fi_and_controlled_lock_export_contains_exact_public_schema_closure() {
         AssetUidPolicyViewV1,
         AssetUidEnrollmentViewV1,
         AssetFiRelationshipViewV1,
+        iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1,
+        iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1,
+        iroha_data_model::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1,
+        iroha_data_model::query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1,
+        iroha_data_model::escrow::scoped::AssetEscrowScopeV1,
+        iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1,
     );
     let exported = crate::build_schemas();
     let exported: std::collections::BTreeMap<_, _> = exported.iter().collect();

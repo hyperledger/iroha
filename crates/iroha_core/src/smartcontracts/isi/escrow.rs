@@ -656,7 +656,7 @@ fn close_native_orderbook_asset_lock(
         };
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         let event = match close {
             NativeOrderbookClose::Cancelled => EscrowEvent::Cancelled(record.clone()),
             NativeOrderbookClose::Expired => EscrowEvent::Expired(record.clone()),
@@ -943,10 +943,10 @@ pub(crate) fn partition_orderbook_asset_lock(
     };
     state_transaction
         .world
-        .insert_asset_escrow_entry(parent.clone());
+        .insert_asset_escrow_entry(parent.clone())?;
     state_transaction
         .world
-        .insert_asset_escrow_entry(child.clone());
+        .insert_asset_escrow_entry(child.clone())?;
     mark_orderbook_channel_lock(state_transaction, &child.id)?;
     state_transaction.world.emit_events([
         EscrowEvent::Released(parent.clone()),
@@ -1133,7 +1133,7 @@ pub(crate) fn settle_orderbook_asset_lock(
     }
     state_transaction
         .world
-        .insert_asset_escrow_entry(record.clone());
+        .insert_asset_escrow_entry(record.clone())?;
     state_transaction
         .world
         .emit_events(Some(EscrowEvent::Released(record.clone())));
@@ -1344,7 +1344,7 @@ impl Execute for OpenAssetEscrow {
         };
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Opened(record)));
@@ -1378,7 +1378,7 @@ impl Execute for AcceptAssetEscrow {
         record.accepted_at_ms = Some(state_transaction.block_unix_timestamp_ms());
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Accepted(record)));
@@ -1410,7 +1410,7 @@ impl Execute for MarkEscrowPaymentSent {
         record.payment_sent_at_ms = Some(state_transaction.block_unix_timestamp_ms());
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::PaymentSent(record)));
@@ -1458,7 +1458,7 @@ impl Execute for ReleaseAssetEscrow {
         record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Released(record)));
@@ -1507,7 +1507,7 @@ impl Execute for CancelAssetEscrow {
         record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Cancelled(record)));
@@ -1551,7 +1551,7 @@ impl Execute for OpenEscrowDispute {
             .extend(self.evidence_hashes.iter().copied());
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Disputed(AssetEscrowDisputed {
@@ -1626,7 +1626,7 @@ impl Execute for ResolveEscrowDispute {
         });
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Resolved(AssetEscrowResolved {
@@ -1726,7 +1726,7 @@ fn execute_open_asset_lock(
     };
     state_transaction
         .world
-        .insert_asset_escrow_entry(record.clone());
+        .insert_asset_escrow_entry(record.clone())?;
     state_transaction
         .world
         .emit_events(Some(EscrowEvent::Opened(record)));
@@ -1832,7 +1832,7 @@ fn execute_drawdown_asset_lock(
     }
     state_transaction
         .world
-        .insert_asset_escrow_entry(record.clone());
+        .insert_asset_escrow_entry(record.clone())?;
     state_transaction
         .world
         .emit_events(Some(EscrowEvent::Released(record)));
@@ -1907,7 +1907,7 @@ fn execute_cancel_asset_lock(
     record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
     state_transaction
         .world
-        .insert_asset_escrow_entry(record.clone());
+        .insert_asset_escrow_entry(record.clone())?;
     state_transaction
         .world
         .emit_events(Some(EscrowEvent::Cancelled(record)));
@@ -1971,7 +1971,7 @@ fn execute_expire_asset_lock(
     record.closed_at_ms = Some(state_transaction.block_unix_timestamp_ms());
     state_transaction
         .world
-        .insert_asset_escrow_entry(record.clone());
+        .insert_asset_escrow_entry(record.clone())?;
     state_transaction
         .world
         .emit_events(Some(EscrowEvent::Expired(record)));
@@ -2068,7 +2068,7 @@ impl ConditionalEscrowOpening {
         )?;
         state_transaction
             .world
-            .insert_asset_escrow_entry(self.record.clone());
+            .insert_asset_escrow_entry(self.record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Opened(self.record)));
@@ -2411,7 +2411,7 @@ impl Execute for AttestEscrowCondition {
         }
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Attested(ConditionalEscrowAttested {
@@ -2472,7 +2472,7 @@ impl Execute for ExpireConditionalEscrow {
         record.closed_at_ms = Some(now_ms);
         state_transaction
             .world
-            .insert_asset_escrow_entry(record.clone());
+            .insert_asset_escrow_entry(record.clone())?;
         state_transaction
             .world
             .emit_events(Some(EscrowEvent::Expired(record)));
@@ -4541,7 +4541,7 @@ mod tests {
                 AssetEscrowStatus::Accepted,
             ),
         ] {
-            tx.world.insert_asset_escrow_entry(record);
+            tx.world.insert_asset_escrow_entry(record).expect("escrow fixture insert");
         }
         let predicate = CompoundPredicate::<AssetEscrowRecord>::build(|predicate| {
             predicate

@@ -3,6 +3,8 @@
 use super::*;
 #[path = "asset_fi/reader.rs"]
 mod reader;
+#[path = "asset_fi/receipt.rs"]
+pub(crate) mod receipt;
 use iroha_data_model::{
     asset::fi_link::{AssetFiLinkAttestationV1, AssetFiLinkV1, AssetFiV1},
     isi::error::InstructionExecutionError,
@@ -14,14 +16,20 @@ pub(crate) use reader::{AssetFiLinkRevisionError, link_revision_for_contract};
 pub(crate) const FI_ROOT: &str = "asset_fi_v1/";
 pub(crate) const ATTESTATION_ROOT: &str = "asset_fi_link_attestation_v1/";
 pub(crate) const LINK_ROOT: &str = "asset_fi_link_v1/";
+// Native physical storage under the already-reserved sc/ root. A contract digest
+// is 64 hexadecimal characters, so no contract owns sc/native/.
+pub(crate) const RECEIPT_ROOT: &str = "sc/native/asset_fi_transfer_receipt_v1/";
 type Error = InstructionExecutionError;
+
+/// Existing transaction-frozen ceiling for assertion byte/codec graph bounds.
+/// This is accounting only, not an independent physical allocation reservation.
+pub(crate) fn assertion_encoding_ceiling(tx: &StateTransaction<'_, '_>) -> Result<usize, Error> {
+    usize::try_from(tx.fastpq_source_policy.1.max_output_bytes)
+        .map_err(|_| reject("FI assertion frozen byte ceiling exceeds host width"))
+}
 
 pub(crate) fn reject(message: impl Into<String>) -> Error {
     Error::InvariantViolation(message.into().into())
-}
-
-fn digest(value: impl std::fmt::Display) -> String {
-    hex::encode(Hash::new(value.to_string().as_bytes()).as_ref())
 }
 
 fn path(value: String) -> StatePath {
@@ -29,30 +37,13 @@ fn path(value: String) -> StatePath {
 }
 
 pub(crate) fn fi_key(definition: &AssetDefinitionId, fi: &AccountId) -> StatePath {
-    path(format!("{FI_ROOT}{}/{}", digest(definition), digest(fi)))
+    super::asset_context_keys::fi_native(definition, &fi.to_string())
 }
-
-pub(crate) fn attestation_key(
-    definition: &AssetDefinitionId,
-    account: &AccountId,
-    fi: &AccountId,
-    reference: &[u8; 32],
-) -> StatePath {
-    path(format!(
-        "{ATTESTATION_ROOT}{}/{}/{}/{}",
-        digest(definition),
-        digest(account),
-        digest(fi),
-        hex::encode(reference)
-    ))
+pub(crate) fn attestation_key(definition: &AssetDefinitionId, account: &AccountId, fi: &AccountId, reference: &[u8; 32]) -> StatePath {
+    super::asset_context_keys::attestation_native(definition, &account.to_string(), &fi.to_string(), reference)
 }
-
 pub(crate) fn link_key(definition: &AssetDefinitionId, account: &AccountId) -> StatePath {
-    path(format!(
-        "{LINK_ROOT}{}/{}",
-        digest(definition),
-        digest(account)
-    ))
+    super::asset_context_keys::link_native(definition, &account.to_string())
 }
 
 fn read<T>(world: &impl WorldReadOnly, key: &StatePath) -> Result<Option<T>, Error>
@@ -229,6 +220,12 @@ pub(crate) fn retained(
                 accounts.push(controller.subject_id());
             }
             Some((value.asset_definition_id, accounts))
+        } else if in_root(key, RECEIPT_ROOT) {
+            let value = receipt::read_record(world, key)?;
+            Some((
+                value.instruction.asset_definition_id.clone(),
+                receipt::referenced_accounts(&value),
+            ))
         } else {
             None
         };
@@ -244,7 +241,19 @@ pub(crate) fn retained(
 /// Validate canonical references on restore, while retaining legitimately stale approvals.
 pub(crate) fn validate_persistence(world: &impl WorldReadOnly) -> Result<(), Error> {
     for (key, _) in world.smart_contract_state().iter() {
-        if in_root(key, FI_ROOT) {
+        if in_root(key, RECEIPT_ROOT) {
+            let value = receipt::read_record(world, key)?;
+            if world
+                .asset_definition(&value.instruction.asset_definition_id)?
+                .balance_scope_policy()
+                != iroha_data_model::asset::AssetBalancePolicy::Global
+            {
+                return Err(reject("retained FI receipts require a Global definition"));
+            }
+            for account in receipt::referenced_accounts(&value) {
+                world.account(&account)?;
+            }
+        } else if in_root(key, FI_ROOT) {
             let value: AssetFiV1 = read(world, key)?.ok_or_else(|| reject("missing FI state"))?;
             if key != &fi_key(&value.asset_definition_id, &value.fi_account_id)
                 || fi(world, &value.asset_definition_id, &value.fi_account_id)?.is_none()

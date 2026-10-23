@@ -15096,7 +15096,7 @@
           "key_activation_lead_blocks": "1",
           "key_overlap_grace_blocks": "8",
           "key_expiry_grace_blocks": "0",
-          "key_allowed_algorithms": "vec![Algorithm::BlsNormal]"
+          "key_allowed_algorithms": "KEY_ALLOWED_ALGORITHMS.to_vec()"
         }
       },
       {
@@ -19219,7 +19219,7 @@
         ]
       },
       {
-        "reason": "Identity and asset shapes: multisig controller members, implicit account creations per transaction, asset name, description and address text lengths and the transfer-control reason length. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached.",
+        "reason": "Identity and asset shapes: multisig controller members, implicit account creations per transaction, asset name, description and address text lengths, the transfer-control reason length, and FI context assertion capsules and platform request envelopes. FI carriers are unauthenticated candidates until their native verifier succeeds; their byte caps do not authenticate ledger state. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/account/address.rs",
@@ -19266,6 +19266,24 @@
             ],
             "exprs": {
               "ASSET_TRANSFER_AVAILABILITY_MAX_REASON_BYTES_V1": "512"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/asset/fi_evidence.rs",
+            "symbols": [
+              "MAX_ASSET_FI_CONTEXT_CAPSULE_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_ASSET_FI_CONTEXT_CAPSULE_BYTES_V1": "512 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_data_model/src/asset/fi_request.rs",
+            "symbols": [
+              "MAX_ASSET_FI_CONTEXT_REQUEST_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_ASSET_FI_CONTEXT_REQUEST_BYTES_V1": "64 * 1024"
             }
           }
         ]
@@ -21458,6 +21476,15 @@
             "exprs": {
               "LENGTH": "$len | $len"
             }
+          },
+          {
+            "path": "crates/iroha_data_model/src/account/i105_json.rs",
+            "symbols": [
+              "I105_CHECKSUM_LEN"
+            ],
+            "exprs": {
+              "I105_CHECKSUM_LEN": "6"
+            }
           }
         ]
       },
@@ -23496,7 +23523,7 @@
         ]
       },
       {
-        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds: among them the encoded transport of the artifact originals and the stored closure of one operation, the archived preparation plan, the staged preparation drafts of a wallet operation (at most two derivations of fixed geometry) and the durable archive-retirement journal cell. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
+        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds: among them the encoded transport of the artifact originals and the stored closure of one operation, the archived preparation plan, the staged preparation drafts of a wallet operation (one derivation of fixed geometry) and the durable archive-retirement journal cell. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/isi/kagemusha_wallet/load_finality.rs",
@@ -24044,7 +24071,7 @@
               "BATCH_BYTES"
             ],
             "exprs": {
-              "DRAFT_OBJECTS": "70_188",
+              "DRAFT_OBJECTS": "35_094",
               "BATCH_BYTES": "DRAFT_BYTES + DRAFT_OBJECTS * 512 + REQUEST_MAX_BYTES + PLAN_BOUND + 4096"
             }
           },
@@ -24636,7 +24663,7 @@
               "DRAFT_BYTES"
             ],
             "exprs": {
-              "DRAFT_BYTES": "112_289_312"
+              "DRAFT_BYTES": "56_144_656"
             },
             "term_of": {
               "DRAFT_BYTES": [
@@ -25121,6 +25148,36 @@
             }
           }
         ]
+      },
+      {
+        "reason": "Schema-derived count of possible allocation-bearing leaves in the fixed ZK validity policy JSON record. Scalar fields need no charge, strings need one, optional fields retain their inner count, and record declarations sum their field counts. This sizes the original allocation-charge ledger; the supplied AllocationBudget admits its backing and retained strings. It is neither an input byte ceiling nor an independent transaction or proof validity bound.",
+        "path": "crates/iroha_data_model/src/zk_validity_policy/json_admission.rs",
+        "symbols": [
+          "MAX_CHARGES"
+        ],
+        "exprs": {
+          "MAX_CHARGES": " | 0 | 1 | T::MAX_CHARGES | 0 $(+ <$type as $crate::zk_validity_policy::json_admission::Field<D>>::MAX_CHARGES)+"
+        }
+      },
+      {
+        "reason": "Minimum working-set unit selected for canonical HTTP request authentication. The 64 KiB floor covers the query, path and account-header forms; a larger declared body or witness selects a larger unit. This is local allocation-owner selection, not a maximum input size or a transaction/block validity rule. Actual custody admission remains owned by the selected finite allocation pool.",
+        "path": "crates/iroha_torii/src/lib.rs",
+        "symbols": [
+          "CANONICAL_AUTHENTICATION_MIN_UNIT_BYTES"
+        ],
+        "exprs": {
+          "CANONICAL_AUTHENTICATION_MIN_UNIT_BYTES": "64 * 1024"
+        }
+      },
+      {
+        "reason": "Explicit one-use asset escrow scope initialization scans at most 65,536 existing escrow rows before publishing its revision-one anchor. Exceeding the count deterministically rejects that product instruction and changes no anchor; this is committed product execution work, not node-local deferral. It is distinct from the shared transaction, block and proof ceilings and does not establish a byte or physical-memory bound for the scanned records.",
+        "path": "crates/iroha_core/src/state/asset_escrow_scope.rs",
+        "symbols": [
+          "MAX_INITIALIZATION_ROWS"
+        ],
+        "exprs": {
+          "MAX_INITIALIZATION_ROWS": "65_536"
+        }
       }
     ],
     "literals": {
@@ -26233,7 +26290,6 @@
             {
               "path": "crates/iroha_data_model/src/account/address.rs",
               "sites": {
-                "(2..=256).contains(&base)": 2,
                 "bits >= 5": 2
               }
             },
@@ -26544,6 +26600,12 @@
               "path": "crates/iroha_core/src/smartcontracts/isi/musubi/current_providers.rs",
               "sites": {
                 "self.phase <= 6": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/account/address/decode.rs",
+              "sites": {
+                "(2..=256).contains(&base)": 2
               }
             }
           ]
@@ -27291,12 +27353,6 @@
               "sites": {
                 "self.terminals.len() > 32": 1,
                 "operation.context.len() > 4_096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_capacity_v1.rs",
-              "sites": {
-                "self.degree < 3": 1
               }
             },
             {
@@ -28447,6 +28503,27 @@
               "path": "crates/iroha_core/src/fastpq/finalized_source/physical_transfer.rs",
               "sites": {
                 ".take(2)": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "FI context candidate-record shapes: an assertion capsule carries at most 4,096 finality proofs, and a retained platform request limits its target, binding, wallet scope and fee fields to their own canonical byte envelopes and at most two fee charges. These are product request/evidence shapes; accepting them authenticates no ledger result and does not replace the enclosing transaction, finality or proof limits.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/asset/fi_evidence.rs",
+              "sites": {
+                "self.finality_proof_chain.len() > 4096": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/asset/fi_request.rs",
+              "sites": {
+                "json::to_vec(value) .map_err(|error| error.to_string())? .len() > 16 * 1024": 1,
+                "json::to_vec(field(request, \"binding\")?) .map_err(|error| error.to_string())? .len() > 32768": 1,
+                "wallet_scope_canonical.len() > 16384": 1,
+                "json::to_vec(fees).map_err(|error| error.to_string())?.len() > 8192": 1,
+                "charges.len() > 2": 1
               }
             }
           ]

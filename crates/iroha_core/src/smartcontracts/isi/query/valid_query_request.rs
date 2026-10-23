@@ -651,6 +651,36 @@ impl ValidQueryRequest {
                         params,
                         stored_cursor_budget
                     ),
+                    QueryItemKind::AssetFiTransferReceiptV1 => run_query!(
+                        iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1,
+                        iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
+                    QueryItemKind::AssetFiContextSnapshotV1 => run_query!(
+                        iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1,
+                        iroha_data_model::query::asset_fi_context::FindAssetFiContextV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
+                    QueryItemKind::AssetEscrowScopeOriginalV1 => run_query!(
+                        iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1,
+                        iroha_data_model::query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,
                         iroha_data_model::query::oracle::prelude::FindOracleFeeds,
@@ -1236,6 +1266,33 @@ impl ValidQueryRequest {
                     QueryItemKind::AssetFiRelationshipViewV1 => run_query!(
                         iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1,
                         iroha_data_model::query::asset_fi::FindAssetFiLinkV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::AssetFiTransferReceiptV1 => run_query!(
+                        iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1,
+                        iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::AssetFiContextSnapshotV1 => run_query!(
+                        iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1,
+                        iroha_data_model::query::asset_fi_context::FindAssetFiContextV1,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::AssetEscrowScopeOriginalV1 => run_query!(
+                        iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1,
+                        iroha_data_model::query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1,
                         decoder,
                         predicate_bytes,
                         selector_bytes,

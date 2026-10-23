@@ -77,6 +77,8 @@ use crate::{
 mod advice;
 mod batch;
 mod lookup;
+mod memory;
+pub use memory::{ProvingColumns, peak_proving_columns};
 mod multiopen;
 mod permutation;
 mod rebuild;

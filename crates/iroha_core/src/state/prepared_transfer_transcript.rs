@@ -13,6 +13,21 @@ struct PreparedTransferOccurrence {
 }
 
 impl StateTransaction<'_, '_> {
+    /// Exact next occurrence of this call after prior native fee occurrences.
+    pub(crate) fn next_transfer_transcript_index(&self, call: &Hash) -> Result<u64, Error> {
+        let applied = self.fastpq_transcripts.get(call).map_or(0, Vec::len);
+        let pending = self
+            .pending_transfer_transcripts
+            .iter()
+            .filter(|value| &value.batch_hash == call)
+            .count();
+        applied
+            .checked_add(pending)
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| {
+                Error::InvariantViolation("native transfer occurrence index overflow".into())
+            })
+    }
     fn refuse_fastpq_source_preparation(&mut self, error: String) {
         self.fastpq_source_quota.fail_preparation(error);
         *self.block_execution_output_plan =

@@ -384,6 +384,15 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
     use iroha_model_base::topology::{DataSpaceId, LaneId};
 
     const RETAINED_HISTORY_BLOCKS: usize = 1_024;
+    // The exact capacity probes must retain versions retired while constructing the
+    // signed history, not only versions retired during the probes. Give this long
+    // epoch its own harness so it cannot delay reclamation in unrelated tests.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::executor::validation_refusal_tests::original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_after_retry",
+    ) {
+        return;
+    }
+    let _history_retirement = crossbeam_epoch::pin();
     publication_tests::with_worker_from(
         || {
             let mut config = crate::sumeragi::test_chain::TestChainConfig::new(

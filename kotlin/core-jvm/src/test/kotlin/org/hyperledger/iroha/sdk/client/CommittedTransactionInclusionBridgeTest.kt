@@ -61,4 +61,25 @@ class CommittedTransactionInclusionBridgeTest {
             )
         }
     }
+
+    @Test
+    fun exactSuccessfulVerificationRejectsMissingAndOversizedRetainedOriginalBeforeNativeCall() {
+        for (wire in listOf(byteArrayOf(), ByteArray(4 * 1024 * 1024 + 1))) {
+            assertFailsWith<IllegalArgumentException> {
+                CommittedTransactionInclusionBridge.verifyExactSuccessful(
+                    byteArrayOf(1), byteArrayOf(1), network, "chain", byteArrayOf(1), wire,
+                )
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            CommittedTransactionInclusionBridge.verifyExactSuccessful(
+                byteArrayOf(1), byteArrayOf(1), network, "chain", byteArrayOf(), byteArrayOf(1),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            CommittedTransactionInclusionBridge.verifyExactSuccessful(
+                byteArrayOf(1), byteArrayOf(1), network, "", byteArrayOf(1), byteArrayOf(1),
+            )
+        }
+    }
 }

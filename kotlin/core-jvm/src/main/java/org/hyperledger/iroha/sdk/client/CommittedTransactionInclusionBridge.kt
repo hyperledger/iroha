@@ -152,6 +152,40 @@ class CommittedTransactionInclusionBridge private constructor() {
                 responseBytes.copyOf(), nativeFinalityProofChainJson.copyOf(), networkId.bytes(),
                 expectedChain.toByteArray(StandardCharsets.UTF_8), trustedCheckpoint.copyOf(), transactionHash.copyOf(),
             )) { "native committed-inclusion verifier returned null" }
+            return decodeVerifiedResult(result)
+        }
+
+        /**
+         * Authenticate successful execution of the complete retained signed transaction wire.
+         * Unlike the transaction hash, this includes every original authorization signature.
+         * The finality checkpoint, network and chain must be selected independently of the reply.
+         * Neither HTTP approval nor equality with a later current-state record is evidence here.
+         */
+        @JvmStatic
+        fun verifyExactSuccessful(
+            responseBytes: ByteArray,
+            nativeFinalityProofChainJson: ByteArray,
+            networkId: NetworkId,
+            expectedChain: String,
+            trustedCheckpoint: ByteArray,
+            originalSignedTransaction: ByteArray,
+        ): VerifiedCommittedTransaction {
+            require(responseBytes.isNotEmpty() && responseBytes.size <= 32 * 1024 * 1024)
+            require(nativeFinalityProofChainJson.isNotEmpty() && nativeFinalityProofChainJson.size <= 16 * 1024 * 1024)
+            require(expectedChain.isNotEmpty() && expectedChain.toByteArray(StandardCharsets.UTF_8).size <= 1024)
+            require(trustedCheckpoint.isNotEmpty() && trustedCheckpoint.size <= 68 * 1024 * 1024)
+            require(originalSignedTransaction.isNotEmpty() && originalSignedTransaction.size <= 4 * 1024 * 1024)
+            check(nativeAvailable) { "$LIBRARY_NAME exact committed-inclusion verifier is unavailable" }
+            val result = checkNotNull(nativeVerifyExactSuccessfulCommittedTransaction(
+                responseBytes.copyOf(), nativeFinalityProofChainJson.copyOf(), networkId.bytes(),
+                expectedChain.toByteArray(StandardCharsets.UTF_8), trustedCheckpoint.copyOf(), originalSignedTransaction.copyOf(),
+            )) { "native exact committed-inclusion verifier returned null" }
+            return decodeVerifiedResult(result).also {
+                check(it.resultOk && it.blockHeight > 1) { "native exact verifier did not confirm successful non-genesis execution" }
+            }
+        }
+
+        private fun decodeVerifiedResult(result: Array<ByteArray?>): VerifiedCommittedTransaction {
             require(result.size == 6) { "native committed-inclusion verifier returned invalid fields" }
             val row = checkNotNull(result[0])
             val outputHash = checkNotNull(result[1])
@@ -197,6 +231,14 @@ class CommittedTransactionInclusionBridge private constructor() {
             expectedChain: ByteArray,
             trustedCheckpoint: ByteArray,
             transactionHash: ByteArray,
+        ): Array<ByteArray?>?
+        @JvmStatic private external fun nativeVerifyExactSuccessfulCommittedTransaction(
+            responseBytes: ByteArray,
+            nativeFinalityProofChainJson: ByteArray,
+            networkId: ByteArray,
+            expectedChain: ByteArray,
+            trustedCheckpoint: ByteArray,
+            originalSignedTransaction: ByteArray,
         ): Array<ByteArray?>?
     }
 }

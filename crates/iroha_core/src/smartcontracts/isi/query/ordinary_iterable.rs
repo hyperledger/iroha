@@ -7,6 +7,9 @@
 #![allow(unsafe_code)]
 mod asset_uid;
 mod asset_relationship;
+mod asset_fi_receipt;
+mod asset_fi_context;
+mod asset_escrow_scope;
 use asset_uid::collect_asset_uid_policies;
 use super::{
     OrdinaryQueryExecutionLimits, QueryAttemptError, QueryExecutionStats,
@@ -42,7 +45,7 @@ use std::{
 };
 /// The world-state producer count admitted through a source-specific adapter.
 #[cfg(test)]
-pub(super) const ADMITTED_WORLD_PRODUCERS: usize = 7;
+pub(super) const ADMITTED_WORLD_PRODUCERS: usize = 10;
 /// The world-state producer count still awaiting source-specific bounded
 /// ownership and exact predicate parity.
 #[cfg(test)]
@@ -83,6 +86,28 @@ where
                 ExactOwnedRows<iroha_data_model::asset::uid::AssetUidPolicyViewV1>, ExactOwnedRows<T>,
             >(rows)?), stats));
         }
+        if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_fi_context::FindAssetFiContextV1>()
+            && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1>()
+            && mode == OrdinaryCursorMode::Ephemeral && params.pagination.offset_value() == 0
+            && params.sorting.sort_by_metadata_key.is_none() && predicate.is_pass()
+        {
+            drop(predicate);
+            let query = cast_owned_exact::<Q, iroha_data_model::query::asset_fi_context::FindAssetFiContextV1>(query)?;
+            let (rows, stats) = asset_fi_context::collect(&query, params, mode, limits, state)?;
+            return Ok((OrdinaryIterable::Owned(cast_owned_exact::<ExactOwnedRows<iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1>, ExactOwnedRows<T>>(rows)?), stats));
+        }
+        if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1>()
+            && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1>()
+            && mode == OrdinaryCursorMode::Ephemeral
+            && params.pagination.offset_value() == 0
+            && params.sorting.sort_by_metadata_key.is_none()
+            && predicate.is_pass()
+        {
+            drop(predicate);
+            let query = cast_owned_exact::<Q, iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1>(query)?;
+            let (rows, stats) = asset_fi_receipt::collect(&query, params, mode, limits, state)?;
+            return Ok((OrdinaryIterable::Owned(cast_owned_exact::<ExactOwnedRows<iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1>, ExactOwnedRows<T>>(rows)?), stats));
+        }
         if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_fi::FindAssetFiLinkV1>()
             && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1>()
             && params.pagination.offset_value() == 0
@@ -93,6 +118,18 @@ where
             let query = cast_owned_exact::<Q, iroha_data_model::query::asset_fi::FindAssetFiLinkV1>(query)?;
             let (rows, stats) = asset_relationship::collect_asset_fi(&query, params, mode, limits, state)?;
             return Ok((OrdinaryIterable::Owned(cast_owned_exact::<ExactOwnedRows<iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1>, ExactOwnedRows<T>>(rows)?), stats));
+        }
+        if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1>()
+            && TypeId::of::<T>() == TypeId::of::<iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1>()
+            && mode == OrdinaryCursorMode::Ephemeral
+            && params.pagination.offset_value() == 0
+            && params.sorting.sort_by_metadata_key.is_none()
+            && predicate.is_pass()
+        {
+            drop(predicate);
+            let query = cast_owned_exact::<Q, iroha_data_model::query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1>(query)?;
+            let (rows, stats) = asset_escrow_scope::collect(&query, params, mode, limits, state)?;
+            return Ok((OrdinaryIterable::Owned(cast_owned_exact::<ExactOwnedRows<iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1>, ExactOwnedRows<T>>(rows)?), stats));
         }
         if TypeId::of::<Q>() == TypeId::of::<iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1>()
             && TypeId::of::<T>() == TypeId::of::<iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1>()
@@ -989,12 +1026,12 @@ mod tests {
     use super::*;
     #[test]
     fn residual_inventory_is_explicit_and_exhaustive() {
-        assert_eq!(ADMITTED_WORLD_PRODUCERS, 7);
+        assert_eq!(ADMITTED_WORLD_PRODUCERS, 10);
         assert_eq!(WORLD_PRODUCER_RESIDUALS, 33);
         assert_eq!(KURA_PRODUCER_RESIDUALS, 3);
         assert_eq!(
             ADMITTED_WORLD_PRODUCERS + WORLD_PRODUCER_RESIDUALS + KURA_PRODUCER_RESIDUALS,
-            43
+            46
         );
     }
     fn trigger_test_limits(source_bytes: u64) -> OrdinaryQueryExecutionLimits {
@@ -1110,6 +1147,355 @@ mod tests {
             crate::query::store::LiveQueryStore::start_test(),
         )
     }
+    #[test]
+    fn bounded_escrow_scope_distinguishes_uninitialized_zero_and_refused_sources() {
+        use crate::{kura::Kura, query::store::LiveQueryStore, state::{State, World}};
+        use iroha_data_model::{asset::AssetBalancePolicy, prelude::*, nexus::AxtAssetIncarnationV1,
+            escrow::scoped::{AssetEscrowScopeV1, scope_key},
+            query::{asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1, parameters::{FetchSize, Pagination}}};
+        use std::num::NonZeroU64;
+        let owner = iroha_test_samples::ALICE_ID.clone();
+        let definition: AssetDefinitionId = "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().unwrap();
+        let incarnation = AxtAssetIncarnationV1::try_from_bytes(*Hash::new("bounded-scope").as_ref()).unwrap();
+        let mut world = World::with([], [Account::new(owner.clone()).build(&owner)], [AssetDefinition::numeric(definition.clone(), "DS", AssetBalancePolicy::Global, None).build(&owner)]);
+        world.axt_asset_incarnations.insert(definition.clone(), incarnation);
+        let state = State::new_for_testing(world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test());
+        let query = FindAssetEscrowsByAssetDefinitionV1 { asset_definition_id: definition.clone(), expected_incarnation: incarnation };
+        let limits = trigger_test_limits(4_096);
+        let mut params = QueryParams { fetch_size: FetchSize::new(NonZeroU64::new(1)), ..QueryParams::default() };
+        assert!(asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "absent scope is never zero");
+        let key = scope_key(&definition, &incarnation).unwrap();
+        let mut scope = AssetEscrowScopeV1 { asset_definition_id: definition.clone(), asset_incarnation: incarnation, revision: 1, record_count: 0 };
+        let write = |bytes| { let mut block = state.world.block(); block.smart_contract_state.insert(key.clone(), bytes); block.commit(); };
+        write(norito::encode_canonical(&scope).unwrap());
+        let (mut rows, _) = asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).unwrap();
+        assert!(rows.next().unwrap().records.is_empty());
+        assert!(rows.next().is_none(), "one complete original has no partial continuation");
+        assert!(asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Stored, limits, &state.view()).is_err());
+        params.pagination = Pagination::new(None, 1);
+        assert!(asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err());
+        params.pagination = Pagination::new(None, 0);
+        scope.record_count = u64::MAX;
+        write(norito::encode_canonical(&scope).unwrap());
+        assert!(asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "record slots are bounded before allocation");
+        scope.record_count = 1;
+        write(norito::encode_canonical(&scope).unwrap());
+        assert!(asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "incomplete count cannot return an empty complete original");
+        write(vec![0; 4_097]);
+        assert!(asset_escrow_scope::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "oversized scope refuses before decode");
+    }
+
+pub(super) fn fi_context_test_limits(source_bytes: u64) -> OrdinaryQueryExecutionLimits {
+    let items = 2;
+    let response = 16 * 1024;
+    let archive = 1024;
+    let decode = norito::DecodeLimits::new(64, 4096, 256, 16 * 1024, 16);
+    let execution = OrdinaryQueryExecutionLimits::required_execution_headroom_bytes(
+        items,
+        source_bytes,
+        response,
+        4096,
+        archive,
+        decode,
+    )
+    .unwrap();
+    let cursor = OrdinaryQueryExecutionLimits::required_cursor_retained_bytes(
+        items,
+        source_bytes,
+        source_bytes,
+        archive,
+    )
+    .unwrap();
+    OrdinaryQueryExecutionLimits::try_new(
+        1,
+        super::super::QueryExecutionBudget::from_weighted_limit(4 * 1024 * 1024, 1, 1),
+        items,
+        execution,
+        source_bytes,
+        response,
+        items,
+        source_bytes,
+        cursor,
+        4096,
+        archive,
+        decode,
+    )
+    .unwrap()
+}
+#[test]
+fn bounded_current_fi_context_matches_native_snapshot_and_preserves_absent_observations() {
+    use iroha_data_model::Registrable as _;
+    use crate::{
+        smartcontracts::isi::asset_fi_context as native,
+        state::{asset_fi, asset_uid},
+    };
+    use iroha_data_model::{
+        asset::fi_context::AssetFiContextTargetV1,
+        isi::asset_fi::TransferToLinkedFiV1,
+        nexus::AxtAssetIncarnationV1,
+        query::{asset_fi_context::FindAssetFiContextV1, parameters::FetchSize},
+    };
+    let (f, state) = asset_fi::FiLinkReaderFixture::new();
+    let mut block = state.block(iroha_data_model::block::BlockHeader::new(
+        std::num::NonZeroU64::new(1).unwrap(),
+        None,
+        None,
+        1_000,
+        0,
+    ));
+    let mut tx = block.transaction();
+    let incarnation = AxtAssetIncarnationV1::try_from_bytes(
+        *iroha_crypto::Hash::new("query-live-incarnation").as_ref(),
+    )
+    .unwrap();
+    tx.world
+        .axt_asset_incarnations
+        .insert(f.definition.clone(), incarnation);
+    let query = FindAssetFiContextV1 {
+        target: AssetFiContextTargetV1::Transfer {
+            instruction: TransferToLinkedFiV1 {
+                asset_definition_id: f.definition.clone(),
+                account_id: f.wallet.clone(),
+                amount: 5_u32.into(),
+                expected_link_revision: 1,
+                expected_policy_revision: 1,
+            },
+            fi_account_id: f.bank.clone(),
+            reference_digest: [9; 32],
+            expected_fi_revision: 1,
+            expected_attestation_revision: 1,
+        },
+        expected_incarnation: incarnation,
+        expected_uid: [7; 32],
+    };
+    let params = QueryParams {
+        fetch_size: FetchSize::new(std::num::NonZeroU64::new(1)),
+        ..QueryParams::default()
+    };
+    let limits = fi_context_test_limits(16_384);
+    let get = |tx: &crate::state::StateTransaction<'_, '_>, query: &FindAssetFiContextV1| {
+        let (mut rows, stats) =
+            asset_fi_context::collect(query, &params, OrdinaryCursorMode::Ephemeral, limits, tx)
+                .unwrap();
+        let value = rows.next().unwrap();
+        assert!(rows.next().is_none());
+        assert!(stats.processed_items() >= 7);
+        value
+    };
+    let empty = get(&tx, &query);
+    assert!(
+        empty.binding.is_none()
+            && empty.policy.is_none()
+            && empty.fi.is_none()
+            && empty.attestation.is_none()
+            && empty.link.is_none()
+            && empty.controller.is_none()
+    );
+    assert_eq!(
+        empty,
+        native::current_snapshot(&tx, &query.target, &incarnation, &query.expected_uid).unwrap()
+    );
+    f.install(&mut tx);
+    let observed = get(&tx, &query);
+    assert_eq!(observed.fi, Some(f.fi()));
+    assert_eq!(observed.attestation, Some(f.attestation()));
+    assert_eq!(observed.link, Some(f.link()));
+    assert_eq!(
+        observed.controller.as_ref().unwrap().subject,
+        f.context.contract_subject
+    );
+    assert_eq!(
+        observed,
+        native::current_snapshot(&tx, &query.target, &incarnation, &query.expected_uid).unwrap(),
+        "selector revisions are descriptive, not substituted for observed revisions"
+    );
+    let mut disabled = f.fi();
+    disabled.enabled = false;
+    disabled.revision += 1;
+    asset_fi::FiLinkReaderFixture::put(
+        &mut tx,
+        asset_fi::fi_key(&f.definition, &f.bank),
+        &disabled,
+    );
+    assert_eq!(
+        get(&tx, &query).fi,
+        Some(disabled),
+        "disabled/stale eligibility remains an observation"
+    );
+    let mut stale = query.clone();
+    stale.expected_incarnation = AxtAssetIncarnationV1::try_from_bytes(
+        *iroha_crypto::Hash::new("stale-incarnation").as_ref(),
+    )
+    .unwrap();
+    assert!(
+        asset_fi_context::collect(&stale, &params, OrdinaryCursorMode::Ephemeral, limits, &tx)
+            .is_err()
+    );
+    let binding = iroha_data_model::asset::uid::AssetUidBindingV1 {
+        asset_definition_id: f.definition.clone(),
+        account_id: f.wallet.clone(),
+        uid: [8; 32],
+    };
+    asset_fi::FiLinkReaderFixture::put(
+        &mut tx,
+        asset_uid::binding_key(&f.definition, &f.wallet),
+        &binding,
+    );
+    assert!(
+        asset_fi_context::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &tx)
+            .is_err(),
+        "wrong UID cannot become an absent binding"
+    );
+    tx.world
+        .smart_contract_state
+        .remove(asset_uid::binding_key(&f.definition, &f.wallet));
+    let refused =
+        norito::core::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 0), || {
+            asset_fi_context::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &tx)
+        });
+    assert!(
+        matches!(
+            refused,
+            Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_))
+        ),
+        "local codec refusal remains retryable"
+    );
+    tx.world
+        .smart_contract_state
+        .insert(asset_fi::fi_key(&f.definition, &f.bank), vec![0; 32]);
+    assert!(
+        matches!(
+            asset_fi_context::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &tx),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                Error::Conversion(_)
+            ))
+        ),
+        "malformed retained FI is not an absent observation"
+    );
+    tx.world
+        .smart_contract_state
+        .insert(asset_fi::fi_key(&f.definition, &f.bank), vec![0; 16_385]);
+    assert!(
+        asset_fi_context::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &tx)
+            .is_err(),
+        "oversized retained row is rejected before decode"
+    );
+    tx.world.asset_definitions.insert(
+        f.definition.clone(),
+        iroha_data_model::asset::AssetDefinition::numeric(
+            f.definition.clone(),
+            "DS",
+            iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+            None,
+        )
+        .build(&f.owner),
+    );
+    assert!(
+        matches!(
+            asset_fi_context::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &tx),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                Error::Conversion(_)
+            ))
+        ),
+        "non-Global definition is refused before malformed private rows are read"
+    );
+}
+
+    #[test]
+    fn bounded_fi_receipt_lookup_keeps_absence_exact_and_rejects_altered_originals() {
+        use crate::{kura::Kura, query::store::LiveQueryStore, state::{State, World, asset_fi::receipt}};
+        use iroha_data_model::{
+            asset::{AssetBalancePolicy, fi_link::{AssetFiV1, AssetFiLinkAttestationV1, AssetFiLinkV1, AssetFiTransferReceiptV1}},
+            isi::{InstructionBox, asset_fi::TransferToLinkedFiV1}, prelude::*,
+            query::{asset_fi::FindAssetFiTransferReceiptV1, parameters::FetchSize},
+        };
+        use std::num::NonZeroU64;
+        let owner = iroha_test_samples::ALICE_ID.clone();
+        let wallet = iroha_test_samples::BOB_ID.clone();
+        let definition: AssetDefinitionId = "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().unwrap();
+        let world = World::with([], [Account::new(owner.clone()).build(&owner), Account::new(wallet.clone()).build(&owner)],
+            [AssetDefinition::numeric(definition.clone(), "DS", AssetBalancePolicy::Global, None).build(&owner)]);
+        let state = State::new_for_testing(world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test());
+        let query = FindAssetFiTransferReceiptV1 { asset_definition_id: definition.clone(), account_id: wallet.clone(), expected_incarnation: iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(*Hash::new("receipt-incarnation").as_ref()).unwrap(), execution_call_hash: Hash::new("receipt-query"), transcript_index: 0 };
+        let params = QueryParams { fetch_size: FetchSize::new(NonZeroU64::new(1)), ..QueryParams::default() };
+        let limits = trigger_test_limits(16_384);
+        let (mut rows, stats) = asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).unwrap();
+        assert!(rows.next().is_none());
+        assert_eq!(stats.processed_items(), 1, "missing lookup still pays for its inspection");
+        let instruction = TransferToLinkedFiV1 { asset_definition_id: definition.clone(), account_id: wallet.clone(), amount: 5_u32.into(), expected_link_revision: 1, expected_policy_revision: 1 };
+        let original = AssetFiTransferReceiptV1 {
+            asset_incarnation: query.expected_incarnation, network: state.view().network_id().clone(), execution_call_hash: query.execution_call_hash,
+            instruction_hash: Hash::new(norito::encode_canonical(&InstructionBox::from(instruction.clone())).unwrap()), instruction,
+            authority: wallet.clone(), controller: None,
+            fi: AssetFiV1 { asset_definition_id: definition.clone(), fi_account_id: owner.clone(), revision: 1, enabled: true },
+            attestation: AssetFiLinkAttestationV1 { asset_definition_id: definition.clone(), account_id: wallet.clone(), fi_account_id: owner.clone(), reference_digest: [19;32], revision: 1, enabled: true },
+            link: AssetFiLinkV1 { asset_definition_id: definition.clone(), account_id: wallet.clone(), fi_account_id: owner.clone(), reference_digest: [19;32], fi_revision: 1, attestation_revision: 1, revision: 1, enabled: true, controller: None, waterfall: false, reverse_waterfall: false },
+            uid: [7;32], uid_policy_revision: 1, uid_policy_hash: Hash::new("retained-policy"), execution_height: 2, execution_time_ms: 1_000, transcript_index: 0,
+        };
+        let key = receipt::key(&definition, &wallet, &query.execution_call_hash, 0);
+        let write = |bytes| { let mut block = state.world.block(); block.smart_contract_state.insert(key.clone(), bytes); block.commit(); };
+        write(norito::encode_canonical(&original).unwrap());
+        let (mut rows, _) = asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).unwrap();
+        assert_eq!(rows.next(), Some(original.clone()));
+        assert!(rows.next().is_none(), "exact lookup has no continuation");
+        assert!(crate::state::asset_fi::link(state.view().world(), &definition, &wallet).unwrap().is_none(), "fixture has no current link: history must not depend on it");
+        let mut wrong_incarnation = query.clone();
+        wrong_incarnation.expected_incarnation = iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(*Hash::new("wrong-captured-incarnation").as_ref()).unwrap();
+        assert!(asset_fi_receipt::collect(&wrong_incarnation, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "wrong captured incarnation is not absence");
+        { let mut world = state.world.block();
+          world.axt_asset_incarnations.insert(definition.clone(), wrong_incarnation.expected_incarnation);
+          world.commit(); }
+        assert_eq!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).unwrap().0.next(), Some(original.clone()), "history compares requested to captured incarnation, never the current map");
+        let mut other = query.clone(); other.transcript_index = 1;
+        assert!(asset_fi_receipt::collect(&other, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).unwrap().0.next().is_none());
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Stored, limits, &state.view()).is_err());
+        let mut offset = params.clone(); offset.pagination = iroha_data_model::query::parameters::Pagination::new(None, 1);
+        assert!(asset_fi_receipt::collect(&query, &offset, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err());
+        let mut altered = original.clone(); altered.transcript_index = 1;
+        write(norito::encode_canonical(&altered).unwrap());
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "wrong occurrence is not absence");
+        altered = original.clone(); altered.instruction_hash = Hash::new("changed-instruction");
+        write(norito::encode_canonical(&altered).unwrap());
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err());
+        altered = original.clone(); altered.attestation.reference_digest = [20;32];
+        write(norito::encode_canonical(&altered).unwrap());
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err());
+        let address = iroha_data_model::smart_contract::ContractAddress::derive(state.view().network_id(), &owner, 911, iroha_model_base::topology::DataSpaceId::UNIVERSAL).unwrap();
+        altered = original.clone();
+        altered.authority = address.subject_id();
+        altered.link.controller = Some(address.clone());
+        altered.link.waterfall = true;
+        altered.controller = Some(iroha_data_model::asset::fi_link::AssetFiTransferControllerV1 { address, subject: altered.authority.clone(), entrypoint: "settle".into() });
+        write(norito::encode_canonical(&altered).unwrap());
+        assert_eq!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).unwrap().0.next(), Some(altered.clone()), "actual controller subject is derived within the bounded query");
+        altered.authority = owner.clone();
+        altered.controller.as_mut().unwrap().subject = owner.clone();
+        write(norito::encode_canonical(&altered).unwrap());
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "self-consistent forged authority still fails address derivation");
+        let mut trailing = norito::encode_canonical(&original).unwrap(); trailing.push(0); write(trailing);
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err());
+        write(vec![0;16_385]);
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()).is_err(), "oversized source never decodes or becomes absent");
+        write(norito::encode_canonical(&original).unwrap());
+        let refused = norito::core::with_decode_limits_scope(norito::DecodeLimits::new(0,0,0,0,0), ||
+            asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, limits, &state.view()));
+        assert!(matches!(refused, Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_))), "local capacity refusal must remain retryable");
+    }
+
+    #[test]
+    fn bounded_fi_receipt_lookup_rejects_dataspace_scoped_assets_before_read() {
+        use crate::{kura::Kura, query::store::LiveQueryStore, state::{State, World}};
+        use iroha_data_model::{asset::AssetBalancePolicy, prelude::*, query::{asset_fi::FindAssetFiTransferReceiptV1, parameters::FetchSize}};
+        let owner = iroha_test_samples::ALICE_ID.clone();
+        let definition: AssetDefinitionId = "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().unwrap();
+        let state = State::new_for_testing(World::with([], [Account::new(owner.clone()).build(&owner)],
+            [AssetDefinition::numeric(definition.clone(), "DS", AssetBalancePolicy::DataspaceRestricted, None).build(&owner)]),
+            Kura::blank_kura_for_testing(), LiveQueryStore::start_test());
+        let query = FindAssetFiTransferReceiptV1 { asset_definition_id: definition, account_id: owner, expected_incarnation: iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(*Hash::new("receipt-incarnation").as_ref()).unwrap(), execution_call_hash: Hash::new("private-receipt"), transcript_index: 0 };
+        let params = QueryParams { fetch_size: FetchSize::new(std::num::NonZeroU64::new(1)), ..QueryParams::default() };
+        assert!(asset_fi_receipt::collect(&query, &params, OrdinaryCursorMode::Ephemeral, trigger_test_limits(16_384), &state.view()).is_err());
+    }
+
     #[test]
     fn bounded_native_relationship_queries_preserve_missing_state_and_refuse_bad_rows() {
         use crate::{kura::Kura, query::store::LiveQueryStore, state::{State, World}};

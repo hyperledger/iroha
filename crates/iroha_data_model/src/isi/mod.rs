@@ -265,9 +265,12 @@ impl_direct_instruction_box!(crate::isi::asset_uid::SetAssetUidPolicyReaderV1);
 impl_direct_instruction_box!(crate::isi::asset_uid_enrollment::ActivateAssetUidEnrollmentV1);
 impl_direct_instruction_box!(crate::isi::asset_uid_enrollment::SetAssetUidSystemAccountV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiV1);
+impl_direct_instruction_box!(crate::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiLinkAttestationV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiLinkV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::TransferToLinkedFiV1);
+impl_direct_instruction_box!(crate::isi::asset_fi_context::AssertAssetFiContextV1);
+impl_direct_instruction_box!(crate::isi::asset_fi_context::AssertAssetFiTransferReceiptV1);
 
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::BindRetailIdentityV1);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::RetailMonetaryMovementV1);
@@ -1968,7 +1971,9 @@ pub mod account_recovery;
 pub mod alias_setup;
 /// Asset-definition alias binding instructions.
 pub mod asset_alias;
+pub mod asset_escrow_scope;
 pub mod asset_fi;
+pub mod asset_fi_context;
 /// Asset-scoped outbound transfer control instructions.
 pub mod asset_transfer_control;
 /// Additive identity-wide asset holding and activity policy.
@@ -2822,9 +2827,11 @@ pub mod prelude {
             CompareAndSetPrimaryAccountAlias, ConfigureAliasAutoRenew, EnsureAlias,
             RebindAccountAlias, RenewAliasLease,
         },
+        asset_escrow_scope::InitializeAssetEscrowReadScopeV1,
         asset_fi::{
             SetAssetFiLinkAttestationV1, SetAssetFiLinkV1, SetAssetFiV1, TransferToLinkedFiV1,
         },
+        asset_fi_context::{AssertAssetFiContextV1, AssertAssetFiTransferReceiptV1},
         asset_transfer_control::{
             SetAssetHoldingLimit, SetAssetTransferAvailability, SetAssetTransferBlacklist,
             SetAssetTransferControl,

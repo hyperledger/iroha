@@ -192,10 +192,9 @@ fn executor_reconciliation_cannot_replace_or_remove_fraud_policy() {
     let mut block = state.block(header(2));
     let mut transaction = block.transaction();
     let mut declared = ExecutorDataModel::default();
-    declared.parameters.insert(
-        FraudAdmissionPolicyV1::parameter_id(),
-        policy(false).into_custom_parameter(),
-    );
+    declared
+        .parameters
+        .insert(policy(false).into_custom_parameter());
     transaction.world.apply_executor_data_model(declared);
     assert_eq!(
         transaction.world.parameters.get().fraud_policy(),

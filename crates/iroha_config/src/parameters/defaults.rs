@@ -3693,7 +3693,8 @@ pub mod nexus {
                 // and could panic while constructing an otherwise fallible World.
                 fee_sink_account_id: super::super::governance::bond_escrow_account_id(),
                 sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
-                successful_claim_fee_exempt_authorities: std::collections::BTreeSet::default(),
+                successful_claim_fee_exempt_authorities:
+                    iroha_data_model::block::consensus::RootFeeExemptions::new(),
                 base_fee: base_fee(),
                 per_byte_fee: per_byte_fee(),
                 per_instruction_fee: per_instruction_fee(),

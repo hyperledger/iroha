@@ -821,10 +821,13 @@ fn native_lane_startup_sync_does_not_block_other_lane_transaction_delivery() {
                     gate: Arc::clone(fixture.gate),
                 };
                 let lifecycle = scope.spawn(|| {
+                    // Admit startup once, then leave its nonblocking native State
+                    // reader uncontended until it reaches the actual I/O gate. The
+                    // next lifecycle turn must still finish while that gate is held.
+                    runner.drive_retirement_for_test();
                     while !stop.load(Ordering::Acquire) {
-                        let acknowledge = requested_turn.swap(false, Ordering::AcqRel);
-                        runner.drive_retirement_for_test();
-                        if acknowledge {
+                        if requested_turn.swap(false, Ordering::AcqRel) {
+                            runner.drive_retirement_for_test();
                             let _ = acknowledge_turn.send(());
                         }
                         std::thread::sleep(Duration::from_millis(5));

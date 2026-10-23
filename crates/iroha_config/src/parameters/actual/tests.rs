@@ -875,6 +875,8 @@ mod tests {
     }
     #[test]
     fn sumeragi_nexus_amx_hash_canonicalizes_fee_exempt_authorities() {
+        use iroha_data_model::block::consensus::RootFeeExemptions;
+
         let authority = |seed| {
             AccountId::new(
                 KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
@@ -887,14 +889,16 @@ mod tests {
         let authority_b = authority(2);
         let authority_c = authority(3);
         let mut left = Nexus::default();
-        left.fees.successful_claim_fee_exempt_authorities = BTreeSet::from([
+        left.fees.successful_claim_fee_exempt_authorities = RootFeeExemptions::try_from_iter([
             authority_b.clone(),
             authority_a.clone(),
             authority_a.clone(),
-        ]);
+        ])
+        .expect("fixture fee exemptions");
         let mut right = left.clone();
         right.fees.successful_claim_fee_exempt_authorities =
-            BTreeSet::from([authority_a, authority_b]);
+            RootFeeExemptions::try_from_iter([authority_a, authority_b])
+                .expect("fixture fee exemptions");
 
         assert_eq!(
             sumeragi_nexus_amx_context_hash(&left, &Pipeline::default(), &[], &[]),
@@ -902,7 +906,8 @@ mod tests {
             "set order and duplicate entries must not affect the signed Nexus/AMX commitment"
         );
 
-        right.fees.successful_claim_fee_exempt_authorities = BTreeSet::from([authority_c]);
+        right.fees.successful_claim_fee_exempt_authorities =
+            RootFeeExemptions::try_from_iter([authority_c]).expect("fixture fee exemption");
         assert_ne!(
             sumeragi_nexus_amx_context_hash(&left, &Pipeline::default(), &[], &[]),
             sumeragi_nexus_amx_context_hash(&right, &Pipeline::default(), &[], &[]),
