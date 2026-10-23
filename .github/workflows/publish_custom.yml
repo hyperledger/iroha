@@ -91,7 +91,7 @@ jobs:
 
       # glibc
       - name: Build and push iroha:glibc image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         if: ${{ inputs.image_type == 'glibc' }}
         with:
           push: true
@@ -117,7 +117,7 @@ jobs:
           TAG=${RELEASE_VERSION#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
       - name: Build and push iroha:profiling-tag-sha image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         if: ${{ inputs.image_type == 'profiling' }}
         with:
           push: true
@@ -135,7 +135,7 @@ jobs:
       # Alpine (difference from glibc is the use of Dockerfile.musl)
       - name: Build and push iroha:alpine-sha image
         if: ${{ inputs.image_type == 'alpine' }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           push: true
           tags: docker.soramitsu.co.jp/iroha3/iroha:alpine-${{ steps.checkout_meta.outputs.sha }}

@@ -428,7 +428,7 @@ jobs:
           mobile_python="$(python3 -I -S -B -c 'import pathlib,sys; print(pathlib.Path(sys.executable).resolve(strict=True))')"
           [[ "$("$mobile_python" -I -S -B -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "3.12" ]]
           echo "MOBILE_SDK_PYTHON_BINARY=$mobile_python" >> "$GITHUB_ENV"
-      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: "21"
@@ -633,7 +633,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: mobile-sdk-*
           path: release-assets

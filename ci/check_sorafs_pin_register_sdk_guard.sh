@@ -401,7 +401,7 @@ def check_workflow():
     jvm = workflow_job(workflow, jvm_job)
     require("    runs-on: ubuntu-latest" in jvm, "JVM SDK tests must run on Ubuntu")
     java_setup_match = re.search(
-        r"(?m)^\s+- uses:\s+actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9\s*$",
+        r"(?m)^\s+- uses:\s+actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961\s*$",
         jvm,
     )
     java_command_match = re.search(rf"(?m)^\s+run:\s+{re.escape(jvm_command)}\s*$", jvm)
@@ -418,7 +418,7 @@ def check_workflow():
     csharp = workflow_job(workflow, csharp_job)
     require("    runs-on: ubuntu-latest" in csharp, "C# SDK tests must run on Ubuntu")
     dotnet_setup_match = re.search(
-        r"(?m)^\s+- uses:\s+actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9\s*$",
+        r"(?m)^\s+- uses:\s+actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1\s*$",
         csharp,
     )
     dotnet_command_match = re.search(rf"(?m)^\s+run:\s+{re.escape(csharp_command)}\s*$", csharp)
@@ -1031,7 +1031,7 @@ if mode == "--negative-control-jvm-sdk-setup-order-workflow":
     mutated = original.replace(run_line, "", 1)
     require(mutated != original, "negative control failed: unable to mutate JVM SDK setup order")
     insert = mutated.index(
-        "      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9\n"
+        "      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961\n"
     )
     mutated = (
         mutated[:insert]
@@ -1047,7 +1047,7 @@ if mode == "--negative-control-csharp-sdk-setup-order-workflow":
     mutated = original.replace(run_line, "", 1)
     require(mutated != original, "negative control failed: unable to mutate C# SDK setup order")
     insert = mutated.index(
-        "      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9\n"
+        "      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1\n"
     )
     mutated = (
         mutated[:insert]
@@ -1205,13 +1205,13 @@ workflow_modes = {
     "--negative-control-swift-sdk-script-workflow": (f"        run: {swift_command}", "        run: bash ci/check_sorafs_pin_register_swift_sdk.sh --skip", "Swift SDK script drift"),
     "--negative-control-swift-sdk-needs-workflow": (main_job_needs_line, "    needs: [sorafs_pin_register_jvm_sdk_tests, sorafs_pin_register_csharp_sdk_tests, sorafs_pin_register_javascript_sdk_tests, sorafs_pin_register_python_sdk_tests]", "Swift SDK dependency drift"),
     "--negative-control-jvm-sdk-job-workflow": ("  sorafs_pin_register_jvm_sdk_tests:\n", "  sorafs_pin_register_jvm_sdk_tests_disabled:\n", "JVM SDK job drift"),
-    "--negative-control-jvm-sdk-setup-workflow": ("      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9\n", "", "JVM SDK setup drift"),
+    "--negative-control-jvm-sdk-setup-workflow": ("      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961\n", "", "JVM SDK setup drift"),
     "--negative-control-jvm-sdk-distribution-workflow": ('          distribution: "temurin"', '          distribution: "zulu"', "JVM SDK Java distribution drift"),
     "--negative-control-jvm-sdk-java-version-workflow": ('          java-version: "21"', '          java-version: "17"', "JVM SDK Java version drift"),
     "--negative-control-jvm-sdk-script-workflow": (f"        run: {jvm_command}", "        run: bash ci/check_sorafs_pin_register_jvm_sdk.sh --skip", "JVM SDK script drift"),
     "--negative-control-jvm-sdk-needs-workflow": (main_job_needs_line, "    needs: [sorafs_pin_register_swift_sdk_check, sorafs_pin_register_csharp_sdk_tests, sorafs_pin_register_javascript_sdk_tests, sorafs_pin_register_python_sdk_tests]", "JVM SDK dependency drift"),
     "--negative-control-csharp-sdk-job-workflow": ("  sorafs_pin_register_csharp_sdk_tests:\n", "  sorafs_pin_register_csharp_sdk_tests_disabled:\n", "C# SDK job drift"),
-    "--negative-control-csharp-sdk-setup-workflow": ("      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9\n", "", "C# SDK setup drift"),
+    "--negative-control-csharp-sdk-setup-workflow": ("      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1\n", "", "C# SDK setup drift"),
     "--negative-control-csharp-sdk-dotnet-version-workflow": ("          dotnet-version: 8.0.x", "          dotnet-version: 7.0.x", "C# SDK dotnet version drift"),
     "--negative-control-csharp-sdk-script-workflow": (f"        run: {csharp_command}", "        run: bash ci/check_sorafs_pin_register_csharp_sdk.sh --skip", "C# SDK script drift"),
     "--negative-control-csharp-sdk-needs-workflow": (main_job_needs_line, "    needs: [sorafs_pin_register_swift_sdk_check, sorafs_pin_register_jvm_sdk_tests, sorafs_pin_register_javascript_sdk_tests, sorafs_pin_register_python_sdk_tests]", "C# SDK dependency drift"),

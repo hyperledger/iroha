@@ -519,7 +519,7 @@ jobs:
         with:
           shared-key: sorafs-cli-package-${{ matrix.target }}
       - name: Download validated release evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sorafs-cli-release-gate-${{ github.run_id }}
           path: artifacts/release-gate
@@ -720,7 +720,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Download the exact five unsigned candidates
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: sorafs-cli-${{ needs.release-gate.outputs.version }}-*
           path: release-candidates
@@ -781,12 +781,12 @@ jobs:
         with:
           python-version: "3.12"
       - name: Download the canonical foundational manifest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sorafs-release-foundational-manifest-${{ github.run_id }}
           path: release-auth-input
       - name: Download the exact five candidates for binding verification
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: sorafs-cli-${{ needs.release-gate.outputs.version }}-*
           path: release-candidates
@@ -910,13 +910,13 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Download authenticated release candidates
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: sorafs-cli-${{ needs.release-gate.outputs.version }}-*
           path: signed-input/release-candidates
           merge-multiple: false
       - name: Download authenticated foundational manifest tuple
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sorafs-release-authentication-${{ github.run_id }}
           path: signed-input/release-authentication
@@ -1073,7 +1073,7 @@ jobs:
         with:
           cosign-release: "v3.1.3"
       - name: Download the authenticated signed release input
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sorafs-cli-${{ needs.release-gate.outputs.version }}-signed
           path: sf11-source
