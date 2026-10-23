@@ -716,18 +716,25 @@ Historical time model [E]:
 
 ## 6. RAM plan (≤ 1 GiB)
 
-The peak falls in the quotient phase [E]:
+The peak falls while the quotient recombines its residues
+[S `crates/iroha_plonk/src/prover/memory.rs`]. The prover counts the columns it then holds:
 
-- vectors = PK[2(F + m) + 6] + witness[c·n_a + 8n_l + 2n_z] + coset[n_a + F + m + n_z + 3n_l +
-  4] + 2(d − 1);
+- columns = key[2(F + m + 3)] + n_a + n_i + n_z + 3n_l + 1 + W + 3 + 2(d − 1): the key's fixed,
+  `sigma` and mask columns in both forms, the advice and instance coefficients, the
+  permutation products, each lookup's `A'`, `S'` and `z`, `R`, the quotient workspace `W`, the
+  coset masks, and the residues beside the recombined `h`. `W` is the evaluator's own count:
+  fused F + m + n_a + n_i + n_z (at least 3 with lookups) + n_l + 1; lean the widest pass (at
+  least 3) + 1 + n_i + n_l;
 - × 2 MiB at k16 × 1.15, + 8 MiB params + 64 MiB MSM scratch cap + 50 MiB core baseline.
 
-The original borrowed-witness estimate used c = 3; the implemented consuming-witness
-path uses c = 2 in that estimate. Advice values move into coefficient buffers after
-the permutation and lookup products are built
-[S `crates/iroha_plonk/src/prover/advice.rs`]. The table below retains design estimates;
-current peak RSS qualification must use the measured owned-witness path and complete
-process lifetime. Streaming fixed/permutation columns remains a separate memory choice.
+Advice values move into coefficient buffers after the permutation and lookup products are
+built [S `crates/iroha_plonk/src/prover/advice.rs`], and every earlier phase holds fewer columns.
+`crates/iroha_plonk/tests/proving_memory.rs` measures every allocation of witness synthesis and
+an owned-witness proof against the count, fused and in passes [M]. On a Pixel 6 the k16 Q2
+proof peaked 490 MiB fused and 400 MiB in 16-column passes above the process baseline,
+against counted 500 and 410 MiB with parameters. The table below keeps the original design
+estimates (a formula that counted the lookup and witness columns twice); streaming
+fixed/permutation columns remains a separate memory choice.
 
 | Circuit | Borrowed estimate (c = 3) | Owned estimate (c = 2) | Streamed estimate |
 |---|---:|---:|---:|
@@ -755,14 +762,15 @@ Rules:
    The fused plan transforms every coset column at once. The lean plan cuts the canonical
    terms into contiguous passes of at most 16 coset columns (`ProverConfig::quotient_columns`)
    and keeps the columns consecutive passes share; it costs about 1.2–1.4× the quotient's
-   coset FFTs. Its bound replaces the coset term by the evaluator's columns plus the same
-   `2n_l + 3` slack and counts passes at least 16 columns wide. Admission (§5.3) requires the
+   coset FFTs. Its bound counts the lean workspace in place of the fused one, with passes at
+   least 16 columns wide. Admission (§5.3) requires the
    largest lean bound (σ steps, which always prove fused, count their fused bound). Each proof
    of a fold chooses its own plan from the memory available when the fold started: fused when
    that covers its relation's fused bound, so small relations stay fused while a larger one
    takes passes; otherwise passes widened by one column per 2.4 MB (one k16 vector with margin)
-   above that relation's lean bound. Live generation (2026-10-22): fused 1.051 GiB, lean
-   0.892 GiB (W); the intake staging allowance is 0.902 GiB.
+   above that relation's lean bound. Live generation (2026-10-22 reset): fused 0.885 GiB,
+   lean 0.678 GiB (the A stage with 61 fixed columns); fresh intake stages one derivation, an
+   allowance of 0.480 GiB.
 
 ## 7. Soundness argument
 

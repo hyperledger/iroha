@@ -24,11 +24,14 @@
 //! transport. A failed check refuses the operation before commit with a typed
 //! `NotEnoughStorage` or `NotEnoughMemory` result, never a device verdict: nothing is debited
 //! or credited and the holder retries after freeing storage or memory. A measured peak above
-//! the computed bound is a defect in [`KagemushaWalletRelationShapeV1::peak_proving_bytes`],
-//! fixed in code.
+//! the computed bound is a defect in [`iroha_plonk::prover::peak_proving_columns`], fixed in
+//! code.
 
 use iroha_pasta::msm::PROCESS_MSM_SCRATCH_BYTES;
-use iroha_plonk::cs::ProtocolDescriptor;
+use iroha_plonk::{
+    cs::ProtocolDescriptor,
+    prover::{bounded_quotient_columns, peak_proving_columns},
+};
 
 /// Bytes of one scalar-field element in a proving vector.
 const FIELD_BYTES: u64 = 32;
@@ -158,130 +161,52 @@ impl KagemushaWalletRuntimeCapacityV1 {
     }
 }
 
-/// Proving shape of one relation, read from its authenticated descriptor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KagemushaWalletRelationShapeV1 {
-    /// `log2` of the domain size.
-    pub k: u8,
-    /// Circuit degree `d`.
-    pub degree: u8,
-    /// Fixed columns `F` after selector substitution.
-    pub fixed: u32,
-    /// Advice columns `n_a`.
-    pub advice: u32,
-    /// Equality columns `m`.
-    pub equality: u32,
-    /// Columns per permutation product, `d - 2`.
-    pub permutation_chunk: u8,
-    /// Lookup arguments `n_l`.
-    pub lookups: u32,
-}
-
-impl KagemushaWalletRelationShapeV1 {
-    /// Shape of one installed descriptor; `None` for counts outside `u32`.
-    #[must_use]
-    pub fn of(descriptor: &ProtocolDescriptor) -> Option<Self> {
-        Some(Self {
-            k: descriptor.k,
-            degree: descriptor.degree,
-            fixed: descriptor.num_fixed_columns,
-            advice: descriptor.num_advice_columns,
-            equality: u32::try_from(descriptor.permutation.len()).ok()?,
-            permutation_chunk: descriptor.permutation_chunk_len,
-            lookups: u32::try_from(descriptor.lookups.len()).ok()?,
-        })
-    }
-
-    /// Conservative peak proving memory of this relation, in bytes.
-    ///
-    /// The quotient phase is the peak (`specs/kagemusha_lambda_omega_v1.md` §6 RAM plan). It holds
-    /// `PK[2(F + m) + 6] + witness[2·n_a + 8·n_l + 2·n_z] + coset[n_a + F + m + n_z + 3·n_l + 4]`
-    /// domain vectors of `32·2^k` bytes, with the owned-witness copy factor 2 and
-    /// `n_z = ⌈m / (d − 2)⌉` permutation products. The bound adds 15% to those vectors, then the
-    /// pinned `g` and `g_lagrange` parameters (`2·64·2^k` bytes), the process-wide 64 MiB MSM
-    /// scratch cap and the 50 MiB wallet-core baseline. `None` for an inconsistent shape.
-    #[must_use]
-    pub fn peak_proving_bytes(&self) -> Option<u64> {
-        let products = self.products()?;
-        let coset = u64::from(self.advice)
-            + u64::from(self.fixed)
-            + u64::from(self.equality)
-            + products
-            + 3 * u64::from(self.lookups)
-            + 4;
-        self.peak_with_coset(coset)
-    }
-
-    /// [`Self::peak_proving_bytes`] with the quotient in passes that hold `quotient_columns`
-    /// columns at once (`iroha_plonk::prover::bounded_quotient_columns`) in place of every coset
-    /// column, keeping the fused bound's slack of `2·n_l + 3` vectors over the evaluator's own
-    /// columns. Never above the fused bound.
-    #[must_use]
-    pub fn lean_peak_proving_bytes(&self, quotient_columns: u64) -> Option<u64> {
-        let coset = quotient_columns
-            .checked_add(2 * u64::from(self.lookups))?
-            .checked_add(3)?;
-        Some(self.peak_with_coset(coset)?.min(self.peak_proving_bytes()?))
-    }
-
-    /// `n_z`; `None` for an inconsistent shape.
-    fn products(&self) -> Option<u64> {
-        let chunk = u64::from(self.permutation_chunk);
-        if self.degree < 3 || chunk == 0 {
-            return None;
-        }
-        Some(u64::from(self.equality).div_ceil(chunk))
-    }
-
-    fn peak_with_coset(&self, coset: u64) -> Option<u64> {
-        let n = 1_u64.checked_shl(u32::from(self.k))?;
-        let products = self.products()?;
-        let fixed = u64::from(self.fixed);
-        let advice = u64::from(self.advice);
-        let equality = u64::from(self.equality);
-        let lookups = u64::from(self.lookups);
-        let proving_key = 2 * (fixed + equality) + 6;
-        let witness = 2 * advice + 8 * lookups + 2 * products;
-        let quotient = 2 * (u64::from(self.degree) - 1);
-        let vectors = proving_key + witness + coset + quotient;
-        let vector_bytes = vectors.checked_mul(FIELD_BYTES)?.checked_mul(n)?;
-        let margined = vector_bytes.checked_mul(115)?.div_ceil(100);
-        let parameters = POINT_BYTES.checked_mul(2)?.checked_mul(n)?;
-        margined
-            .checked_add(parameters)?
-            .checked_add(u64::try_from(PROCESS_MSM_SCRATCH_BYTES).ok()?)?
-            .checked_add(KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1)
-    }
-}
-
-/// Conservative peak proving memory of one installed relation descriptor.
-#[must_use]
-pub fn kagemusha_wallet_relation_peak_memory_v1(descriptor: &ProtocolDescriptor) -> Option<u64> {
-    KagemushaWalletRelationShapeV1::of(descriptor)?.peak_proving_bytes()
+/// Conservative peak proving memory of `columns` field columns of `2^k` rows, in bytes: the
+/// columns with a 15% margin, the pinned `g` and `g_lagrange` parameters (`2·64·2^k` bytes),
+/// the process-wide 64 MiB MSM scratch cap and the 50 MiB wallet-core baseline. `None` on
+/// overflow.
+fn peak_bytes(k: u8, columns: usize) -> Option<u64> {
+    let n = 1_u64.checked_shl(u32::from(k))?;
+    let margined = u64::try_from(columns)
+        .ok()?
+        .checked_mul(FIELD_BYTES)?
+        .checked_mul(n)?
+        .checked_mul(115)?
+        .div_ceil(100);
+    margined
+        .checked_add(POINT_BYTES.checked_mul(2)?.checked_mul(n)?)?
+        .checked_add(u64::try_from(PROCESS_MSM_SCRATCH_BYTES).ok()?)?
+        .checked_add(KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1)
 }
 
 /// Both quotient plans' peak proving memory of one installed relation descriptor.
+///
+/// The prover counts the field columns one proof holds at its peak, key included
+/// ([`iroha_plonk::prover::peak_proving_columns`]); a measured peak above that count is a defect
+/// there, fixed in code. The lean bound counts passes at least
+/// [`KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1`] columns wide, so a plan `x` columns wider holds
+/// at most `x` more columns. `None` for a descriptor whose columns cannot be counted.
 #[must_use]
 pub fn kagemusha_wallet_relation_proving_memory_v1(
     descriptor: &ProtocolDescriptor,
 ) -> Option<KagemushaWalletProvingMemoryV1> {
-    let shape = KagemushaWalletRelationShapeV1::of(descriptor)?;
-    let columns = iroha_plonk::prover::bounded_quotient_columns(
-        descriptor,
-        KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1,
-    )
-    .ok()?;
-    // Count passes at least the lean width (the coset powers, instance columns and lookup
-    // numerators come on top), so a wider plan's growth is bounded by the columns it adds.
-    let floor = KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1
+    let width = KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1;
+    let fused = peak_proving_columns(descriptor, None).ok()?.total();
+    // The coset powers, instance columns and lookup numerators come on top of the passes.
+    let floor = width
         .checked_add(1)?
         .checked_add(descriptor.instance_lengths.len())?
         .checked_add(descriptor.lookups.len())?;
-    let columns = columns.max(floor);
-    let n = 1_u64.checked_shl(u32::from(shape.k))?;
+    let workspace = bounded_quotient_columns(descriptor, width).ok()?;
+    let lean = peak_proving_columns(descriptor, Some(width))
+        .ok()?
+        .total()
+        .checked_add(floor.saturating_sub(workspace))?
+        .min(fused);
+    let n = 1_u64.checked_shl(u32::from(descriptor.k))?;
     Some(KagemushaWalletProvingMemoryV1 {
-        fused_bytes: shape.peak_proving_bytes()?,
-        lean_bytes: shape.lean_peak_proving_bytes(u64::try_from(columns).ok()?)?,
+        fused_bytes: peak_bytes(descriptor.k, fused)?,
+        lean_bytes: peak_bytes(descriptor.k, lean)?,
         column_bytes: FIELD_BYTES.checked_mul(n)?.checked_mul(115)?.div_ceil(100),
     })
 }
@@ -335,88 +260,72 @@ pub fn kagemusha_wallet_native_available_memory_v1() -> Option<u64> {
 mod tests {
     use super::*;
 
-    fn shape(
-        advice: u32,
-        fixed: u32,
-        equality: u32,
-        lookups: u32,
-    ) -> KagemushaWalletRelationShapeV1 {
-        KagemushaWalletRelationShapeV1 {
-            k: 16,
-            degree: 6,
-            fixed,
-            advice,
-            equality,
-            permutation_chunk: 4,
-            lookups,
-        }
+    #[test]
+    fn peak_bytes_add_margin_parameters_scratch_and_baseline() {
+        // 133 columns of 2 MiB, +15%, + 8 MiB parameters + 64 MiB MSM + 50 MiB core.
+        assert_eq!(
+            peak_bytes(16, 133),
+            Some(320_759_399 + (8 << 20) + (64 << 20) + (50 << 20))
+        );
+        assert!(peak_bytes(16, 134) > peak_bytes(16, 133));
+        assert!(peak_bytes(17, 133) > peak_bytes(16, 133));
+        assert_eq!(peak_bytes(64, 1), None);
+        assert_eq!(peak_bytes(16, usize::MAX), None);
     }
 
-    fn gib_hundredths(bytes: u64) -> u64 {
-        // Round to the two decimals the RAM plan publishes.
-        (bytes * 100 + (1 << 29)) >> 30
+    fn installed_descriptors() -> Vec<iroha_plonk::keys::DescriptorBinding> {
+        let (pack, _) =
+            crate::kagemusha_wallet_artifacts_v1::engineering_fixture::signed_inventory();
+        pack.steps
+            .iter()
+            .map(|step| step.artifact.descriptor.as_slice())
+            .chain([pack.lineage.descriptor.as_slice()])
+            .map(|bytes| iroha_plonk::keys::DescriptorBinding::decode_v2(bytes).unwrap())
+            .collect()
     }
 
     #[test]
-    fn peak_reproduces_the_published_owned_witness_estimates() {
-        // specs/kagemusha_lambda_omega_v1.md §6, owned estimate (c = 2): A 0.84, Q 0.67,
-        // Ω/W 0.42 GiB.
-        let a = shape(32, 44, 10, 3).peak_proving_bytes().unwrap();
-        let q = shape(22, 32, 8, 3).peak_proving_bytes().unwrap();
-        let omega = shape(11, 18, 4, 1).peak_proving_bytes().unwrap();
-        assert_eq!(gib_hundredths(a), 84);
-        assert_eq!(gib_hundredths(q), 67);
-        assert_eq!(gib_hundredths(omega), 42);
-        // 133 vectors of 2 MiB, +15%, + 8 MiB parameters + 64 MiB MSM + 50 MiB core.
-        assert_eq!(omega, 320_759_399 + (8 << 20) + (64 << 20) + (50 << 20));
-    }
-
-    #[test]
-    fn peak_grows_with_every_descriptor_count_and_rejects_inconsistent_shapes() {
-        let base = shape(11, 18, 4, 1);
-        let peak = base.peak_proving_bytes().unwrap();
-        for changed in [
-            KagemushaWalletRelationShapeV1 { advice: 12, ..base },
-            KagemushaWalletRelationShapeV1 { fixed: 19, ..base },
-            KagemushaWalletRelationShapeV1 {
-                equality: 5,
-                ..base
-            },
-            KagemushaWalletRelationShapeV1 { lookups: 2, ..base },
-            KagemushaWalletRelationShapeV1 { degree: 7, ..base },
-            KagemushaWalletRelationShapeV1 { k: 17, ..base },
-        ] {
-            assert!(changed.peak_proving_bytes().unwrap() > peak, "{changed:?}");
+    fn bounds_count_the_provers_peak_columns_of_installed_descriptors() {
+        let width = KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1;
+        let bindings = installed_descriptors();
+        for binding in &bindings {
+            let descriptor = binding.descriptor();
+            let memory = kagemusha_wallet_relation_proving_memory_v1(descriptor).unwrap();
+            let fused = peak_proving_columns(descriptor, None).unwrap();
+            let lean = peak_proving_columns(descriptor, Some(width)).unwrap();
+            assert_eq!(fused.key, lean.key);
+            assert_eq!(
+                Some(memory.fused_bytes),
+                peak_bytes(descriptor.k, fused.total())
+            );
+            // The lean count, with passes counted at least the lean width, never above fused.
+            let floor = width + 1 + descriptor.instance_lengths.len() + descriptor.lookups.len();
+            let workspace = bounded_quotient_columns(descriptor, width).unwrap();
+            let columns = (lean.total() + floor.saturating_sub(workspace)).min(fused.total());
+            assert_eq!(Some(memory.lean_bytes), peak_bytes(descriptor.k, columns));
+            assert!(memory.lean_bytes <= memory.fused_bytes);
+            assert_eq!(
+                memory.column_bytes,
+                ((32_u64 << descriptor.k) * 115).div_ceil(100)
+            );
+            // A plan `x` columns wider than the lean width holds at most `x` more columns.
+            for extra in [1, 4, 16, 64] {
+                let wider = peak_proving_columns(descriptor, Some(width + extra))
+                    .unwrap()
+                    .total()
+                    .min(fused.total());
+                assert!(
+                    wider <= columns + extra,
+                    "{extra}: {wider} > {columns} + {extra}"
+                );
+            }
+            // Never below the fixed parameter, MSM and wallet-core terms.
+            let floor = 128_u64 << descriptor.k;
+            assert!(
+                memory.lean_bytes > floor + (64 << 20) + KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1
+            );
         }
-        let smaller = KagemushaWalletRelationShapeV1 { k: 12, ..base };
-        assert!(smaller.peak_proving_bytes().unwrap() < peak);
-        for invalid in [
-            KagemushaWalletRelationShapeV1 { degree: 2, ..base },
-            KagemushaWalletRelationShapeV1 {
-                permutation_chunk: 0,
-                ..base
-            },
-            KagemushaWalletRelationShapeV1 { k: 64, ..base },
-        ] {
-            assert_eq!(invalid.peak_proving_bytes(), None, "{invalid:?}");
-        }
-    }
-
-    #[test]
-    fn lean_bound_replaces_only_the_coset_term_and_never_exceeds_fused() {
-        let a = shape(32, 44, 10, 3);
-        let fused = a.peak_proving_bytes().unwrap();
-        let lean = a.lean_peak_proving_bytes(16).unwrap();
-        // PK 114 + witness 94 + quotient 10 vectors, plus a coset term of 102 fused or
-        // 16 + 2·3 + 3 = 25 lean; every other term is shared.
-        let vectors = |count: u64| (count * 32 * 65_536 * 115).div_ceil(100);
-        assert_eq!(fused - lean, vectors(320) - vectors(243));
-        // Wider passes approach the fused bound and never exceed it.
-        assert!(a.lean_peak_proving_bytes(64).unwrap() > lean);
-        assert_eq!(a.lean_peak_proving_bytes(1 << 20), Some(fused));
-        assert_eq!(a.lean_peak_proving_bytes(u64::MAX), None);
-        let invalid = KagemushaWalletRelationShapeV1 { degree: 2, ..a };
-        assert_eq!(invalid.lean_peak_proving_bytes(16), None);
+        assert!(!bindings.is_empty());
     }
 
     #[test]
@@ -579,56 +488,6 @@ mod tests {
                     .is_some()
             );
         }
-    }
-
-    #[test]
-    fn shapes_are_read_from_authenticated_installed_descriptors() {
-        let (pack, _) =
-            crate::kagemusha_wallet_artifacts_v1::engineering_fixture::signed_inventory();
-        let descriptors = pack
-            .steps
-            .iter()
-            .map(|step| step.artifact.descriptor.as_slice())
-            .chain([pack.lineage.descriptor.as_slice()]);
-        let mut checked = 0;
-        for bytes in descriptors {
-            let binding = iroha_plonk::keys::DescriptorBinding::decode_v2(bytes).unwrap();
-            let descriptor = binding.descriptor();
-            let shape = KagemushaWalletRelationShapeV1::of(descriptor).unwrap();
-            assert_eq!(shape.k, descriptor.k);
-            assert_eq!(shape.degree, descriptor.degree);
-            assert_eq!(shape.fixed, descriptor.num_fixed_columns);
-            assert_eq!(shape.advice, descriptor.num_advice_columns);
-            assert_eq!(shape.equality as usize, descriptor.permutation.len());
-            assert_eq!(shape.permutation_chunk, descriptor.permutation_chunk_len);
-            assert_eq!(shape.lookups as usize, descriptor.lookups.len());
-            let peak = kagemusha_wallet_relation_peak_memory_v1(descriptor).unwrap();
-            assert_eq!(Some(peak), shape.peak_proving_bytes());
-            let memory = kagemusha_wallet_relation_proving_memory_v1(descriptor).unwrap();
-            assert_eq!(memory.fused_bytes, peak);
-            assert!(memory.lean_bytes <= memory.fused_bytes);
-            // The lean bound counts passes at least the lean width.
-            let floor = KAGEMUSHA_WALLET_LEAN_QUOTIENT_COLUMNS_V1
-                + 1
-                + descriptor.instance_lengths.len()
-                + descriptor.lookups.len();
-            assert!(
-                memory.lean_bytes
-                    >= shape
-                        .lean_peak_proving_bytes(u64::try_from(floor).unwrap())
-                        .unwrap()
-                        .min(memory.fused_bytes)
-            );
-            assert_eq!(
-                memory.column_bytes,
-                ((32_u64 << descriptor.k) * 115).div_ceil(100)
-            );
-            // Never below the fixed parameter, MSM and wallet-core terms.
-            let floor = 128_u64 << descriptor.k;
-            assert!(peak > floor + (64 << 20) + KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1);
-            checked += 1;
-        }
-        assert_eq!(checked, pack.steps.len() + 1);
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]

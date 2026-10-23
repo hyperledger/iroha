@@ -154,9 +154,8 @@ pub(crate) async fn handler(
     let admission = acquire_query_admission(app.as_ref(), true).await?;
     let bytes = app.query_fanout_working_set_bytes;
     let capacity = crate::native_projection_response::capacity;
-    let memory = app
-        .query_fanout_inflight
-        .try_acquire_parts([u64::try_from(bytes).map_err(|_| capacity())?])
+    let memory = crate::acquire_query_pool_credit(&app, bytes)
+        .await
         .ok_or_else(capacity)?;
     let memory = QueryFanoutMemoryReservation::new(memory);
     let budget = AllocationBudget::new(bytes);

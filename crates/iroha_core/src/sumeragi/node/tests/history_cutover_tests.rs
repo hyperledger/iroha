@@ -216,6 +216,11 @@ fn world_root(state: &State) -> Result<String, String> {
 #[test]
 fn current_genesis_history_replays_from_reopened_stores_to_the_identical_state() {
     let _scenario = real_node_scenario_guard();
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::node::tests::history_cutover_tests::current_genesis_history_replays_from_reopened_stores_to_the_identical_state",
+    ) {
+        return;
+    }
     let chain = chain(4, 200);
     let disks = stored_disks(&chain);
     let validators = start_all(&chain, &disks, true);
@@ -303,6 +308,11 @@ fn current_genesis_history_replays_from_reopened_stores_to_the_identical_state()
 #[test]
 fn a_store_never_replays_under_another_genesis() {
     let _scenario = real_node_scenario_guard();
+    if crate::unit_test_support::run_in_isolated_harness(
+        "sumeragi::node::tests::history_cutover_tests::a_store_never_replays_under_another_genesis",
+    ) {
+        return;
+    }
     let old = chain(4, 200);
     // Any signed difference is another genesis; here one consensus parameter.
     let new = chain(4, 300);

@@ -23500,7 +23500,7 @@
         ]
       },
       {
-        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds: among them the encoded transport of the artifact originals and the stored closure of one operation, the archived preparation plan, the staged preparation drafts of a wallet operation (at most two derivations of fixed geometry) and the durable archive-retirement journal cell. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
+        "reason": "KAGEMUSHA offline-wallet component shapes: current enrollment policy, original evidence, carrier, journal, state storage, artifact inventory and custody records, with their own byte/count/depth bounds: among them the encoded transport of the artifact originals and the stored closure of one operation, the archived preparation plan, the staged preparation drafts of a wallet operation (one derivation of fixed geometry) and the durable archive-retirement journal cell. These are product-internal records and producer inputs; transaction.max_tx_bytes and the generic proof/frame bounds continue to limit submitted carriers. This classification does not certify these product-specific boundaries or change their enforcement.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/isi/kagemusha_wallet/load_finality.rs",
@@ -24066,7 +24066,7 @@
               "BATCH_BYTES"
             ],
             "exprs": {
-              "DRAFT_OBJECTS": "70_188",
+              "DRAFT_OBJECTS": "35_094",
               "BATCH_BYTES": "DRAFT_BYTES + DRAFT_OBJECTS * 512 + REQUEST_MAX_BYTES + PLAN_BOUND + 4096"
             }
           },
@@ -24657,7 +24657,7 @@
               "DRAFT_BYTES"
             ],
             "exprs": {
-              "DRAFT_BYTES": "112_289_312"
+              "DRAFT_BYTES": "56_144_656"
             },
             "term_of": {
               "DRAFT_BYTES": [
@@ -27272,12 +27272,6 @@
               "sites": {
                 "self.terminals.len() > 32": 1,
                 "operation.context.len() > 4_096": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_capacity_v1.rs",
-              "sites": {
-                "degree < 3": 1
               }
             },
             {

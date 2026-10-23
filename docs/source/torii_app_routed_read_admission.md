@@ -1,9 +1,17 @@
 # App API routed-read HTTP admission
 
 All 46 first-release `ToriiReadEndpointV1` public handlers share one outer HTTP
-admission corridor. Before a request body is polled, Torii reserves the existing
-query-fanout working set. The same reservation is adopted by downstream
-single-route and fanout execution and remains owned by the final response body.
+admission corridor. Before a request body is polled, Torii waits within the
+bounded query admission queue for the smallest query-fanout owner whose limits
+admit the request target and declared body (256 KiB, 2 MiB and 16 MiB phase
+units below `torii.query_fanout_max_working_set_bytes`, then that ceiling; an
+undeclared length takes the ceiling). The same reservation is adopted by
+downstream single-route and fanout execution and remains owned by the final
+response body. When a limit derived from the owner refuses the read, the
+corridor releases it, waits for the next owner and serves the read again from
+its retained body; only the ceiling owner's refusal reaches the client. Owners
+below the ceiling do not book the proxy-candidate allowance, so a read routed to
+another validator moves to the ceiling owner before any candidate is resolved.
 
 The corridor counts the complete parsed request target (scheme and authority for
 absolute form, plus path and query) and body against the route-body phase. It

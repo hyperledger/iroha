@@ -184,11 +184,12 @@ Out of scope:
 - `CARGO_NET_OFFLINE=true` prevents registry access. `CARGO_INCREMENTAL=0` and the mold linker setting in
   `/usr/local/cargo/config.toml` match the prebuilt artifacts; changing compilation settings such as these,
   `RUSTFLAGS` or a profile can invalidate those artifacts.
-- `/opt/oss-scanner/build.log` says which prebuild steps finished. The shared compilation budget starts after
-  dependency fetch and is reset whenever the compilation layer runs, including after cached setup layers. Package
-  and toolchain installation and dependency fetch are outside that budget and still count toward the scanner's
-  overall build limit. A step marked unfinished needs its command run again. That is slow here. Compile errors or
-  abnormal exits, including SIGKILL, fail the image build; they are not reported as budget exhaustion.
+- `/opt/oss-scanner/build.log` says which prebuild steps finished. The shared compilation budget defaults to 20
+  minutes, leaving time for image export and unpacking. It starts after dependency fetch and is reset whenever the
+  compilation layer runs, including after cached setup layers. Package and toolchain installation, dependency
+  fetch, image export and unpacking are outside that budget and still count toward the scanner's overall build
+  limit. A step marked unfinished needs its command run again. That is slow here. Compile errors or abnormal exits,
+  including SIGKILL, fail the image build; they are not reported as budget exhaustion.
 
 **Prebuilt, in this order:**
 1. The release binaries in `target/debug/`: `iroha3d`, `iroha3d_taira`, `sorafs_governance_dag`,

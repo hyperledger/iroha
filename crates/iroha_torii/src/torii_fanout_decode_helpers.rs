@@ -1200,16 +1200,27 @@ fn try_acquire_query_memory_envelope(
     app: &SharedAppState,
     envelope: QueryFanoutMemoryEnvelope,
 ) -> Result<QueryFanoutMemoryReservation, Response> {
+    try_acquire_query_memory_weight(app, envelope, envelope.working_set_bytes)
+}
+/// Admit `envelope` with `weight_bytes` of pool credit: the complete working set, or
+/// less for an owner whose read never uses part of its fixed allowance.
+#[expect(
+    clippy::result_large_err,
+    reason = "Capacity rejections retain the complete Axum response inline without adding a box allocation."
+)]
+fn try_acquire_query_memory_weight(
+    app: &SharedAppState,
+    envelope: QueryFanoutMemoryEnvelope,
+    weight_bytes: usize,
+) -> Result<QueryFanoutMemoryReservation, Response> {
     app.query_fanout_inflight
-        .try_acquire_parts([
-            u64::try_from(app.query_fanout_working_set_bytes).map_err(|_| {
-                torii_proxy_error_response(
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "query_capacity_exceeded",
-                    "cross-dataspace query fanout memory weight is not representable",
-                )
-            })?,
-        ])
+        .try_acquire_parts([u64::try_from(weight_bytes).map_err(|_| {
+            torii_proxy_error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                "query_capacity_exceeded",
+                "cross-dataspace query fanout memory weight is not representable",
+            )
+        })?])
         .map(|permit| {
             QueryFanoutMemoryReservation::from_admitted_fanout(
                 permit,
@@ -1225,22 +1236,114 @@ fn try_acquire_query_memory_envelope(
             )
         })?
 }
-/// Queue a bodyless HTTP read before polling its body or decoding its query. The
+/// Phase units of the smaller routed-read owners, smallest first. The configured
+/// complete working set (`torii.query_fanout_max_working_set_bytes`) follows them.
+const ROUTED_READ_OWNER_PHASE_UNITS: [usize; 3] = [256 * 1024, 2 * 1024 * 1024, 16 * 1024 * 1024];
+/// Candidate routed-read working sets, smallest first, ending with the configured one.
+///
+/// Each smaller owner is the complete pre-body envelope of one phase unit
+/// (`fixed + 15 × unit`), so every limit derived from it bounds that read for real.
+/// A read starts with the smallest owner that admits its target and declared body
+/// and moves to the next one only when a limit derived from its owner refuses it.
+fn routed_read_owner_working_sets(app: &AppState) -> impl Iterator<Item = usize> {
+    let ceiling = app.query_fanout_working_set_bytes;
+    let fixed = query_fanout_fixed_overhead_bytes();
+    ROUTED_READ_OWNER_PHASE_UNITS
+        .into_iter()
+        .filter_map(move |unit| {
+            unit.checked_mul(QUERY_FANOUT_PREBODY_UNITS)?
+                .checked_add(fixed?)
+        })
+        .filter(move |working_set| *working_set < ceiling)
+        .chain(core::iter::once(ceiling))
+}
+/// Wait within the query admission queue for `bytes` of query-pool credit.
+///
+/// Proof-style reads meter their own allocations against the bytes they book. Waiting
+/// here, bounded like every other query admission, keeps a momentary shortage of pool
+/// credit from turning into a refusal; a zero queue timeout still tries once.
+async fn acquire_query_pool_credit(
+    app: &AppState,
+    bytes: usize,
+) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    let permits = app
+        .query_fanout_inflight
+        .permits_for_parts([u64::try_from(bytes).ok()?])?;
+    let semaphore = app.query_fanout_inflight.semaphore.clone();
+    if app.query_queue_timeout.is_zero() {
+        return semaphore.try_acquire_many_owned(permits.get()).ok();
+    }
+    let _waiter = app
+        .app_routed_read_waiters
+        .clone()
+        .try_acquire_owned()
+        .ok()?;
+    tokio::time::timeout(
+        app.query_queue_timeout,
+        semaphore.acquire_many_owned(permits.get()),
+    )
+    .await
+    .ok()?
+    .ok()
+}
+/// Smallest owner whose source frame and decode phase both cover `unit_bytes`, the
+/// largest representation an authentication read decodes; an unknown size takes the
+/// configured owner.
+fn authentication_owner_working_set(app: &AppState, unit_bytes: Option<usize>) -> usize {
+    let ceiling = app.query_fanout_working_set_bytes;
+    let Some(unit_bytes) = unit_bytes else {
+        return ceiling;
+    };
+    routed_read_owner_working_sets(app)
+        .find(|&working_set| {
+            QueryFanoutMemoryEnvelope::for_body_admission(working_set).is_ok_and(|envelope| {
+                envelope.route_body_bytes >= unit_bytes
+                    && envelope.decode_allocated_bytes >= unit_bytes
+            })
+        })
+        .unwrap_or(ceiling)
+}
+/// Pool credit for a routed-read owner of `working_set_bytes`, and whether it is local-only.
+///
+/// An owner below the configured working set serves its read on this node: it never
+/// builds the proxy candidate list its fixed allowance reserves for up to 256 manifest
+/// validators, so it does not book that allowance. `execute_torii_read_via_proxy`
+/// refuses such an owner, which moves the read to the configured owner before any
+/// candidate is resolved.
+fn routed_read_owner_weight(app: &AppState, working_set_bytes: usize) -> Option<(usize, bool)> {
+    if working_set_bytes >= app.query_fanout_working_set_bytes {
+        return Some((working_set_bytes, false));
+    }
+    let weight = working_set_bytes.checked_sub(query_fanout_candidate_snapshot_overhead_bytes()?)?;
+    Some((weight, true))
+}
+/// Queue an HTTP routed read before polling its body or decoding its query. The
 /// listener already bounds its raw HTTP head; the separate waiter count bounds
 /// how many of those heads remain here. No signed-query ingress permit or decoded
-/// request is pinned while waiting for the complete fanout working set.
+/// request is pinned while waiting for the working set: a body stays unread in
+/// its connection until this read owns `working_set_bytes`.
 async fn acquire_app_routed_read_http_memory(
     app: &SharedAppState,
-    accepts_body: bool,
+    working_set_bytes: usize,
 ) -> Result<QueryFanoutMemoryReservation, Response> {
-    if accepts_body || app.query_queue_timeout.is_zero() {
-        return try_acquire_new_query_fanout_memory(app);
+    let envelope = QueryFanoutMemoryEnvelope::for_body_admission(working_set_bytes)?;
+    let (weight, local_only) =
+        routed_read_owner_weight(app, working_set_bytes).ok_or_else(|| {
+            torii_proxy_error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                "query_capacity_exceeded",
+                "routed-read owner weight is not representable",
+            )
+        })?;
+    if app.query_queue_timeout.is_zero() {
+        return try_acquire_query_memory_weight(app, envelope, weight)
+            .map(|owner| owner.local_only(local_only));
     }
     let unavailable = || {
         torii_proxy_error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "query_capacity_exceeded",
-            "bodyless query capacity did not become available within the bounded admission queue",
+            "query capacity did not become available within the bounded admission queue",
         )
     };
     let _waiter = app
@@ -1248,7 +1351,7 @@ async fn acquire_app_routed_read_http_memory(
         .clone()
         .try_acquire_owned()
         .map_err(|_| unavailable())?;
-    let bytes = u64::try_from(app.query_fanout_working_set_bytes).map_err(|_| unavailable())?;
+    let bytes = u64::try_from(weight).map_err(|_| unavailable())?;
     let permits = app
         .query_fanout_inflight
         .permits_for_parts([bytes])
@@ -1265,9 +1368,24 @@ async fn acquire_app_routed_read_http_memory(
     .map_err(|_| unavailable())?;
     QueryFanoutMemoryReservation::from_admitted_fanout(
         acquired,
-        QueryFanoutMemoryEnvelope::for_body_admission(app.query_fanout_working_set_bytes)?,
+        envelope,
         app.query_fanout_inflight.generation(),
     )
+    .map(|owner| owner.local_only(local_only))
+}
+/// Refuse to send a read to another validator under a local-only owner, as a limit of
+/// that owner, so the routed-read admission serves it again with the configured owner.
+#[cfg(feature = "app_api")]
+fn local_only_owner_refusal(app: &AppState) -> Option<Response> {
+    current_query_fanout_memory_for_state(app)
+        .is_some_and(|owner| owner.is_local_only())
+        .then(|| {
+            torii_proxy_error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "query_capacity_exceeded",
+                "This read is served by another validator; its local-only memory owner does not cover proxy candidates.",
+            )
+        })
 }
 fn hold_query_fanout_memory_in_response_body(
     response: Response,
@@ -1311,9 +1429,24 @@ struct AdmittedQueryFanoutMemory {
     envelope: QueryFanoutMemoryEnvelope,
     /// Prevent task-local ownership from being borrowed by another app's pool.
     pool_generation: u64,
+    /// Admitted without the proxy-candidate allowance: the read must stay on this node.
+    local_only: bool,
 }
 
 impl QueryFanoutMemoryReservation {
+    /// Mark an owner admitted without the proxy-candidate allowance.
+    fn local_only(mut self, local_only: bool) -> Self {
+        if let Some(admission) = &mut self.admission {
+            admission.local_only = local_only;
+        }
+        self
+    }
+
+    /// Whether this owner must serve its read on this node.
+    fn is_local_only(&self) -> bool {
+        self.admission.is_some_and(|admission| admission.local_only)
+    }
+
     /// Retain response custody without granting query-pool admission.
     fn new(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
         Self {
@@ -1362,6 +1495,7 @@ impl QueryFanoutMemoryReservation {
             admission: Some(AdmittedQueryFanoutMemory {
                 envelope,
                 pool_generation,
+                local_only: false,
             }),
             producer: Some(producer),
         })
@@ -1371,6 +1505,13 @@ impl QueryFanoutMemoryReservation {
         self.admission.is_some_and(|admission| {
             admission.pool_generation == app.query_fanout_inflight.generation()
         })
+    }
+
+    /// Whether a limit derived from this owner refused its read.
+    fn owner_limit_refused(&self) -> bool {
+        self.producer
+            .as_ref()
+            .is_some_and(|producer| producer.owner_limit_refused())
     }
 
     #[expect(
