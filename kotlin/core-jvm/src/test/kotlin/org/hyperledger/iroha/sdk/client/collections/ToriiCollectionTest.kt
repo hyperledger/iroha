@@ -553,7 +553,7 @@ class ToriiCollectionTest {
                 .setBaseUri(URI(base))
                 .setLocalSigningContext(LocalSigningContext(TestNetworkIds.canonical()))
                 .setCanonicalAuth(auth)
-                .setAllowPlaintextLoopback(optIn)
+                .setAllowLocalDevelopmentHttp(optIn)
                 .build(),
         )
         val refused = ScriptedExecutor()

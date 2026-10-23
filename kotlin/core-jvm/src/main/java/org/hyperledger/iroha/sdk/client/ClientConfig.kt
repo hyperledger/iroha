@@ -18,7 +18,6 @@ class ClientConfig private constructor(builder: Builder) {
     private val localSigningContext: LocalSigningContext? = builder.localSigningContext
     private val operatorSigningContext: OperatorSigningContext? = builder.operatorSigningContext
     private val canonicalAuth: ToriiCanonicalRequestAuth? = builder.canonicalAuth
-    private val allowPlaintextLoopback: Boolean = builder.allowPlaintextLoopback
     private val baseUri: URI = builder.baseUri
     private val sorafsGatewayUri: URI = builder.sorafsGatewayUri ?: builder.baseUri
     private val requestTimeout: Duration = builder.requestTimeout
@@ -37,6 +36,7 @@ class ClientConfig private constructor(builder: Builder) {
     private val crashTelemetryEnabled: Boolean = builder.crashTelemetryEnabled
     private val crashMetadataProvider: MetadataProvider = builder.crashMetadataProvider
     private val crashTelemetryHandler: CrashTelemetryHandler?
+    private val allowLocalDevelopmentHttp: Boolean = builder.allowLocalDevelopmentHttp
 
     init {
         if (canonicalAuth != null) {
@@ -81,12 +81,6 @@ class ClientConfig private constructor(builder: Builder) {
      */
     fun canonicalAuth(): ToriiCanonicalRequestAuth? = canonicalAuth
 
-    /**
-     * Whether credential-bearing requests may use plain `http` to a loopback host (`localhost`,
-     * `127.0.0.0/8`, `::1`) for local development networks. Remote hosts always require `https`.
-     */
-    fun allowPlaintextLoopback(): Boolean = allowPlaintextLoopback
-
     fun baseUri(): URI = baseUri
     /** Base URI used for SoraFS gateway requests. Defaults to [baseUri] when unset. */
     fun sorafsGatewayUri(): URI = sorafsGatewayUri
@@ -95,6 +89,8 @@ class ClientConfig private constructor(builder: Builder) {
     fun defaultHeaders(): Map<String, String> = defaultHeaders
     /** Wire-format preference used for dual-format Torii routes. */
     fun wireFormatPreference(): WireFormatPreference = wireFormatPreference
+    /** Whether Torii HTTP requests may use the local transport exception described by [Builder.setAllowLocalDevelopmentHttp]. */
+    fun allowLocalDevelopmentHttp(): Boolean = allowLocalDevelopmentHttp
     /** Registered observers that receive request lifecycle callbacks. */
     fun observers(): List<ClientObserver> = observers
     /** Policy available to caller-managed replay-safe reads; signed submissions ignore it. */
@@ -126,10 +122,10 @@ class ClientConfig private constructor(builder: Builder) {
             .setTelemetryExporterName(telemetryExporterName).setNetworkContextProvider(networkContextProvider)
             .setDeviceProfileProvider(deviceProfileProvider).setCrashTelemetryMetadataProvider(crashMetadataProvider)
             .setCrashTelemetryEnabled(crashTelemetryEnabled)
+            .setAllowLocalDevelopmentHttp(allowLocalDevelopmentHttp)
         localSigningContext?.let(builder::setLocalSigningContext)
         operatorSigningContext?.let(builder::setOperatorSigningContext)
         canonicalAuth?.let(builder::setCanonicalAuth)
-        builder.setAllowPlaintextLoopback(allowPlaintextLoopback)
         return builder
     }
 
@@ -146,17 +142,22 @@ class ClientConfig private constructor(builder: Builder) {
             .observers(observers).setTelemetryOptions(telemetryOptions).setTelemetrySink(telemetrySink)
             .setNetworkContextProvider(networkContextProvider).setDeviceProfileProvider(deviceProfileProvider)
             .setFlowController(noritoRpcFlowController).setWireFormatPreference(wireFormatPreference)
+            .setAllowLocalDevelopmentHttp(allowLocalDevelopmentHttp)
 
     fun toConfidentialAssetToriiClient(executor: HttpTransportExecutor): ConfidentialAssetToriiClient =
         ConfidentialAssetToriiClient.builder().executor(executor).baseUri(baseUri)
             .localSigningContext(requireLocalSigningContext()).timeout(requestTimeout)
-            .defaultHeaders(defaultHeaders).observers(observers).build()
+            .defaultHeaders(defaultHeaders).observers(observers)
+            .setAllowLocalDevelopmentHttp(allowLocalDevelopmentHttp).build()
 
     fun toSubscriptionToriiClient(executor: HttpTransportExecutor): SubscriptionToriiClient =
-        SubscriptionToriiClient.builder().executor(executor).baseUri(baseUri).timeout(requestTimeout).defaultHeaders(defaultHeaders).observers(observers).build()
+        SubscriptionToriiClient.builder().executor(executor).baseUri(baseUri).timeout(requestTimeout)
+            .defaultHeaders(defaultHeaders).observers(observers)
+            .setAllowLocalDevelopmentHttp(allowLocalDevelopmentHttp).build()
 
     fun toSubscriptionToriiClient(): SubscriptionToriiClient = SubscriptionToriiClient.builder()
-        .baseUri(baseUri).timeout(requestTimeout).defaultHeaders(defaultHeaders).observers(observers).build()
+        .baseUri(baseUri).timeout(requestTimeout).defaultHeaders(defaultHeaders).observers(observers)
+        .setAllowLocalDevelopmentHttp(allowLocalDevelopmentHttp).build()
 
     private fun maybeInstallCrashTelemetryHandler(builder: Builder, sink: TelemetrySink?): CrashTelemetryHandler? {
         if (!builder.crashTelemetryEnabled) return null
@@ -168,7 +169,6 @@ class ClientConfig private constructor(builder: Builder) {
         internal var localSigningContext: LocalSigningContext? = null
         internal var operatorSigningContext: OperatorSigningContext? = null
         internal var canonicalAuth: ToriiCanonicalRequestAuth? = null
-        internal var allowPlaintextLoopback: Boolean = false
         internal var baseUri: URI = URI.create("http://localhost:8080")
         internal var sorafsGatewayUri: URI? = null
         internal var requestTimeout: Duration = Duration.ofSeconds(10)
@@ -186,6 +186,7 @@ class ClientConfig private constructor(builder: Builder) {
         internal var deviceProfileProvider: DeviceProfileProvider = DeviceProfileProvider.disabled()
         internal var crashTelemetryEnabled: Boolean = false
         internal var crashMetadataProvider: MetadataProvider = CrashTelemetryHandler.defaultMetadataProvider()
+        internal var allowLocalDevelopmentHttp: Boolean = false
 
         /** Enables local draft signing with one immutable, caller-owned network context. */
         fun setLocalSigningContext(context: LocalSigningContext): Builder {
@@ -209,11 +210,6 @@ class ClientConfig private constructor(builder: Builder) {
             return this
         }
 
-        /**
-         * Allow credential-bearing requests over plain `http` to loopback hosts only, for local
-         * development networks. Off by default.
-         */
-        fun setAllowPlaintextLoopback(allow: Boolean): Builder { this.allowPlaintextLoopback = allow; return this }
         fun setBaseUri(baseUri: URI): Builder { this.baseUri = baseUri; return this }
         fun setSorafsGatewayUri(sorafsGatewayUri: URI): Builder { this.sorafsGatewayUri = sorafsGatewayUri; return this }
         fun setRequestTimeout(requestTimeout: Duration?): Builder { if (requestTimeout != null && !requestTimeout.isNegative) this.requestTimeout = requestTimeout; return this }
@@ -221,6 +217,16 @@ class ClientConfig private constructor(builder: Builder) {
         fun clearDefaultHeaders(): Builder { defaultHeaders.clear(); return this }
         fun setDefaultHeaders(headers: Map<String, String>?): Builder { clearDefaultHeaders(); headers?.forEach { (k, v) -> putDefaultHeader(k, v) }; return this }
         fun setWireFormatPreference(preference: WireFormatPreference): Builder { this.wireFormatPreference = preference; return this }
+        /**
+         * Allows Torii HTTP requests carrying signatures or credentials over plain HTTP to
+         * `localhost` (including `*.localhost`), loopback literals (`127.0.0.0/8`, `::1`), and private IPv4 literals
+         * (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, including emulator host `10.0.2.2`).
+         * The request must retain the configured HTTP scheme, host, and effective port.
+         * Enable only in development builds. This option is off by default and inherited by HTTP clients from this config
+         * or [HttpClientTransport], including event streams. WebSockets and SoraFS gateways keep
+         * their separate secure-transport requirements.
+         */
+        fun setAllowLocalDevelopmentHttp(allow: Boolean): Builder { this.allowLocalDevelopmentHttp = allow; return this }
         fun addObserver(observer: ClientObserver): Builder { observers.add(observer); return this }
         fun clearObservers(): Builder { observers.clear(); return this }
         fun setObservers(observers: List<ClientObserver>?): Builder { clearObservers(); observers?.forEach { addObserver(it) }; return this }

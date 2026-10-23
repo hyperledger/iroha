@@ -21,7 +21,7 @@ internal object ToriiRequestBuilder {
         timeout: Duration?,
         extraHeaders: Map<String, String>?,
         acceptHeader: String = WireFormatPreference.NORITO_PREFERRED.acceptHeader(),
-        allowPlaintextLoopback: Boolean = false,
+        allowLocalDevelopmentHttp: Boolean = false,
     ): TransportRequest {
         val target = resolve(baseUri, SUBMIT_PATH)
         val norito: ByteArray
@@ -36,7 +36,7 @@ internal object ToriiRequestBuilder {
             target,
             extraHeaders,
             norito,
-            allowPlaintextLoopback,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)
@@ -56,7 +56,7 @@ internal object ToriiRequestBuilder {
         timeout: Duration?,
         extraHeaders: Map<String, String>?,
         acceptHeader: String = WireFormatPreference.NORITO_PREFERRED.acceptHeader(),
-        allowPlaintextLoopback: Boolean = false,
+        allowLocalDevelopmentHttp: Boolean = false,
     ): TransportRequest =
         buildJsonIngressRequest(
             baseUri,
@@ -66,7 +66,7 @@ internal object ToriiRequestBuilder {
             extraHeaders,
             acceptHeader,
             "encodedVersionedTransactionJson",
-            allowPlaintextLoopback,
+            allowLocalDevelopmentHttp,
         )
 
     @JvmStatic
@@ -76,7 +76,7 @@ internal object ToriiRequestBuilder {
         timeout: Duration?,
         extraHeaders: Map<String, String>?,
         acceptHeader: String = WireFormatPreference.NORITO_PREFERRED.acceptHeader(),
-        allowPlaintextLoopback: Boolean = false,
+        allowLocalDevelopmentHttp: Boolean = false,
     ): TransportRequest {
         require(encodedVersionedEntrypoint.isNotEmpty()) {
             "encodedVersionedEntrypoint must not be empty"
@@ -89,7 +89,7 @@ internal object ToriiRequestBuilder {
             target,
             extraHeaders,
             body,
-            allowPlaintextLoopback,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)
@@ -109,7 +109,7 @@ internal object ToriiRequestBuilder {
         timeout: Duration?,
         extraHeaders: Map<String, String>?,
         acceptHeader: String = WireFormatPreference.NORITO_PREFERRED.acceptHeader(),
-        allowPlaintextLoopback: Boolean = false,
+        allowLocalDevelopmentHttp: Boolean = false,
     ): TransportRequest =
         buildJsonIngressRequest(
             baseUri,
@@ -119,7 +119,7 @@ internal object ToriiRequestBuilder {
             extraHeaders,
             acceptHeader,
             "encodedVersionedEntrypointJson",
-            allowPlaintextLoopback,
+            allowLocalDevelopmentHttp,
         )
 
     @JvmStatic
@@ -128,7 +128,7 @@ internal object ToriiRequestBuilder {
         hashHex: String,
         timeout: Duration?,
         extraHeaders: Map<String, String>?,
-        allowPlaintextLoopback: Boolean = false,
+        allowLocalDevelopmentHttp: Boolean = false,
     ): TransportRequest {
         requireTransactionHash(hashHex)
         val target = resolve(baseUri, "$STATUS_PATH?hash=$hashHex&scope=global")
@@ -138,7 +138,7 @@ internal object ToriiRequestBuilder {
             target,
             extraHeaders,
             null,
-            allowPlaintextLoopback,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)
@@ -157,7 +157,7 @@ internal object ToriiRequestBuilder {
         extraHeaders: Map<String, String>?,
         acceptHeader: String,
         bodyName: String,
-        allowPlaintextLoopback: Boolean,
+        allowLocalDevelopmentHttp: Boolean,
     ): TransportRequest {
         require(bodyBytes.isNotEmpty()) { "$bodyName must not be empty" }
         val target = resolve(baseUri, path)
@@ -168,7 +168,7 @@ internal object ToriiRequestBuilder {
             target,
             extraHeaders,
             body,
-            allowPlaintextLoopback,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)

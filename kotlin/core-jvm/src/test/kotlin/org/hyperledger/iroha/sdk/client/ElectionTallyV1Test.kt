@@ -8,6 +8,8 @@ import java.security.Signature
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -25,15 +27,17 @@ class ElectionTallyV1Test {
     private val u128Max = BigInteger.ONE.shiftLeft(128).subtract(BigInteger.ONE)
     private val highWeight = BigInteger.ONE.shiftLeft(53).add(BigInteger.ONE)
 
-    @Test
-    fun signedQueryPreservesLargeWeightsAndExactBody() {
+    @ParameterizedTest
+    @ValueSource(strings = ["https://torii.example/api", "http://127.0.0.1/api", "http://192.168.1.2/api"])
+    fun signedQueryPreservesLargeWeightsAndExactBody(baseUri: String) {
         val response = json(
             height = "18446744073709551615",
             tally = "[$highWeight,${u128Max - highWeight}]",
         )
         val executor = CapturingExecutor(response)
         val config = ClientConfig.builder()
-            .setBaseUri(URI.create("https://torii.example/api"))
+            .setBaseUri(URI.create(baseUri))
+            .setAllowLocalDevelopmentHttp(baseUri.startsWith("http:"))
             .setLocalSigningContext(LocalSigningContext(network))
             .build()
         val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
@@ -51,7 +55,7 @@ class ElectionTallyV1Test {
         assertEquals(listOf(highWeight, u128Max - highWeight), result.tally)
         val request = assertNotNull(executor.lastRequest)
         assertEquals("POST", request.method)
-        assertEquals("https://torii.example/api/v1/zk/vote/tally", request.uri.toString())
+        assertEquals("$baseUri/v1/zk/vote/tally", request.uri.toString())
         assertContentEquals(
             "{\"election_id\":\"election-1\"}".toByteArray(StandardCharsets.UTF_8),
             request.body,

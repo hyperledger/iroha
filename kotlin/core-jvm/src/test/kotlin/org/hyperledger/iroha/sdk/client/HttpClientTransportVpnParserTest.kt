@@ -4,6 +4,8 @@ import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.security.KeyPairGenerator
 import java.util.concurrent.CompletableFuture
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -20,8 +22,9 @@ class HttpClientTransportVpnParserTest {
     private val validEd25519PublicKeyHex = TestEd25519Keys.publicKeyHex(0x22)
     private val validMldsa65PublicKeyHex = "a5".repeat(1_952)
 
-    @Test
-    fun getVpnProfileDeserializesNativeLeaseFields() {
+    @ParameterizedTest
+    @ValueSource(strings = ["https://torii.example", "http://localhost", "http://172.16.1.2"])
+    fun getVpnProfileDeserializesNativeLeaseFields(baseUri: String) {
         val responseJson =
             """
                 {
@@ -58,7 +61,8 @@ class HttpClientTransportVpnParserTest {
         )
         val transport = HttpClientTransport(
             executor = executor,
-            config = ClientConfig.builder().setBaseUri(URI.create("https://torii.example")).build(),
+            config = ClientConfig.builder().setBaseUri(URI.create(baseUri))
+            .setAllowLocalDevelopmentHttp(baseUri.startsWith("http:")).build(),
         )
 
         val profile = transport.getVpnProfile().join()
@@ -76,7 +80,7 @@ class HttpClientTransportVpnParserTest {
         assertEquals("ef".repeat(32), profile.relayCertificateSha256Hex)
         assertEquals("42".repeat(32), profile.directorySnapshotDigestHex)
         assertEquals("GET", executor.lastRequest.method)
-        assertEquals("https://torii.example/v1/vpn/profile", executor.lastRequest.uri.toString())
+        assertEquals("$baseUri/v1/vpn/profile", executor.lastRequest.uri.toString())
 
         val shortMldsaIdentity = responseJson.replace(
             "\"relay_mldsa65_public_key_hex\": \"$validMldsa65PublicKeyHex\"",
@@ -343,8 +347,9 @@ class HttpClientTransportVpnParserTest {
         }
     }
 
-    @Test
-    fun vpnRoutesRejectWrongSuccessfulStatusCodes() {
+    @ParameterizedTest
+    @ValueSource(strings = ["https://torii.example", "http://localhost", "http://172.16.1.2"])
+    fun vpnRoutesRejectWrongSuccessfulStatusCodes(baseUri: String) {
         val sessionId = "33".repeat(16)
         val quoteId = "34".repeat(32)
         val leaseId = "35".repeat(32)
@@ -358,7 +363,8 @@ class HttpClientTransportVpnParserTest {
             "vpn-status-nonce",
         )
         val config = ClientConfig.builder()
-            .setBaseUri(URI.create("https://torii.example"))
+            .setBaseUri(URI.create(baseUri))
+            .setAllowLocalDevelopmentHttp(baseUri.startsWith("http:"))
             .setLocalSigningContext(LocalSigningContext(TestNetworkIds.canonical()))
             .build()
 

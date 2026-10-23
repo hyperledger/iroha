@@ -296,6 +296,7 @@ class AtomicPrivateSettlementToriiClientV1 private constructor(builder: Builder)
     private val executor: HttpTransportExecutor =
         HttpTransportScope.create(builder.executor)
     private val baseUri: URI = requireBaseUri(builder.baseUri)
+    private val allowLocalDevelopmentHttp: Boolean = builder.allowLocalDevelopmentHttp
     private val localSigningContext: LocalSigningContext = checkNotNull(builder.localSigningContext) {
         "localSigningContext must be configured before building a settlement client"
     }
@@ -1154,6 +1155,7 @@ class AtomicPrivateSettlementToriiClientV1 private constructor(builder: Builder)
             target,
             headers,
             if (body.isEmpty()) null else body,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)
@@ -1185,6 +1187,7 @@ class AtomicPrivateSettlementToriiClientV1 private constructor(builder: Builder)
     class Builder internal constructor() {
         internal var executor: HttpTransportExecutor? = null
         internal var baseUri: URI = URI.create("http://localhost:8080")
+        internal var allowLocalDevelopmentHttp: Boolean = false
         internal var localSigningContext: LocalSigningContext? = null
         internal var responseVerifier: AtomicPrivateSettlementResponseVerifierV1? =
             AtomicPrivateSettlementNativeResponseVerifierV1
@@ -1196,6 +1199,14 @@ class AtomicPrivateSettlementToriiClientV1 private constructor(builder: Builder)
 
         /** Set the exact Torii base, including any deployment path prefix. */
         fun baseUri(baseUri: URI): Builder = apply { this.baseUri = baseUri }
+
+        /**
+         * Allow credentialed HTTP to the same loopback or private IPv4 origin; disabled by default.
+         * See [ClientConfig.Builder.setAllowLocalDevelopmentHttp] for the allowed address ranges.
+         */
+        fun setAllowLocalDevelopmentHttp(allow: Boolean): Builder = apply {
+            this.allowLocalDevelopmentHttp = allow
+        }
 
         /** Bind sponsor signatures to one exact genesis-derived network identity. */
         fun localSigningContext(context: LocalSigningContext): Builder = apply {

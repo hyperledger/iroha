@@ -9,6 +9,8 @@ import java.security.Signature
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -56,18 +58,22 @@ class PrivacyCapabilitiesV1Test {
         }
     }
 
-    @Test
-    fun configuredClientUsesExactNoritoRouteAndRejectsLegacySnapshot() {
+    @ParameterizedTest
+    @ValueSource(strings = ["https://torii.example", "http://localhost", "http://192.168.1.2"])
+    fun configuredClientUsesExactNoritoRouteAndRejectsLegacySnapshot(baseUri: String) {
         val response = TransportResponse.builder()
             .setStatusCode(200)
-            .setNetworkProvenance(URI.create("https://torii.example/v1/privacy/capabilities"), false)
+            .setNetworkProvenance(URI.create("$baseUri/v1/privacy/capabilities"), false)
             .setBody(unavailableSnapshot("42").toByteArray(StandardCharsets.UTF_8))
             .addHeader("Content-Type", "application/x-norito")
             .build()
         val executor = OneResponseExecutor(response)
         val client = HttpClientTransport(
             executor,
-            signedConfig(),
+            signedConfig().toBuilder()
+                .setBaseUri(URI.create(baseUri))
+                .setAllowLocalDevelopmentHttp(baseUri.startsWith("http:"))
+                .build(),
         )
         val legacy = assertFailsWith<CompletionException> {
             client.getPrivacyCapabilities(canonicalAuth()).join()
@@ -87,7 +93,7 @@ class PrivacyCapabilitiesV1Test {
             executor.request,
             networkId,
             false,
-            uri = URI.create("https://torii.example/v1/privacy/other"),
+            uri = URI.create("$baseUri/v1/privacy/other"),
         )
         assertCanonicalSignature(executor.request, networkId, false, body = byteArrayOf(0))
         assertEquals(
@@ -105,7 +111,8 @@ class PrivacyCapabilitiesV1Test {
         val error = assertFailsWith<CompletionException> {
             HttpClientTransport(
                 OneResponseExecutor(wrongMedia),
-                signedConfig(),
+                signedConfig().toBuilder().setBaseUri(URI.create(baseUri))
+                    .setAllowLocalDevelopmentHttp(baseUri.startsWith("http:")).build(),
             ).getPrivacyCapabilities(canonicalAuth()).join()
         }
         assertTrue(error.cause is RuntimeException)
