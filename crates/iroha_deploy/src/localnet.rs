@@ -7382,6 +7382,7 @@ fn write_start_script(
         "    peer_pid=$(SNAPSHOT_STORE_DIR=\"$SNAPSHOT_STORE_DIR\" LOG_LEVEL=\"${{LOG_LEVEL:-info}}\" LOG_FILTER=\"${{LOG_FILTER:-}}\" IROHAD_BIN=\"$IROHAD_BIN\" IROHA_NETWORK_DIR=\"$DIR\" IROHA_PEER_INDEX=\"$i\" IROHA_PEER_CONFIG=\"${{BEACON_CONFIG:-$DIR/peer${{i}}.toml}}\" IROHA_PEER_LOG=\"$DIR/peer${{i}}.log\" IROHA_PEER_PROCESS_RECORD=\"${{PROCESS_RECORD:-}}\" IROHA_SORA_MODE=\"{sora_mode_env}\" IROHA_TAIRA_MODE=\"{taira_mode_env}\" IROHA_PEER_FRESH_KEY=\"$FRESH_KEY_ARG\" python3 - \"$BEACON_CONFIG\" \"$BEACON_CREDENTIAL\" \"$KAGAMI_BIN\" <<'PY'"
     )?;
     writeln!(start_file, "import os")?;
+    writeln!(start_file, "import shutil")?;
     writeln!(start_file, "import stat")?;
     writeln!(start_file, "import subprocess")?;
     writeln!(start_file, "import sys")?;
@@ -7390,12 +7391,18 @@ fn write_start_script(
     }
     writeln!(start_file)?;
     writeln!(start_file, "env = os.environ.copy()")?;
-    if taira {
-        writeln!(
-            start_file,
-            "env[\"IROHAD_BIN\"] = os.path.realpath(env[\"IROHAD_BIN\"])"
-        )?;
-    }
+    // Resolve a relative executable before isolating the peer's default stores.
+    writeln!(start_file, "binary = shutil.which(env[\"IROHAD_BIN\"])")?;
+    writeln!(start_file, "if binary is None:")?;
+    writeln!(
+        start_file,
+        "    raise RuntimeError(\"iroha3d binary is not executable\")"
+    )?;
+    writeln!(start_file, "env[\"IROHAD_BIN\"] = os.path.realpath(binary)")?;
+    writeln!(
+        start_file,
+        "os.chdir(os.path.join(env[\"IROHA_NETWORK_DIR\"], \"state\", \"peer{{}}\".format(env[\"IROHA_PEER_INDEX\"])))"
+    )?;
     writeln!(start_file, "cmd = [env[\"IROHAD_BIN\"]]")?;
     writeln!(start_file, "if env.get(\"IROHA_SORA_MODE\") == \"1\":")?;
     writeln!(start_file, "    cmd.append(\"--sora\")")?;
