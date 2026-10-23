@@ -36,12 +36,12 @@ scanner = [
 [dependencies]
 # Align the production/model dependency graph without selecting owner dev-dependencies.
 iroha_data_model = { optional = true, workspace = true, default-features = false, features = ["privacy-exact12-conformance"] }
-norito = { optional = true, workspace = true, features = ["default"] }
+norito = { optional = true, workspace = true, default-features = false, features = ["default"] }
 criterion = { optional = true, workspace = true }
 derive_more = { optional = true, workspace = true, features = ["default", "is_variant"] }
 rustix = { optional = true, version = "1.1.4", features = ["pipe", "stdio", "termios"] }
 sha3 = { optional = true, version = "0.10.9", features = ["asm"] }
-iroha_crypto = { optional = true, workspace = true, features = ["default"] }
+iroha_crypto = { optional = true, workspace = true, default-features = false, features = ["default"] }
 iroha_cli_lib = { optional = true, path = "../../crates/iroha_cli", default-features = false }
-iroha_torii = { optional = true, workspace = true }
+iroha_torii = { optional = true, workspace = true, default-features = false }
 musubi = { optional = true, path = "../../crates/musubi" }

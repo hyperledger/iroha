@@ -266,6 +266,8 @@ class OssScannerBuildTests(unittest.TestCase):
             set(manifest["features"]["scanner"]),
             {f"dep:{name}" for name in dependencies},
         )
+        for name in ("norito", "iroha_crypto", "iroha_data_model", "iroha_torii"):
+            self.assertIs(dependencies[name]["default-features"], False)
         self.assertNotIn("dev-dependencies", manifest)
         self.assertNotIn("build-dependencies", manifest)
         self.assertNotIn("lib", manifest)
