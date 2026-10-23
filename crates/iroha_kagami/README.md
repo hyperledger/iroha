@@ -228,6 +228,8 @@ into the output directory.
   other files at `0600`, and lifecycle scripts enforce `umask 077` for new
   logs and runtime state. Generic localnets retain pidfiles; Taira emits only
   exact mode-`0600` process records and rejects legacy pidfiles.
+- Generated startup scripts launch each validator from its own `state/peerN`
+  directory so relative default stores remain isolated across peers and restarts.
 - Defaults to `permissioned` unless a Sora profile or perf preset requires
   `npos`
 - `--sora-profile nexus` enforces public-dataspace rules and requires `npos`

@@ -390,12 +390,12 @@ fn start_and_stop_scripts_are_executable() {
 
 #[cfg(unix)]
 #[test]
-fn ordinary_localnet_launcher_detaches_and_logs_without_private_descriptors() {
+fn ordinary_localnet_launcher_isolates_peer_workdirs_and_detaches_without_private_descriptors() {
     let root = localnet_test_helpers::private_tempdir().unwrap();
     let start_path = root.path().join("start.sh");
     write_start_script(
         &start_path,
-        1,
+        4,
         false,
         false,
         &localnet_client_account_literal(None),
@@ -418,6 +418,14 @@ fn ordinary_localnet_launcher_detaches_and_logs_without_private_descriptors() {
 import errno, os, sys
 assert os.getsid(0) == os.getpid()
 assert os.getpgrp() == os.getpid()
+expected = os.path.join(os.environ["IROHA_NETWORK_DIR"], "state", "peer" + os.environ["IROHA_PEER_INDEX"])
+assert os.path.samefile(os.getcwd(), expected)
+with open("peer-owner", "a+") as owner:
+    owner.seek(0)
+    previous = owner.read()
+    assert not previous or previous == os.environ["IROHA_PEER_INDEX"]
+    if not previous:
+        owner.write(os.environ["IROHA_PEER_INDEX"])
 for descriptor in (198, 199, 200):
     try:
         os.fstat(descriptor)
@@ -432,45 +440,66 @@ print("ordinary stderr", file=sys.stderr)
     )
     .unwrap();
     fs::set_permissions(&daemon, fs::Permissions::from_mode(0o700)).unwrap();
-    let log = root.path().join("peer0.log");
-    for _ in 0..2 {
-        let output = std::process::Command::new("python3")
-            .arg("-c")
-            .arg(&python)
-            .env("IROHAD_BIN", &daemon)
-            .env("IROHA_SORA_MODE", "0")
-            .env("IROHA_PEER_FRESH_KEY", "")
-            .env("IROHA_PEER_CONFIG", root.path().join("peer0.toml"))
-            .env("IROHA_PEER_LOG", &log)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+    let search_path = env::join_paths(
+        std::iter::once(root.path().to_path_buf())
+            .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+    )
+    .unwrap();
+    for peer in 0..4 {
+        let workdir = root.path().join("state").join(format!("peer{peer}"));
+        fs::create_dir_all(&workdir).unwrap();
+        let log = root.path().join(format!("peer{peer}.log"));
+        for binary in ["./daemon", "daemon"] {
+            let output = std::process::Command::new("python3")
+                .arg("-c")
+                .arg(&python)
+                .current_dir(root.path())
+                .env("IROHAD_BIN", binary)
+                .env("PATH", &search_path)
+                .env("IROHA_NETWORK_DIR", root.path())
+                .env("IROHA_PEER_INDEX", peer.to_string())
+                .env("IROHA_SORA_MODE", "0")
+                .env("IROHA_PEER_FRESH_KEY", "")
+                .env(
+                    "IROHA_PEER_CONFIG",
+                    root.path().join(format!("peer{peer}.toml")),
+                )
+                .env("IROHA_PEER_LOG", &log)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8(output.stdout)
+                    .unwrap()
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap()
+                    > 0
+            );
+        }
+        let log = fs::read_to_string(log).unwrap();
+        assert_eq!(
+            log.lines()
+                .filter(|line| *line == "ordinary stdout")
+                .count(),
+            2
         );
-        assert!(
-            String::from_utf8(output.stdout)
-                .unwrap()
-                .trim()
-                .parse::<u32>()
-                .unwrap()
-                > 0
+        assert_eq!(
+            log.lines()
+                .filter(|line| *line == "ordinary stderr")
+                .count(),
+            2
+        );
+        assert_eq!(
+            fs::read_to_string(workdir.join("peer-owner")).unwrap(),
+            peer.to_string()
         );
     }
-    let log = fs::read_to_string(log).unwrap();
-    assert_eq!(
-        log.lines()
-            .filter(|line| *line == "ordinary stdout")
-            .count(),
-        2
-    );
-    assert_eq!(
-        log.lines()
-            .filter(|line| *line == "ordinary stderr")
-            .count(),
-        2
-    );
+    assert!(!root.path().join("peer-owner").exists());
     assert!(!root.path().join("runtime/mint-finality-signers").exists());
 }
 
