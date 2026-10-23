@@ -107,8 +107,11 @@ fn replacing_vm_during_traced_host_callback_fails_closed() {
 
     assert!(matches!(
         vm.run_with_host(&mut host),
-        Err(VMError::PrivacyViolation)
+        Err(VMError::ExecutionDeferred(
+            ivm::error::ExecutionDeferral::LocalInvariantViolation
+        ))
     ));
+    assert!(vm.last_diagnostic().is_none());
 
     assert_eq!(vm.register(6), 0xC0FFEE);
     assert_eq!(vm.register(7), 0);
@@ -199,15 +202,17 @@ fn moved_detached_vm_cannot_adopt_the_outer_scratch_log() {
 
     assert!(matches!(
         vm.run_with_host(&mut host),
-        Err(VMError::PrivacyViolation)
+        Err(VMError::ExecutionDeferred(
+            ivm::error::ExecutionDeferral::LocalInvariantViolation
+        ))
     ));
+    assert!(vm.last_diagnostic().is_none());
     assert!(
         matches!(
-            (&(host.nested_result), &(VMError::PrivacyViolation)),
-            (
-                Some(Err(VMError::PrivacyViolation)),
-                VMError::PrivacyViolation
-            )
+            host.nested_result,
+            Some(Err(VMError::ExecutionDeferred(
+                ivm::error::ExecutionDeferral::LocalInvariantViolation
+            )))
         ),
         "a moved VM must reject reuse while it carries outer callback ownership"
     );
@@ -289,9 +294,15 @@ fn destructive_host_callback_lifecycle_changes_fail_closed() {
         };
 
         assert!(
-            matches!(vm.run_with_host(&mut host), Err(VMError::PrivacyViolation)),
+            matches!(
+                vm.run_with_host(&mut host),
+                Err(VMError::ExecutionDeferred(
+                    ivm::error::ExecutionDeferral::LocalInvariantViolation
+                ))
+            ),
             "{mutation:?} must invalidate the active proof"
         );
+        assert!(vm.last_diagnostic().is_none(), "{mutation:?}");
         assert!(
             common::diagnostic_snapshot(&vm).register_event_count() == 0,
             "{mutation:?}"

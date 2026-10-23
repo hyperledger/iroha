@@ -109,7 +109,7 @@ fn expect_evaluates_a_stateful_receiver_once() {
 }
 
 #[test]
-fn expect_evaluates_its_nominal_error_once_after_the_receiver() {
+fn expect_keeps_its_nominal_error_lazy_after_a_successful_receiver() {
     let (mut vm, _) = load(
         r#"seiyaku EvaluationOrder { permission WriteState;
             error enum Failure { Missing = 1 }
@@ -124,13 +124,46 @@ fn expect_evaluates_its_nominal_error_once_after_the_receiver() {
             }
             kotoage fn run() authorize(WriteState) -> bool {
                 let value = present().expect(missing());
-                return value == 7 && Trace.get(0).unwrap_or(0) == 12;
+                return value == 7 && Trace.get(0).unwrap_or(0) == 1;
             }
         }"#,
     );
     vm.run()
-        .expect("evaluate receiver and error in source order");
+        .expect("evaluate receiver without evaluating the unused error");
     assert!(matches!(vm.public_call_result_word(0), Ok(1)));
+}
+
+#[test]
+fn expect_evaluates_its_nominal_error_once_after_an_absent_receiver() {
+    let (mut vm, _) = load(
+        r#"seiyaku EvaluationOrder { permission WriteState;
+            error enum Failure { Missing = 1 }
+            state StateMap<int, int> Trace;
+            fn absent() -> Option<int> {
+                Trace[0] = Trace.get(0).unwrap_or(0) * 10 + 1;
+                return Option::none;
+            }
+            fn missing() -> Failure {
+                Trace[0] = Trace.get(0).unwrap_or(0) * 10 + 2;
+                return Failure::Missing;
+            }
+            kotoage fn run() authorize(WriteState) -> int {
+                return absent().expect(missing());
+            }
+        }"#,
+    );
+    assert!(matches!(
+        vm.run(),
+        Err(VMError::ContractAbort { code: 1, .. })
+    ));
+    // The raw host retains writes for inspection before an outer transaction's rollback.
+    let host = vm.host_mut_any().expect("CoreHost available");
+    let host = host.downcast_mut::<CoreHost>().expect("CoreHost type");
+    let path = format!("Trace/{}", hex::encode(common::encode_int_state_value(0)));
+    let trace = host
+        .state_bytes(&path)
+        .expect("receiver and error were evaluated");
+    assert_eq!(common::decode_int_state_value(&trace), 12);
 }
 
 #[test]
@@ -146,11 +179,11 @@ fn expect_rejects_untyped_errors_and_nonoptional_receivers() {
             "value.expect(Failure::Missing, Failure::Missing)",
             "expects one nominal error argument",
         ),
-        ("(1).expect(Failure::Missing)", "receiver must be Option<T>"),
         (
-            "result.expect(Failure::Missing)",
-            "receiver must be Option<T>",
+            "(1).expect(Failure::Missing)",
+            "receiver must be Option<T> or Result<T, E>",
         ),
+        ("result.expect(1)", "requires a nominal error enum value"),
     ] {
         let binding = if expression.starts_with("result") {
             "let Result<int, Failure> result = Result::ok(1);"

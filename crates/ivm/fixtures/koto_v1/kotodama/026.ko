@@ -1,9 +1,9 @@
 
         seiyaku ReadHelpers {
-          view fn read() authorize(anyone) -> bytes {
+          view fn read() authorize(anyone) -> Option<bytes> {
             let roots = crypto::zk::roots(value: b"roots");
             let tally = ledger::governance::tally(value: b"tally");
-            let seed = crypto::vrf::epoch_seed(value: b"seed");
+            let seed = crypto::vrf::epoch_seed(epoch: 7);
             return seed;
           }
         }

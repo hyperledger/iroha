@@ -121,7 +121,7 @@ fn ir_lower_ensure_pointer_variants_use_pointer_syscalls() {
             r#"
         seiyaku C {{ permission WriteState;
             state StateMap<int, {ty}> S;
-            kotoage fn main() authorize(anyone) -> {ty} authorize(WriteState) {{
+            kotoage fn main() authorize(WriteState) -> {ty} {{
                 return S.get_or_insert(7, {ctor});
             }}
         }}

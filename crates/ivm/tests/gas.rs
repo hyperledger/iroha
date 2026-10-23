@@ -1,6 +1,6 @@
 use crate::common;
 use common::{assemble, assemble_zk};
-use ivm::{IVM, VMError, VmTrapKind, encoding, instruction};
+use ivm::{IVM, VMError, encoding, instruction};
 const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();
 #[test]
 fn test_out_of_gas() {
@@ -343,8 +343,12 @@ fn syscall_rejects_a_host_cost_above_its_quote() {
     ));
     assert_eq!(vm.remaining_gas(), 0);
     assert_eq!(
-        vm.last_diagnostic().map(|diagnostic| diagnostic.trap_kind),
-        Some(VmTrapKind::SyscallGasQuoteExceeded)
+        result.unwrap_err().execution_deferral(),
+        Some(ivm::error::ExecutionDeferral::LocalInvariantViolation)
+    );
+    assert!(
+        vm.last_diagnostic().is_none(),
+        "a host quote violation is a local refusal, not a guest semantic trap"
     );
 }
 #[test]

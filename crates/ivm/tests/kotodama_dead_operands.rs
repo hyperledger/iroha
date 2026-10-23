@@ -40,8 +40,10 @@ fn cycle_source() -> String {
         .join(" ");
     let calls = (0..7)
         .map(|selected| {
+            // Different literals at each call keep the operands in registers;
+            // the shared offset preserves every branch's subtraction result.
             let arguments = (0..13)
-                .map(|index| format!("a{index}: {}", index * index + 3))
+                .map(|index| format!("a{index}: {}", index * index + 3 + selected))
                 .chain((0..6).map(|index| format!("b{index}: {}", selected == index)))
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -67,9 +69,13 @@ fn dead_numeric_register_cycle_executes_all_branches_on_both_hosts() {
     let mut vm = IVM::new(4_000_000);
     vm.load_program(&program).unwrap();
     common::select_kotodama_entrypoint(&mut vm, &program, "main");
-    let budget = iroha_allocation::AllocationBudget::new(32 * 1024 * 1024);
+    let step_capacity = 32_768;
+    let step_bytes =
+        step_capacity * std::mem::size_of::<ivm::execution_step_recorder::DiagnosticStepRecord>();
+    let budget = iroha_allocation::AllocationBudget::new(step_bytes);
     let mut steps =
-        ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(32_768, &budget).unwrap();
+        ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(step_capacity, &budget)
+            .unwrap();
     vm.run_with_host_diagnostic_steps(&mut core, &mut steps)
         .unwrap();
     for (index, expected) in expected.iter().enumerate() {

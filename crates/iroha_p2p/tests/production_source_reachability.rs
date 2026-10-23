@@ -56,6 +56,8 @@ const TEST_ONLY_SOURCES: &[&str] = &[
     "src/puzzle_work_admission/tests.rs",
 ];
 
+const BENCH_ONLY_SOURCES: &[&str] = &["src/peer/receive_credit/benchmark.rs"];
+
 #[derive(Clone, Copy)]
 enum ProductionGate<'a> {
     Unconditional,
@@ -292,11 +294,12 @@ fn shipping_source_inventory_and_module_graph_are_closed() {
     let expected: BTreeSet<_> = PRODUCTION_SOURCES
         .iter()
         .chain(TEST_ONLY_SOURCES)
+        .chain(BENCH_ONLY_SOURCES)
         .map(|path| (*path).to_owned())
         .collect();
     assert_eq!(
         actual, expected,
-        "classify every P2P Rust source explicitly as production-reachable or test-only"
+        "classify every P2P Rust source explicitly as production-reachable, test-only or benchmark-only"
     );
 
     let mut reached = BTreeSet::from(["src/lib.rs"]);
@@ -349,6 +352,14 @@ fn shipping_source_inventory_and_module_graph_are_closed() {
     assert_eq!(
         reached, production,
         "every shipping P2P source must have an explicit production module edge"
+    );
+
+    let stream = fs::read_to_string(crate_root.join("src/peer/receive_credit/stream.rs"))
+        .expect("read receive-credit stream module");
+    assert_eq!(
+        declaration_attributes(&stream, "pub mod benchmark;"),
+        ["#[cfg(feature = \"bench\")]", "#[path = \"benchmark.rs\"]"],
+        "record-path benchmark fixtures must remain behind the non-shipping bench feature"
     );
 }
 

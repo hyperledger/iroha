@@ -3,8 +3,12 @@ use ivm::{IVM, IVMHost, VMError, host::DefaultHost};
 #[test]
 fn default_host_unknown_syscalls_return_unknown() {
     for number in [
-        0xAA, 0xAB, 0xAC, 0xB4, 0xAD, 0xAE, 0xAF, 0xBF, 0xDF, 0x01_0163, 0x01_0164, 0x01_0165,
+        0xAB, 0xAC, 0xB4, 0xAD, 0xAE, 0xAF, 0xBF, 0xDF, 0x01_0163, 0x01_0164, 0x01_0165,
     ] {
+        assert!(
+            !ivm::syscalls::is_syscall_allowed(ivm::SyscallPolicy::AbiV1, number),
+            "unknown-syscall fixture must use an unassigned ABI number: {number:#x}"
+        );
         let mut vm = IVM::new(1000);
         let mut host = DefaultHost::new();
         vm.set_register(10, 0x1111);

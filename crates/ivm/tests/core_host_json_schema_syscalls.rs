@@ -727,7 +727,7 @@ fn json_set_account_id_accepts_input_heap_and_literal_pointers() {
 #[test]
 fn build_path_key_norito_accepts_input_heap_and_literal_pointers() {
     let base_tlv = tlv(PointerType::Name, b"entries");
-    let key_payload = tlv(PointerType::Blob, b"canonical key bytes");
+    let key_payload = common::encode_bytes_state_value(b"canonical key bytes");
     let key_tlv = tlv(PointerType::NoritoBytes, &key_payload);
     let canonical_prog = assemble_state_map_schema("entries", EmbeddedStateType::Bytes);
     let expected_path = format!("entries/{}", hex::encode(&key_payload));

@@ -354,7 +354,7 @@ semantic_rejection_cases! {
         None, "ledger::query::account";
     "semantic_rejects_typed_query_get_helper_args/instance", CaseSource::Exact(r#"module InvalidQuery { fn f() { let _instance = ledger::query::seiyaku_instance(1); } }"#),
         None, "ledger::query::seiyaku_instance";
-    "semantic_rejects_zk_vrf_read_helper_args", CaseSource::Exact(r#"module InvalidVrfRequest { fn f() { let _seed = crypto::vrf::epoch_seed(epoch: bytes("0x00")); } }"#),
+    "semantic_rejects_zk_vrf_read_helper_args", CaseSource::Exact(r#"module InvalidVrfRequest { fn f() { let _seed = crypto::vrf::epoch_seed(epoch: b"seed"); } }"#),
         None, "crypto::vrf::epoch_seed expects (int epoch) and returns Option<bytes>";
     "semantic_rejects_state_introspection_helper_args", CaseSource::Exact(r#"seiyaku C { fn f() { let _length = state::len(1); } }"#),
         None, "state::len expects (bytes StatePath)";
@@ -365,17 +365,17 @@ semantic_rejection_cases! {
     "semantic_type_error", CaseSource::Exact("module InvalidArithmetic { fn bad() { let a = 1 + \"hi\"; } }"),
         None, "operator `+` is not defined for `int` and `string`";
     "invalid_numeric_on_struct_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/035.ko")),
-        None, "unknown field '0' on struct A";
+        None, "unknown field '0' on struct InvalidStructIndex::A";
     "invalid_named_on_tuple_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/036.ko")),
         None, "unknown field 'a' on tuple";
     "invalid_numeric_tuple_index_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/037.ko")),
         None, "tuple index 3 out of bounds";
     "tuple_index_on_non_tuple_reports_type", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/038.ko")),
-        None, "tuple index on non-tuple type struct A";
+        None, "tuple index on non-tuple type struct InvalidStructTupleIndex::A";
     "tuple_index_on_non_tuple_int_reports_type", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/039.ko")),
         None, "tuple index on non-tuple type int";
     "unknown_field_on_struct_reports_available_fields", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/040.ko")),
-        None, "unknown field 'z' on struct A (available: x, y)";
+        None, "unknown field 'z' on struct UnknownStructField::A (available: x, y)";
     "invalid_named_on_non_struct_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/041.ko")),
         None, "unknown field 'foo' on type int";
     "invalid_indexing_on_non_map_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/042.ko")),
@@ -1299,7 +1299,12 @@ fn source_localization_blocks_are_rejected() {
         let error = Compiler::new()
             .compile_source_with_manifest(&src)
             .expect_err("source localization tables are not part of V1");
-        assert!(error.contains("source-unit item"), "{error}");
+        assert!(error.contains("error[K1001] parse:"), "{error}");
+        assert!(error.contains("expected a declaration"), "{error}");
+        assert!(
+            error.contains(&format!("found identifier `{spelling}`")),
+            "{error}"
+        );
     }
 }
 #[test]
@@ -1443,11 +1448,14 @@ fn typed_json_access_spills_are_handled() {
         .stack_size(8 * 1024 * 1024)
         .spawn(|| {
             let build_src = |count: usize| {
-                let mut src =
-                    String::from("seiyaku JsonSpills {\nview fn main(Json j) authorize(anyone) -> int {\n");
+                let mut src = String::from(
+                    "seiyaku JsonSpills {\nview fn main(Json j, int seed) authorize(anyone) -> int {\n",
+                );
                 for i in 0..count {
                     let value = (i + 1) as i64;
-                    src.push_str(&format!("  let v{i} = {value};\n"));
+                    // Runtime values stay live across the JSON access; numeric literals
+                    // are rematerialized and deliberately consume no spill homes.
+                    src.push_str(&format!("  let v{i} = seed + {value};\n"));
                 }
                 src.push_str("  let val = match j.get_int(Name::parse(\"value\")) { Option::some(value) => value, Option::none => 0 };\n");
                 src.push_str("  let sum = ");

@@ -24,8 +24,7 @@ fn dynamic_map_set_uses_durable_state() {
     vm.run().expect("run");
     // Inspect the host-owned state directly. A second CNTR-less helper image
     // must not inherit the loaded contract's state schema.
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(2))
-        .expect("encode canonical int key");
+    let key = common::encode_int_state_value(2);
     let path = format!("M/{}", hex::encode(key));
     let stored = {
         let host = vm.host_mut_any().expect("CoreHost available");

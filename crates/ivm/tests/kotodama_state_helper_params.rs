@@ -5,7 +5,9 @@ fn assert_state_parameter_rejected(source: &str) {
         .compile_source(source)
         .expect_err("V1 must reject first-class state handles");
     assert!(
-        error.contains("state handles are not first-class parameters"),
+        error.contains("error[K1001] parse:")
+            && error.contains("state cannot be passed as a parameter")
+            && error.contains("functions read and write declared `state` directly by name"),
         "unexpected diagnostic: {error}"
     );
 }

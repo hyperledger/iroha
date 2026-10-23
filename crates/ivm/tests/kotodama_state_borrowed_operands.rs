@@ -32,7 +32,8 @@ fn name_path(base: &str, key: &str) -> String {
     let name: Name = key.parse().unwrap();
     format!(
         "{base}/{}",
-        hex::encode(envelope(
+        hex::encode(common::encode_pointer_state_value(
+            StateValueKindV1::Name,
             PointerType::Name,
             &norito::to_bytes(&name).unwrap()
         ))
@@ -52,6 +53,7 @@ fn source(amount: u64) -> String {
         r#"seiyaku BorrowedState {{ permission WriteState;
         state StateMap<Name, quantity> Balances;
         state quantity Total;
+        hajimari() {{ Total = 0; }}
         fn move_amount(Name source, Name destination, quantity amount) {{
             let quantity zero = 0;
             let available = Balances.get(source).unwrap_or(zero);
@@ -70,6 +72,8 @@ fn source(amount: u64) -> String {
             Balances[right] = zero;
             Total = supply;
             move_amount(source: left, destination: right, amount: amount);
+            // Keep the helper callable so borrowed operands cross a real call boundary.
+            move_amount(source: left, destination: right, amount: zero);
             return Balances.get(left).unwrap_or(zero) + Balances.get(right).unwrap_or(zero) == Total;
         }}
     }}"#
@@ -97,7 +101,7 @@ fn borrowed_state_operands_keep_quantity_conservation_and_owned_results_on_both_
         let parsed = ProgramMetadata::parse(&program).unwrap();
         assert_eq!(
             parsed.contract_interface.as_ref().unwrap().callables.len(),
-            2
+            3
         );
         let publish = encoding::wide::encode_sys(
             instruction::wide::system::SCALL,
@@ -117,19 +121,28 @@ fn borrowed_state_operands_keep_quantity_conservation_and_owned_results_on_both_
         let mut vm = IVM::new(1_000_000);
         vm.load_program(&program).unwrap();
         common::select_kotodama_entrypoint(&mut vm, &program, "main");
-        let budget = iroha_allocation::AllocationBudget::new(32 * 1024 * 1024);
+        const STEP_CAPACITY: usize = 8192;
+        let budget = iroha_allocation::AllocationBudget::new(
+            STEP_CAPACITY
+                * std::mem::size_of::<ivm::execution_step_recorder::DiagnosticStepRecord>(),
+        );
         let mut steps =
-            ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(8192, &budget).unwrap();
+            ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(STEP_CAPACITY, &budget)
+                .unwrap();
         vm.run_with_host_diagnostic_steps(&mut host, &mut steps)
             .unwrap();
         assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         for number in [
             syscalls::SYSCALL_STATE_GET,
             syscalls::SYSCALL_STATE_SET,
-            syscalls::SYSCALL_POINTER_TO_NORITO,
+            syscalls::SYSCALL_STATE_VALUE_ENCODE,
+            syscalls::SYSCALL_STATE_VALUE_DECODE,
             syscalls::SYSCALL_BUILD_PATH_KEY_NORITO,
         ] {
-            let word = encoding::wide::encode_sys(instruction::wide::system::SCALL, number as u8);
+            let word = u8::try_from(number).map_or_else(
+                |_| encoding::wide::encode_syscallx(number),
+                |number| encoding::wide::encode_sys(instruction::wide::system::SCALL, number),
+            );
             let calls = steps
                 .records()
                 .iter()
@@ -195,6 +208,7 @@ fn borrowed_heap_state_payload_is_copied_and_invalid_envelopes_cannot_mutate_it(
     let program = compile(
         r#"seiyaku OwnedState { permission WriteState;
         state int Counter;
+        hajimari() { Counter = 0; }
         kotoage fn main() authorize(WriteState) { Counter = 1; }
     }"#,
     );
@@ -239,7 +253,7 @@ fn borrowed_heap_state_payload_is_copied_and_invalid_envelopes_cannot_mutate_it(
     vm.set_register(11, wrong_ptr);
     assert!(matches!(
         host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm),
-        Err(VMError::NoritoInvalid)
+        Err(VMError::DecodeError)
     ));
     assert_eq!(host.state_bytes("Counter"), Some(value.clone()));
     vm.set_register(10, Memory::STACK_START);

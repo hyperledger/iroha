@@ -378,13 +378,12 @@ fn actual_local_pairs_preserve_repeated_values_across_original_private_calls_and
 fn name_path(key: &str) -> String {
     let name: iroha_model_base::name::Name = key.parse().unwrap();
     let payload = norito::to_bytes(&name).unwrap();
-    let mut envelope = Vec::new();
-    envelope.extend_from_slice(&(PointerType::Name as u16).to_be_bytes());
-    envelope.push(1);
-    envelope.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
-    envelope.extend_from_slice(&payload);
-    envelope.extend_from_slice(iroha_crypto::Hash::new(&payload).as_ref());
-    format!("Balances/{}", hex::encode(envelope))
+    let record = common::encode_pointer_state_value(
+        ivm_abi::state_value::StateValueKindV1::Name,
+        PointerType::Name,
+        &payload,
+    );
+    format!("Balances/{}", hex::encode(record))
 }
 fn state_quantity(record: &[u8]) -> String {
     let bytes = common::decode_pointer_state_value(
@@ -446,7 +445,6 @@ fn actual_local_pairs_preserve_canonical_map_custody_metered_consumers_and_quant
             for number in [
                 ivm::syscalls::SYSCALL_STATE_GET,
                 ivm::syscalls::SYSCALL_STATE_SET,
-                ivm::syscalls::SYSCALL_POINTER_TO_NORITO,
                 ivm::syscalls::SYSCALL_BUILD_PATH_KEY_NORITO,
                 ivm::syscalls::SYSCALL_STATE_VALUE_ENCODE,
                 ivm::syscalls::SYSCALL_STATE_VALUE_DECODE,
@@ -470,6 +468,21 @@ fn actual_local_pairs_preserve_canonical_map_custody_metered_consumers_and_quant
                         .iter()
                         .all(|step| step.before.gas_remaining > step.after.gas_remaining)
                 );
+                if number == ivm::syscalls::SYSCALL_BUILD_PATH_KEY_NORITO {
+                    let paths = calls
+                        .iter()
+                        .map(|step| {
+                            let key = vm.validate_tlv(step.before.registers[11]).unwrap();
+                            assert_eq!(key.type_id, PointerType::NoritoBytes);
+                            format!("Balances/{}", hex::encode(key.payload))
+                        })
+                        .collect::<std::collections::BTreeSet<_>>();
+                    assert_eq!(
+                        paths,
+                        std::collections::BTreeSet::from([name_path("left"), name_path("right")]),
+                        "every map consumer receives the complete schema-bound canonical key"
+                    );
+                }
             }
             drop(vm);
             let reached = state(&core);

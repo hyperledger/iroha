@@ -117,7 +117,7 @@ fn compare_raw_handles(ty: &str, initialize: impl FnOnce(&mut IVM) -> (u64, u64)
     // Call the compiler-owned implementation directly so malformed inactive
     // storage reaches only equality, not the public argument validator.
     let source = format!(
-        "seiyaku Equality {{ view fn compare({ty} left, {ty} right) -> bool {{ left == right }} }}"
+        "seiyaku Equality {{ view fn compare({ty} left, {ty} right) authorize(anyone) -> bool {{ left == right }} }}"
     );
     let compiler = KotodamaCompiler::new_with_options(CompilerOptions {
         mode: CompilerMode::Test,

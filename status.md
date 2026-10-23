@@ -153,9 +153,7 @@ FASTPQ finalized-source and lane counters, a signer-check query, three MUSUBI
 pin-outbox and publication-admission tests, the trigger contract-capture work
 limits, an IVM host state-read gas test, two State authorization-reader tests,
 a State capacity refusal, a state-certificate pairing refusal, the autoscale
-elastic-lane liveness test and an autoscale-route validation test. `ivm`
-`dead_numeric_register_cycle_executes_all_branches_on_both_hosts` fails
-(`ActiveMemoryCapacity`); `iroha_config`
+elastic-lane liveness test and an autoscale-route validation test. `iroha_config`
 `musubi_private_tls_listener_rejects_retired_mount_configuration` fails; 30 tests of
 the `zk_verify`, `zk_ledger_scaffold`, `zk_proof_retention` and
 `overlay_bounds` integration modules are stale and marked `TODO:`; and

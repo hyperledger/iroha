@@ -44,11 +44,13 @@ fn literal_heavy_set_account_detail_compiles_under_spill_pressure() {
 }
 #[test]
 fn odd_eight_byte_nested_call_frame_is_padded_and_restored() {
+    // Multiple call sites keep both helpers out of single-use inlining so the
+    // fixture exercises an actual nested return-address frame.
     let source = r#"
         seiyaku NestedFrameAlignment {
             fn leaf() {}
-            fn middle() { leaf(); }
-            view fn main() authorize(anyone) { middle(); }
+            fn middle() { leaf(); leaf(); }
+            view fn main() authorize(anyone) { middle(); middle(); }
         }
     "#;
     let (artifact, _manifest, report) = KotodamaCompiler::new()
@@ -60,8 +62,8 @@ fn odd_eight_byte_nested_call_frame_is_padded_and_restored() {
         .find(|function| function.function_name == "middle")
         .expect("middle function budget report");
     assert_eq!(
-        middle.frame_bytes, 16,
-        "the return-address-only frame must include eight bytes of alignment padding"
+        middle.frame_bytes, 32,
+        "the return address and two call-table bases must include eight bytes of alignment padding"
     );
     assert!(
         report

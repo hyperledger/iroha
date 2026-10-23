@@ -763,8 +763,8 @@ fn typed_int_decimal_and_quantity_commitments_execute_and_bind_nominal_kind() {
     assert!(matches!(wrong_kind.run(), Err(VMError::NoritoInvalid)));
     assert_eq!(
         wrong_kind.alloc_heap(1).expect("probe untouched heap"),
-        Memory::HEAP_START,
-        "wrong-kind rejection must occur before private or public allocation"
+        Memory::HEAP_START + ivm_abi::call::CALL_WORD_BYTES_V1 as u64,
+        "wrong-kind rejection must allocate no payload beyond the root's one-word result table"
     );
 }
 #[test]
@@ -1227,7 +1227,13 @@ fn non_zk_run_rejects_injected_private_register_state() {
     vm.set_register(2, 0xCAFE_BABE_DEAD_BEEF);
     vm.registers.set_tag(2, true);
 
-    assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
+    assert!(matches!(
+        vm.run(),
+        Err(VMError::ExecutionDeferred(
+            ivm::error::ExecutionDeferral::LocalInvariantViolation
+        ))
+    ));
+    assert!(vm.last_diagnostic().is_none());
 }
 #[test]
 fn runtime_template_restores_private_stack_tags_with_their_bytes() {
