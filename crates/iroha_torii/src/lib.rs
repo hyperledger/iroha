@@ -7668,32 +7668,35 @@ async fn authenticate_canonical_account_request(
 > {
     let network_id = app.signed_query_admission.network_id();
     loop {
-        let result = crate::app_auth::authorize_after_publication(
-            &app.auth_publication_waiters,
-            app.query_queue_timeout,
-            || {
-                crate::app_auth::verify_canonical_network_request(
-                    &app.state,
-                    &network_id,
-                    &parts.headers,
-                    crate::app_auth::CanonicalRequestParts {
-                        method: &parts.method,
-                        uri: &parts.uri,
-                        body,
-                    },
-                    None,
-                    owner.allocation_context(),
-                )
-            },
-        )
-        .await;
+        let (result, refused_by_publication) =
+            crate::app_auth::authorize_after_publication_outcome(
+                &app.auth_publication_waiters,
+                app.query_queue_timeout,
+                || {
+                    crate::app_auth::verify_canonical_network_request(
+                        &app.state,
+                        &network_id,
+                        &parts.headers,
+                        crate::app_auth::CanonicalRequestParts {
+                            method: &parts.method,
+                            uri: &parts.uri,
+                            body,
+                        },
+                        None,
+                        owner.allocation_context(),
+                    )
+                },
+            )
+            .await;
         let capacity = matches!(
             result,
             Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
             )))
         );
-        if !capacity {
+        // A publication that outlasted the queue deadline is not this owner's limit;
+        // a larger owner would only wait for it again.
+        if !capacity || refused_by_publication {
             return Ok((result, owner));
         }
         owner.note_owner_limit_refused();

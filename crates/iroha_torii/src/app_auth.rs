@@ -1219,37 +1219,52 @@ fn capture_publication_release<T>(
 pub(crate) async fn authorize_after_publication<T>(
     waiters: &iroha_core::state::AllocationBudget,
     wait: std::time::Duration,
-    mut authorize: impl FnMut() -> Result<T, crate::Error>,
+    authorize: impl FnMut() -> Result<T, crate::Error>,
 ) -> Result<T, crate::Error> {
+    authorize_after_publication_outcome(waiters, wait, authorize)
+        .await
+        .0
+}
+
+/// [`authorize_after_publication`], also reporting whether its final refusal came from a
+/// block publication (`true`) rather than from the request or its owner's limits.
+pub(crate) async fn authorize_after_publication_outcome<T>(
+    waiters: &iroha_core::state::AllocationBudget,
+    wait: std::time::Duration,
+    mut authorize: impl FnMut() -> Result<T, crate::Error>,
+) -> (Result<T, crate::Error>, bool) {
     use iroha_allocation::release::ReleaseRegistration;
     let deadline = tokio::time::Instant::now() + wait;
     let mut registration = None;
     loop {
         let (result, release) = capture_publication_release(&mut authorize);
         let Some(release) = release else {
-            return result;
+            return (result, false);
         };
-        if result.is_ok() || tokio::time::Instant::now() >= deadline {
-            return result;
+        if result.is_ok() {
+            return (result, false);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return (result, true);
         }
         if registration.is_none() {
             let Ok(mut prepaid) = waiters.try_reserve(ReleaseRegistration::allocation_layout())
             else {
-                return result;
+                return (result, true);
             };
             let Ok(node) = ReleaseRegistration::from_reservation(&mut prepaid) else {
-                return result;
+                return (result, true);
             };
             registration = Some(node);
         }
         let Some(registration) = registration.as_mut() else {
-            return result;
+            return (result, true);
         };
         if tokio::time::timeout_at(deadline, release.wait_for_release(registration))
             .await
             .is_err()
         {
-            return result;
+            return (result, true);
         }
     }
 }
