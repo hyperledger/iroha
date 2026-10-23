@@ -1281,6 +1281,31 @@ mod app_routed_read_http_admission_tests {
             .await;
     }
 
+    #[tokio::test]
+    async fn proof_read_credit_waits_for_the_pool_within_its_deadline() {
+        let mut app = mk_app_state_for_tests();
+        Arc::get_mut(&mut app).unwrap().query_queue_timeout = Duration::from_secs(5);
+        let bytes = app.query_fanout_working_set_bytes;
+        let before = app.query_fanout_inflight.available_permits();
+        let occupied = occupy_fanout_pool(&app);
+        let mut waiting = Box::pin(acquire_query_pool_credit(&app, bytes));
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        drop(occupied);
+        let credit = waiting.await.expect("credit once the pool frees");
+        assert!(app.query_fanout_inflight.available_permits() < before);
+        drop(credit);
+        assert_eq!(app.query_fanout_inflight.available_permits(), before);
+        for timeout in [Duration::from_millis(20), Duration::ZERO] {
+            Arc::get_mut(&mut app).unwrap().query_queue_timeout = timeout;
+            let occupied = occupy_fanout_pool(&app);
+            let started = tokio::time::Instant::now();
+            assert!(acquire_query_pool_credit(&app, bytes).await.is_none());
+            assert!(started.elapsed() >= timeout);
+            drop(occupied);
+        }
+        assert_eq!(app.query_fanout_inflight.available_permits(), before);
+    }
+
     #[test]
     fn canonical_authentication_sizes_its_owner_from_the_request() {
         let app = mk_app_state_for_tests();

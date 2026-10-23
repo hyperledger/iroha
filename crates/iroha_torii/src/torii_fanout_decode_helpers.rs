@@ -1257,6 +1257,35 @@ fn routed_read_owner_working_sets(app: &AppState) -> impl Iterator<Item = usize>
         .filter(move |working_set| *working_set < ceiling)
         .chain(core::iter::once(ceiling))
 }
+/// Wait within the query admission queue for `bytes` of query-pool credit.
+///
+/// Proof-style reads meter their own allocations against the bytes they book. Waiting
+/// here, bounded like every other query admission, keeps a momentary shortage of pool
+/// credit from turning into a refusal; a zero queue timeout still tries once.
+async fn acquire_query_pool_credit(
+    app: &AppState,
+    bytes: usize,
+) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    let permits = app
+        .query_fanout_inflight
+        .permits_for_parts([u64::try_from(bytes).ok()?])?;
+    let semaphore = app.query_fanout_inflight.semaphore.clone();
+    if app.query_queue_timeout.is_zero() {
+        return semaphore.try_acquire_many_owned(permits.get()).ok();
+    }
+    let _waiter = app
+        .app_routed_read_waiters
+        .clone()
+        .try_acquire_owned()
+        .ok()?;
+    tokio::time::timeout(
+        app.query_queue_timeout,
+        semaphore.acquire_many_owned(permits.get()),
+    )
+    .await
+    .ok()?
+    .ok()
+}
 /// Smallest owner whose source frame and decode phase both cover `unit_bytes`, the
 /// largest representation an authentication read decodes; an unknown size takes the
 /// configured owner.
