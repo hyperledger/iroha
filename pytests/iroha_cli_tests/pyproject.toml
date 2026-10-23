@@ -11,7 +11,7 @@ faker = "*"
 allure-python-commons = "*"
 cryptography = "*"
 python-dotenv = "*"
-tomlkit = "^0.14.0"
+tomlkit = ">=0.14,<0.16"
 
 [tool.poetry.dev-dependencies]
 pytest = "*"
@@ -23,7 +23,7 @@ flake8 = "*"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^4.0.5"
-isort = "^8.0.1"
+isort = ">=8.0.1,<10.0.0"
 
 [build-system]
 requires = ["poetry-core"]
