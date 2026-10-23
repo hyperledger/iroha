@@ -96,14 +96,20 @@ entries before the cursor, with a limit of 1,048,576 storage entries per request
 Rows with equal sort values are ordered by their identity.
 
 **Memory admission.** `torii.query_fanout_max_retained_bytes` bounds aggregate
-query memory (default 512,000,000 bytes), while
-`torii.query_fanout_max_working_set_bytes` bounds one complete query working set
-(default 48,000,000 bytes). One quarter of the aggregate belongs to independent
-signed-query ingress. With the default content limit, the remaining
-384,000,000 bytes admit eight complete query owners. Increasing aggregate
-capacity raises concurrency without increasing one query's decode, source or
-response ceilings. Smaller aggregate pools reduce the admitted owner and all
-its phase limits together.
+query memory (default 512,000,000 bytes); one quarter belongs to independent
+signed-query ingress and the rest backs query owners.
+`torii.query_fanout_max_working_set_bytes` (default 48,000,000 bytes) is the
+largest owner one read can hold. A collection read starts with the smallest
+owner whose limits admit its request target and declared body: complete
+envelopes of 256 KiB, 2 MiB and 16 MiB phase units below that ceiling, then the
+ceiling itself. An owner below the ceiling serves its read on this node and
+does not book the proxy-candidate allowance; a read that must go to another
+validator moves to the ceiling owner first. Every decode, source, retained-row
+and response limit derives from the owner the read holds. When one of them
+refuses the read, the read is served again with the next owner after the
+smaller one is released, and only the ceiling owner's refusal reaches the
+client. Increasing aggregate capacity raises concurrency without increasing
+one query's ceilings.
 
 The same owner follows collection request decoding, local execution and the
 returned HTTP body. Compiled plans, decoded cursors and the next cursor share
