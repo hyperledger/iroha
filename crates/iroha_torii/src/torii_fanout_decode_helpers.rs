@@ -1225,22 +1225,22 @@ fn try_acquire_query_memory_envelope(
             )
         })?
 }
-/// Queue a bodyless HTTP read before polling its body or decoding its query. The
+/// Queue an HTTP routed read before polling its body or decoding its query. The
 /// listener already bounds its raw HTTP head; the separate waiter count bounds
 /// how many of those heads remain here. No signed-query ingress permit or decoded
-/// request is pinned while waiting for the complete fanout working set.
+/// request is pinned while waiting for the complete fanout working set: a body
+/// stays unread in its connection until this read owns its working set.
 async fn acquire_app_routed_read_http_memory(
     app: &SharedAppState,
-    accepts_body: bool,
 ) -> Result<QueryFanoutMemoryReservation, Response> {
-    if accepts_body || app.query_queue_timeout.is_zero() {
+    if app.query_queue_timeout.is_zero() {
         return try_acquire_new_query_fanout_memory(app);
     }
     let unavailable = || {
         torii_proxy_error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "query_capacity_exceeded",
-            "bodyless query capacity did not become available within the bounded admission queue",
+            "query capacity did not become available within the bounded admission queue",
         )
     };
     let _waiter = app

@@ -2461,6 +2461,9 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id_and_nexus(
         app_routed_read_waiters: Arc::new(tokio::sync::Semaphore::new(
             defaults::torii::QUERY_MAX_INFLIGHT.get(),
         )),
+        auth_publication_waiters: auth_publication_waiters(
+            defaults::torii::QUERY_MAX_INFLIGHT.get(),
+        ),
         app_api_routed_read_body_read_timeout: Duration::from_millis(
             defaults::torii::APP_API_ROUTED_READ_BODY_READ_TIMEOUT_MS,
         ),

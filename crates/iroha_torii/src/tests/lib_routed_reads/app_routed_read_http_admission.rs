@@ -859,8 +859,9 @@ mod app_routed_read_http_admission_tests {
         assert_eq!(app.query_fanout_inflight.available_permits(), before);
     }
     #[tokio::test]
-    async fn busy_admission_fails_before_body_poll_and_task_local_clone_does_not_reacquire() {
-        let app = mk_app_state_for_tests();
+    async fn busy_body_admission_waits_without_body_poll_and_task_local_clone_does_not_reacquire() {
+        let mut app = mk_app_state_for_tests();
+        Arc::get_mut(&mut app).unwrap().query_queue_timeout = Duration::from_millis(20);
         let reservation = try_acquire_new_query_fanout_memory(&app)
             .expect("fixture occupies complete fanout working set");
         let _other_memory = app
@@ -868,14 +869,19 @@ mod app_routed_read_http_admission_tests {
             .try_acquire_parts([app.query_fanout_inflight.available_bytes()])
             .expect("fixture occupies every other complete working set");
         let occupied = app.query_fanout_inflight.available_permits();
+        let waiters = app.app_routed_read_waiters.available_permits();
         let polls = Arc::new(AtomicUsize::new(0));
         let descriptor = route_catalog::application_api::ACCOUNTS_QUERY_POST;
-        let response = admission_router(Arc::clone(&app), descriptor, false)
-            .oneshot(json_request(descriptor.path(), pending_body(&polls)))
-            .await
-            .expect("busy response");
+        let mut response = Box::pin(
+            admission_router(Arc::clone(&app), descriptor, false)
+                .oneshot(json_request(descriptor.path(), pending_body(&polls))),
+        );
+        assert!(futures::poll!(response.as_mut()).is_pending());
+        assert_eq!(app.app_routed_read_waiters.available_permits(), waiters - 1);
+        let response = response.await.expect("busy response");
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(polls.load(Ordering::SeqCst), 0);
+        assert_eq!(app.app_routed_read_waiters.available_permits(), waiters);
         assert_eq!(app.query_fanout_inflight.available_permits(), occupied);
         let plan = torii_routed_read_request_preflight_plan(&app).expect("test request plan");
         let admission = AppRoutedReadHttpAdmission {
@@ -1020,12 +1026,39 @@ mod app_routed_read_http_admission_tests {
         assert_eq!(app.app_routed_read_waiters.available_permits(), waiters);
         drop(occupied);
         assert_eq!(app.query_fanout_inflight.available_permits(), before);
-        let permit = acquire_app_routed_read_http_memory(&app, false)
-            .await
-            .unwrap();
+        let permit = acquire_app_routed_read_http_memory(&app).await.unwrap();
         assert!(app.query_fanout_inflight.available_permits() < before);
         drop(permit);
         assert_eq!(app.query_fanout_inflight.available_permits(), before);
+    }
+
+    #[tokio::test]
+    async fn body_read_waits_before_polling_and_proceeds_when_capacity_frees() {
+        let mut app = mk_app_state_for_tests();
+        Arc::get_mut(&mut app).unwrap().query_queue_timeout = Duration::from_secs(5);
+        let before = app.query_fanout_inflight.available_permits();
+        let waiters = app.app_routed_read_waiters.available_permits();
+        let occupied = occupy_fanout_pool(&app);
+        let polls = Arc::new(AtomicUsize::new(0));
+        let descriptor = route_catalog::application_api::ACCOUNTS_QUERY_POST;
+        let waiting = admission_router(Arc::clone(&app), descriptor, false)
+            .oneshot(json_request(descriptor.path(), pending_body(&polls)));
+        let mut waiting = Box::pin(waiting);
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        assert_eq!(polls.load(Ordering::SeqCst), 0);
+        assert_eq!(app.app_routed_read_waiters.available_permits(), waiters - 1);
+        drop(waiting);
+        assert_eq!(app.app_routed_read_waiters.available_permits(), waiters);
+        let read = admission_router(Arc::clone(&app), descriptor, false)
+            .oneshot(json_request(descriptor.path(), Body::from("{}")));
+        let mut read = Box::pin(read);
+        assert!(futures::poll!(read.as_mut()).is_pending());
+        drop(occupied);
+        let response = read.await.expect("admitted after capacity frees");
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        drop(response);
+        assert_eq!(app.query_fanout_inflight.available_permits(), before);
+        assert_eq!(app.app_routed_read_waiters.available_permits(), waiters);
     }
 
     #[tokio::test]
@@ -1068,9 +1101,9 @@ mod app_routed_read_http_admission_tests {
         state.app_routed_read_waiters = Arc::new(tokio::sync::Semaphore::new(1));
         let before = app.query_fanout_inflight.available_permits();
         let occupied = occupy_fanout_pool(&app);
-        let mut waiting = Box::pin(acquire_app_routed_read_http_memory(&app, false));
+        let mut waiting = Box::pin(acquire_app_routed_read_http_memory(&app));
         assert!(futures::poll!(waiting.as_mut()).is_pending());
-        let full = acquire_app_routed_read_http_memory(&app, false)
+        let full = acquire_app_routed_read_http_memory(&app)
             .await
             .err()
             .unwrap();

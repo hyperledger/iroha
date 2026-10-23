@@ -2440,8 +2440,12 @@ struct AppState {
         std::sync::Mutex<iroha_core::smartcontracts::isi::sccp::read::SccpHistoryNodeCache>,
     /// Original finite allocation owner for the retained history-node backing.
     sccp_history_budget: iroha_core::state::AllocationBudget,
-    /// Bounded bodyless HTTP waiters; they hold no decoded query or fanout working set.
+    /// Bounded HTTP routed-read waiters; they hold no decoded query, unread body
+    /// bytes or fanout working set.
     app_routed_read_waiters: Arc<tokio::sync::Semaphore>,
+    /// Waiter registrations for signed reads that wait out a block publication,
+    /// one per concurrently admitted query.
+    auth_publication_waiters: iroha_core::state::AllocationBudget,
     app_api_routed_read_body_read_timeout: Duration,
     /// Immutable app-local ordinary-query geometry and configuration identity.
     ordinary_query_policy: OrdinaryQueryServerPolicy,
@@ -7656,18 +7660,26 @@ async fn enforce_canonical_account_body_authentication(
         }
     };
     let network_id = state.app.signed_query_admission.network_id();
-    let verified = match crate::app_auth::verify_canonical_network_request(
-        &state.app.state,
-        &network_id,
-        &parts.headers,
-        crate::app_auth::CanonicalRequestParts {
-            method: &parts.method,
-            uri: &parts.uri,
-            body: body.as_ref(),
+    let verified = match crate::app_auth::authorize_after_publication(
+        &state.app.auth_publication_waiters,
+        state.app.query_queue_timeout,
+        || {
+            crate::app_auth::verify_canonical_network_request(
+                &state.app.state,
+                &network_id,
+                &parts.headers,
+                crate::app_auth::CanonicalRequestParts {
+                    method: &parts.method,
+                    uri: &parts.uri,
+                    body: body.as_ref(),
+                },
+                None,
+                authentication_owner.allocation_context(),
+            )
         },
-        None,
-        authentication_owner.allocation_context(),
-    ) {
+    )
+    .await
+    {
         Ok(Some(verified)) => verified,
         Ok(None) => {
             return Error::AppUnauthorized {
@@ -7715,18 +7727,26 @@ async fn enforce_optional_canonical_account_body_authentication(
         }
     };
     let network_id = state.app.signed_query_admission.network_id();
-    let visibility = match crate::app_auth::verify_canonical_network_request(
-        &state.app.state,
-        &network_id,
-        &parts.headers,
-        crate::app_auth::CanonicalRequestParts {
-            method: &parts.method,
-            uri: &parts.uri,
-            body: body.as_ref(),
+    let visibility = match crate::app_auth::authorize_after_publication(
+        &state.app.auth_publication_waiters,
+        state.app.query_queue_timeout,
+        || {
+            crate::app_auth::verify_canonical_network_request(
+                &state.app.state,
+                &network_id,
+                &parts.headers,
+                crate::app_auth::CanonicalRequestParts {
+                    method: &parts.method,
+                    uri: &parts.uri,
+                    body: body.as_ref(),
+                },
+                None,
+                authentication_owner.allocation_context(),
+            )
         },
-        None,
-        authentication_owner.allocation_context(),
-    ) {
+    )
+    .await
+    {
         Ok(Some(verified)) => ToriiAccountReadVisibility::Signed(verified.account),
         Ok(None) => ToriiAccountReadVisibility::None,
         Err(error) => {
@@ -34697,6 +34717,15 @@ fn validate_semaphore_permits(
     Ok(permits)
 }
 
+/// One publication-waiter registration for every concurrently admitted query.
+fn auth_publication_waiters(query_max_inflight: usize) -> iroha_core::state::AllocationBudget {
+    iroha_core::state::AllocationBudget::new(
+        query_max_inflight.saturating_mul(
+            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+        ),
+    )
+}
+
 /// Owned test-router runtime that keeps every background service supervised.
 ///
 /// Call [`Self::shutdown`] after the final request so shutdown is signalled and
@@ -41035,6 +41064,7 @@ ingress,
                 self.sccp_history_cache_max_bytes,
             ),
             app_routed_read_waiters: Arc::new(tokio::sync::Semaphore::new(query_max_inflight)),
+            auth_publication_waiters: auth_publication_waiters(query_max_inflight),
             app_api_routed_read_body_read_timeout: self.app_api_routed_read_body_read_timeout,
             ordinary_query_policy,
             transaction_ingress_compute_inflight,
