@@ -237,7 +237,7 @@ fn parse_handshake_meta_str(raw: &str) -> Result<ConsensusHandshakeMeta, norito:
         norito::json::from_str(raw).map_err(norito::Error::from)?;
     metadata
         .validate()
-        .map_err(|error| norito::Error::Message(error.clone()))?;
+        .map_err(|error| norito::Error::Message(error.to_string()))?;
     Ok(metadata)
 }
 
@@ -591,6 +591,26 @@ mod handshake_payload_tests {
             err.to_string().contains("failed to decode"),
             "unexpected error: {err}"
         );
+    }
+    #[test]
+    fn parse_handshake_meta_preserves_validation_diagnostics() {
+        let payload = handshake_payload_from_genesis();
+        let metadata = parse_handshake_meta_str(payload.get()).expect("valid handshake metadata");
+        let mut wrong_version = metadata;
+        wrong_version.wire_protocol_version = 0;
+        let mut invalid_context = metadata;
+        invalid_context.sumeragi_context.execution_policy_hash = [0; 32];
+
+        for invalid in [wrong_version, invalid_context] {
+            let expected = invalid
+                .validate()
+                .expect_err("invalid handshake fixture")
+                .to_string();
+            let raw = norito::json::to_json(&invalid).expect("serialize handshake fixture");
+            let error =
+                parse_handshake_meta_str(&raw).expect_err("validation must reject metadata");
+            assert!(matches!(error, norito::Error::Message(message) if message == expected));
+        }
     }
     #[test]
     fn decode_consensus_meta_rejects_garbage() {
@@ -8937,7 +8957,7 @@ fn signed_genesis_context_metadata(
             metadata.wire_protocol_version
         ));
     }
-    metadata.validate()?;
+    metadata.validate().map_err(|error| error.to_string())?;
     let mode = match metadata.mode {
         iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned => {
             iroha_data_model::block::consensus::ConsensusMode::Permissioned
@@ -11268,8 +11288,11 @@ mod tests {
             let base_raw = base_genesis
                 .build_raw()
                 .expect("build complete offline semantic genesis manifest");
-            ensure_manifest_crypto_matches(&base_raw, &config)
-                .expect("sign the exact configured crypto policy before native staging");
+            assert_eq!(
+                base_raw.crypto_admission_policy(),
+                &daemon_fixture_crypto_policy(),
+                "sign the explicitly authored fixture crypto policy before native staging"
+            );
             let (context_hash, execution_policy_hash) =
                 staged_context_hashes_for_test(&base_raw, &genesis_authority, &config);
             let mut parameters = base_raw.sumeragi_context_parameters();
@@ -12063,7 +12086,7 @@ mod tests {
                 retained_manifest.crypto_admission_policy(),
                 &authored_policy
             );
-            let state = State::new(
+            let state = State::new_for_testing(
                 World::new(),
                 Kura::blank_kura_for_testing(),
                 LiveQueryStore::start_test(),

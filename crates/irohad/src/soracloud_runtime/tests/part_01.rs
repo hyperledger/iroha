@@ -1429,6 +1429,178 @@ fn soracloud_runtime_submission_builds_exact_sponsor_revision() {
     assert_eq!(intent.program_id, program_id);
     assert_eq!(intent.program_revision, 7);
 }
+#[tokio::test]
+async fn queued_runtime_submission_requires_the_committed_crypto_policy() -> Result<()> {
+    use crate::soracloud_runtime_signer::{
+        SoracloudRuntimeMutationSignerV1, SoracloudRuntimeProvenancePurposeV1,
+        SoracloudRuntimeSignerProbeErrorV1, SoracloudRuntimeSignerQualificationV1,
+        SoracloudRuntimeSigningErrorV1,
+    };
+    use iroha_data_model::{
+        block::consensus::{SumeragiGenesisContextParameters, SumeragiRootScope},
+        bridge::SccpNetworkV1,
+        crypto_admission_policy::CryptoAdmissionPolicyV1,
+        isi::sccp::AdvanceSccpLightClientV1,
+        parameter::{
+            CustomParameter, Parameter,
+            system::{
+                ConsensusFingerprint, ConsensusHandshakeMetadata, SumeragiConsensusMode,
+                consensus_metadata,
+            },
+        },
+        sccp::params::SccpParametersV1,
+    };
+
+    struct Signer(KeyPair);
+    impl SoracloudRuntimeMutationSignerV1 for Signer {
+        fn handle(&self) -> &str {
+            "provider://soracloud/runtime-policy-fixture"
+        }
+        fn authority(&self) -> AccountId {
+            AccountId::new(self.0.public_key().clone())
+        }
+        fn public_key(&self) -> std::result::Result<PublicKey, SoracloudRuntimeSignerProbeErrorV1> {
+            Ok(self.0.public_key().clone())
+        }
+        fn qualification(
+            &self,
+        ) -> std::result::Result<
+            SoracloudRuntimeSignerQualificationV1,
+            SoracloudRuntimeSignerProbeErrorV1,
+        > {
+            Ok(SoracloudRuntimeSignerQualificationV1::new(
+                1, [0xAC; 32], true, false,
+            ))
+        }
+        fn sign_transaction(
+            &self,
+            payload: TransactionPayload,
+        ) -> std::result::Result<SignedTransaction, SoracloudRuntimeSigningErrorV1> {
+            TransactionBuilder::from_payload(payload)
+                .expect("exact quoted payload")
+                .try_sign(self.0.private_key())
+                .map_err(|_| SoracloudRuntimeSigningErrorV1::Refused)
+        }
+        fn sign_provenance(
+            &self,
+            _purpose: SoracloudRuntimeProvenancePurposeV1,
+            _preimage: &[u8],
+        ) -> std::result::Result<Signature, SoracloudRuntimeSigningErrorV1> {
+            Err(SoracloudRuntimeSigningErrorV1::Refused)
+        }
+    }
+
+    // A fee-exempt SCCP advance reaches ordinary admission without account funding.
+    let world = World::new();
+    let mut context = SumeragiGenesisContextParameters::recommended();
+    context.root_scope = SumeragiRootScope::Global;
+    let mut block = world.block();
+    block
+        .parameters
+        .set_parameter(Parameter::Custom(CustomParameter::new(
+            consensus_metadata::handshake_meta_id(),
+            Json::new(ConsensusHandshakeMetadata {
+                mode: SumeragiConsensusMode::Permissioned,
+                block_cadence_ms: NonZeroU64::new(1_000).unwrap(),
+                wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
+                consensus_fingerprint: ConsensusFingerprint::new([0x5C; 32]),
+                sumeragi_context: context,
+            }),
+        )))?;
+    block.parameters.set_parameter(Parameter::Custom(
+        iroha_config::parameters::defaults::nexus::fees::genesis_policy()
+            .into_custom_parameter()?,
+    ))?;
+    block.commit();
+    let state = Arc::new(State::new_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    ));
+    let mut block = state.block(BlockHeader::new(
+        NonZeroU64::new(1).unwrap(),
+        None,
+        None,
+        0,
+        0,
+    ));
+    let mut transaction = block.transaction();
+    iroha_core::smartcontracts::isi::sccp::store::parameters::set(
+        &mut transaction,
+        Some(SccpParametersV1::taira_default()),
+    );
+    transaction.apply();
+    block.commit_world_overlay_for_testing()?;
+
+    let signer = Arc::new(Signer(KeyPair::random()));
+    let submission = iroha_config::parameters::actual::SoracloudRuntimeSubmission {
+        signer: Some(
+            iroha_config::parameters::actual::SoracloudRuntimeMutationSignerBinding {
+                handle: signer.handle().to_owned(),
+                authority: signer.authority(),
+                algorithm: Algorithm::Ed25519,
+                public_key: signer.0.public_key().clone(),
+                revision: 1,
+                policy_digest: [0xAC; 32],
+            },
+        ),
+        ..Default::default()
+    };
+    let (events, _) = tokio::sync::broadcast::channel(1);
+    let queue = Arc::new(Queue::from_config(Default::default(), events));
+    let sink = QueuedSoracloudRuntimeMutationSink::new(queue, state.clone(), signer, submission)?;
+    let submit = || {
+        sink.submit_instruction(
+            AdvanceSccpLightClientV1 {
+                network: SccpNetworkV1::EthereumMainnet,
+                expected_state_hash: None,
+                advance: iroha_sccp::light_client::proof::SccpLcAdvanceV1::Ethereum(
+                    iroha_sccp::light_client::ethereum::EthereumLcAdvanceV1 {
+                        updates: Vec::new(),
+                    },
+                )
+                .to_bytes()
+                .expect("bounded advance"),
+            }
+            .into(),
+            "/internal/soracloud/runtime/policy-fixture",
+        )
+        .expect_err("fixture never reaches a valid SCCP light client")
+    };
+    assert_eq!(
+        submit()
+            .downcast_ref::<iroha_core::execution_attempt::ExecutionDeferred>()
+            .expect("missing policy defers admission")
+            .reason(),
+        ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable,
+    );
+    for algorithm in [Algorithm::Secp256k1, Algorithm::Ed25519] {
+        let mut block = state.block(BlockHeader::new(
+            NonZeroU64::new(1).unwrap(),
+            None,
+            None,
+            0,
+            0,
+        ));
+        block
+            .world
+            .parameters
+            .set_parameter(CryptoAdmissionPolicyV1::new(vec![algorithm])?.into_parameter()?)?;
+        block.commit_world_overlay_for_testing()?;
+        let error = submit();
+        if algorithm == Algorithm::Secp256k1 {
+            assert!(matches!(
+                error.downcast_ref::<iroha_core::tx::AcceptTransactionFail>(),
+                Some(iroha_core::tx::AcceptTransactionFail::SignatureVerification(failure))
+                    if failure.code() == iroha_core::tx::SignatureRejectionCode::AlgorithmNotPermitted
+            ));
+        } else {
+            assert!(format!("{error:#}").contains("the light client is not installed"));
+        }
+    }
+    Ok(())
+}
+
 fn sample_agent_record() -> Result<SoraAgentApartmentRecordV1> {
     let manifest = load_agent_manifest_fixture()?;
     Ok(SoraAgentApartmentRecordV1 {

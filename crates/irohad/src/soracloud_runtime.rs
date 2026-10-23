@@ -833,23 +833,21 @@ impl SoracloudRuntimeMutationSink for QueuedSoracloudRuntimeMutationSink {
                     "external signer refused internal Soracloud runtime mutation at `{endpoint}`: {error:?}"
                 )
             })?;
-        let (max_clock_drift, transaction_params, crypto) = {
-            let world = self.state.world_view();
-            let params = world.parameters();
-            (
-                params.sumeragi().max_clock_drift(),
-                params.transaction(),
-                self.state.crypto(),
+        let parameters = self.state.transaction_admission_parameters();
+        let admission_policy = parameters.require_crypto_policy().map_err(|_| {
+            iroha_core::execution_attempt::ExecutionDeferred::from(
+                ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable,
             )
-        };
+        })?;
         let accepted = AcceptedTransaction::accept(
             tx,
             self.state.network_id_ref(),
-            max_clock_drift,
-            transaction_params,
-            crypto.as_ref(),
+            parameters.sumeragi().max_clock_drift(),
+            parameters.transaction(),
+            admission_policy,
         )
         .wrap_err_with(|| format!("accept internal Soracloud runtime mutation at `{endpoint}`"))?;
+        drop(parameters);
         self.queue
             .push_with_lane_with_state(accepted, self.state.as_ref())
             .map(|_| ())
