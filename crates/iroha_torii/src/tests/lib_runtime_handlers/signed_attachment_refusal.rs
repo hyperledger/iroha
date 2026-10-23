@@ -135,7 +135,6 @@ mod signed_attachment_refusal {
             let before_rejected = app
                 .telemetry
                 .metrics()
-                .await
                 .torii_route_stage_latency_seconds
                 .with_label_values(&["transaction", "verify", "error"])
                 .get_sample_count();
@@ -143,7 +142,6 @@ mod signed_attachment_refusal {
             let before_deferred = app
                 .telemetry
                 .metrics()
-                .await
                 .torii_route_stage_latency_seconds
                 .with_label_values(&["transaction", "verify", "deferred"])
                 .get_sample_count();
@@ -178,7 +176,7 @@ mod signed_attachment_refusal {
             );
             #[cfg(feature = "telemetry")]
             {
-                let metrics = app.telemetry.metrics().await;
+                let metrics = app.telemetry.metrics();
                 assert_eq!(
                     metrics
                         .torii_route_stage_latency_seconds
@@ -207,22 +205,40 @@ mod signed_attachment_refusal {
             .await;
             drop(captured);
             assert_eq!(outer_pool.reserved_bytes(), 0);
-            let retried = routing::accept_decoded_signed_transaction_for_ingress(
+            let decoded = DecodedVersionedSignedTransaction::decode_versioned(&wire).unwrap();
+            decoded
+                .signed()
+                .validate_signed_attachments_v1()
+                .expect("same signed source completes structural checking after release");
+            decoded
+                .signed()
+                .verify_signature()
+                .expect("same signed source retains valid authorization");
+            assert_eq!(decoded.signed().encode_versioned(), wire);
+            assert_eq!(decoded.signed().signature(), &signature);
+            let error = routing::accept_decoded_signed_transaction_for_ingress(
                 app.state.clone(),
-                DecodedVersionedSignedTransaction::decode_versioned(&wire).unwrap(),
+                decoded,
                 &app.telemetry,
             )
-            .expect("same signed source completes structural/signature admission after release");
-            assert_eq!(retried.external().unwrap().encode_versioned(), wire);
-            assert_eq!(retried.external().unwrap().signature(), &signature);
+            .expect_err("retry reaches the current missing consuming-route refusal");
+            assert!(matches!(
+                &error,
+                Error::AcceptTransaction(AcceptTransactionFail::SignedAttachments(
+                    SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+                ))
+            ));
+            assert_eq!(error.status_code(), StatusCode::BAD_REQUEST);
             assert_eq!(tx.encode_versioned(), wire);
-            // Admission completion is not proof verification or queue acceptance.
+            assert_eq!(tx.signature(), &signature);
+            // Retrying completes validation; an unsupported operation stays rejected.
             unchanged_receipts(&app, &tx);
         }
     }
     #[tokio::test]
     async fn signed_attachment_worker_moves_original_and_releases_compute_without_receipt() {
         let (app, tx, wire) = fixture();
+        let signature = tx.signature().clone();
         let capacity = app.transaction_ingress_compute_inflight.available_permits();
         let permit =
             try_acquire_transaction_ingress_compute(&app.transaction_ingress_compute_inflight)
@@ -251,13 +267,31 @@ mod signed_attachment_refusal {
         assert_retry_response(error, crate::utils::ResponseFormat::Json).await;
         drop(captured);
         let decoded = DecodedVersionedSignedTransaction::decode_versioned(&wire).unwrap();
-        routing::accept_decoded_signed_transaction_for_ingress(
+        decoded
+            .signed()
+            .validate_signed_attachments_v1()
+            .expect("caller-owned signed source completes structural checking after release");
+        decoded
+            .signed()
+            .verify_signature()
+            .expect("caller-owned signed source retains valid authorization");
+        assert_eq!(decoded.signed().encode_versioned(), wire);
+        assert_eq!(decoded.signed().signature(), &signature);
+        let error = routing::accept_decoded_signed_transaction_for_ingress(
             app.state.clone(),
             decoded,
             &app.telemetry,
         )
-        .expect("caller-owned unchanged signed source remains retryable");
+        .expect_err("caller-owned retry reaches the current missing consuming-route refusal");
+        assert!(matches!(
+            &error,
+            Error::AcceptTransaction(AcceptTransactionFail::SignedAttachments(
+                SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+            ))
+        ));
+        assert_eq!(error.status_code(), StatusCode::BAD_REQUEST);
         assert_eq!(tx.encode_versioned(), wire);
+        assert_eq!(tx.signature(), &signature);
         unchanged_receipts(&app, &tx);
     }
 
@@ -375,7 +409,7 @@ mod signed_attachment_refusal {
     #[tokio::test]
     async fn signed_attachment_outer_handler_metrics_do_not_record_local_rejection() {
         let (app, tx, wire) = fixture();
-        let metrics = app.telemetry.metrics().await;
+        let metrics = app.telemetry.metrics();
         let error_count = metrics
             .torii_route_stage_latency_seconds
             .with_label_values(&["transaction", "handle", "error"])
@@ -396,7 +430,7 @@ mod signed_attachment_refusal {
         })
         .expect_err("actual outer handler preserves local admission refusal");
         let captured = original(&error);
-        let metrics = app.telemetry.metrics().await;
+        let metrics = app.telemetry.metrics();
         assert_eq!(
             metrics
                 .torii_route_stage_latency_seconds
