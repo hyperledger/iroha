@@ -1281,6 +1281,81 @@ mod app_routed_read_http_admission_tests {
             .await;
     }
 
+    #[test]
+    fn canonical_authentication_sizes_its_owner_from_the_request() {
+        let app = mk_app_state_for_tests();
+        let tiers = routed_read_owner_working_sets(&app).collect::<Vec<_>>();
+        let mut headers = HeaderMap::new();
+        let unit = canonical_authentication_unit_bytes(&headers);
+        assert_eq!(unit, Some(CANONICAL_AUTHENTICATION_MIN_UNIT_BYTES));
+        assert_eq!(authentication_owner_working_set(&app, unit), tiers[0]);
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(1024 * 1024));
+        let unit = canonical_authentication_unit_bytes(&headers);
+        assert_eq!(unit, Some(1024 * 1024));
+        let owner = authentication_owner_working_set(&app, unit);
+        assert!(owner > tiers[0]);
+        let envelope = QueryFanoutMemoryEnvelope::for_body_admission(owner).unwrap();
+        assert!(envelope.route_body_bytes >= 1024 * 1024);
+        assert!(envelope.decode_allocated_bytes >= 1024 * 1024);
+        headers.remove(header::CONTENT_LENGTH);
+        headers.insert(
+            header::TRANSFER_ENCODING,
+            HeaderValue::from_static("chunked"),
+        );
+        assert_eq!(canonical_authentication_unit_bytes(&headers), None);
+        assert_eq!(
+            authentication_owner_working_set(&app, None),
+            app.query_fanout_working_set_bytes
+        );
+        headers.remove(header::TRANSFER_ENCODING);
+        headers.insert(
+            crate::app_auth::HEADER_WITNESS,
+            HeaderValue::from_str(&"w".repeat(300_000)).unwrap(),
+        );
+        assert_eq!(canonical_authentication_unit_bytes(&headers), Some(300_000));
+    }
+
+    #[tokio::test]
+    async fn authentication_owner_waits_for_a_small_owner_or_borrows_the_admitted_one() {
+        let mut app = mk_app_state_for_tests();
+        Arc::get_mut(&mut app).unwrap().query_queue_timeout = Duration::from_secs(5);
+        let tiers = routed_read_owner_working_sets(&app).collect::<Vec<_>>();
+        let before = app.query_fanout_inflight.available_permits();
+        let occupied = occupy_fanout_pool(&app);
+        let mut waiting = Box::pin(
+            crate::history_producer::HistoryProducerOwner::authentication_read_waiting(
+                &app,
+                Some(CANONICAL_AUTHENTICATION_MIN_UNIT_BYTES),
+            ),
+        );
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        drop(occupied);
+        let Ok((owner, borrowed)) = waiting.await else {
+            panic!("authentication owner admitted after capacity frees");
+        };
+        assert!(!borrowed);
+        assert_eq!(owner.working_set_bytes(), tiers[0]);
+        drop(owner);
+        assert_eq!(app.query_fanout_inflight.available_permits(), before);
+        let routed = acquire_app_routed_read_http_memory(&app, tiers[1])
+            .await
+            .unwrap();
+        COLLECTION_READ_MEMORY_RESERVATION
+            .scope(routed.clone(), async {
+                let Ok((owner, borrowed)) =
+                    crate::history_producer::HistoryProducerOwner::authentication_read_waiting(
+                        &app, None,
+                    )
+                    .await
+                else {
+                    panic!("routed owner is borrowed");
+                };
+                assert!(borrowed);
+                assert_eq!(owner.working_set_bytes(), tiers[1]);
+            })
+            .await;
+    }
+
     #[tokio::test]
     async fn routed_read_retry_reuses_its_first_verified_authentication() {
         let app = mk_app_state_for_tests();

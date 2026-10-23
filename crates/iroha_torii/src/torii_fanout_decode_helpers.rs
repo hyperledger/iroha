@@ -1257,6 +1257,23 @@ fn routed_read_owner_working_sets(app: &AppState) -> impl Iterator<Item = usize>
         .filter(move |working_set| *working_set < ceiling)
         .chain(core::iter::once(ceiling))
 }
+/// Smallest owner whose source frame and decode phase both cover `unit_bytes`, the
+/// largest representation an authentication read decodes; an unknown size takes the
+/// configured owner.
+fn authentication_owner_working_set(app: &AppState, unit_bytes: Option<usize>) -> usize {
+    let ceiling = app.query_fanout_working_set_bytes;
+    let Some(unit_bytes) = unit_bytes else {
+        return ceiling;
+    };
+    routed_read_owner_working_sets(app)
+        .find(|&working_set| {
+            QueryFanoutMemoryEnvelope::for_body_admission(working_set).is_ok_and(|envelope| {
+                envelope.route_body_bytes >= unit_bytes
+                    && envelope.decode_allocated_bytes >= unit_bytes
+            })
+        })
+        .unwrap_or(ceiling)
+}
 /// Pool credit for a routed-read owner of `working_set_bytes`, and whether it is local-only.
 ///
 /// An owner below the configured working set serves its read on this node: it never

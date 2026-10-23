@@ -296,6 +296,40 @@ impl HistoryProducerOwner {
         Self::from_reservation(&reservation)
     }
 
+    /// Reuse the request's admitted owner (`borrowed == true`), or wait in the query
+    /// admission queue for the smallest owner whose phase covers `unit_bytes`, the
+    /// request's largest representation; an unknown size takes the configured owner.
+    pub(crate) async fn authentication_read_waiting(
+        app: &crate::SharedAppState,
+        unit_bytes: Option<usize>,
+    ) -> Result<(Self, bool), axum::response::Response> {
+        use axum::response::IntoResponse as _;
+        if let Some(owner) = Self::current_if_admitted().map_err(Error::into_response)? {
+            if owner.budget.pool_generation != app.query_fanout_inflight.generation()
+                || owner.budget.envelope.working_set_bytes > app.query_fanout_working_set_bytes
+            {
+                return Err(capacity().into_response());
+            }
+            return Ok((owner, true));
+        }
+        let working_set = crate::authentication_owner_working_set(app, unit_bytes);
+        let reservation = crate::acquire_app_routed_read_http_memory(app, working_set).await?;
+        Ok((
+            Self::from_reservation(&reservation).map_err(Error::into_response)?,
+            false,
+        ))
+    }
+
+    /// The complete working set this owner was admitted with.
+    pub(crate) fn working_set_bytes(&self) -> usize {
+        self.budget.envelope.working_set_bytes
+    }
+
+    /// Record that a limit derived from this owner refused its request.
+    pub(crate) fn note_owner_limit_refused(&self) {
+        self.budget.note_owner_limit_refused();
+    }
+
     /// Acquire one fresh fail-fast owner for a background worker's off-chain history read.
     /// A worker has no request: a present request owner is refused, never borrowed, and the
     /// worker's own owner is installed only inside its synchronous scopes. Each read takes a
