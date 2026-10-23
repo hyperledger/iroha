@@ -214,6 +214,17 @@ export {
 } from "./toriiErrors.js";
 export * from "./query/index.js";
 
+// Keep validation stable when application code replaces these statics after import.
+const arrayIsArray = Array.isArray;
+const numberIsFinite = Number.isFinite;
+const numberIsInteger = Number.isInteger;
+const numberIsSafeInteger = Number.isSafeInteger;
+const objectEntries = Object.entries;
+const objectFreeze = Object.freeze;
+const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const objectHasOwn = Object.hasOwn;
+const objectKeys = Object.keys;
+
 const CANONICAL_AUTH_FIELD = "canonicalAuth";
 const COLLECTION_QUERY_OPTION_KEYS = new Set(["signal", CANONICAL_AUTH_FIELD]);
 const EXPECTED_FINALIZED_HASH_FIELD = "expectedFinalizedBlockHashHex";
@@ -228,9 +239,9 @@ const SORAFS_POR_PAGE_DEFAULT_MAX_BYTES = 4_194_304;
 const SORAFS_POR_CURSOR_MAX_LENGTH = 256;
 const APPLICATION_JSON = "application/json";
 const APPLICATION_NORITO = "application/x-norito";
-const JSON_ACCEPT_HEADERS = Object.freeze({ Accept: APPLICATION_JSON });
+const JSON_ACCEPT_HEADERS = objectFreeze({ Accept: APPLICATION_JSON });
 /** Queue rejections that mean the exact signed transaction is already known. */
-const JSON_REQUEST_HEADERS = Object.freeze({
+const JSON_REQUEST_HEADERS = objectFreeze({
   "Content-Type": APPLICATION_JSON,
   Accept: APPLICATION_JSON,
 });
@@ -272,23 +283,23 @@ const BOUNDED_JSON_MAX_STREAM_CHUNKS = 64 * 1024;
 const JSON_CLONE_MAX_DEPTH = 128;
 const JSON_CLONE_MAX_NODES = 100_000;
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
-const typedArrayBufferGetter = Object.getOwnPropertyDescriptor(
+const typedArrayBufferGetter = objectGetOwnPropertyDescriptor(
   typedArrayPrototype,
   "buffer",
 ).get;
-const typedArrayByteOffsetGetter = Object.getOwnPropertyDescriptor(
+const typedArrayByteOffsetGetter = objectGetOwnPropertyDescriptor(
   typedArrayPrototype,
   "byteOffset",
 ).get;
-const typedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(
+const typedArrayByteLengthGetter = objectGetOwnPropertyDescriptor(
   typedArrayPrototype,
   "byteLength",
 ).get;
-const typedArrayTagGetter = Object.getOwnPropertyDescriptor(
+const typedArrayTagGetter = objectGetOwnPropertyDescriptor(
   typedArrayPrototype,
   Symbol.toStringTag,
 ).get;
-const typedArraySet = Object.getOwnPropertyDescriptor(
+const typedArraySet = objectGetOwnPropertyDescriptor(
   typedArrayPrototype,
   "set",
 ).value;
@@ -296,35 +307,35 @@ const Uint8ArrayIntrinsic = Uint8Array;
 const sharedArrayBufferByteLengthGetter =
   typeof SharedArrayBuffer === "undefined"
     ? null
-    : Object.getOwnPropertyDescriptor(
+    : objectGetOwnPropertyDescriptor(
         SharedArrayBuffer.prototype,
         "byteLength",
       ).get;
 const responseBodyGetter =
   typeof Response === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get ?? null);
+    : (objectGetOwnPropertyDescriptor(Response.prototype, "body")?.get ?? null);
 const responseHeadersGetter =
   typeof Response === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get ?? null);
+    : (objectGetOwnPropertyDescriptor(Response.prototype, "headers")?.get ?? null);
 const responseStatusGetter =
   typeof Response === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get ?? null);
+    : (objectGetOwnPropertyDescriptor(Response.prototype, "status")?.get ?? null);
 const responseStatusTextGetter =
   typeof Response === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get ??
+    : (objectGetOwnPropertyDescriptor(Response.prototype, "statusText")?.get ??
       null);
 const responseUrlGetter =
   typeof Response === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(Response.prototype, "url")?.get ?? null);
+    : (objectGetOwnPropertyDescriptor(Response.prototype, "url")?.get ?? null);
 const responseRedirectedGetter =
   typeof Response === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(Response.prototype, "redirected")?.get ??
+    : (objectGetOwnPropertyDescriptor(Response.prototype, "redirected")?.get ??
       null);
 const headersGet =
   typeof Headers === "undefined" ? null : Headers.prototype.get;
@@ -339,7 +350,7 @@ const readableStreamCancel =
 const readableStreamLockedGetter =
   typeof ReadableStream === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(
+    : (objectGetOwnPropertyDescriptor(
         ReadableStream.prototype,
         "locked",
       )?.get ?? null);
@@ -358,12 +369,12 @@ const readerReleaseLock =
 const abortSignalAbortedGetter =
   typeof AbortSignal === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get ??
+    : (objectGetOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get ??
       null);
 const abortSignalReasonGetter =
   typeof AbortSignal === "undefined"
     ? null
-    : (Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get ??
+    : (objectGetOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get ??
       null);
 const eventTargetAddEventListener =
   typeof EventTarget === "undefined" ? null : EventTarget.prototype.addEventListener;
@@ -374,7 +385,7 @@ const eventTargetRemoveEventListener =
 const AbortControllerConstructor = globalThis.AbortController;
 const abortControllerAbort = AbortControllerConstructor?.prototype?.abort ?? null;
 const abortControllerSignalGetter = AbortControllerConstructor
-  ? Object.getOwnPropertyDescriptor(
+  ? objectGetOwnPropertyDescriptor(
       AbortControllerConstructor.prototype,
       "signal",
     )?.get ?? null
@@ -507,7 +518,7 @@ const EVIDENCE_KINDS = new Set(["NativeSumeragiEvidence", "SccpForgeryEvidence"]
 const EVIDENCE_CLASS_VALUES = new Set([
   "proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates",
 ]);
-const NATIVE_EVIDENCE_FIELDS = Object.freeze([
+const NATIVE_EVIDENCE_FIELDS = objectFreeze([
   "scope", "class", "instance", "height", "epoch", "context_id", "authority_generation",
   "offenders", "safety_violation", "native_frame_hash", "recorded_height", "recorded_view",
   "recorded_ms", "consensus_admitted_height", "penalty_status",
@@ -609,7 +620,7 @@ function ownDataMethod(target, name) {
   if (target === null || (typeof target !== JS_TYPE_OBJECT && typeof target !== JS_TYPE_FUNCTION)) {
     return null;
   }
-  const descriptor = Object.getOwnPropertyDescriptor(target, name);
+  const descriptor = objectGetOwnPropertyDescriptor(target, name);
   return descriptor && "value" in descriptor && typeof descriptor.value === JS_TYPE_FUNCTION
     ? descriptor.value
     : null;
@@ -644,7 +655,7 @@ function responseBodyWithoutUserGetter(response) {
       // Custom fetch responses may expose an own data property instead.
     }
   }
-  const descriptor = Object.getOwnPropertyDescriptor(response, "body");
+  const descriptor = objectGetOwnPropertyDescriptor(response, "body");
   return descriptor && "value" in descriptor ? descriptor.value : null;
 }
 
@@ -656,7 +667,7 @@ function responseHeadersWithoutUserGetter(response) {
       // Custom fetch responses may expose an own data property instead.
     }
   }
-  const descriptor = Object.getOwnPropertyDescriptor(response, "headers");
+  const descriptor = objectGetOwnPropertyDescriptor(response, "headers");
   return descriptor && "value" in descriptor ? descriptor.value : null;
 }
 
@@ -684,13 +695,13 @@ function responseStatusWithoutUserGetter(response) {
     }
   }
   if (status === undefined) {
-    const descriptor = Object.getOwnPropertyDescriptor(response, "status");
+    const descriptor = objectGetOwnPropertyDescriptor(response, "status");
     if (!descriptor || !("value" in descriptor)) {
       rejectType("Torii response status must be an own data property");
     }
     status = descriptor.value;
   }
-  if (!Number.isInteger(status) || status < 0 || status > 999) {
+  if (!numberIsInteger(status) || status < 0 || status > 999) {
     rejectType("Torii response status must be an integer HTTP status");
   }
   return status;
@@ -704,7 +715,7 @@ function responseStatusTextWithoutUserGetter(response) {
       // Custom fetch responses may expose an own data property instead.
     }
   }
-  const descriptor = Object.getOwnPropertyDescriptor(response, "statusText");
+  const descriptor = objectGetOwnPropertyDescriptor(response, "statusText");
   return descriptor && "value" in descriptor && typeof descriptor.value === JS_TYPE_STRING
     ? descriptor.value
     : null;
@@ -720,7 +731,7 @@ function responseUrlWithoutUserGetter(response) {
     }
   }
   if (url === undefined) {
-    const descriptor = Object.getOwnPropertyDescriptor(response, "url");
+    const descriptor = objectGetOwnPropertyDescriptor(response, "url");
     if (!descriptor || !("value" in descriptor)) {
       rejectType("Torii response URL must be an own data property");
     }
@@ -742,7 +753,7 @@ function responseRedirectedWithoutUserGetter(response) {
     }
   }
   if (redirected === undefined) {
-    const descriptor = Object.getOwnPropertyDescriptor(response, "redirected");
+    const descriptor = objectGetOwnPropertyDescriptor(response, "redirected");
     if (!descriptor || !("value" in descriptor)) {
       rejectType("Torii response redirected flag must be an own data property");
     }
@@ -821,7 +832,7 @@ function signalIsAborted(signal) {
   if (hasAbortSignalBrand(signal)) {
     return abortSignalAbortedGetter.call(signal);
   }
-  const descriptor = Object.getOwnPropertyDescriptor(signal, "aborted");
+  const descriptor = objectGetOwnPropertyDescriptor(signal, "aborted");
   if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "boolean") {
     rejectType("signal.aborted must be an own boolean data property");
   }
@@ -835,7 +846,7 @@ function signalAbortReason(signal) {
       ? undefined
       : abortSignalReasonGetter.call(signal);
   }
-  const descriptor = Object.getOwnPropertyDescriptor(signal, "reason");
+  const descriptor = objectGetOwnPropertyDescriptor(signal, "reason");
   return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
@@ -1234,7 +1245,7 @@ export function extractPipelineStatusKind(payload) {
     return null;
   }
   const status = payload.status;
-  if (!status || typeof status !== JS_TYPE_OBJECT || Array.isArray(status)) {
+  if (!status || typeof status !== JS_TYPE_OBJECT || arrayIsArray(status)) {
     return null;
   }
   return typeof status.kind === JS_TYPE_STRING ? status.kind : null;
@@ -1326,12 +1337,12 @@ export class LocalSigningContext {
    */
   constructor(networkId, chainDiscriminant) {
     networkIdBytes(networkId, "LocalSigningContext.networkId");
-    if (!Number.isInteger(chainDiscriminant)
+    if (!numberIsInteger(chainDiscriminant)
       || chainDiscriminant < 0 || chainDiscriminant > 0xffff) {
       rejectType("LocalSigningContext.chainDiscriminant must fit in u16");
     }
     this.#networkId = networkId; this.#chainDiscriminant = chainDiscriminant;
-    Object.freeze(this);
+    objectFreeze(this);
   }
 
   /** @returns {import("./networkId.js").NetworkId} */
@@ -1394,7 +1405,7 @@ export class ToriiClient {
         ? {}
         : requirePlainObjectOption(options, "ToriiClient options");
     for (const field of ["chain", "chainId", "chain_id", "networkId"]) {
-      if (Object.prototype.hasOwnProperty.call(opts, field)) {
+      if (objectHasOwn(opts, field)) {
         throw createValidationError(
           ValidationErrorCode.INVALID_OBJECT,
           `ToriiClient options.${field} is not supported; use a LocalSigningContext`,
@@ -1409,7 +1420,7 @@ export class ToriiClient {
       "sorafsGatewayFetch",
       "generateDaProofSummary",
     ]) {
-      if (Object.prototype.hasOwnProperty.call(opts, field)) {
+      if (objectHasOwn(opts, field)) {
         throw createValidationError(
           ValidationErrorCode.INVALID_OBJECT,
           `ToriiClient options.${field} is not a public option`,
@@ -1478,7 +1489,7 @@ export class ToriiClient {
     );
     const sorafsGatewayApi = _createSorafsGatewayApi(this._nativeRuntime);
     const testHooks = opts[TORII_TEST_HOOKS] ?? {};
-    if (testHooks === null || typeof testHooks !== JS_TYPE_OBJECT || Array.isArray(testHooks)) {
+    if (testHooks === null || typeof testHooks !== JS_TYPE_OBJECT || arrayIsArray(testHooks)) {
       throw createValidationError(
         ValidationErrorCode.INVALID_OBJECT,
         "ToriiClient internal test hooks must be an object",
@@ -2246,9 +2257,9 @@ export class ToriiClient {
   async preparePublicLanePlan(request, xorAssetDefinitionId, options = {}) {
     const context = requireLocalDraftSigningContext(this._localSigningContext, "preparePublicLanePlan");
     const opts = requirePlainObjectOption(options, "preparePublicLanePlan options");
-    if (Object.keys(opts).some((key) => key !== "signal")) rejectType("preparePublicLanePlan only accepts signal");
+    if (objectKeys(opts).some((key) => key !== "signal")) rejectType("preparePublicLanePlan only accepts signal");
     const configuredTimeoutMs = Number(this.#config.timeoutMs);
-    const timeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+    const timeoutMs = numberIsFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
       ? Math.min(configuredTimeoutMs, BOUNDED_JSON_MAX_READ_TIMEOUT_MS)
       : BOUNDED_JSON_MAX_READ_TIMEOUT_MS;
     // Keep one original deadline alive across module preparation, headers, and
@@ -2339,9 +2350,9 @@ export class ToriiClient {
     const payload = ensureRecord(request, "planAliasSetup request");
     if (
       payload.schema_version !== 1 ||
-      !Array.isArray(payload.intents) ||
+      !arrayIsArray(payload.intents) ||
       payload.intents.length === 0 ||
-      Object.keys(payload).length !== 2
+      objectKeys(payload).length !== 2
     ) {
       rejectType("planAliasSetup request must be exactly {schema_version: 1, intents: [...]}");
     }
@@ -2434,7 +2445,7 @@ export class ToriiClient {
       normalizedCheckpoint,
       signingContext.chainDiscriminant,
     );
-    return Object.freeze({
+    return objectFreeze({
       proofNorito,
       projection,
       promotedCheckpoint,
@@ -2495,7 +2506,7 @@ export class ToriiClient {
       }
       checkpoint = page.promotedCheckpoint;
       if (!page.projection.more_available) {
-        return Object.freeze({
+        return objectFreeze({
           ...page,
           binding: normalizedBinding,
           pagesVerified,
@@ -2519,15 +2530,15 @@ export class ToriiClient {
       "lookupRetailRecipient request",
     );
     if (
-      Object.prototype.hasOwnProperty.call(requestRecord, "accountId") &&
-      Object.prototype.hasOwnProperty.call(requestRecord, "account_id") &&
+      objectHasOwn(requestRecord, "accountId") &&
+      objectHasOwn(requestRecord, "account_id") &&
       requestRecord.accountId !== requestRecord.account_id
     ) {
       rejectType("lookupRetailRecipient request accountId and account_id must match when both are supplied");
     }
     if (
-      Object.prototype.hasOwnProperty.call(requestRecord, "aliasFqn") &&
-      Object.prototype.hasOwnProperty.call(requestRecord, "alias_fqn") &&
+      objectHasOwn(requestRecord, "aliasFqn") &&
+      objectHasOwn(requestRecord, "alias_fqn") &&
       requestRecord.aliasFqn !== requestRecord.alias_fqn
     ) {
       rejectType("lookupRetailRecipient request aliasFqn and alias_fqn must match when both are supplied");
@@ -4797,7 +4808,7 @@ export class ToriiClient {
       {
         headers: JSON_ACCEPT_HEADERS,
         signal,
-        params: Object.keys(params).length === 0 ? undefined : params,
+        params: objectKeys(params).length === 0 ? undefined : params,
       },
     );
     await this._expectStatus(response, [200]);
@@ -4941,7 +4952,7 @@ export class ToriiClient {
       if (value === null || value === undefined) {
         return { route };
       }
-      if (typeof value === JS_TYPE_OBJECT && !Array.isArray(value)) {
+      if (typeof value === JS_TYPE_OBJECT && !arrayIsArray(value)) {
         return { ...value, route };
       }
       return { value, route };
@@ -4985,7 +4996,7 @@ export class ToriiClient {
    */
   async submitTransactionBatch(payloads, options = {}) {
     const { signal } = normalizeSignalOnlyOption(options, "submitTransactionBatch");
-    if (!Array.isArray(payloads)) {
+    if (!arrayIsArray(payloads)) {
       rejectType("submitTransactionBatch payloads must be an array");
     }
     if (payloads.length === 0) {
@@ -5063,11 +5074,11 @@ export class ToriiClient {
         const outcomes = await this._maybeBoundedJson(
           response, 1024 * 1024, "transaction batch outcomes", { signal },
         );
-        if (!Array.isArray(outcomes) || outcomes.length !== versionedPayloads.length ||
+        if (!arrayIsArray(outcomes) || outcomes.length !== versionedPayloads.length ||
             outcomes.some((entry, index) => !entry || typeof entry.signed_transaction_hash !== JS_TYPE_STRING ||
               entry.signed_transaction_hash.toLowerCase() !== hashes[index] ||
               !/^[a-fA-F0-9]{64}$/u.test(entry.signed_transaction_hash) ||
-              !Number.isInteger(entry.status) ||
+              !numberIsInteger(entry.status) ||
               !(entry.status === 202 || (entry.status >= 400 && entry.status <= 599)) ||
               !(entry.reject_code === null || typeof entry.reject_code === JS_TYPE_STRING)) ||
             outcomes.filter((entry) => entry.status === 202).length !== acceptedCount ||
@@ -5692,7 +5703,7 @@ export class ToriiClient {
 
   async _submitSoracloudAppInfraMutation(path, request, options, context) {
     const { signal, canonicalAuth } = normalizeVpnSessionOptions(options, context);
-    if (request == null || typeof request !== JS_TYPE_OBJECT || Array.isArray(request)) {
+    if (request == null || typeof request !== JS_TYPE_OBJECT || arrayIsArray(request)) {
       throw createValidationError(
         ValidationErrorCode.INVALID_OBJECT,
         "request must be an object",
@@ -5838,7 +5849,7 @@ export class ToriiClient {
       context,
       { signal },
     );
-    return Object.freeze({
+    return objectFreeze({
       archive: Buffer.from(bytes),
       expectedNetworkId: Uint8Array.from(expectedNetworkId),
       origin: origin.origin,
@@ -7068,7 +7079,7 @@ export class ToriiClient {
     }
     const response = await this._request("GET", "/v1/sumeragi/evidence", {
       headers: JSON_ACCEPT_HEADERS,
-      params: Object.keys(params).length > 0 ? params : undefined,
+      params: objectKeys(params).length > 0 ? params : undefined,
       signal,
       operatorSigningContext: requireOperatorSigningContext(
         this._operatorSigningContext,
@@ -7290,7 +7301,7 @@ export class ToriiClient {
     }
     return decodeEventFrames(
       this._streamSse("/v1/events/sse", {
-        params: Object.keys(params).length > 0 ? params : undefined,
+        params: objectKeys(params).length > 0 ? params : undefined,
         signal,
         canonicalAuth: this.#canonicalRequestAuth,
       }),
@@ -7363,7 +7374,7 @@ export class ToriiClient {
       }
     }
     return this._streamSse("/v1/contracts/events/sse", {
-      params: Object.keys(params).length > 0 ? params : undefined,
+      params: objectKeys(params).length > 0 ? params : undefined,
       signal,
       canonicalAuth: this.#canonicalRequestAuth,
     });
@@ -7788,7 +7799,7 @@ export class ToriiClient {
     }
     const response = await this._request("GET", "/v1/connect/app/apps", {
       headers: JSON_ACCEPT_HEADERS,
-      params: Object.keys(params).length === 0 ? undefined : params,
+      params: objectKeys(params).length === 0 ? undefined : params,
       signal,
     });
     await this._expectStatus(response, [200]);
@@ -8902,7 +8913,7 @@ export class ToriiClient {
       "signal",
       "retryProfile",
     ]);
-    const unsupportedKeys = Object.keys(resolvedOptions).filter((key) => !allowedKeys.has(key));
+    const unsupportedKeys = objectKeys(resolvedOptions).filter((key) => !allowedKeys.has(key));
     if (unsupportedKeys.length > 0) {
       throw createValidationError(
         ValidationErrorCode.INVALID_OBJECT,
@@ -9276,10 +9287,10 @@ export class ToriiClient {
         originMatches,
       });
     }
-    if (options.params && Object.keys(options.params).length > 0) {
+    if (options.params && objectKeys(options.params).length > 0) {
       const search = new URLSearchParams();
-      for (const [key, value] of Object.entries(options.params)) {
-        if (Array.isArray(value)) {
+      for (const [key, value] of objectEntries(options.params)) {
+        if (arrayIsArray(value)) {
           for (const item of value) {
             search.append(key, String(item));
           }
@@ -9320,7 +9331,7 @@ export class ToriiClient {
         body: bodyForSigning,
         privateKey: canonicalAuth.privateKey,
       });
-      for (const [key, value] of Object.entries(canonicalHeaders)) {
+      for (const [key, value] of objectEntries(canonicalHeaders)) {
         setHeader(initHeaders, key, value);
       }
     }
@@ -9525,7 +9536,7 @@ export class ToriiClient {
         return;
       }
       if (typeof source === JS_TYPE_OBJECT) {
-        for (const [key, value] of Object.entries(source)) {
+        for (const [key, value] of objectEntries(source)) {
           if (value === null) {
             deleteHeader(headers, key);
             continue;
@@ -9739,7 +9750,7 @@ export class ToriiClient {
     }
     const record = ToriiClient._requirePlainObject(filters, "prover filters");
     const params = {};
-    for (const [rawKey, rawValue] of Object.entries(record)) {
+    for (const [rawKey, rawValue] of objectEntries(record)) {
       if (rawValue === undefined || rawValue === null) {
         continue;
       }
@@ -9925,7 +9936,7 @@ export class ToriiClient {
           break;
         case "retry": {
           const parsed = Number(value);
-          if (Number.isFinite(parsed)) {
+          if (numberIsFinite(parsed)) {
             retry = parsed;
           }
           break;
@@ -9968,7 +9979,7 @@ export class ToriiClient {
 
   _acceptHeader() {
     const headers = this.#config?.defaultHeaders ?? {};
-    for (const [key, value] of Object.entries(headers)) {
+    for (const [key, value] of objectEntries(headers)) {
       if (value !== undefined && value !== null && key.toLowerCase() === "accept") {
         return String(value);
       }
@@ -10049,7 +10060,7 @@ export class ToriiClient {
       }
       const payload = plainObjects ? JSON.parse(text) : parsed;
       return includeSourceBytes
-        ? Object.freeze({ payload, sourceBytes: new Uint8Array(bytes) })
+        ? objectFreeze({ payload, sourceBytes: new Uint8Array(bytes) })
         : payload;
     } catch (error) {
       if (signalIsAborted(signal) || error?.name === "AbortError") {
@@ -10094,7 +10105,7 @@ export class ToriiClient {
         );
       }
       const declaredBytes = Number(contentLength);
-      if (!Number.isSafeInteger(declaredBytes)) {
+      if (!numberIsSafeInteger(declaredBytes)) {
         rejectResponse(
           new RangeError(
             `${context} Content-Length exceeds the safe integer range`,
@@ -10136,7 +10147,7 @@ export class ToriiClient {
 
     const configuredTimeoutMs = Number(this.#config?.timeoutMs);
     const readTimeoutMs =
-      Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+      numberIsFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
         ? Math.min(configuredTimeoutMs, BOUNDED_JSON_MAX_READ_TIMEOUT_MS)
         : BOUNDED_JSON_MAX_READ_TIMEOUT_MS;
     let rejectDeadline;
@@ -10353,11 +10364,11 @@ export class ToriiClient {
         const page = await fetchPage.call(self, pageOptions);
         if (page && page.total !== undefined && page.total !== null) {
           const parsedTotal = Number(page.total);
-          if (Number.isFinite(parsedTotal)) {
+          if (numberIsFinite(parsedTotal)) {
             knownTotal = Math.max(0, parsedTotal);
           }
         }
-        const items = Array.isArray(page?.items) ? page.items : [];
+        const items = arrayIsArray(page?.items) ? page.items : [];
         if (items.length === 0) {
           return;
         }
@@ -10474,14 +10485,14 @@ export class ToriiClient {
     })();
 
     function extractOffsetItems(page) {
-      if (Array.isArray(page)) {
+      if (arrayIsArray(page)) {
         return page;
       }
       if (!page || typeof page !== JS_TYPE_OBJECT) {
         return [];
       }
       for (const key of normalizedItemKeys) {
-        if (Array.isArray(page[key])) {
+        if (arrayIsArray(page[key])) {
           return page[key];
         }
       }
@@ -10503,7 +10514,7 @@ export class ToriiClient {
         }
         return [trimmed];
       }
-      if (!Array.isArray(rawKeys)) {
+      if (!arrayIsArray(rawKeys)) {
         rejectError(`${contextLabel} item keys must be a string or array of strings`);
       }
       const keys = [];
@@ -10582,7 +10593,7 @@ export class ToriiClient {
           signal,
         };
         const page = await fetchPage.call(self, pageOptions);
-        const items = Array.isArray(page?.items) ? page.items : [];
+        const items = arrayIsArray(page?.items) ? page.items : [];
         if (items.length === 0) {
           return;
         }
@@ -10661,7 +10672,7 @@ export class ToriiClient {
           signal,
         };
         const page = await fetchPage.call(self, pageOptions);
-        const items = Array.isArray(page?.instances) ? page.instances : [];
+        const items = arrayIsArray(page?.instances) ? page.instances : [];
         if (items.length === 0) {
           return;
         }
@@ -10683,7 +10694,7 @@ export class ToriiClient {
   }
 
   static _validateIterablePayload(payload) {
-    if (!payload || typeof payload !== JS_TYPE_OBJECT || !Array.isArray(payload.items)) {
+    if (!payload || typeof payload !== JS_TYPE_OBJECT || !arrayIsArray(payload.items)) {
       rejectError("iterable endpoint returned unexpected payload");
     }
     const hasTotal = payload.total !== undefined && payload.total !== null;
@@ -10709,7 +10720,7 @@ export class ToriiClient {
         : null;
     if (
       totalValue !== null &&
-      (!Number.isFinite(totalValue) || totalValue < 0 || !Number.isInteger(totalValue))
+      (!numberIsFinite(totalValue) || totalValue < 0 || !numberIsInteger(totalValue))
     ) {
       rejectError("iterable endpoint returned invalid total count");
     }
@@ -10860,7 +10871,7 @@ export class ToriiClient {
       );
     } else if (value instanceof ArrayBuffer) {
       buffer = Buffer.from(new Uint8Array(value));
-    } else if (Array.isArray(value)) {
+    } else if (arrayIsArray(value)) {
       buffer = normalizeByteArray(value, path);
     } else {
       throw createValidationError(
@@ -11268,7 +11279,7 @@ export class ToriiClient {
     ) {
       params.include_expired = "true";
     }
-    return Object.keys(params).length === 0 ? undefined : params;
+    return objectKeys(params).length === 0 ? undefined : params;
   }
 
   static _normalizeOptionalString(value, context) {
@@ -11379,7 +11390,7 @@ export class ToriiClient {
       });
       return trimmed;
     }
-    if (Array.isArray(sort)) {
+    if (arrayIsArray(sort)) {
       if (sort.length === 0) {
         return undefined;
       }
@@ -11454,7 +11465,7 @@ export class ToriiClient {
       envelope.query = name;
     }
     if (options.select !== undefined && options.select !== null) {
-      if (!Array.isArray(options.select)) {
+      if (!arrayIsArray(options.select)) {
         throw createValidationError(
           ValidationErrorCode.INVALID_OBJECT,
           "select must be an array of projection field paths or objects",
@@ -11547,7 +11558,7 @@ export class ToriiClient {
     if (sort === undefined || sort === null) {
       return [];
     }
-    if (Array.isArray(sort)) {
+    if (arrayIsArray(sort)) {
       return sort.map((entry, index) => {
         if (!entry || typeof entry !== JS_TYPE_OBJECT || typeof entry.key !== JS_TYPE_STRING) {
           throw createValidationError(
@@ -11658,7 +11669,7 @@ export class ToriiClient {
     if (options.offset !== undefined && options.offset !== null) {
       params.offset = ToriiClient._normalizeOffset(options.offset);
     }
-    return Object.keys(params).length === 0 ? undefined : params;
+    return objectKeys(params).length === 0 ? undefined : params;
   }
 
   static _normalizeOffset(value) {
@@ -11674,7 +11685,7 @@ export class ToriiClient {
     const max = options.max;
     let numeric;
     if (typeof value === JS_TYPE_NUMBER) {
-      if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      if (!numberIsFinite(value) || !numberIsInteger(value)) {
         const qualifier = allowZero ? "non-negative integer" : "positive integer";
         throw createValidationError(
           ValidationErrorCode.INVALID_NUMERIC,
@@ -11690,7 +11701,7 @@ export class ToriiClient {
           name,
         );
       }
-      if (!Number.isSafeInteger(value)) {
+      if (!numberIsSafeInteger(value)) {
         throw createValidationError(
           ValidationErrorCode.VALUE_OUT_OF_RANGE,
           `${name} must be at most ${MAX_SAFE_INTEGER}`,
@@ -11776,7 +11787,7 @@ function normalizeUint64DecimalString(value, name, options = {}) {
   const allowZero = options.allowZero !== false;
   let integer;
   if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isFinite(value) || !Number.isInteger(value) || !Number.isSafeInteger(value)) {
+    if (!numberIsFinite(value) || !numberIsInteger(value) || !numberIsSafeInteger(value)) {
       const qualifier = allowZero ? "non-negative integer" : "positive integer";
       throw createValidationError(
         ValidationErrorCode.INVALID_NUMERIC,
@@ -11827,7 +11838,7 @@ function normalizeUint64DecimalString(value, name, options = {}) {
 function normalizeGovernanceUint64Integer(value, name, options = {}) {
   let integer;
   if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isSafeInteger(value) || value < 0) {
+    if (!numberIsSafeInteger(value) || value < 0) {
       throw createValidationError(
         ValidationErrorCode.INVALID_NUMERIC,
         `${name} must be a lossless unsigned 64-bit integer`,
@@ -12064,7 +12075,7 @@ function normalizeIsoStatusHistory(value, context) {
   if (value === undefined || value === null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) => {
@@ -12129,7 +12140,7 @@ function normalizeIsoSubmissionOptions(options, context, extraAllowedKeys = []) 
     );
   }
   const allowedKeys = new Set(["signal", "contentType", "retryProfile", "profile", ...extraAllowedKeys]);
-  const extras = Object.keys(options).filter((key) => !allowedKeys.has(key));
+  const extras = objectKeys(options).filter((key) => !allowedKeys.has(key));
   if (extras.length > 0) {
     throw createValidationError(
       ValidationErrorCode.INVALID_OBJECT,
@@ -12191,7 +12202,7 @@ function normalizeIsoStatusOptions(options, context) {
       optionPath,
     );
   }
-  const extras = Object.keys(options).filter(
+  const extras = objectKeys(options).filter(
     (key) => key !== "signal" && key !== "retryProfile",
   );
   if (extras.length > 0) {
@@ -12291,7 +12302,7 @@ function normalizeTimeStatusResponse(payload) {
     { allowZero: true },
   );
   const rawSamples = record.samples === undefined ? [] : record.samples;
-  if (!Array.isArray(rawSamples)) {
+  if (!arrayIsArray(rawSamples)) {
     rejectType("time status response.samples must be an array");
   }
   const samples = rawSamples.map((entry, index) => {
@@ -12316,7 +12327,7 @@ function normalizeTimeStatusResponse(payload) {
   const rttRecord = ensureRecord(record.rtt ?? {}, "time status response.rtt");
   const rawBuckets =
     rttRecord.buckets === undefined ? [] : rttRecord.buckets;
-  if (!Array.isArray(rawBuckets)) {
+  if (!arrayIsArray(rawBuckets)) {
     rejectType("time status response.rtt.buckets must be an array");
   }
   const buckets = rawBuckets.map((entry, index) => {
@@ -12353,7 +12364,7 @@ function normalizeTimeStatusResponse(payload) {
 
 function parseStatusPayload(payload) {
   for (const field of ["lane_commitments", "dataspace_commitments", "pipeline_execution"]) {
-    if (Object.hasOwn(payload, field)) {
+    if (objectHasOwn(payload, field)) {
       rejectType(`status.${field} is retired and unsupported`);
     }
   }
@@ -12394,7 +12405,7 @@ function parseStatusPayload(payload) {
       payload.lane_governance_sealed_aliases,
       "status.lane_governance_sealed_aliases",
     ),
-    raw: Object.freeze({ ...payload }),
+    raw: objectFreeze({ ...payload }),
   };
 }
 
@@ -12510,7 +12521,7 @@ function parseGovernanceActivations(payload) {
   if (payload == null) {
     return [];
   }
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType("governance.recent_manifest_activations must be an array");
   }
   return payload.map((entry, index) => {
@@ -12551,7 +12562,7 @@ function parseDataspaceCatalog(payload) {
   if (payload == null) {
     return [];
   }
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType("status.dataspace_catalog must be an array");
   }
   return payload.map((entry, index) => {
@@ -12609,7 +12620,7 @@ function parseLanePrivacyCommitments(payload, context) {
   if (payload == null) {
     return [];
   }
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType(`${context} must be an array`);
   }
   return payload.map((entry, index) =>
@@ -12640,7 +12651,7 @@ function parseLaneGovernance(payload) {
   if (payload == null) {
     return [];
   }
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType("status.lane_governance must be an array");
   }
   return payload.map((entry, index) => {
@@ -12726,7 +12737,7 @@ function parseLaneGovernance(payload) {
 }
 
 function normalizeStringArray(payload, context) {
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType(`${context} must be an array`);
   }
   return payload.map((value, index) =>
@@ -12737,7 +12748,7 @@ function normalizeStringArray(payload, context) {
 function normalizeSumeragiBlsKeysMap(payload) {
   const record = ensureRecord(payload, "sumeragi BLS keys payload");
   const normalized = {};
-  for (const [key, value] of Object.entries(record)) {
+  for (const [key, value] of objectEntries(record)) {
     const peerId = requireNonEmptyString(key, "sumeragi BLS key peer id");
     if (value == null) {
       normalized[peerId] = null;
@@ -12748,7 +12759,7 @@ function normalizeSumeragiBlsKeysMap(payload) {
   return normalized;
 }
 
-const SUMERAGI_PARAMS_FIELDS = Object.freeze([
+const SUMERAGI_PARAMS_FIELDS = objectFreeze([
   "block_cadence_ms",
   "max_clock_drift_ms",
   "chain_height",
@@ -12757,7 +12768,7 @@ const SUMERAGI_PARAMS_FIELDS = Object.freeze([
 function normalizeSumeragiParamsSnapshot(payload) {
   const context = "sumeragi params response";
   const record = ensureRecord(payload, context);
-  const unknown = Object.keys(record).filter(
+  const unknown = objectKeys(record).filter(
     (field) => !SUMERAGI_PARAMS_FIELDS.includes(field),
   );
   if (unknown.length !== 0) {
@@ -13496,7 +13507,7 @@ function parseGovernanceSorafsProvider(payload, context) {
 }
 
 function requireGovernanceArray(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value;
@@ -13506,7 +13517,7 @@ function requireExactGovernanceByteArray(value, length, context, options = {}) {
   const bytes = requireGovernanceArray(value, context);
   if (
     bytes.length !== length ||
-    bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)
+    bytes.some((byte) => !numberIsInteger(byte) || byte < 0 || byte > 255)
   ) {
     rejectType(`${context} must contain exactly ${length} JSON byte values`);
   }
@@ -13527,7 +13538,7 @@ function requireExactGovernanceProviderId(value, context) {
 }
 
 function requireExactGovernanceStringTuple(value, context) {
-  if (!Array.isArray(value) || value.length !== 1 || typeof value[0] !== JS_TYPE_STRING) {
+  if (!arrayIsArray(value) || value.length !== 1 || typeof value[0] !== JS_TYPE_STRING) {
     rejectType(`${context} must be the exact one-field string tuple`);
   }
   return value[0];
@@ -13619,12 +13630,12 @@ function requireGovernanceBoundedReason(value, context) {
 function requireExactGovernanceProposalRecord(payload, fields, context) {
   const record = ensureRecord(payload, context);
   const expected = new Set(fields);
-  const unknown = Object.keys(record).filter((field) => !expected.has(field));
+  const unknown = objectKeys(record).filter((field) => !expected.has(field));
   if (unknown.length !== 0) {
     rejectType(`${context} contains unsupported fields: ${unknown.sort().join(", ")}`);
   }
   const missing = fields.filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
   if (missing.length !== 0) {
     rejectType(`${context} is missing required fields: ${missing.join(", ")}`);
@@ -13667,7 +13678,7 @@ function normalizeProtectedNamespaceList(input) {
   if (input === undefined || input === null) {
     rejectType("protected namespaces input is required");
   }
-  const values = Array.isArray(input) ? input : [input];
+  const values = arrayIsArray(input) ? input : [input];
   if (values.length === 0) {
     rejectType("protected namespaces list must not be empty");
   }
@@ -14527,7 +14538,7 @@ function normalizeVpnReceiptListResponse(payload) {
     VPN_RECEIPT_LIST_RESPONSE_FIELDS,
     "vpn receipts response",
   );
-  if (!Array.isArray(record.items)) {
+  if (!arrayIsArray(record.items)) {
     rejectType("vpn receipts response.items must be an array");
   }
   if (record.items.length > 24) {
@@ -14550,7 +14561,7 @@ function normalizeVpnReceiptListResponse(payload) {
 function assertVpnResponseFields(record, requiredFields, context) {
   assertSupportedOptionKeys(record, requiredFields, context);
   const missing = [...requiredFields].filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
   if (missing.length > 0) {
     throw createValidationError(
@@ -14592,7 +14603,7 @@ function normalizeVpnSessionOptions(
 /** Read one native tagged unit variant such as `{"status":"Active","detail":null}`. */
 function nativeUnitTag(value, tag, context) {
   const record = ensureRecord(value, context);
-  const keys = Object.keys(record).sort();
+  const keys = objectKeys(record).sort();
   if (keys.length !== 2 || keys[0] !== "detail" || keys[1] !== tag || record.detail !== null) {
     rejectType(`${context} must be a native {"${tag}": <variant>, "detail": null} value`);
   }
@@ -14625,11 +14636,11 @@ function normalizeSnsSuffixPolicy(payload) {
     "sns suffix policy.referral_cap_bps",
     { allowZero: true },
   );
-  const reservedLabels = Array.isArray(record.reserved_labels)
+  const reservedLabels = arrayIsArray(record.reserved_labels)
     ? record.reserved_labels.map((entry, index) => normalizeReservedLabel(entry, `sns suffix policy.reserved_labels[${index}]`))
     : [];
   const paymentAssetId = requireNonEmptyString(record.payment_asset_id, "sns suffix policy.payment_asset_id");
-  const pricing = Array.isArray(record.pricing)
+  const pricing = arrayIsArray(record.pricing)
     ? record.pricing.map((entry, index) => normalizeSnsPricingTier(entry, `sns suffix policy.pricing[${index}]`))
     : [];
   const feeSplit = normalizeSnsFeeSplit(record.fee_split, "sns suffix policy.fee_split");
@@ -14758,7 +14769,7 @@ function normalizeSnsControllers(value, context) {
   if (value === undefined || value === null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array of controllers`);
   }
   return value.map((entry, index) => normalizeSnsController(entry, `${context}[${index}]`));
@@ -15026,7 +15037,7 @@ function normalizeExplorerBlockRecord(payload, context) {
 function normalizeRuntimeUpgradesListResponse(payload) {
   const record = ensureRecord(payload, "runtime upgrades list response");
   const items = record.items ?? [];
-  if (!Array.isArray(items)) {
+  if (!arrayIsArray(items)) {
     rejectType("runtime upgrades list response.items must be an array");
   }
   return items.map((item, index) =>
@@ -15104,7 +15115,7 @@ function normalizeRuntimeUpgradeManifest(value, context) {
 
 function normalizeRuntimeUpgradeStatus(value, context) {
   const record = ensureRecord(value, context);
-  const keys = Object.keys(record);
+  const keys = objectKeys(record);
   if (keys.length !== 1) {
     rejectType(`${context} must contain exactly one status key`);
   }
@@ -15213,7 +15224,7 @@ function parseIntegerArray(value, context) {
   if (value === undefined || value === null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) => {
@@ -15318,7 +15329,7 @@ function parseStringArray(value, context) {
   if (value == null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array of strings`);
   }
   return value.map((entry, index) => {
@@ -15330,7 +15341,7 @@ function parseStringArray(value, context) {
 }
 
 function isPlainObject(value) {
-  if (value === null || typeof value !== JS_TYPE_OBJECT || Array.isArray(value)) {
+  if (value === null || typeof value !== JS_TYPE_OBJECT || arrayIsArray(value)) {
     return false;
   }
   const proto = Object.getPrototypeOf(value);
@@ -15355,7 +15366,7 @@ function optionalBoolean(value, context) {
 }
 
 function requireStringArray(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) => {
@@ -15401,7 +15412,7 @@ function requireExactUaidRecord(
   const required = new Set(requiredFields);
   const allowed = new Set([...requiredFields, ...optionalFields]);
   const missing = [...required].filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
   const unexpected = Reflect.ownKeys(record).filter(
     (field) => typeof field !== JS_TYPE_STRING || !allowed.has(field),
@@ -15812,7 +15823,7 @@ function normalizeUaidManifest(value, context) {
       normalizeUaidManifestEntry(entry, `${context}.entries[${index}]`),
     ),
   };
-  if (Object.prototype.hasOwnProperty.call(record, "expiry_epoch")) {
+  if (objectHasOwn(record, "expiry_epoch")) {
     if (record.expiry_epoch === null) {
       rejectType(`${context}.expiry_epoch must be omitted instead of null`);
     }
@@ -15836,7 +15847,7 @@ function normalizeUaidManifestEntry(value, context) {
     scope: normalizeUaidManifestScope(record.scope, `${context}.scope`),
     effect: normalizeUaidManifestEffect(record.effect, `${context}.effect`),
   };
-  if (Object.prototype.hasOwnProperty.call(record, "notes")) {
+  if (objectHasOwn(record, "notes")) {
     if (record.notes === null) {
       rejectType(`${context}.notes must be omitted instead of null`);
     }
@@ -15857,7 +15868,7 @@ function normalizeUaidManifestScope(value, context) {
   );
   const normalized = {};
   for (const field of ["dataspace", "program", "method", "asset", "role"]) {
-    if (!Object.prototype.hasOwnProperty.call(record, field)) continue;
+    if (!objectHasOwn(record, field)) continue;
     const fieldContext = `${context}.${field}`;
     if (record[field] === null) {
       rejectType(`${fieldContext} must be omitted instead of null`);
@@ -15883,7 +15894,7 @@ function normalizeUaidManifestScope(value, context) {
 
 function normalizeUaidManifestEffect(value, context) {
   const record = requireExactUaidRecord(value, [], ["Allow", "Deny"], context);
-  const decisions = Object.keys(record);
+  const decisions = objectKeys(record);
   if (decisions.length !== 1) {
     rejectType(`${context} must contain exactly one Allow or Deny decision`);
   }
@@ -15901,7 +15912,7 @@ function normalizeUaidManifestEffect(value, context) {
         `${context}.Allow.window`,
       ),
     };
-    if (Object.prototype.hasOwnProperty.call(allowance, "max_amount")) {
+    if (objectHasOwn(allowance, "max_amount")) {
       if (allowance.max_amount === null) {
         rejectType(`${context}.Allow.max_amount must be omitted instead of null`);
       }
@@ -15919,7 +15930,7 @@ function normalizeUaidManifestEffect(value, context) {
     `${context}.Deny`,
   );
   const normalized = {};
-  if (Object.prototype.hasOwnProperty.call(denial, "reason")) {
+  if (objectHasOwn(denial, "reason")) {
     if (denial.reason === null) {
       rejectType(`${context}.Deny.reason must be omitted instead of null`);
     }
@@ -15990,7 +16001,7 @@ function isTruthyFilter(filters, key) {
 
 function extractExtraFields(record, recognizedKeys) {
   const extra = {};
-  for (const [key, value] of Object.entries(record)) {
+  for (const [key, value] of objectEntries(record)) {
     if (!recognizedKeys.has(key)) {
       extra[key] = value;
     }
@@ -16107,9 +16118,9 @@ const PROVER_FILTER_DEFINITIONS = {
 
 const PROVER_FILTER_ALIAS_MAP = (() => {
   const map = new Map();
-  for (const [key, spec] of Object.entries(PROVER_FILTER_DEFINITIONS)) {
+  for (const [key, spec] of objectEntries(PROVER_FILTER_DEFINITIONS)) {
     map.set(key, { key, spec });
-    const aliases = Array.isArray(spec.aliases) ? spec.aliases : [];
+    const aliases = arrayIsArray(spec.aliases) ? spec.aliases : [];
     for (const alias of aliases) {
       map.set(alias, { key, spec });
     }
@@ -16230,7 +16241,7 @@ function toBuffer(value) {
   if (value instanceof ArrayBuffer) {
     return Buffer.from(value);
   }
-  if (Array.isArray(value)) {
+  if (arrayIsArray(value)) {
     if (value.length === 0) {
       return Buffer.alloc(0);
     }
@@ -16241,7 +16252,7 @@ function toBuffer(value) {
 
 function normalizeByteArray(value, context) {
   const bytes = value.map((entry, index) => {
-    if (!Number.isInteger(entry) || entry < 0 || entry > 255) {
+    if (!numberIsInteger(entry) || entry < 0 || entry > 255) {
       throw createValidationError(
         ValidationErrorCode.VALUE_OUT_OF_RANGE,
         `${context}[${index}] must be an integer between 0 and 255`,
@@ -16291,7 +16302,7 @@ function findHeaderKey(headers, name) {
     return null;
   }
   const target = String(name).toLowerCase();
-  for (const key of Object.keys(headers)) {
+  for (const key of objectKeys(headers)) {
     if (key.toLowerCase() === target) {
       return key;
     }
@@ -16323,7 +16334,7 @@ function hasHeader(headers, name) {
 function cloneHeadersForFetch(headers) {
   const clone = {};
   if (headers && typeof headers === JS_TYPE_OBJECT) {
-    for (const [key, value] of Object.entries(headers)) {
+    for (const [key, value] of objectEntries(headers)) {
       clone[key] = value;
     }
   }
@@ -16698,7 +16709,7 @@ function requireExactJsonUnsignedInteger(value, name, options = {}) {
   const minimum = options.allowZero === false ? 1 : 0;
   if (
     typeof value !== JS_TYPE_NUMBER ||
-    !Number.isSafeInteger(value) ||
+    !numberIsSafeInteger(value) ||
     value < minimum
   ) {
     throw createValidationError(
@@ -16836,14 +16847,14 @@ function normalizeStorageTicketHex(value, name) {
 
 function coerceIntegerLike(value, context) {
   if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isFinite(value) || !Number.isSafeInteger(value)) {
+    if (!numberIsFinite(value) || !numberIsSafeInteger(value)) {
       rejectRange(`${context} must be a safe integer`);
     }
     return value;
   }
   if (typeof value === JS_TYPE_BIGINT) {
     const numeric = Number(value);
-    if (!Number.isSafeInteger(numeric)) {
+    if (!numberIsSafeInteger(numeric)) {
       rejectRange(`${context} must be a safe integer`);
     }
     return numeric;
@@ -16854,7 +16865,7 @@ function coerceIntegerLike(value, context) {
       rejectType(`${context} must be an integer`);
     }
     const numeric = Number(trimmed);
-    if (!Number.isFinite(numeric) || !Number.isSafeInteger(numeric)) {
+    if (!numberIsFinite(numeric) || !numberIsSafeInteger(numeric)) {
       rejectRange(`${context} must be a safe integer`);
     }
     return numeric;
@@ -16877,10 +16888,10 @@ function pickOverride(source, snakeName, camelName) {
   if (!source || typeof source !== JS_TYPE_OBJECT) {
     return undefined;
   }
-  if (Object.prototype.hasOwnProperty.call(source, snakeName)) {
+  if (objectHasOwn(source, snakeName)) {
     return source[snakeName];
   }
-  if (Object.prototype.hasOwnProperty.call(source, camelName)) {
+  if (objectHasOwn(source, camelName)) {
     return source[camelName];
   }
   return undefined;
@@ -16939,7 +16950,7 @@ function assertExactManifestResponseValueType(value, context) {
     return;
   }
   const record = exactManifestResponseRecord(value, ["nodes"], context);
-  if (!Array.isArray(record.nodes)) {
+  if (!arrayIsArray(record.nodes)) {
     return;
   }
   record.nodes.forEach((node, index) => {
@@ -16996,7 +17007,7 @@ function assertExactManifestResponseShape(value, context) {
       ["dynamic_reads", access.dynamic_reads],
       ["dynamic_writes", access.dynamic_writes],
     ]) {
-      if (!Array.isArray(hints)) {
+      if (!arrayIsArray(hints)) {
         continue;
       }
       hints.forEach((hint, index) => {
@@ -17009,7 +17020,7 @@ function assertExactManifestResponseShape(value, context) {
     }
   }
 
-  if (Array.isArray(manifest.entrypoints)) {
+  if (arrayIsArray(manifest.entrypoints)) {
     manifest.entrypoints.forEach((entrypoint, index) => {
       const entrypointContext = `${context}.entrypoints[${index}]`;
       const entrypointRecord = exactManifestResponseRecord(
@@ -17035,7 +17046,7 @@ function assertExactManifestResponseShape(value, context) {
         ["kind", "value"],
         `${entrypointContext}.kind`,
       );
-      if (Array.isArray(entrypointRecord.params)) {
+      if (arrayIsArray(entrypointRecord.params)) {
         entrypointRecord.params.forEach((param, paramIndex) => {
           exactManifestResponseRecord(
             param,
@@ -17053,7 +17064,7 @@ function assertExactManifestResponseShape(value, context) {
           ["fields"],
           `${entrypointContext}.argument_schema`,
         );
-        if (Array.isArray(argumentSchema.fields)) {
+        if (arrayIsArray(argumentSchema.fields)) {
           argumentSchema.fields.forEach((field, fieldIndex) => {
             const fieldContext =
               `${entrypointContext}.argument_schema.fields[${fieldIndex}]`;
@@ -17070,7 +17081,7 @@ function assertExactManifestResponseShape(value, context) {
         entrypointRecord.return_schema,
         `${entrypointContext}.return_schema`,
       );
-      if (Array.isArray(entrypointRecord.triggers)) {
+      if (arrayIsArray(entrypointRecord.triggers)) {
         entrypointRecord.triggers.forEach((trigger, triggerIndex) => {
           const triggerContext = `${entrypointContext}.triggers[${triggerIndex}]`;
           const triggerRecord = exactManifestResponseRecord(
@@ -17093,7 +17104,7 @@ function assertExactManifestResponseShape(value, context) {
     });
   }
 
-  if (Array.isArray(manifest.states)) {
+  if (arrayIsArray(manifest.states)) {
     manifest.states.forEach((state, index) => {
       exactManifestResponseRecord(
         state,
@@ -17103,7 +17114,7 @@ function assertExactManifestResponseShape(value, context) {
     });
   }
   normalizeContractErrorTypesV1(manifest.error_types, `${context}.error_types`);
-  if (Array.isArray(manifest.kotoba)) {
+  if (arrayIsArray(manifest.kotoba)) {
     manifest.kotoba.forEach((entry, index) => {
       const entryContext = `${context}.kotoba[${index}]`;
       const entryRecord = exactManifestResponseRecord(
@@ -17111,7 +17122,7 @@ function assertExactManifestResponseShape(value, context) {
         ["msg_id", "translations"],
         entryContext,
       );
-      if (Array.isArray(entryRecord.translations)) {
+      if (arrayIsArray(entryRecord.translations)) {
         entryRecord.translations.forEach((translation, translationIndex) => {
           exactManifestResponseRecord(
             translation,
@@ -17138,10 +17149,10 @@ function normalizeManifestPayload(manifest, context) {
   }
   validateManifestFieldsV1(manifest, context);
   const hasField = (...keys) =>
-    keys.some((key) => Object.prototype.hasOwnProperty.call(manifest, key));
+    keys.some((key) => objectHasOwn(manifest, key));
   const getField = (...keys) => {
     const present = keys.filter((key) =>
-      Object.prototype.hasOwnProperty.call(manifest, key),
+      objectHasOwn(manifest, key),
     );
     return present.length === 0 ? undefined : manifest[present[0]];
   };
@@ -17219,7 +17230,7 @@ function normalizeManifestPayload(manifest, context) {
     const entries = getField("entrypoints", "entryPoints");
     if (entries === null) {
       normalized.entrypoints = null;
-    } else if (!Array.isArray(entries)) {
+    } else if (!arrayIsArray(entries)) {
       rejectType(`${context}.entrypoints must be an array`);
     } else {
       normalized.entrypoints = entries.map((entry, index) => {
@@ -17308,7 +17319,7 @@ function validateManifestDynamicAccessHintStateMaps(accessSetHints, states, cont
 }
 
 function normalizeManifestKotobaPayload(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) => {
@@ -17327,7 +17338,7 @@ function normalizeManifestKotobaPayload(value, context) {
 }
 
 function normalizeManifestKotobaTranslationsPayload(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((translation, index) => {
@@ -17383,7 +17394,7 @@ function normalizeManifestSignaturePayload(value, context) {
   let body;
   if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
     body = Buffer.from(value).toString("hex");
-  } else if (Array.isArray(value)) {
+  } else if (arrayIsArray(value)) {
     body = normalizeByteArray(value, context).toString("hex");
   } else {
     const literal = requireNonEmptyString(value, context).trim();
@@ -17416,7 +17427,7 @@ function normalizeAccessSetHintsPayload(payload, context) {
     if (value === undefined || value === null) {
       return [];
     }
-    if (!Array.isArray(value)) {
+    if (!arrayIsArray(value)) {
       rejectType(`${name} must be an array of strings`);
     }
     return value.map((entry, index) =>
@@ -17427,7 +17438,7 @@ function normalizeAccessSetHintsPayload(payload, context) {
     if (value === undefined || value === null) {
       return [];
     }
-    if (!Array.isArray(value)) {
+    if (!arrayIsArray(value)) {
       rejectType(`${name} must be an array of dynamic access hints`);
     }
     return value.map((entry, index) => {
@@ -17508,8 +17519,8 @@ function normalizeAccessSetHintsPayload(payload, context) {
 }
 
 function selectEqualManifestAlias(record, snakeCase, camelCase, context) {
-  const hasSnakeCase = Object.prototype.hasOwnProperty.call(record, snakeCase);
-  const hasCamelCase = Object.prototype.hasOwnProperty.call(record, camelCase);
+  const hasSnakeCase = objectHasOwn(record, snakeCase);
+  const hasCamelCase = objectHasOwn(record, camelCase);
   if (
     hasSnakeCase &&
     hasCamelCase &&
@@ -17527,7 +17538,7 @@ function normalizeManifestEntrypointPayload(value, context) {
   const record = ensureRecord(value, context);
   const name = requireCanonicalKotodamaEntrypoint(record.name, `${context}.name`);
   const kind = normalizeManifestEntrypointKind(record.kind, `${context}.kind`);
-  if (Object.hasOwn(record, "permission")) rejectType(`${context}.permission is retired; use authorization`);
+  if (objectHasOwn(record, "permission")) rejectType(`${context}.permission is retired; use authorization`);
   const authorization = normalizeEntrypointAuthorizationV1(record.authorization, `${context}.authorization`);
   validateManifestEntrypointIdentityV1(name, kind.kind, authorization, context);
   const params = normalizeManifestEntrypointParams(record.params, `${context}.params`);
@@ -17607,7 +17618,7 @@ function normalizeManifestEntrypointParams(value, context) {
   if (value === undefined || value === null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   if (value.length > MAX_ENTRYPOINT_CALL_TABLE_WORDS_V1) {
@@ -17644,7 +17655,7 @@ function normalizeManifestArgumentSchema(value, context) {
     return null;
   }
   const record = ensureRecord(value, context);
-  if (!Array.isArray(record.fields)) {
+  if (!arrayIsArray(record.fields)) {
     rejectType(`${context}.fields must be an array`);
   }
   if (record.fields.length === 0 || record.fields.length > MAX_ENTRYPOINT_CALL_TABLE_WORDS_V1) {
@@ -17684,7 +17695,7 @@ function normalizeManifestValueType(value, context) {
 
 function normalizeRequiredManifestValueType(value, context) {
   const record = ensureRecord(value, context);
-  if (!Array.isArray(record.nodes)) {
+  if (!arrayIsArray(record.nodes)) {
     rejectType(`${context}.nodes must be an array`);
   }
   const normalized = {
@@ -17731,7 +17742,7 @@ function normalizeManifestValueTypeNode(value, context) {
       return { kind, value: null };
     case "List": {
       const list = ensureRecord(record.value, `${context}.value`);
-      const fields = Object.keys(list);
+      const fields = objectKeys(list);
       if (fields.length !== 1 || fields[0] !== "capacity") {
         rejectType(`${context}.value must contain exactly capacity; the element subtree follows in the nodes tape`);
       }
@@ -17812,7 +17823,7 @@ function normalizeManifestStringArray(value, context) {
   if (value === undefined || value === null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) =>
@@ -17827,7 +17838,7 @@ function requireManifestNull(value, context) {
 }
 
 function normalizeManifestStatesPayload(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((state, index) => {
@@ -17863,7 +17874,7 @@ function normalizeManifestTriggersPayload(value, context) {
   if (value === undefined || value === null) {
     return [];
   }
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((trigger, index) => {
@@ -17911,7 +17922,7 @@ function normalizeManifestTriggersPayload(value, context) {
 
 function normalizeManifestRepeatsPayload(value, context) {
   const record = ensureRecord(value, context);
-  const keys = Object.keys(record);
+  const keys = objectKeys(record);
   if (keys.length !== 1) {
     rejectType(`${context} must contain exactly one repeat variant`);
   }
@@ -18047,7 +18058,7 @@ function normalizeHex32String(value, name, options = {}) {
   if (value instanceof ArrayBuffer) {
     return normalizeHex32String(Buffer.from(value).toString("hex"), name, options);
   }
-  if (Array.isArray(value)) {
+  if (arrayIsArray(value)) {
     return normalizeHex32String(normalizeByteArray(value, name).toString("hex"), name, options);
   }
   let normalized = exactString
@@ -18095,7 +18106,7 @@ function normalizeHex16String(value, name) {
   if (value instanceof ArrayBuffer) {
     return normalizeHex16String(Buffer.from(value).toString("hex"), name);
   }
-  if (Array.isArray(value)) {
+  if (arrayIsArray(value)) {
     return normalizeHex16String(normalizeByteArray(value, name).toString("hex"), name);
   }
   const normalized = requireNonEmptyString(value, name);
@@ -18127,7 +18138,7 @@ function normalizeHexBytesString(value, name) {
   if (value instanceof ArrayBuffer) {
     return Buffer.from(value).toString("hex");
   }
-  if (Array.isArray(value)) {
+  if (arrayIsArray(value)) {
     return normalizeByteArray(value, name).toString("hex");
   }
   const normalized = requireHexString(value, name);
@@ -18213,7 +18224,7 @@ function cloneJsonValueInternal(value, path, state, depth) {
     return value;
   }
   if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isFinite(value)) {
+    if (!numberIsFinite(value)) {
       rejectType(`${path} must not contain non-finite numbers`);
     }
     return value;
@@ -18229,10 +18240,10 @@ function cloneJsonValueInternal(value, path, state, depth) {
   }
   state.ancestors.add(value);
   try {
-    if (Array.isArray(value)) {
-      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+    if (arrayIsArray(value)) {
+      const lengthDescriptor = objectGetOwnPropertyDescriptor(value, "length");
       const length = lengthDescriptor?.value;
-      if (!Number.isSafeInteger(length) || length < 0) {
+      if (!numberIsSafeInteger(length) || length < 0) {
         rejectType(`${path} must be an exact JSON array`);
       }
       if (length > JSON_CLONE_MAX_NODES) {
@@ -18251,7 +18262,7 @@ function cloneJsonValueInternal(value, path, state, depth) {
       }
       const result = new Array(length);
       for (let index = 0; index < length; index += 1) {
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        const descriptor = objectGetOwnPropertyDescriptor(value, String(index));
         if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
           rejectType(`${path}[${index}] must be an enumerable data property`);
         }
@@ -18269,7 +18280,7 @@ function cloneJsonValueInternal(value, path, state, depth) {
       if (typeof key !== JS_TYPE_STRING) {
         rejectType(`${path} keys must be strings without symbols`);
       }
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      const descriptor = objectGetOwnPropertyDescriptor(value, key);
       if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
         rejectType(`${path}.${key} must be an enumerable data property`);
       }
@@ -18317,7 +18328,7 @@ function normalizePublishSpaceDirectoryManifestRequest(input) {
     ),
     manifest,
   };
-  if (Object.prototype.hasOwnProperty.call(record, "reason")) {
+  if (objectHasOwn(record, "reason")) {
     if (record.reason === null) {
       rejectType("publishSpaceDirectoryManifest.reason must be omitted instead of null");
     }
@@ -18361,7 +18372,7 @@ function normalizeRevokeSpaceDirectoryManifestRequest(input) {
     dataspace,
     revoked_epoch: revokedEpoch,
   };
-  if (Object.prototype.hasOwnProperty.call(record, "reason")) {
+  if (objectHasOwn(record, "reason")) {
     if (record.reason === null) {
       rejectType("revokeSpaceDirectoryManifest.reason must be omitted instead of null");
     }
@@ -18617,7 +18628,7 @@ function normalizeContractTargetSelector(record, context) {
 
 function normalizeLocalTransactionDraftIntent(input, context, required, includeInstructionsHash = false) {
   const record = ensureRecord(input, `${context} request`);
-  if (includeInstructionsHash && Object.hasOwn(record, "draft_intent")) {
+  if (includeInstructionsHash && objectHasOwn(record, "draft_intent")) {
     rejectType(`${context}.draft_intent is not supported; use draftIntent`);
   }
   const raw = includeInstructionsHash
@@ -18643,7 +18654,7 @@ function normalizeLocalTransactionDraftIntent(input, context, required, includeI
     intent.metadataB64,
     `${context}.draftIntent.metadataB64`,
   );
-  return Object.freeze({
+  return objectFreeze({
     executableArchive: Buffer.from(strictDecodeBase64(executableB64)),
     metadataArchive: Buffer.from(strictDecodeBase64(metadataB64)),
     ...(includeInstructionsHash ? {instructionsHash: requireMultisigId(intent.instructionsHash, `${context}.draftIntent.instructionsHash`)} : {}),
@@ -18684,7 +18695,7 @@ function normalizeContractCallDraftIntent(input, context) {
     contractAddress,
     `${context}.draftIntent.contractAddress`,
   );
-  return Object.freeze({
+  return objectFreeze({
     executableArchive: Buffer.from(strictDecodeBase64(executableB64)),
     metadataArchive: Buffer.from(strictDecodeBase64(metadataB64)),
     contractAddress,
@@ -19122,7 +19133,7 @@ function normalizeContractCallSimulateResponse(payload) {
       "contractCall simulation response.gas_used",
       { allowZero: true },
     ),
-    queued_instructions: Array.isArray(record.queued_instructions)
+    queued_instructions: arrayIsArray(record.queued_instructions)
       ? record.queued_instructions.map((instruction, index) =>
           cloneJsonValue(
             instruction,
@@ -19162,7 +19173,7 @@ function exactEnumerableDataRecord(value, expectedKeys, context) {
   }
   const snapshot = {};
   for (const key of expectedKeys) {
-    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    const descriptor = objectGetOwnPropertyDescriptor(record, key);
     if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
       rejectType(`${context}.${key} must be an enumerable data property`);
     }
@@ -19176,10 +19187,10 @@ function normalizeExactJsonByteArray(
   context,
   { exactLength = null, maxLength = null } = {},
 ) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an exact byte array`);
   }
-  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  const lengthDescriptor = objectGetOwnPropertyDescriptor(value, "length");
   if (!lengthDescriptor || !("value" in lengthDescriptor)) {
     rejectType(`${context} must be an exact byte array`);
   }
@@ -19199,18 +19210,18 @@ function normalizeExactJsonByteArray(
   const bytes = new Uint8ArrayIntrinsic(length);
   let enumerableKeys = 0;
   for (const key in value) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+    if (!objectHasOwn(value, key)) {
       rejectType(`${context} must not inherit enumerable fields`);
     }
     if (key !== String(enumerableKeys) || enumerableKeys >= length) {
       rejectType(`${context} must be a dense exact byte array`);
     }
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    const descriptor = objectGetOwnPropertyDescriptor(value, key);
     const byte = descriptor && "value" in descriptor ? descriptor.value : null;
     if (
       !descriptor?.enumerable ||
       typeof byte !== JS_TYPE_NUMBER ||
-      !Number.isInteger(byte) ||
+      !numberIsInteger(byte) ||
       byte < 0 ||
       byte > 0xff
     ) {
@@ -19290,7 +19301,7 @@ function normalizeMultisigProposalsQueryRequest(input, context) {
   const record = ensureRecord(input, context);
   const payload = normalizeMultisigAccountSelector(record, context);
   if (record.status !== undefined) {
-    if (!Array.isArray(record.status)) {
+    if (!arrayIsArray(record.status)) {
       rejectType(`${context}.status must be an array`);
     }
     payload.status = record.status.map((status, index) =>
@@ -19316,7 +19327,7 @@ function normalizeMultisigProposeInstructionInput(value, context) {
     Buffer.isBuffer(value) ||
     ArrayBuffer.isView(value) ||
     value instanceof ArrayBuffer ||
-    Array.isArray(value)
+    arrayIsArray(value)
   ) {
     return value;
   }
@@ -19337,7 +19348,7 @@ function normalizeMultisigProposeRequest(input) {
   rejectRetiredFeeSelectionFields(record, "proposeMultisig request");
   const selector = normalizeMultisigAccountSelector(record, "proposeMultisig request");
   const instructionsValue = pickOverride(record, "instructions", "instructions");
-  if (!Array.isArray(instructionsValue) || instructionsValue.length === 0) {
+  if (!arrayIsArray(instructionsValue) || instructionsValue.length === 0) {
     throw createValidationError(
       ValidationErrorCode.INVALID_OBJECT,
       "proposeMultisig request.instructions must be a non-empty array",
@@ -19384,7 +19395,7 @@ function normalizeMultisigProposeRequest(input) {
     record.fee_payment ?? record.feePayment,
     "proposeMultisig request.fee_payment",
   );
-  if (Object.hasOwn(record, "validation_fee_assessment")) {
+  if (objectHasOwn(record, "validation_fee_assessment")) {
     if (record.validation_fee_assessment === null || record.validation_fee_assessment === undefined) {
       rejectType("proposeMultisig request.validation_fee_assessment requires a typed assessment");
     }
@@ -19539,7 +19550,7 @@ function normalizeMultisigContractCallResponse(
     );
   }
   for (const retired of ["transaction_scaffold_b64", "signed_transaction_b64"]) {
-    if (Object.hasOwn(record, retired)) {
+    if (objectHasOwn(record, retired)) {
       throw createValidationError(
         ValidationErrorCode.INVALID_OBJECT,
         `${context} contains retired field ${retired}`,
@@ -19776,7 +19787,7 @@ function normalizeMultisigProposalsQueryResponse(
 ) {
   const record = ensureRecord(payload, context);
   const proposalsValue = record.proposals;
-  if (!Array.isArray(proposalsValue)) {
+  if (!arrayIsArray(proposalsValue)) {
     rejectType(`${context}.proposals must be an array`);
   }
   return {
@@ -19817,7 +19828,7 @@ function normalizeMultisigProposalResolveResponse(
 function normalizeContractManifestResponse(payload, requested, networkId) {
   const record = exactEnumerableDataRecord(
     payload,
-    ["network_id", "artifact_id", "manifest", ...["code_hash", "abi_hash", "code_bytes"].filter((key) => Object.hasOwn(ensureRecord(payload, "contract manifest response"), key))],
+    ["network_id", "artifact_id", "manifest", ...["code_hash", "abi_hash", "code_bytes"].filter((key) => objectHasOwn(ensureRecord(payload, "contract manifest response"), key))],
     "contract manifest response",
   );
   const identity = validateContractArtifactResponseIdentity(record, requested, networkId);
@@ -19886,7 +19897,7 @@ function normalizeContractCodeBytesResponse(payload, requested, networkId) {
 }
 
 function contractArtifactDataspace(value, context) {
-  if (typeof value === "number" && !Number.isSafeInteger(value)) rejectType(`${context} must be an exact u64`);
+  if (typeof value === "number" && !numberIsSafeInteger(value)) rejectType(`${context} must be an exact u64`);
   if (!((typeof value === "number" && value >= 0) || typeof value === "bigint" || (typeof value === "string" && value.length <= 20 && /^(0|[1-9][0-9]*)$/u.test(value)))) rejectType(`${context} must be a canonical u64`);
   const integer = BigInt(value);
   if (integer < 0n || integer > 0xffff_ffff_ffff_ffffn) rejectType(`${context} must fit u64`);
@@ -20355,7 +20366,7 @@ function normalizeAliasLookupByAccountResponse(
 ) {
   const record = ensureRecord(payload ?? {}, context);
   const accountId = ToriiClient._requireAccountId(record.account_id, `${context}.account_id`);
-  const rawItems = Array.isArray(record.items) ? record.items : [];
+  const rawItems = arrayIsArray(record.items) ? record.items : [];
   const items = rawItems.map((item, index) => {
     const aliasRecord = ensureRecord(item, `${context}.items[${index}]`);
     const alias = requireNonEmptyString(aliasRecord.alias, `${context}.items[${index}].alias`);
@@ -20516,7 +20527,7 @@ function normalizeFeeSponsorProgramResponse(
     lifecycle: { state: lifecycle, value: null },
   };
   for (const field of ["active_revision", "staged_revision"]) {
-    if (Object.prototype.hasOwnProperty.call(record, field)) {
+    if (objectHasOwn(record, field)) {
       if (record[field] === null || record[field] === undefined) {
         rejectType(`${context}.${field} must be omitted or a positive integer`);
       }
@@ -20526,7 +20537,7 @@ function normalizeFeeSponsorProgramResponse(
       );
     }
   }
-  if (Object.prototype.hasOwnProperty.call(record, "scheduled_activation")) {
+  if (objectHasOwn(record, "scheduled_activation")) {
     if (record.scheduled_activation === null || record.scheduled_activation === undefined) {
       rejectType(`${context}.scheduled_activation must be omitted or an exact object`);
     }
@@ -20579,7 +20590,7 @@ function rejectRetiredFeeSelectionFields(
     retired.push(["gasLimit", "feePayment.value.gas_limit"]);
   }
   for (const [field, replacement] of retired) {
-    if (Object.prototype.hasOwnProperty.call(record, field)) {
+    if (objectHasOwn(record, field)) {
       throw createValidationError(
         ValidationErrorCode.INVALID_OBJECT,
         `${context}.${field} is retired; use ${replacement}`,
@@ -20593,7 +20604,7 @@ function requireExactFeeQuoteObject(value, expectedFields, context) {
   const record = ensureRecord(value, context);
   assertSupportedOptionKeys(record, expectedFields, context);
   const missing = [...expectedFields].filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
   if (missing.length !== 0) {
     rejectType(`${context} is missing required fields: ${missing.join(", ")}`);
@@ -21069,11 +21080,11 @@ function validateFeeQuoteForDraft(
 }
 
 function requireDenseArray(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   for (let index = 0; index < value.length; index += 1) {
-    if (!Object.prototype.hasOwnProperty.call(value, index)) {
+    if (!objectHasOwn(value, index)) {
       rejectType(`${context} must be a dense array`);
     }
   }
@@ -21167,7 +21178,7 @@ function requireBfvUint(value, name, options = {}) {
   if (typeof value === JS_TYPE_BIGINT) {
     integer = value;
   } else if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isFinite(value) || !Number.isInteger(value) || !Number.isSafeInteger(value)) {
+    if (!numberIsFinite(value) || !numberIsInteger(value) || !numberIsSafeInteger(value)) {
       throw createValidationError(
         ValidationErrorCode.VALUE_OUT_OF_RANGE,
         `${name} must be a safe integer number, bigint, or decimal string`,
@@ -21223,7 +21234,7 @@ function normalizeIdentifierBfvUint(value, name, options = {}) {
 }
 
 function normalizeIdentifierBfvUintArray(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) =>
@@ -21300,7 +21311,7 @@ function normalizeIdentifierPolicyListResponse(
 ) {
   const record = ensureRecord(payload ?? {}, context);
   const itemsValue = record.items;
-  if (!Array.isArray(itemsValue)) {
+  if (!arrayIsArray(itemsValue)) {
     rejectError(`${context}.items must be an array`);
   }
   return {
@@ -21319,7 +21330,7 @@ function normalizeRamLfeProgramPolicyListResponse(
 ) {
   const record = ensureRecord(payload ?? {}, context);
   const itemsValue = record.items;
-  if (!Array.isArray(itemsValue)) {
+  if (!arrayIsArray(itemsValue)) {
     rejectError(`${context}.items must be an array`);
   }
   return {
@@ -22083,7 +22094,7 @@ function buildSorafsAliasListParams(options = {}) {
       { allowZero: true },
     );
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function buildSorafsPinListParams(options = {}) {
@@ -22160,7 +22171,7 @@ function buildSorafsPinListParams(options = {}) {
       "sorafsPinList.expectedFinalizedBlockHashHex",
     );
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function buildSorafsReplicationListParams(options = {}) {
@@ -22198,7 +22209,7 @@ function buildSorafsReplicationListParams(options = {}) {
   if (record.offset !== undefined) {
     params.offset = normalizeSorafsPinU64(record.offset, "sorafsReplicationList.offset", 0xffff_ffffn);
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function normalizeSorafsReputationProviderId(value, context) {
@@ -22260,7 +22271,7 @@ function normalizeSorafsHedgingBillingDigest(value, context) {
 function normalizeSorafsHedgingBillingLimit(value, context) {
   if (
     typeof value !== JS_TYPE_NUMBER ||
-    !Number.isSafeInteger(value) ||
+    !numberIsSafeInteger(value) ||
     value < 1 ||
     value > 100
   ) {
@@ -22310,7 +22321,7 @@ function sorafsReputationCanonicalAuthEntries(headers, context) {
     return new Map();
   }
   const entries = new Map();
-  for (const [rawName, rawValue] of Object.entries(headers)) {
+  for (const [rawName, rawValue] of objectEntries(headers)) {
     const normalizedName = String(rawName).toLowerCase();
     if (!SORAFS_REPUTATION_CANONICAL_AUTH_HEADERS.has(normalizedName)) {
       continue;
@@ -22437,7 +22448,7 @@ function buildSorafsReputationHeaders(
         `${context}.headers`,
       );
     }
-    for (const [key, value] of Object.entries(options.headers)) {
+    for (const [key, value] of objectEntries(options.headers)) {
       if (value !== undefined && value !== null) {
         headers[key] = SORAFS_REPUTATION_CANONICAL_AUTH_HEADERS.has(
           key.toLowerCase(),
@@ -22476,7 +22487,7 @@ function normalizeSorafsReputationDecimal(
 ) {
   let integer;
   if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isSafeInteger(value)) {
+    if (!numberIsSafeInteger(value)) {
       throw createValidationError(
         ValidationErrorCode.INVALID_NUMERIC,
         `${context} must be a safe integer, bigint, or canonical decimal string`,
@@ -22531,7 +22542,7 @@ function buildSorafsReputationEventsParams(options = {}, context) {
       { allowZero: false, max: 500n },
     );
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function buildSorafsOrderbookHeaders(options = {}, context, { cache = false } = {}) {
@@ -22544,7 +22555,7 @@ function buildSorafsOrderbookHeaders(options = {}, context, { cache = false } = 
         `${context}.headers`,
       );
     }
-    for (const [key, value] of Object.entries(options.headers)) {
+    for (const [key, value] of objectEntries(options.headers)) {
       if (value !== undefined && value !== null) {
         headers[key] = String(value);
       }
@@ -22614,7 +22625,7 @@ function buildSorafsOrderbookReadParams(options = {}, context) {
       `${context}.afterIdHex`,
     );
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function appendSorafsOrderbookEventCursor(params, options, context) {
@@ -22668,7 +22679,7 @@ function buildSorafsOrderbookEventsParams(options = {}, context) {
     );
   }
   appendSorafsOrderbookEventCursor(params, options, context);
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function normalizeSorafsOrderbookFinalizedSource(value, context) {
@@ -22726,7 +22737,7 @@ function normalizeSorafsOrderbookLedgerStatus(payload, context) {
 }
 
 function normalizeSorafsOrderbookRecordArray(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value.map((entry, index) => ({
@@ -22872,7 +22883,7 @@ function normalizeSorafsOrderbookEventsResponse(
 ) {
   const record = ensureRecord(payload ?? {}, context);
   const page = ensureRecord(record.events, `${context}.events`);
-  if (!Array.isArray(page.events)) {
+  if (!arrayIsArray(page.events)) {
     rejectType(`${context}.events.events must be an array`);
   }
   if (typeof page.has_more !== "boolean") {
@@ -22960,7 +22971,7 @@ function normalizeSorafsXorQuantity(value, context) {
 
 function rejectRetiredSorafsMonetaryFields(record, retiredNames, context) {
   const present = retiredNames.filter((name) =>
-    Object.prototype.hasOwnProperty.call(record, name),
+    objectHasOwn(record, name),
   );
   if (present.length > 0) {
     throw createValidationError(
@@ -23049,7 +23060,7 @@ const SORAFS_REPUTATION_EVENT_PAGE_FIELDS = new Set([
   "next_since",
   "events",
 ]);
-const SORAFS_REPUTATION_DEGRADATION_FLAG_ORDER = Object.freeze([
+const SORAFS_REPUTATION_DEGRADATION_FLAG_ORDER = objectFreeze([
   "reserve_warning",
   "reserve_grace",
   "reserve_delinquent",
@@ -23066,9 +23077,9 @@ const SORAFS_REPUTATION_DEGRADATION_FLAG_INDEX = new Map(
 
 function requireSorafsReputationExactObject(value, expectedFields, context) {
   const record = ensureRecord(value, context);
-  const actualFields = Object.keys(record);
+  const actualFields = objectKeys(record);
   const missing = [...expectedFields].filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
   const extra = actualFields.filter((field) => !expectedFields.has(field));
   if (missing.length !== 0 || extra.length !== 0) {
@@ -23080,7 +23091,7 @@ function requireSorafsReputationExactObject(value, expectedFields, context) {
 }
 
 function requireSorafsReputationArray(value, context) {
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context} must be an array`);
   }
   return value;
@@ -23094,7 +23105,7 @@ function parseSorafsReputationU64(
   let integer;
   if (
     typeof value === JS_TYPE_NUMBER &&
-    Number.isSafeInteger(value) &&
+    numberIsSafeInteger(value) &&
     !Object.is(value, -0)
   ) {
     integer = BigInt(value);
@@ -23928,7 +23939,7 @@ function normalizeSorafsPinListResponse(
     record.charged_usage,
     `${context}.charged_usage`,
   );
-  if (!Array.isArray(record.manifests)) {
+  if (!arrayIsArray(record.manifests)) {
     rejectType(`${context}.manifests must be an array`);
   }
   if (record.manifests.length > SORAFS_PIN_LIST_MAX_ITEMS) {
@@ -24019,12 +24030,12 @@ function requireExactSorafsPinObjectFields(
   context,
 ) {
   const allowed = new Set([...requiredFields, ...optionalFields]);
-  const unknown = Object.keys(record).find((field) => !allowed.has(field));
+  const unknown = objectKeys(record).find((field) => !allowed.has(field));
   if (unknown !== undefined) {
     rejectType(`${context} contains unknown field ${unknown}`);
   }
   const missing = requiredFields.find(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
   if (missing !== undefined) {
     rejectType(`${context} is missing required field ${missing}`);
@@ -24197,9 +24208,9 @@ function normalizePipelineTransactionStatus(
       { allowZero: false },
     );
   }
-  return Object.freeze({
+  return objectFreeze({
     hash,
-    status: Object.freeze(normalizedStatus),
+    status: objectFreeze(normalizedStatus),
     scope,
     resolved_from: resolvedFrom,
   });
@@ -24274,7 +24285,7 @@ function classifyPipelineTransactionStatusResolution(
   }
   if (kind === "Applied") {
     if (
-      !Number.isSafeInteger(status.block_height) ||
+      !numberIsSafeInteger(status.block_height) ||
       status.block_height <= 0
     ) {
       throw createValidationError(
@@ -24304,8 +24315,8 @@ function classifyPipelineTransactionStatusResolution(
 const PIPELINE_STALL_BLOCK_CADENCES = 20;
 
 /** Exact field sets of the `GET /v1/pipeline/preflight` JSON body (Torii `PipelinePreflightResponse`). */
-const PIPELINE_PREFLIGHT_FIELDS = Object.freeze({
-  root: Object.freeze([
+const PIPELINE_PREFLIGHT_FIELDS = objectFreeze({
+  root: objectFreeze([
     "schema_version",
     "chain_height",
     "sumeragi",
@@ -24315,16 +24326,16 @@ const PIPELINE_PREFLIGHT_FIELDS = Object.freeze({
     "queue",
     "fees",
   ]),
-  sumeragi: Object.freeze(["block_cadence_ms"]),
-  admission: Object.freeze([
+  sumeragi: objectFreeze(["block_cadence_ms"]),
+  admission: objectFreeze([
     "max_signatures",
     "max_instructions",
     "max_tx_bytes",
     "max_decompressed_bytes",
     "max_metadata_depth",
   ]),
-  block: Object.freeze(["max_transactions"]),
-  pipeline: Object.freeze([
+  block: objectFreeze(["max_transactions"]),
+  pipeline: objectFreeze([
     "signature_batch_max_ed25519",
     "signature_batch_max_secp256k1",
     "signature_batch_max_pqc",
@@ -24334,8 +24345,8 @@ const PIPELINE_PREFLIGHT_FIELDS = Object.freeze({
     "ivm_admission_cycle_limit",
     "ivm_max_decoded_instructions",
   ]),
-  queue: Object.freeze(["size", "queued", "inflight"]),
-  fees: Object.freeze([
+  queue: objectFreeze(["size", "queued", "inflight"]),
+  fees: objectFreeze([
     "fee_asset_id",
     "fee_sink_account_id",
     "base_fee",
@@ -24351,7 +24362,7 @@ const PIPELINE_PREFLIGHT_FIELDS = Object.freeze({
 /** Require `mapping` to be an object that carries no field outside `allowed`. */
 function requirePipelinePreflightRecord(mapping, allowed, context) {
   const record = ensureRecord(mapping, context);
-  const unknownField = Object.keys(record).find((field) => !allowed.includes(field));
+  const unknownField = objectKeys(record).find((field) => !allowed.includes(field));
   if (unknownField !== undefined) {
     rejectType(`${context} contains unknown field ${unknownField}`);
   }
@@ -24390,7 +24401,7 @@ function requirePipelinePreflightString(mapping, key, context) {
 
 function requirePipelinePreflightArray(mapping, key, context) {
   const value = mapping[key];
-  if (!Array.isArray(value)) {
+  if (!arrayIsArray(value)) {
     rejectType(`${context}.${key} must be an array of strings`);
   }
   return value;
@@ -24569,10 +24580,10 @@ function normalizePipelinePreflight(payload, context = "pipeline preflight respo
           `${context}.fees.successful_claim_fee_exempt_authorities[${index}]`,
         )),
     },
-    raw: Object.freeze({ ...record }),
+    raw: objectFreeze({ ...record }),
   };
   const stallThresholdMs = pipelineStallThresholdMs(normalized.sumeragi.block_cadence_ms);
-  return Object.freeze({
+  return objectFreeze({
     ...normalized,
     stallThresholdMs,
     isStatusStalled(status) {
@@ -24592,7 +24603,7 @@ function normalizePipelineRecoverySidecar(payload, context = "pipeline recovery 
   });
   const dag = normalizePipelineDagSnapshot(record.dag, `${context}.dag`);
   const rawTxs = record.txs ?? [];
-  if (!Array.isArray(rawTxs)) {
+  if (!arrayIsArray(rawTxs)) {
     rejectType(`${context}.txs must be an array`);
   }
   return {
@@ -24611,7 +24622,7 @@ function normalizePipelineRecoveryFastpqProofs(
 ) {
   const record = ensureRecord(payload ?? {}, context);
   const rawProofs = record.proofs ?? [];
-  if (!Array.isArray(rawProofs)) {
+  if (!arrayIsArray(rawProofs)) {
     rejectType(`${context}.proofs must be an array`);
   }
   return {
@@ -24662,7 +24673,7 @@ function normalizePipelineRecoveryFastpqProof(payload, context) {
       record.batch_reconstruction_error,
       `${context}.batch_reconstruction_error`,
     ),
-    raw: Object.freeze({ ...record }),
+    raw: objectFreeze({ ...record }),
   };
 }
 
@@ -24953,7 +24964,7 @@ function normalizeChunkFetchPlanV1(plan, context) {
   if (!isPlainObject(plan)) {
     rejectType(`${context} must be a canonical chunk fetch plan object`);
   }
-  for (const field of Object.keys(plan)) {
+  for (const field of objectKeys(plan)) {
     if (!CHUNK_FETCH_PLAN_V1_FIELDS.has(field)) {
       rejectType(`${context} contains unsupported field ${field}`);
     }
@@ -24968,7 +24979,7 @@ function normalizeChunkFetchPlanV1(plan, context) {
   ) {
     rejectType(`${context}.payload_digest_blake3_hex must be a non-zero canonical lowercase 32-byte hex digest`);
   }
-  if (!Array.isArray(plan.chunk_fetch_specs)) {
+  if (!arrayIsArray(plan.chunk_fetch_specs)) {
     rejectType(`${context}.chunk_fetch_specs must be an array`);
   }
   return plan;
@@ -25128,7 +25139,7 @@ function normalizeProofSummaryOption(value, context) {
     normalized.sampleSeed = sampleSeed;
   }
   if (leafIndexes !== undefined) {
-    if (!Array.isArray(leafIndexes)) {
+    if (!arrayIsArray(leafIndexes)) {
       rejectType(`${context}.leafIndexes must be an array`);
     }
     normalized.leafIndexes = leafIndexes.slice();
@@ -25234,7 +25245,7 @@ function inferChunkerHandleFromManifest(manifestJson) {
 }
 
 function normalizeDaGatewayProviders(value, context) {
-  if (!Array.isArray(value) || value.length === 0) {
+  if (!arrayIsArray(value) || value.length === 0) {
     rejectType(`${context} must be a non-empty array`);
   }
   return value.map((entry, index) => {
@@ -25357,7 +25368,7 @@ function normalizeDaIngestReceipt(payload, context = "da ingest receipt") {
       row_parity_stripes: rowParityStripes,
     };
   })();
-  if (!Object.prototype.hasOwnProperty.call(record, "pdp_commitment")) {
+  if (!objectHasOwn(record, "pdp_commitment")) {
     rejectType(`${context}.pdp_commitment is required and must be null or a base64 string`);
   }
   const pdpCommitment = record.pdp_commitment;
@@ -25466,10 +25477,10 @@ function normalizeDaRentQuote(payload, context = "da rent quote") {
 }
 
 function decodeDaDigestTuple(value, expectedLength, name) {
-  if (!Array.isArray(value) || value.length === 0) {
+  if (!arrayIsArray(value) || value.length === 0) {
     rejectType(`${name} must be an array`);
   }
-  const bytes = Array.isArray(value[0]) ? value[0] : value;
+  const bytes = arrayIsArray(value[0]) ? value[0] : value;
   if (bytes.length !== expectedLength) {
     rejectType(`${name} must contain ${expectedLength} entries`);
   }
@@ -25513,7 +25524,7 @@ function normalizeSorafsPorVerdictResponse(
 }
 
 function normalizePeerListResponse(payload, context = "peer list response") {
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType(`${context} must be an array`);
   }
   return payload.map((entry, index) => {
@@ -25538,7 +25549,7 @@ function normalizePeerListResponse(payload, context = "peer list response") {
 }
 
 function normalizeTelemetryPeersInfoList(payload) {
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType("telemetry peers response must be an array");
   }
   return payload.map((entry, index) =>
@@ -25568,7 +25579,7 @@ function normalizeTelemetryPeerInfo(value, context) {
     result.location = normalizeTelemetryPeerLocation(locationValue, `${context}.location`);
   }
   if (record.connected_peers !== undefined && record.connected_peers !== null) {
-    if (!Array.isArray(record.connected_peers)) {
+    if (!arrayIsArray(record.connected_peers)) {
       rejectType(`${context}.connected_peers must be an array`);
     }
     result.connectedPeers = record.connected_peers.map((entry, idx) =>
@@ -25648,7 +25659,7 @@ function normalizeExplorerDurationMs(value, context) {
 }
 
 function requireFiniteNumber(value, context) {
-  if (typeof value !== JS_TYPE_NUMBER || Number.isNaN(value) || !Number.isFinite(value)) {
+  if (typeof value !== JS_TYPE_NUMBER || Number.isNaN(value) || !numberIsFinite(value)) {
     rejectType(`${context} must be a finite number`);
   }
   return value;
@@ -25662,9 +25673,9 @@ function requireKaigiResponseObject(
 ) {
   const record = ensureRecord(value, context);
   const missing = [...requiredFields].filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
-  const extra = Object.keys(record).filter((field) => !allowedFields.has(field));
+  const extra = objectKeys(record).filter((field) => !allowedFields.has(field));
   if (missing.length !== 0 || extra.length !== 0) {
     rejectType(`${context} fields are not canonical; missing=[${missing.join(", ")}] extra=[${extra.join(", ")}]`);
   }
@@ -25675,7 +25686,7 @@ function normalizeKaigiU64(value, context) {
   let integer;
   if (
     typeof value === JS_TYPE_NUMBER
-    && Number.isSafeInteger(value)
+    && numberIsSafeInteger(value)
     && !Object.is(value, -0)
   ) {
     integer = BigInt(value);
@@ -25763,8 +25774,8 @@ function normalizeKaigiRelaySummary(payload, context) {
     record.hpke_fingerprint_hex,
     hpkeFingerprintContext,
   );
-  const hasStatus = Object.prototype.hasOwnProperty.call(record, "status");
-  const hasReportedAt = Object.prototype.hasOwnProperty.call(record, "reported_at_ms");
+  const hasStatus = objectHasOwn(record, "status");
+  const hasReportedAt = objectHasOwn(record, "reported_at_ms");
   if (hasStatus !== hasReportedAt) {
     rejectType(`${context}.status and reported_at_ms must be present together`);
   }
@@ -25821,9 +25832,9 @@ function normalizeKaigiRelayDetail(payload) {
   if (relaySummary.hpke_fingerprint_hex !== expectedFingerprint.toString("hex")) {
     rejectType("kaigi relay detail.relay.hpke_fingerprint_hex must match the marked HPKE public-key fingerprint");
   }
-  const hasReportedCall = Object.prototype.hasOwnProperty.call(record, "reported_call");
-  const hasReportedBy = Object.prototype.hasOwnProperty.call(record, "reported_by");
-  const hasNotes = Object.prototype.hasOwnProperty.call(record, "notes");
+  const hasReportedCall = objectHasOwn(record, "reported_call");
+  const hasReportedBy = objectHasOwn(record, "reported_by");
+  const hasNotes = objectHasOwn(record, "notes");
   const hasFeedback = relaySummary.status !== null;
   if (
     hasReportedCall !== hasFeedback
@@ -25867,7 +25878,7 @@ function normalizeKaigiRelayDetail(payload) {
     notes = record.notes;
   }
   let metrics = null;
-  if (Object.prototype.hasOwnProperty.call(record, "metrics")) {
+  if (objectHasOwn(record, "metrics")) {
     metrics = normalizeKaigiRelayDomainMetrics(record.metrics, "kaigi relay detail.metrics");
     if (metrics.domain !== relaySummary.domain) {
       rejectType("kaigi relay detail.metrics.domain must match relay.domain");
@@ -26027,7 +26038,7 @@ function normalizeKaigiCallView(payload, expectedCallId) {
   );
   const identity = normalizeKaigiCallIdentityFields(record, context, expectedCallId);
   const metadata = ensureRecord(record.metadata, `${context}.metadata`);
-  const hasRelayManifest = Object.prototype.hasOwnProperty.call(record, "relay_manifest");
+  const hasRelayManifest = objectHasOwn(record, "relay_manifest");
   const relayManifest = hasRelayManifest
     ? ensureRecord(record.relay_manifest, `${context}.relay_manifest`)
     : undefined;
@@ -26046,20 +26057,20 @@ function normalizeKaigiCallView(payload, expectedCallId) {
     new Set(["active", "ended"]),
     `${context}.status`,
   );
-  const hasHost = Object.prototype.hasOwnProperty.call(record, "host_account_id");
-  const hasBilling = Object.prototype.hasOwnProperty.call(record, "billing_account_id");
-  const hasParticipantCount = Object.prototype.hasOwnProperty.call(record, "participant_count");
+  const hasHost = objectHasOwn(record, "host_account_id");
+  const hasBilling = objectHasOwn(record, "billing_account_id");
+  const hasParticipantCount = objectHasOwn(record, "participant_count");
   if (
     (privacyMode === "transparent" && (!hasHost || !hasParticipantCount))
     || (privacyMode === "private" && (hasHost || hasBilling || hasParticipantCount))
   ) {
     rejectType(`${context} authority and participant fields must agree with privacy_mode`);
   }
-  const hasEndedAt = Object.prototype.hasOwnProperty.call(record, "ended_at_ms");
+  const hasEndedAt = objectHasOwn(record, "ended_at_ms");
   if (hasEndedAt !== (status === "ended")) {
     rejectType(`${context}.ended_at_ms must be present exactly when status is ended`);
   }
-  const maxParticipants = Object.prototype.hasOwnProperty.call(record, "max_participants")
+  const maxParticipants = objectHasOwn(record, "max_participants")
     ? normalizeKaigiBoundedUnsignedInteger(
           record.max_participants,
           `${context}.max_participants`,
@@ -26093,10 +26104,10 @@ function normalizeKaigiCallView(payload, expectedCallId) {
             `${context}.billing_account_id`,
           )
       : undefined,
-    title: Object.prototype.hasOwnProperty.call(record, "title")
+    title: objectHasOwn(record, "title")
       ? requireExactString(record.title, `${context}.title`)
       : undefined,
-    description: Object.prototype.hasOwnProperty.call(record, "description")
+    description: objectHasOwn(record, "description")
       ? requireExactString(record.description, `${context}.description`)
       : undefined,
     max_participants: maxParticipants,
@@ -26105,7 +26116,7 @@ function normalizeKaigiCallView(payload, expectedCallId) {
       `${context}.gas_rate_per_minute`,
     ),
     metadata,
-    scheduled_start_ms: Object.prototype.hasOwnProperty.call(record, "scheduled_start_ms")
+    scheduled_start_ms: objectHasOwn(record, "scheduled_start_ms")
       ? normalizeKaigiU64(
             record.scheduled_start_ms,
             `${context}.scheduled_start_ms`,
@@ -26197,16 +26208,16 @@ function normalizeKaigiCallSignal(payload, context, expectedCallId) {
       record.entrypoint_hash,
       `${context}.entrypoint_hash`,
     ),
-    authority: Object.prototype.hasOwnProperty.call(record, "authority")
+    authority: objectHasOwn(record, "authority")
       ? requireExactAccountId(record.authority, `${context}.authority`)
       : undefined,
     timestamp_ms: timestampMs,
     call_id: callId,
     signal_kind: signalKind,
-    host_account_id: Object.prototype.hasOwnProperty.call(record, "host_account_id")
+    host_account_id: objectHasOwn(record, "host_account_id")
       ? requireExactNonEmptyString(record.host_account_id, `${context}.host_account_id`)
       : undefined,
-    participant_account_id: Object.prototype.hasOwnProperty.call(
+    participant_account_id: objectHasOwn(
       record,
       "participant_account_id",
     )
@@ -26243,7 +26254,7 @@ function normalizeKaigiCallSignalsList(payload, expectedCallId) {
   if (typeof record.has_more !== "boolean") {
     rejectType(`${context}.has_more must be a boolean`);
   }
-  const hasCursor = Object.prototype.hasOwnProperty.call(record, "next_cursor");
+  const hasCursor = objectHasOwn(record, "next_cursor");
   if (record.has_more !== hasCursor) {
     rejectType(`${context}.next_cursor must be present exactly when has_more is true`);
   }
@@ -26315,8 +26326,8 @@ function normalizeKaigiCallEventData(payload, expectedCallId) {
     new Set(["transparent", "private"]),
     `${context}.privacy_mode`,
   );
-  const hasParticipantCount = Object.prototype.hasOwnProperty.call(record, "participant_count");
-  const hasRosterRoot = Object.prototype.hasOwnProperty.call(record, "roster_root_hex");
+  const hasParticipantCount = objectHasOwn(record, "participant_count");
+  const hasRosterRoot = objectHasOwn(record, "roster_root_hex");
   if (
     (privacyMode === "transparent" && (!hasParticipantCount || hasRosterRoot))
     || (privacyMode === "private" && (hasParticipantCount || !hasRosterRoot))
@@ -26454,7 +26465,7 @@ function buildKaigiRelayEventParams(options = {}) {
     params.relay = requireNonEmptyString(normalizedOptions.relay, "kaigiRelayEvents.relay");
   }
   if (normalizedOptions.kind !== undefined && normalizedOptions.kind !== null) {
-    const values = Array.isArray(normalizedOptions.kind)
+    const values = arrayIsArray(normalizedOptions.kind)
       ? normalizedOptions.kind
       : String(normalizedOptions.kind)
           .split(",")
@@ -26472,7 +26483,7 @@ function buildKaigiRelayEventParams(options = {}) {
       params.kind = normalized.join(",");
     }
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function buildKaigiCallSignalsQuery(options = {}) {
@@ -26525,7 +26536,7 @@ function buildKaigiCallSignalsQuery(options = {}) {
   }
   return {
     signal,
-    params: Object.keys(params).length === 0 ? undefined : params,
+    params: objectKeys(params).length === 0 ? undefined : params,
     canonicalAuth: source.canonicalAuth,
   };
 }
@@ -26539,7 +26550,7 @@ function buildKaigiCallEventParams(options = {}) {
         });
   const params = {};
   if (normalizedOptions.kind !== undefined && normalizedOptions.kind !== null) {
-    const values = Array.isArray(normalizedOptions.kind)
+    const values = arrayIsArray(normalizedOptions.kind)
       ? normalizedOptions.kind
       : String(normalizedOptions.kind)
           .split(",")
@@ -26557,7 +26568,7 @@ function buildKaigiCallEventParams(options = {}) {
       params.kind = normalized.join(",");
     }
   }
-  return Object.keys(params).length === 0 ? undefined : params;
+  return objectKeys(params).length === 0 ? undefined : params;
 }
 
 function buildTriggerListQuery(options = {}) {
@@ -26586,7 +26597,7 @@ function buildTriggerListQuery(options = {}) {
       allowZero: true,
     });
   }
-  return { signal, params: Object.keys(params).length === 0 ? undefined : params };
+  return { signal, params: objectKeys(params).length === 0 ? undefined : params };
 }
 
 function normalizeSignalOption(options, context) {
@@ -26614,7 +26625,7 @@ function normalizeSignalOption(options, context) {
 function normalizeSignalOnlyOption(options, context) {
   const { signal } = normalizeSignalOption(options, context);
   if (options !== undefined) {
-    const extras = Object.keys(options).filter((key) => key !== "signal");
+    const extras = objectKeys(options).filter((key) => key !== "signal");
     if (extras.length > 0) {
       throw createValidationError(
         ValidationErrorCode.INVALID_OBJECT,
@@ -26627,7 +26638,7 @@ function normalizeSignalOnlyOption(options, context) {
 }
 
 async function readBoundedResponseBody(response, maximumBodyBytes, label) {
-  if (!Number.isSafeInteger(maximumBodyBytes) || maximumBodyBytes < 0) {
+  if (!numberIsSafeInteger(maximumBodyBytes) || maximumBodyBytes < 0) {
     rejectType(`${label} response byte-size bound is invalid`);
   }
 
@@ -26644,7 +26655,7 @@ async function readBoundedResponseBody(response, maximumBodyBytes, label) {
       throw error;
     }
     const declaredLength = Number(rawContentLength);
-    if (!Number.isSafeInteger(declaredLength) || declaredLength > maximumBodyBytes) {
+    if (!numberIsSafeInteger(declaredLength) || declaredLength > maximumBodyBytes) {
       const error = new TypeError(
         `${label} response exceeds its ${maximumBodyBytes}-byte size bound`,
       );
@@ -26750,7 +26761,7 @@ function requirePlainObjectOption(value, context, { message } = {}) {
 }
 
 function assertSupportedOptionKeys(record, allowedKeys, context) {
-  const extras = Object.keys(record).filter((key) => !allowedKeys.has(key));
+  const extras = objectKeys(record).filter((key) => !allowedKeys.has(key));
   if (extras.length > 0) {
     const path = typeof context === JS_TYPE_STRING ? context.replace(/\s+/g, ".") : context;
     throw createValidationError(
@@ -26835,7 +26846,7 @@ function isAbortSignalLike(value) {
 }
 
 function normalizeAttachmentMetadataList(payload, context = "attachment list response") {
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType(`${context} must be an array`);
   }
   return payload.map((entry, index) =>
@@ -26851,7 +26862,7 @@ function normalizeAttachmentUploadPayload(value, context) {
     Buffer.isBuffer(value) ||
     ArrayBuffer.isView(value) ||
     value instanceof ArrayBuffer ||
-    Array.isArray(value)
+    arrayIsArray(value)
   ) {
     return toBuffer(value);
   }
@@ -26926,7 +26937,7 @@ function loadVerifyingKeyClient() {
         );
         if (
           !Object.isFrozen(client) ||
-          Object.keys(client).join(",") !==
+          objectKeys(client).join(",") !==
             "backend,detail,draft,id,list,listQuery,name,register,signingContext,update"
         ) {
           rejectType("invalid verifying-key setup: expected frozen helper keys");
@@ -26937,7 +26948,7 @@ function loadVerifyingKeyClient() {
 }
 
 function rejectVerifyingKeyPrivateKeyFields(record, context) {
-  const fields = Object.keys(record).filter((key) =>
+  const fields = objectKeys(record).filter((key) =>
     VERIFYING_KEY_PRIVATE_KEY_FIELDS.has(key),
   );
   if (fields.length === 0) {
@@ -27015,7 +27026,7 @@ function normalizeProverReportList(payload, filters, context) {
   if (payload == null) {
     return { kind: "reports", reports: [] };
   }
-  if (!Array.isArray(payload)) {
+  if (!arrayIsArray(payload)) {
     rejectType(`${context} must be an array`);
   }
   if (payload.length === 0) {
@@ -27035,7 +27046,7 @@ function normalizeProverReportList(payload, filters, context) {
   }
   if (
     isPlainObject(first) &&
-    Object.keys(first).every((key) => key === "id" || key === "error")
+    objectKeys(first).every((key) => key === "id" || key === "error")
   ) {
     if (!messagesOnlyRequested) {
       rejectError("Torii returned message-only prover report projection; pass { messages_only: true } to listProverReports to consume this payload");
@@ -27115,7 +27126,7 @@ function normalizeSumeragiEvidenceListResponse(payload, limit, offset, requested
     "items",
   ]);
   const rawItems = record.items;
-  if (!Array.isArray(rawItems)) {
+  if (!arrayIsArray(rawItems)) {
     rejectType("sumeragi evidence response.items must be an array");
   }
   const items = rawItems.map((item, index) =>
@@ -27147,9 +27158,9 @@ function normalizeSumeragiEvidenceListResponse(payload, limit, offset, requested
 function assertExactSumeragiEvidenceFields(record, context, fields) {
   const required = new Set(fields);
   const missing = fields.filter(
-    (field) => !Object.prototype.hasOwnProperty.call(record, field),
+    (field) => !objectHasOwn(record, field),
   );
-  const unexpected = Object.keys(record).filter((field) => !required.has(field));
+  const unexpected = objectKeys(record).filter((field) => !required.has(field));
   if (missing.length > 0 || unexpected.length > 0) {
     const details = [];
     if (missing.length > 0) details.push(`missing ${missing.join(", ")}`);
@@ -27162,7 +27173,7 @@ function requireSumeragiEvidenceUnsigned(value, context, maximum = MAX_UINT64_BI
   let integer;
   if (
     typeof value === JS_TYPE_NUMBER
-    && Number.isSafeInteger(value)
+    && numberIsSafeInteger(value)
     && value >= 0
     && !Object.is(value, -0)
   ) {
@@ -27288,7 +27299,7 @@ function normalizeSccpForgeryEvidence(value, context) {
     const anchorContext = `${evidenceContext}.anchor`;
     const source = ensureRecord(evidence.anchor, anchorContext);
     assertExactSumeragiEvidenceFields(source, anchorContext, ["core_hash", "result", "path"]);
-    if (!Array.isArray(source.path) || source.path.length !== 12) rejectRange(`${anchorContext}.path must contain exactly 12 siblings`);
+    if (!arrayIsArray(source.path) || source.path.length !== 12) rejectRange(`${anchorContext}.path must contain exactly 12 siblings`);
     anchor = {
       core_hash: requireSumeragiFixedHex(source.core_hash, `${anchorContext}.core_hash`, 32),
       result: requireSumeragiFixedHex(source.result, `${anchorContext}.result`, 32),
@@ -27301,7 +27312,7 @@ function normalizeSccpForgeryEvidence(value, context) {
   const generation = requireSumeragiEvidenceUnsigned(record.generation, `${recordContext}.generation`);
   const startHeight = requireSumeragiEvidenceUnsigned(record.start_height, `${recordContext}.start_height`);
   if (generation === 0 || startHeight === 0) rejectRange(`${recordContext} generation and start_height must be nonzero`);
-  if (!Array.isArray(record.offenders) || record.offenders.length === 0 || record.offenders.length > 31) rejectRange(`${recordContext}.offenders must contain between 1 and 31 entries`);
+  if (!arrayIsArray(record.offenders) || record.offenders.length === 0 || record.offenders.length > 31) rejectRange(`${recordContext}.offenders must contain between 1 and 31 entries`);
   let previousSigner = -1;
   const registrations = new Set();
   const offenders = record.offenders.map((source, index) => {
@@ -27326,7 +27337,7 @@ function normalizeSccpForgeryEvidence(value, context) {
   const scope = normalizeSumeragiEvidenceScope(attribution.scope, `${where}.scope`, "sccp");
   const height = requireSumeragiEvidenceUnsigned(attribution.height, `${where}.height`);
   if (BigInt(scope.value.generation) !== BigInt(generation) || BigInt(height) !== BigInt(startHeight)) rejectRange(`${where} must match the recorded generation and liability start`);
-  if (!Array.isArray(attribution.offenders) || attribution.offenders.length !== offenders.length) rejectRange(`${where}.offenders must match the recorded signers`);
+  if (!arrayIsArray(attribution.offenders) || attribution.offenders.length !== offenders.length) rejectRange(`${where}.offenders must match the recorded signers`);
   const attributed = attribution.offenders.map((source, index) => {
     const at = `${where}.offenders[${index}]`;
     const offender = ensureRecord(source, at);
@@ -27372,7 +27383,7 @@ function normalizeSumeragiNativeEvidence(value, context) {
   // Different-view CommitQC conflicts establish a safety violation without attributing signers.
   const permitsUnattributedSafetyViolation =
     evidenceClass === "conflicting_certificates" && record.safety_violation === true;
-  if (!Array.isArray(record.offenders) || record.offenders.length > 1024 ||
+  if (!arrayIsArray(record.offenders) || record.offenders.length > 1024 ||
       (record.offenders.length === 0 && !permitsUnattributedSafetyViolation)) {
     rejectRange(`${context}.offenders must contain between 1 and 1024 entries, or be empty for a conflicting-certificate safety violation`);
   }
@@ -27433,7 +27444,7 @@ function normalizeSumeragiNativeEvidence(value, context) {
 }
 
 function rejectAliasField(record, context, aliasKey, canonicalKey) {
-  if (Object.prototype.hasOwnProperty.call(record, aliasKey)) {
+  if (objectHasOwn(record, aliasKey)) {
     rejectType(`${context}.${aliasKey} is not supported; use ${canonicalKey}`);
   }
 }
@@ -27542,7 +27553,7 @@ function normalizeContractEventListItem(value, context) {
   const emission = normalizeContractEmissionV1(record.emission, `${context}.emission`);
   normalizeCanonicalManifestHash(emission.code_hash, `${context}.emission.code_hash`);
   if (record.contract_address !== emission.contract || record.authority !== emission.caller || record.event_kind !== emission.definition.name) rejectType(`${context} does not match its native emission origin`);
-  if (!Object.hasOwn(record, "payload")) rejectType(`${context}.payload is required`);
+  if (!objectHasOwn(record, "payload")) rejectType(`${context}.payload is required`);
   const normalized = {
     event_id: eventId, schema_version: ToriiClient._normalizeUnsignedInteger(record.schema_version, `${context}.schema_version`, { allowZero: false }), provenance,
     execution_hash_hex: requireCanonicalTransactionHashString(record.execution_hash_hex, `${context}.execution_hash_hex`),
@@ -27596,7 +27607,7 @@ function normalizeTriggerUpsertPayload(input) {
     } catch {
       rejectType("registerTrigger.action must be a valid base64 string");
     }
-  } else if (!Array.isArray(actionValue) && typeof actionValue === JS_TYPE_OBJECT) {
+  } else if (!arrayIsArray(actionValue) && typeof actionValue === JS_TYPE_OBJECT) {
     payload.action = cloneJsonValue(actionValue, "registerTrigger.action");
   } else {
     rejectType("registerTrigger.action must be an object or base64 string produced by Norito serialization");
@@ -27610,7 +27621,7 @@ function normalizeTriggerUpsertPayload(input) {
     delete payload.metadata;
   } else if (
     typeof payload.metadata !== JS_TYPE_OBJECT ||
-    Array.isArray(payload.metadata)
+    arrayIsArray(payload.metadata)
   ) {
     rejectType("registerTrigger.metadata must be an object when provided");
   }
@@ -27764,7 +27775,7 @@ function normalizeTriggerRecord(payload, context) {
 function normalizeTriggerListResponse(payload, context) {
   const record = ensureRecord(payload ?? {}, context);
   const rawItems = record.items ?? [];
-  if (!Array.isArray(rawItems)) {
+  if (!arrayIsArray(rawItems)) {
     rejectType(`${context}.items must be an array`);
   }
   const items = rawItems.map((entry, index) =>
@@ -27967,7 +27978,7 @@ function normalizeConnectAppRecord(payload, context) {
 function normalizeConnectAppRegistryPage(payload) {
   const record = ensureRecord(payload ?? {}, "connect app registry response");
   const rawItems = record.items ?? [];
-  if (!Array.isArray(rawItems)) {
+  if (!arrayIsArray(rawItems)) {
     rejectType("connect app registry response.items must be an array");
   }
   const items = rawItems.map((entry, index) =>
@@ -28142,7 +28153,7 @@ function normalizeConnectAdmissionManifest(payload, context) {
   const record = ensureRecord(payload ?? {}, context);
   const manifestRecord = isPlainObject(record.manifest) ? record.manifest : record;
   const rawEntries = manifestRecord.entries ?? [];
-  if (!Array.isArray(rawEntries)) {
+  if (!arrayIsArray(rawEntries)) {
     rejectType(`${context}.entries must be an array`);
   }
   const entries = rawEntries.map((entry, index) =>
@@ -28235,7 +28246,7 @@ function toConnectAdmissionManifestPayload(input, context) {
 
 function normalizeConnectStatusSnapshot(payload, context) {
   const record = ensureRecord(payload, context);
-  const perIpRaw = Array.isArray(record.per_ip_sessions) ? record.per_ip_sessions : [];
+  const perIpRaw = arrayIsArray(record.per_ip_sessions) ? record.per_ip_sessions : [];
   const perIpSessions = perIpRaw.map((entry, index) =>
     normalizeConnectPerIpSessions(entry, `${context}.per_ip_sessions[${index}]`),
   );
@@ -28468,7 +28479,7 @@ function buildSorafsOrderbookEventsWebSocketUrlInternal(baseUrl, options, contex
   endpoint.protocol = mapHttpProtocolToWebSocket(endpoint.protocol, context);
   endpoint.search = "";
   const query = buildSorafsOrderbookEventsParams(params, context) ?? {};
-  for (const [key, value] of Object.entries(query)) {
+  for (const [key, value] of objectEntries(query)) {
     endpoint.searchParams.set(key, String(value));
   }
   return endpoint.toString();
@@ -28607,7 +28618,7 @@ function extractWebSocketMessageData(args) {
     args.length === 1 &&
     first &&
     typeof first === JS_TYPE_OBJECT &&
-    Object.prototype.hasOwnProperty.call(first, "data")
+    objectHasOwn(first, "data")
   ) {
     return first.data;
   }
@@ -28794,13 +28805,13 @@ function openConnectWebSocketInternal(options, context) {
   const finalProtocols = supportsHeaders
     ? protocols
     : attachProtocolToken(protocols, buildConnectProtocolToken(token), context);
-  if (Object.keys(headerContainer).length > 0) {
+  if (objectKeys(headerContainer).length > 0) {
     resolvedOptions.headers = headerContainer;
   } else if (!websocketOptions) {
     delete resolvedOptions.headers;
   }
   const shouldPassOptions =
-    websocketOptions !== undefined || Object.keys(headerContainer).length > 0;
+    websocketOptions !== undefined || objectKeys(headerContainer).length > 0;
   if (shouldPassOptions) {
     if (finalProtocols !== undefined) {
       return new WebSocketClass(url, finalProtocols, resolvedOptions);
@@ -28860,7 +28871,7 @@ function attachProtocolToken(protocols, tokenProtocol, context) {
   if (typeof protocols === JS_TYPE_STRING) {
     return protocols === tokenProtocol ? protocols : [tokenProtocol, protocols];
   }
-  if (Array.isArray(protocols)) {
+  if (arrayIsArray(protocols)) {
     if (protocols.includes(tokenProtocol)) {
       return [...protocols];
     }
@@ -28977,7 +28988,7 @@ function identifierNormalizeUnsignedBigInt(value, context) {
     return value;
   }
   if (typeof value === JS_TYPE_NUMBER) {
-    if (!Number.isInteger(value) || value < 0 || !Number.isSafeInteger(value)) {
+    if (!numberIsInteger(value) || value < 0 || !numberIsSafeInteger(value)) {
       throw createValidationError(
         ValidationErrorCode.INVALID_NUMERIC,
         `${context} must be a non-negative safe integer`,
@@ -29205,7 +29216,7 @@ function identifierMultisigMemberPayload(member, context) {
 
 function identifierCanonicalU16(value, context) {
   const integer = Number(identifierNormalizeUnsignedBigInt(value, context));
-  if (!Number.isInteger(integer) || integer < 0 || integer > 0xffff) {
+  if (!numberIsInteger(integer) || integer < 0 || integer > 0xffff) {
     throw createValidationError(
       ValidationErrorCode.VALUE_OUT_OF_RANGE,
       `${context} must fit in u16`,
@@ -29226,7 +29237,7 @@ function identifierNoritoVec(values, encode, context) {
 }
 
 function identifierMultisigPolicyPayload(policy, context) {
-  if (!Array.isArray(policy.members) || policy.members.length === 0) {
+  if (!arrayIsArray(policy.members) || policy.members.length === 0) {
     rejectError(`${context} multisig policy must contain at least one member`);
   }
   return Buffer.concat([
@@ -29244,7 +29255,7 @@ function identifierMultisigPolicyPayload(policy, context) {
 
 function identifierCanonicalU8(value, context) {
   const integer = Number(identifierNormalizeUnsignedBigInt(value, context));
-  if (!Number.isInteger(integer) || integer < 0 || integer > 0xff) {
+  if (!numberIsInteger(integer) || integer < 0 || integer > 0xff) {
     throw createValidationError(
       ValidationErrorCode.VALUE_OUT_OF_RANGE,
       `${context} must fit in u8`,
