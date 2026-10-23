@@ -9,9 +9,9 @@
 # parse untrusted input. The scanner allows 45 minutes for the clone, this file and its own layers, and iroha_core
 # alone is about 1.5M lines, so the compile steps share one OSS_SCANNER_BUDGET_MINUTES budget after dependency fetch.
 # The deadline is initialized in the compilation RUN, so rebuilding changed source never reuses a cached deadline.
-# A step still running at the deadline stops, keeps what it compiled and lets the build finish. Compile errors and
-# abnormal exits, including SIGKILL, fail the build. /opt/oss-scanner/build.log in the image records how each step
-# ended. Package installation, toolchain installation, fetching dependencies and exporting/unpacking the image
+# Every prebuild must finish before the deadline; timeouts, compile errors and abnormal exits fail the build.
+# /opt/oss-scanner/build.log in the image records how each step ended. Package installation, toolchain
+# installation, fetching dependencies and exporting/unpacking the image
 # also count toward the scanner's overall limit. Leave time for those outside this compilation budget: exporting
 # and unpacking the compiled artifacts alone can take over eleven minutes.
 #
@@ -52,8 +52,7 @@ COPY <<'EOF' /usr/local/cargo/config.toml
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 EOF
 
-# within-budget NAME COMMAND...: run COMMAND until the shared deadline. Reaching the deadline is not a failure: the
-# step keeps what it compiled, and rerunning the same command offline finishes it.
+# within-budget NAME COMMAND...: run COMMAND until the shared deadline. An incomplete prebuild fails the image.
 COPY --chmod=0755 <<'EOF' /usr/local/bin/within-budget
 #!/bin/sh
 set -u
@@ -62,7 +61,7 @@ shift
 left=$(( $(cat /opt/oss-scanner/deadline) - $(date +%s) ))
 if [ "$left" -lt 60 ]; then
     echo "$name: skipped, the build deadline had passed" | tee -a /opt/oss-scanner/build.log
-    exit 0
+    exit 124
 fi
 started=$(date +%s)
 timeout --kill-after=60 "$left" "$@"
@@ -70,7 +69,7 @@ status=$?
 took=$(( $(date +%s) - started ))
 case "$status" in
     0) outcome="done in ${took}s" ;;
-    124) outcome="stopped at the deadline after ${took}s, unfinished"; status=0 ;;
+    124) outcome="stopped at the deadline after ${took}s, unfinished" ;;
     *) outcome="failed with exit status $status after ${took}s" ;;
 esac
 echo "$name: $outcome" | tee -a /opt/oss-scanner/build.log
@@ -100,38 +99,42 @@ WORKDIR /src
 # Every crate in Cargo.lock, for every platform and feature, so the audit can build other configurations offline.
 RUN cargo fetch --locked
 
-# First build the release image's binaries plus the Kotodama compiler together as in the repository Dockerfile
-# (adding koto changes no features). Keep kagami in its own Cargo invocation, matching the release image.
+# Build the release image's binaries, Kotodama compiler and Kagami in one feature graph so Kagami does not rebuild
+# the node's large dependency tree. Kagami adds the data model's exact-12 conformance helpers, not test-fixtures.
 # A network needs at least four validators (3f + 1), and `kagami localnet generate` writes one.
-# Test binaries, each built exactly as `cargo test -p <crate>` resolves it. Cargo resolves features per invocation,
-# so each crate's tests are a separate build from the node's. The most useful come first, and the deadline decides how
-# far the list gets. Initialize the deadline in this same RUN: cached setup layers must not consume a future build's
-# compilation budget, and every compilation step must share the newly initialized deadline.
-ARG OSS_SCANNER_BUDGET_MINUTES=20
+# Share a separate feature graph for the codec, crypto, IVM and P2P tests. Keep the simulator in its own graph so
+# sim is not enabled in the shipping binaries or the other test suites. Ordinary cargo test --no-run includes all
+# default library/integration harnesses and example build checks. Pin the source-rescan sentinel between Cargo
+# invocations, before it can invalidate reusable dependencies. Timings and sizes make remaining costs visible.
+# Initialize the shared deadline in this RUN so cached setup layers cannot consume a future compilation budget.
+ARG OSS_SCANNER_BUDGET_MINUTES=28
 RUN echo $(( $(date +%s) + ${OSS_SCANNER_BUDGET_MINUTES} * 60 )) > /opt/oss-scanner/deadline \
-    && within-budget "release binaries" cargo build --locked \
-         -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain \
+    && within-budget "release binaries and kagami" cargo build --locked --timings \
+         -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain -p iroha_kagami \
          --features irohad/external-software-signer-bin \
          --bin iroha3d --bin iroha3d_taira --bin sorafs_governance_dag --bin sorafs_external_software_signer \
-         --bin iroha --bin attachment_sanitizer --bin koto \
-    && within-budget "kagami" cargo build --locked -p iroha_kagami --bin kagami \
-    && within-budget "norito tests" cargo test --locked --no-run -p norito \
-    && within-budget "iroha_sumeragi simulator tests" cargo test --locked --no-run -p iroha_sumeragi --features sim \
-    && within-budget "iroha_crypto tests" cargo test --locked --no-run -p iroha_crypto \
-    && within-budget "ivm tests" cargo test --locked --no-run -p ivm \
-    && within-budget "iroha_p2p tests" cargo test --locked --no-run -p iroha_p2p
-
-RUN pin-iroha-plonk
+         --bin iroha --bin attachment_sanitizer --bin koto --bin kagami \
+    && pin-iroha-plonk && du -sh target \
+    && sha256sum target/debug/iroha3d target/debug/iroha3d_taira target/debug/sorafs_governance_dag \
+         target/debug/sorafs_external_software_signer target/debug/iroha target/debug/attachment_sanitizer \
+         target/debug/koto target/debug/kagami > /opt/oss-scanner/binaries.sha256 \
+    && within-budget "codec crypto VM and P2P tests" cargo test --locked --no-run --timings \
+         -p norito -p iroha_crypto -p ivm -p iroha_p2p \
+    && pin-iroha-plonk && du -sh target \
+    && within-budget "iroha_sumeragi simulator tests" cargo test --locked --no-run --timings \
+         -p iroha_sumeragi --features sim \
+    && pin-iroha-plonk && du -sh target \
+    && sha256sum --check /opt/oss-scanner/binaries.sha256
 
 # Record CLI startup and internal-subprocess availability, then print what the audit gets.
 # attachment_sanitizer requires its parent's private IPC setup and intentionally has no --help CLI.
-RUN for bin in iroha3d iroha3d_taira sorafs_governance_dag sorafs_external_software_signer iroha kagami koto attachment_sanitizer; do \
-      if [ ! -x "target/debug/$bin" ]; then echo "$bin: not built"; \
+RUN status=0; for bin in iroha3d iroha3d_taira sorafs_governance_dag sorafs_external_software_signer iroha kagami koto attachment_sanitizer; do \
+      if [ ! -x "target/debug/$bin" ]; then echo "$bin: not built"; status=1; \
       elif [ "$bin" = attachment_sanitizer ]; then echo "$bin: built, internal subprocess (no --help CLI)"; \
       elif "target/debug/$bin" --help >/dev/null 2>&1; then echo "$bin: built, --help works"; \
-      else echo "$bin: built, but --help failed"; fi; \
+      else echo "$bin: built, but --help failed"; status=1; fi; \
     done >> /opt/oss-scanner/build.log \
-    && cat /opt/oss-scanner/build.log
+    && cat /opt/oss-scanner/build.log && test "$status" = 0
 
 # Everything is fetched. From here on Cargo must not try to reach a registry.
 ENV CARGO_NET_OFFLINE=true
