@@ -219,6 +219,67 @@ final class DetachedTransactionNativeBridgeTests: XCTestCase {
         }
     }
 
+    private var fiTransferReview: String {
+        """
+        {"kind":"asset_fi_link_transfer","asset_definition_id":"ds","account_id":"owner",
+        "amount":"184467440737095516.15","expected_link_revision":18446744073709551615,
+        "expected_policy_revision":18446744073709551614}
+        """
+    }
+
+    func testLinkedFiTransferInspectionPreservesExactFieldsWithoutDestinationEvidence() throws {
+        let result = try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(fiTransferReview))
+        guard case let .assetFiLinkTransfer(value) = result.executable else { return XCTFail("linked FI transfer") }
+        XCTAssertEqual(value.assetDefinitionId, "ds")
+        XCTAssertEqual(value.accountId, "owner")
+        XCTAssertEqual(value.amount, "184467440737095516.15")
+        XCTAssertEqual(value.expectedLinkRevision, UInt64.max)
+        XCTAssertEqual(value.expectedPolicyRevision, UInt64.max - 1)
+        // Inspection is lossless, not ledger admission: zero revisions are visible
+        // for a caller to reject, not normalized into an invented current revision.
+        let zero = fiTransferReview.replacingOccurrences(of: "18446744073709551615", with: "0")
+        guard case let .assetFiLinkTransfer(decoded) = try DetachedTransactionBridgeJSONCodec
+            .decodeInspection(monetaryReview(zero)).executable else { return XCTFail("linked FI transfer") }
+        XCTAssertEqual(decoded.expectedLinkRevision, 0)
+    }
+
+    func testLinkedFiTransferInspectionRejectsMissingDuplicateWrongAndUnsignedDisplayFields() {
+        let fields = [
+            ("asset_definition_id", "\"ds\""), ("account_id", "\"owner\""),
+            ("amount", "\"184467440737095516.15\""),
+            ("expected_link_revision", "18446744073709551615"),
+            ("expected_policy_revision", "18446744073709551614"),
+        ]
+        for (key, value) in fields {
+            let field = "\"\(key)\":\(value)"
+            for replacement in ["\"unknown_\(key)\":\(value)", field + "," + field, "\"\(key)\":[]"] {
+                XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(
+                    monetaryReview(fiTransferReview.replacingOccurrences(of: field, with: replacement))), key)
+            }
+            if key.hasSuffix("revision") {
+                for wrong in ["-1", "-0", "1.0", "1e0", "\"1\"", "true", "null", "18446744073709551616"] {
+                    XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(
+                        fiTransferReview.replacingOccurrences(of: field, with: "\"\(key)\":\(wrong)"))), key + wrong)
+                }
+            }
+        }
+        for extra in ["fi_account_id", "destination_account_id", "reference_digest", "fi_revision", "attestation_revision", "purpose", "waterfall"] {
+            let hostile = fiTransferReview.replacingOccurrences(of: "\"kind\":", with: "\"\(extra)\":\"untrusted\",\"kind\":")
+            XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)), extra)
+        }
+        for hostile in [
+            fiTransferReview.replacingOccurrences(of: "asset_fi_link_transfer", with: "asset_transfer"),
+            fiTransferReview.replacingOccurrences(of: "\"amount\":\"184467440737095516.15\"", with: "\"amount\":184467440737095516.15"),
+            fiTransferReview.replacingOccurrences(of: "\"account_id\":\"owner\"", with: "\"account_id\":\"\""),
+            fiTransferReview.replacingOccurrences(of: "\"asset_definition_id\":\"ds\"", with: "\"asset_definition_id\":\"\""),
+            fiTransferReview.replacingOccurrences(of: "\"amount\":\"184467440737095516.15\"", with: "\"amount\":\"\""),
+            "{\"kind\":\"transfer_instruction_sequence\",\"transfers\":[\(fiTransferReview),\(fiTransferReview)]}",
+            "{\"kind\":\"atomic_transfer_sequence\",\"transfers\":[\(fiTransferReview),\(fiTransferReview)]}",
+        ] {
+            XCTAssertThrowsError(try DetachedTransactionBridgeJSONCodec.decodeInspection(monetaryReview(hostile)))
+        }
+    }
+
     private var fiLinkReview: String {
         """
         {"kind":"asset_fi_link_set","asset_definition_id":"ds","account_id":"owner","fi_account_id":"fi",

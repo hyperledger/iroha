@@ -98,6 +98,16 @@ public struct DetachedAssetFiLinkInspection: Sendable, Equatable {
     public let expectedPolicyRevision: UInt64
 }
 
+/// Exact signed linked-FI transfer fields. This inspection contains no destination
+/// evidence and does not authorize a review, prove a current link, or prove execution.
+public struct DetachedAssetFiLinkTransferInspection: Sendable, Equatable {
+    public let assetDefinitionId: String
+    public let accountId: String
+    public let amount: String
+    public let expectedLinkRevision: UInt64
+    public let expectedPolicyRevision: UInt64
+}
+
 public enum DetachedTransactionExecutableInspection: Sendable, Equatable {
     case contractCall(DetachedContractCallInspection)
     case assetTransfer(DetachedAssetTransferInspection)
@@ -106,6 +116,7 @@ public enum DetachedTransactionExecutableInspection: Sendable, Equatable {
     case assetTransferBatch(DetachedAssetTransferBatchInspection)
     case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
     case assetFiLinkSet(DetachedAssetFiLinkInspection)
+    case assetFiLinkTransfer(DetachedAssetFiLinkTransferInspection)
 }
 
 public struct DetachedTransactionScaffoldInspection: Sendable, Equatable {
@@ -178,6 +189,7 @@ private enum ExecutableDTO: Decodable {
     case assetTransferBatch(DetachedAssetTransferBatchInspection)
     case conditionalEscrowOpen(DetachedConditionalEscrowInspection)
     case assetFiLinkSet(AssetFiLinkDTO)
+    case assetFiLinkTransfer(AssetFiLinkTransferDTO)
 
     private enum CodingKeys: String, CodingKey {
         case kind, transfers
@@ -200,6 +212,8 @@ private enum ExecutableDTO: Decodable {
             self = .conditionalEscrowOpen(try DetachedConditionalEscrowInspection(from: decoder))
         case "asset_fi_link_set":
             self = .assetFiLinkSet(try AssetFiLinkDTO(from: decoder))
+        case "asset_fi_link_transfer":
+            self = .assetFiLinkTransfer(try AssetFiLinkTransferDTO(from: decoder))
         case let kind:
             throw DecodingError.dataCorruptedError(
                 forKey: .kind,
@@ -207,6 +221,22 @@ private enum ExecutableDTO: Decodable {
                 debugDescription: "Unsupported detached executable kind \(kind)"
             )
         }
+    }
+}
+
+private struct AssetFiLinkTransferDTO: Decodable {
+    let assetDefinitionId: String
+    let accountId: String
+    let amount: String
+    let expectedLinkRevision: UInt64
+    let expectedPolicyRevision: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case assetDefinitionId = "asset_definition_id"
+        case accountId = "account_id"
+        case amount
+        case expectedLinkRevision = "expected_link_revision"
+        case expectedPolicyRevision = "expected_policy_revision"
     }
 }
 
@@ -370,6 +400,16 @@ enum DetachedTransactionBridgeJSONCodec {
             executable = .assetTransferBatch(batch)
         case let .conditionalEscrowOpen(escrow):
             executable = .conditionalEscrowOpen(escrow)
+        case let .assetFiLinkTransfer(transfer):
+            guard !transfer.assetDefinitionId.isEmpty, !transfer.accountId.isEmpty,
+                  !transfer.amount.isEmpty else {
+                throw NativeBridgeError.invalidDetachedTransactionOutput
+            }
+            executable = .assetFiLinkTransfer(DetachedAssetFiLinkTransferInspection(
+                assetDefinitionId: transfer.assetDefinitionId, accountId: transfer.accountId,
+                amount: transfer.amount, expectedLinkRevision: transfer.expectedLinkRevision,
+                expectedPolicyRevision: transfer.expectedPolicyRevision
+            ))
         case let .assetFiLinkSet(link):
             guard !link.assetDefinitionId.isEmpty, !link.accountId.isEmpty,
                   !link.fiAccountId.isEmpty, link.controller?.isEmpty != true,
@@ -460,6 +500,19 @@ enum DetachedTransactionBridgeJSONCodec {
             for transfer in transfers {
                 guard transfer["kind"] as? String == "asset_transfer" else { throw NativeBridgeError.invalidDetachedTransactionOutput }
                 try validateTransferShape(transfer)
+            }
+        case "asset_fi_link_transfer":
+            guard Set(executable.keys) == [
+                "kind", "asset_definition_id", "account_id", "amount",
+                "expected_link_revision", "expected_policy_revision",
+            ] else { throw NativeBridgeError.invalidDetachedTransactionOutput }
+            let lexemes = try ExactJSONNumberLexemeScanner.scan(data)
+            for key in [AssetFiLinkTransferDTO.CodingKeys.expectedLinkRevision, .expectedPolicyRevision] {
+                let path = exactJSONNumberCodingPathKey([ScaffoldDTO.CodingKeys.executable, key])
+                guard let token = lexemes[path], let value = UInt64(token),
+                      String(value) == token else {
+                    throw NativeBridgeError.invalidDetachedTransactionOutput
+                }
             }
         case "asset_fi_link_set":
             guard Set(executable.keys) == [

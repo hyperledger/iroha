@@ -246,6 +246,8 @@ enum NativeQueryAccess {
     EnrollmentAccount(AccountId),
     /// Private UID membership and aggregate activity for an exact asset's owner.
     AssetUidOwner(AssetDefinitionId),
+    /// Exact current native owner and incarnation; general read grants never substitute.
+    AssetEscrowOwner(AssetDefinitionId, iroha_data_model::nexus::AxtAssetIncarnationV1),
     /// Exact asset owner or wallet owner; never global/public ledger read.
     AssetFiOwner(AssetDefinitionId, AccountId),
     /// Ledger-wide state requiring the genesis-issued read root.
@@ -385,11 +387,28 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
 fn native_iterable_query_access(
     query: &QueryWithParams,
 ) -> Result<NativeQueryAccess, ValidationFail> {
+    if query.item == QueryItemKind::AssetEscrowScopeOriginalV1 {
+        let query = decode_native_iterable_payload_exact::<data_model_query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1>(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
+        return Ok(NativeQueryAccess::AssetEscrowOwner(query.asset_definition_id, query.expected_incarnation));
+    }
     if query.item == QueryItemKind::AssetUidPolicyViewV1 {
         let query = decode_native_iterable_payload_exact::<
             data_model_query::asset_uid::FindAssetUidPoliciesV1,
         >(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
         return Ok(NativeQueryAccess::AssetUidOwner(query.asset_definition_id));
+    }
+    if query.item == QueryItemKind::AssetFiContextSnapshotV1 {
+        let query = decode_native_iterable_payload_exact::<data_model_query::asset_fi_context::FindAssetFiContextV1>(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
+        query.expected_incarnation.validate().map_err(|_| invalid_native_iterable_query())?;
+        if query.expected_uid == [0; 32] { return Err(invalid_native_iterable_query()); }
+        let selected = crate::smartcontracts::isi::asset_fi_context::target_selection(&query.target)
+            .map_err(|_| invalid_native_iterable_query())?;
+        return Ok(NativeQueryAccess::AssetUidOwner(selected.asset_definition_id.clone()));
+    }
+    if query.item == QueryItemKind::AssetFiTransferReceiptV1 {
+        let query = decode_native_iterable_payload_exact::<data_model_query::asset_fi::FindAssetFiTransferReceiptV1>(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
+        query.expected_incarnation.validate().map_err(|_| invalid_native_iterable_query())?;
+        return Ok(NativeQueryAccess::AssetFiOwner(query.asset_definition_id, query.account_id));
     }
     if query.item == QueryItemKind::AssetFiRelationshipViewV1 {
         let query = decode_native_iterable_payload_exact::<data_model_query::asset_fi::FindAssetFiLinkV1>(&query.query_payload).ok_or_else(invalid_native_iterable_query)?;
@@ -763,8 +782,13 @@ fn validate_builtin_native_query_permission(
             if authority == &account || asset.owned_by() == authority { Ok(()) }
             else { Err(ValidationFail::NotPermitted("only the exact wallet or asset owner may query FI relationships".into()).into()) }
         }
+        NativeQueryAccess::AssetEscrowOwner(definition, incarnation) => {
+            let asset = world.asset_definition(&definition).map_err(|_| ValidationFail::NotPermitted("escrow scope asset is unavailable".into()))?;
+            if asset.owned_by() == authority && world.axt_asset_incarnations().get(&definition) == Some(&incarnation) { Ok(()) }
+            else { Err(ValidationFail::NotPermitted("escrow scope requires the exact current asset owner and live incarnation".into()).into()) }
+        }
         NativeQueryAccess::AssetUidOwner(definition) => {
-            let asset = world.asset_definition(&definition).map_err(|_| {
+            let asset = world.asset_definitions().get(&definition).ok_or_else(|| {
                 ValidationFail::NotPermitted("UID policy asset is not available to the requester".into())
             })?;
             if asset.owned_by() == authority {
@@ -10883,6 +10907,37 @@ mod tests {
         AccountId::new(checked_keypair().public_key().clone())
     }
     #[test]
+    fn native_escrow_scope_binds_current_owner_incarnation_and_archived_request() {
+        use iroha_data_model::{nexus::AxtAssetIncarnationV1, query::{asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1, parameters::QueryParams}};
+        let fixture = initial_batch_fixture();
+        let owner = fixture.source.clone();
+        let outsider = fixture.delegate.clone();
+        let definition = fixture.asset_definition.clone();
+        let incarnation = AxtAssetIncarnationV1::try_from_bytes(*iroha_crypto::Hash::new("scope-owner-test").as_ref()).unwrap();
+        let state = state_for_testing(fixture.world);
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+        let mut tx = block.transaction();
+        tx.world.axt_asset_incarnations.insert(definition.clone(), incarnation);
+        tx.world.account_permissions.insert(outsider.clone(), BTreeSet::from([
+            executor_permission::query::CanReadAllLedgerData.into(),
+            executor_permission::query::CanReadAccountData { account: owner.clone() }.into(),
+        ]));
+        let request = QueryRequest::Start(QueryWithParams {
+            query: (), query_payload: FindAssetEscrowsByAssetDefinitionV1 {
+                asset_definition_id: definition.clone(), expected_incarnation: incarnation,
+            }.encode(), item: QueryItemKind::AssetEscrowScopeOriginalV1,
+            predicate_bytes: Vec::new(), selector_bytes: Vec::new(), params: QueryParams::default(),
+        });
+        validate_builtin_native_query_permission(tx.world(), &owner, &request, 0).unwrap();
+        assert!(validate_builtin_native_query_permission(tx.world(), &outsider, &request, 0).is_err(), "global read cannot substitute for exact ownership");
+        tx.world.asset_definitions.get_mut(&definition).unwrap().set_owned_by(outsider.clone());
+        assert!(validate_builtin_native_query_permission(tx.world(), &owner, &request, 0).is_err(), "an archived request loses authorization when ownership changes");
+        validate_builtin_native_query_permission(tx.world(), &outsider, &request, 0).unwrap();
+        tx.world.axt_asset_incarnations.insert(definition, AxtAssetIncarnationV1::try_from_bytes(*iroha_crypto::Hash::new("new-incarnation").as_ref()).unwrap());
+        assert!(validate_builtin_native_query_permission(tx.world(), &outsider, &request, 0).is_err(), "re-registration cannot revive an old selected scope");
+    }
+
+    #[test]
     fn native_uid_queries_require_exact_asset_owner_even_with_global_read() {
         use iroha_data_model::query::{asset_uid::FindAssetUidPoliciesV1, parameters::QueryParams};
         let fixture = initial_batch_fixture();
@@ -10914,6 +10969,125 @@ mod tests {
             tx.world.account_permissions.remove(participant.clone());
         }
     }
+#[test]
+fn native_fi_context_query_is_exact_current_asset_owner_only() {
+    use iroha_data_model::{
+        asset::fi_context::AssetFiContextTargetV1,
+        isi::asset_fi::TransferToLinkedFiV1,
+        query::{asset_fi_context::FindAssetFiContextV1, parameters::QueryParams},
+    };
+    let fixture = initial_batch_fixture();
+    let owner = fixture.source.clone();
+    let wallet = fixture.first_destination.clone();
+    let outsider = fixture.delegate.clone();
+    let definition = fixture.asset_definition.clone();
+    let state = state_for_testing(fixture.world);
+    let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+    let mut tx = block.transaction();
+    tx.world.account_permissions.insert(
+        outsider.clone(),
+        BTreeSet::from([
+            executor_permission::query::CanReadAllLedgerData.into(),
+            executor_permission::query::CanReadAccountData {
+                account: wallet.clone(),
+            }
+            .into(),
+        ]),
+    );
+    let query = FindAssetFiContextV1 {
+        target: AssetFiContextTargetV1::Transfer {
+            instruction: TransferToLinkedFiV1 {
+                asset_definition_id: definition.clone(),
+                account_id: wallet.clone(),
+                amount: 5_u32.into(),
+                expected_link_revision: 1,
+                expected_policy_revision: 1,
+            },
+            fi_account_id: outsider.clone(),
+            reference_digest: [9; 32],
+            expected_fi_revision: 1,
+            expected_attestation_revision: 1,
+        },
+        expected_incarnation: iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(
+            *Hash::new("context-incarnation").as_ref(),
+        )
+        .unwrap(),
+        expected_uid: [7; 32],
+    };
+    let request = QueryRequest::Start(QueryWithParams {
+        query: (),
+        query_payload: query.encode(),
+        item: QueryItemKind::AssetFiContextSnapshotV1,
+        predicate_bytes: Vec::new(),
+        selector_bytes: Vec::new(),
+        params: QueryParams::default(),
+    });
+    validate_builtin_native_query_permission(tx.world(), &owner, &request, 0).unwrap();
+    for denied in [&wallet, &outsider] {
+        assert!(
+            validate_builtin_native_query_permission(tx.world(), denied, &request, 0).is_err(),
+            "wallet/FI/general grants do not confer current-context authority"
+        );
+    }
+    tx.world
+        .asset_definitions
+        .get_mut(&definition)
+        .unwrap()
+        .set_owned_by(outsider.clone());
+    assert!(validate_builtin_native_query_permission(tx.world(), &owner, &request, 0).is_err());
+    validate_builtin_native_query_permission(tx.world(), &outsider, &request, 0).unwrap();
+    let QueryRequest::Start(mut malformed) = request else {
+        unreachable!()
+    };
+    malformed.query_payload.push(0);
+    assert!(
+        validate_builtin_native_query_permission(
+            tx.world(),
+            &outsider,
+            &QueryRequest::Start(malformed),
+            0
+        )
+        .is_err()
+    );
+}
+
+    #[test]
+    fn native_fi_receipt_query_is_exact_wallet_or_current_global_asset_owner_only() {
+        use iroha_data_model::query::{asset_fi::FindAssetFiTransferReceiptV1, parameters::QueryParams};
+        let fixture = initial_batch_fixture();
+        let owner = fixture.source.clone();
+        let wallet = fixture.first_destination.clone();
+        let outsider = fixture.delegate.clone();
+        let definition = fixture.asset_definition.clone();
+        let state = state_for_testing(fixture.world);
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+        let mut tx = block.transaction();
+        tx.world.account_permissions.insert(outsider.clone(), BTreeSet::from([
+            executor_permission::query::CanReadAllLedgerData.into(),
+            executor_permission::query::CanReadAccountData { account: wallet.clone() }.into(),
+        ]));
+        let mut query = FindAssetFiTransferReceiptV1 { asset_definition_id: definition.clone(),
+            account_id: wallet.clone(), expected_incarnation: iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(*Hash::new("receipt-incarnation").as_ref()).unwrap(), execution_call_hash: Hash::new("private-FI-occurrence"), transcript_index: 0 };
+        let request = |query: &FindAssetFiTransferReceiptV1| QueryRequest::Start(QueryWithParams {
+            query: (), query_payload: query.encode(), item: QueryItemKind::AssetFiTransferReceiptV1,
+            predicate_bytes: Vec::new(), selector_bytes: Vec::new(), params: QueryParams::default(),
+        });
+        validate_builtin_native_query_permission(tx.world(), &owner, &request(&query), 0).unwrap();
+        validate_builtin_native_query_permission(tx.world(), &wallet, &request(&query), 0).unwrap();
+        assert!(validate_builtin_native_query_permission(tx.world(), &outsider, &request(&query), 0).is_err(), "global/account grants do not reveal receipts");
+        tx.world.asset_definitions.get_mut(&definition).unwrap().set_owned_by(outsider.clone());
+        assert!(validate_builtin_native_query_permission(tx.world(), &owner, &request(&query), 0).is_err(), "archived requests lose former-owner authorization");
+        validate_builtin_native_query_permission(tx.world(), &outsider, &request(&query), 0).unwrap();
+        tx.world.axt_asset_incarnations.insert(definition.clone(), iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(*Hash::new("later-live-incarnation").as_ref()).unwrap());
+        validate_builtin_native_query_permission(tx.world(), &wallet, &request(&query), 0).unwrap();
+        validate_builtin_native_query_permission(tx.world(), &outsider, &request(&query), 0).unwrap();
+        query.account_id = owner.clone();
+        assert!(validate_builtin_native_query_permission(tx.world(), &wallet, &request(&query), 0).is_err(), "wallet cannot select another source wallet");
+        let QueryRequest::Start(mut malformed) = request(&query) else { unreachable!() };
+        malformed.query_payload.push(0);
+        assert!(validate_builtin_native_query_permission(tx.world(), &outsider, &QueryRequest::Start(malformed), 0).is_err(), "authorization requires the exact complete payload");
+    }
+
     #[test]
     fn native_fi_relationship_and_enrollment_queries_keep_exact_owner_boundaries() {
         use iroha_data_model::query::{asset_fi::FindAssetFiLinkV1, asset_uid_enrollment::FindAssetUidEnrollmentV1, parameters::QueryParams};

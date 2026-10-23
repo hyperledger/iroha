@@ -1747,3 +1747,52 @@ fn snapshot_uses_generation_of_acquired_view_after_real_paid_h3_publication() {
     assert!(!called_old.get());
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+#[test]
+fn scoped_escrow_zero_requires_native_initialization_at_the_same_certified_world() {
+    use iroha_data_model::{
+        escrow::scoped::{AssetEscrowScopeOriginalV1, scope_key, verify_at_world},
+        isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1,
+        sumeragi_finality::{FinalityValidator, SumeragiFinalityVerifier},
+    };
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    let owner_key = config.genesis_key.clone();
+    let domain = DomainId::try_new("escrowscope", "universal").unwrap();
+    let asset = AssetDefinitionId::derive_from_components(domain.clone(), "coin".parse().unwrap());
+    config.genesis_instructions = vec![Register::domain(Domain::new(domain)).into(),
+        Register::asset_definition(AssetDefinition::numeric(asset.clone(), "Scope coin", AssetBalancePolicy::Global, None)).into()];
+    let mut chain = CertifiedTestChain::start(config).unwrap();
+    chain.commit_at(2_000, Vec::new());
+    let validators = chain.validators().iter().map(|(peer, pop)| FinalityValidator {
+        public_key: peer.public_key().clone(), proof_of_possession: pop.clone(),
+    }).collect();
+    let mut verifier = SumeragiFinalityVerifier::new(chain.genesis(), chain.state().chain_id_ref().as_ref(), validators).unwrap();
+    verifier.verify(&crate::sumeragi::finality::build_proof(&chain.state().view(), 1).unwrap()).unwrap();
+    let old_block = verifier.verify(&crate::sumeragi::finality::build_proof(&chain.state().view(), chain.height()).unwrap()).unwrap();
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    let tip = chain.committed(chain.height());
+    let (old_world, incarnation) = with_asset_snapshot(chain.state(), &tip, &asset, &budget,
+        |snapshot, _, incarnation| Ok((snapshot.authenticate(&old_block).map_err(|e| e.to_string())?, *incarnation))).unwrap();
+    let instruction = InitializeAssetEscrowReadScopeV1 { asset_definition_id: asset.clone(), expected_incarnation: incarnation, expected_revision: 0 };
+    let tx = chain.sign(&owner_key, [instruction.into()], 2_500);
+    assert_eq!(chain.commit_at(3_000, vec![tx]), vec![true]);
+    let block = verifier.verify(&crate::sumeragi::finality::build_proof(&chain.state().view(), chain.height()).unwrap()).unwrap();
+    let tip = chain.committed(chain.height());
+    chain.state().with_native_world_state_snapshot_cut_v1(&tip, None, &budget, |snapshot, world| {
+        let certified = snapshot.authenticate(&block).map_err(|e| e.to_string())?;
+        let original = AssetEscrowScopeOriginalV1 {
+            scope_original: world.smart_contract_state().get(&scope_key(&asset, &incarnation).unwrap()).unwrap().clone(),
+            records: Vec::new(),
+        };
+        assert_eq!(verify_at_world(&certified, &asset, &incarnation, &original, 10, 4_096).unwrap().record_count, 0);
+        assert!(verify_at_world(&old_world, &asset, &incarnation, &original, 10, 4_096).is_err(), "later initialization does not prove earlier zero");
+        let mut forged = original.clone();
+        let mut scope: iroha_data_model::escrow::scoped::AssetEscrowScopeV1 = norito::decode_canonical(&forged.scope_original).unwrap();
+        scope.revision += 1;
+        forged.scope_original = norito::encode_canonical(&scope).unwrap();
+        assert!(verify_at_world(&certified, &asset, &incarnation, &forged, 10, 4_096).is_err(), "shape-valid replacement bytes are not certified originals");
+        forged.scope_original.clear();
+        assert!(verify_at_world(&certified, &asset, &incarnation, &forged, 10, 4_096).is_err());
+        Ok(())
+    }).unwrap();
+}

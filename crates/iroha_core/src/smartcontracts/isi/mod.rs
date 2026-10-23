@@ -8,6 +8,8 @@ pub mod asset_uid;
 pub mod asset_uid_reader;
 pub mod asset_uid_enrollment;
 pub mod asset_fi;
+pub mod asset_fi_context;
+pub mod asset_escrow_scope;
 pub mod block;
 /// Native bond-servicing kernel handlers.
 pub mod bond;
@@ -390,9 +392,12 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::asset_uid_enrollment::ActivateAssetUidEnrollmentV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::asset_uid_enrollment::SetAssetUidSystemAccountV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::asset_fi::SetAssetFiV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_instruction::<iroha_data_model::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::asset_fi::SetAssetFiLinkAttestationV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::asset_fi::SetAssetFiLinkV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::asset_fi::TransferToLinkedFiV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
+    dispatch_instruction::<iroha_data_model::isi::asset_fi_context::AssertAssetFiContextV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_instruction::<iroha_data_model::isi::asset_fi_context::AssertAssetFiTransferReceiptV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
 
     dispatch_instruction::<iroha_data_model::isi::retail_daily_limit::BindRetailIdentityV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::retail_daily_limit::RetailMonetaryMovementV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],

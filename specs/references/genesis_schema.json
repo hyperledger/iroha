@@ -254,6 +254,18 @@
       }
     ]
   },
+  "AnonymousBallotRejectionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "outside_casting_window"
+      },
+      {
+        "discriminant": 1,
+        "tag": "duplicate_nullifier"
+      }
+    ]
+  },
   "ArchiveId": "Array<u8, 32>",
   "Array<u8, 16>": {
     "Array": {
@@ -4363,6 +4375,11 @@
         "discriminant": 4,
         "tag": "TriggerExecution",
         "type": "TriggerExecutionFail"
+      },
+      {
+        "discriminant": 5,
+        "tag": "AnonymousBallot",
+        "type": "AnonymousBallotRejectionV1"
       }
     ]
   },

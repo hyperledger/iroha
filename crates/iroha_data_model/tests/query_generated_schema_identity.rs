@@ -210,6 +210,96 @@ fn generated_queries() -> Vec<Value> {
     rows.push(record([query::escrow::FindAssetEscrowById::new(
         EscrowId::new(Hash::new(b"query escrow")),
     )]));
+    rows.push(record([
+        query::asset_fi::FindAssetFiTransferReceiptV1::new(
+            asset_definition(),
+            iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(
+                *Hash::new("FI receipt incarnation").as_ref(),
+            )
+            .unwrap(),
+            account(),
+            Hash::new("FI receipt capture"),
+            0,
+        ),
+        query::asset_fi::FindAssetFiTransferReceiptV1::new(
+            asset_definition(),
+            iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(
+                *Hash::new("FI receipt incarnation").as_ref(),
+            )
+            .unwrap(),
+            account(),
+            Hash::new("FI receipt capture"),
+            u64::MAX,
+        ),
+    ]));
+    {
+        use iroha_data_model::{
+            asset::{fi_context::AssetFiContextTargetV1, fi_link::AssetFiLinkV1},
+            isi::asset_fi::{SetAssetFiLinkV1, TransferToLinkedFiV1},
+        };
+        let link = AssetFiLinkV1 {
+            asset_definition_id: asset_definition(),
+            account_id: account(),
+            fi_account_id: AccountId::new(
+                KeyPair::try_from_seed(vec![0x36; 32], Algorithm::Ed25519)
+                    .unwrap()
+                    .public_key()
+                    .clone(),
+            ),
+            reference_digest: [9; 32],
+            fi_revision: 1,
+            attestation_revision: 2,
+            revision: 3,
+            enabled: true,
+            controller: None,
+            waterfall: false,
+            reverse_waterfall: false,
+        };
+        // These instructions expose public Norito deserialization and getters,
+        // not Rust constructors or public fields outside transparent_api builds.
+        let approval: SetAssetFiLinkV1 = json::from_value(
+            json::object([
+                ("link", json::to_value(&link).unwrap()),
+                ("expected_policy_revision", Value::from(4_u64)),
+            ])
+            .expect("FI link instruction fields"),
+        )
+        .expect("typed FI link instruction");
+        let instruction: TransferToLinkedFiV1 = json::from_value(
+            json::object([
+                (
+                    "asset_definition_id",
+                    json::to_value(&link.asset_definition_id).unwrap(),
+                ),
+                ("account_id", json::to_value(&link.account_id).unwrap()),
+                (
+                    "amount",
+                    json::to_value(&iroha_primitives::numeric::Quantity::from(5_u32)).unwrap(),
+                ),
+                ("expected_link_revision", Value::from(link.revision)),
+                ("expected_policy_revision", Value::from(4_u64)),
+            ])
+            .expect("FI transfer instruction fields"),
+        )
+        .expect("typed FI transfer instruction");
+        let target = AssetFiContextTargetV1::LinkApproval(approval);
+        let transfer = AssetFiContextTargetV1::Transfer {
+            instruction,
+            fi_account_id: link.fi_account_id.clone(),
+            reference_digest: link.reference_digest,
+            expected_fi_revision: link.fi_revision,
+            expected_attestation_revision: link.attestation_revision,
+        };
+        let incarnation = iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(
+            *Hash::new("FI context capture incarnation").as_ref(),
+        )
+        .unwrap();
+        rows.push(record([
+            query::asset_fi_context::FindAssetFiContextV1::new(target, incarnation, [7; 32]),
+            query::asset_fi_context::FindAssetFiContextV1::new(transfer, incarnation, [7; 32]),
+        ]));
+    }
+
     rows.push(record([query::escrow::FindAssetEscrows]));
     rows.push(record([query::escrow::FindAssetEscrowsByBuyer::new(
         account(),
@@ -704,12 +794,12 @@ fn generated_queries() -> Vec<Value> {
 #[test]
 fn generated_queries_preserve_captured_frames() {
     let rows = generated_queries();
-    assert_eq!(rows.len(), 129);
+    assert_eq!(rows.len(), 131);
     assert_eq!(
         rows.iter()
             .map(|row| row.get("cases").unwrap().as_array().unwrap().len())
             .sum::<usize>(),
-        173,
+        177,
     );
     let captured: Value = json::from_str(include_str!(
         "fixtures/query_generated_identity_frames.json"

@@ -179,6 +179,26 @@ pub(crate) fn ensure_committed_artifact_scope(
     world: &impl crate::state::WorldReadOnly,
     artifact: &iroha_data_model::smart_contract::ContractArtifactId,
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
+    ensure_committed_artifact_scope_with(world, || Ok(artifact.dataspace_id))
+}
+
+/// Borrow the same root owner without allocating an artifact identifier on Global.
+/// Address dataspace derivation occurs only when the existing private scope needs it.
+pub(crate) fn ensure_committed_address_artifact_scope(
+    world: &impl crate::state::WorldReadOnly,
+    address: &iroha_data_model::smart_contract::ContractAddress,
+) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
+    ensure_committed_artifact_scope_with(world, || {
+        address
+            .dataspace_id()
+            .map_err(|_| denied("artifact access requires an exact valid contract address"))
+    })
+}
+
+fn ensure_committed_artifact_scope_with(
+    world: &impl crate::state::WorldReadOnly,
+    artifact_dataspace: impl FnOnce() -> Result<iroha_model_base::topology::DataSpaceId, ValidationFail>,
+) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     use crate::execution_attempt::ExecutionAttemptError;
     let scope = match crate::sumeragi::lanes::routing::read_routing_root_scope(world) {
         Ok(Some(scope)) => scope,
@@ -198,13 +218,12 @@ pub(crate) fn ensure_committed_artifact_scope(
         }
     };
     if let SumeragiRootScope::Dataspace { dataspace_id, .. } = scope
-        && artifact.dataspace_id != dataspace_id
+        && artifact_dataspace()? != dataspace_id
     {
         return Err(denied("private root cannot access a foreign artifact dataspace").into());
     }
     Ok(())
 }
-
 fn ensure_address_scope(
     scope: SumeragiRootScope,
     address: &iroha_data_model::smart_contract::ContractAddress,

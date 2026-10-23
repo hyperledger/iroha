@@ -8594,13 +8594,15 @@ impl<'block> WorldTransaction<'block, '_> {
     pub(crate) fn insert_asset_escrow_entry(
         &mut self,
         record: AssetEscrowRecord,
-    ) -> Option<AssetEscrowRecord> {
+    ) -> Result<Option<AssetEscrowRecord>, Error> {
+        let scope = asset_escrow_scope::prepare_insert(self, &record)?;
         let previous = self.asset_escrows.insert(record.id, record.clone());
         if let Some(previous) = previous.as_ref() {
             self.untrack_asset_escrow_indexes(previous);
         }
         self.track_asset_escrow_indexes(&record);
-        previous
+        scope.apply(self);
+        Ok(previous)
     }
     fn settled_vpn_lease_key(record: &VpnLeaseRecordV1) -> Option<(u64, [u8; 32])> {
         (record.status == VpnLeaseStatusV1::Settled)
@@ -45015,6 +45017,10 @@ mod retail_contract_state_snapshot;
 pub(crate) mod retail_daily_limit_state;
 #[path = "state/asset_uid.rs"]
 pub(crate) mod asset_uid;
+#[path = "state/asset_escrow_scope.rs"]
+pub(crate) mod asset_escrow_scope;
+#[path = "state/asset_context_keys.rs"]
+pub(crate) mod asset_context_keys;
 #[path = "state/asset_fi.rs"]
 pub(crate) mod asset_fi;
 #[path = "state/asset_uid_enrollment.rs"]

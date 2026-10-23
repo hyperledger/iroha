@@ -209,18 +209,47 @@ public enum CommittedTransactionInclusionV1 {
         networkId: NetworkId, expectedChain: String, trustedCheckpoint: Data,
         transactionHash: Data
     ) throws -> VerifiedCommittedTransactionV1 {
+        guard transactionHash.count == 32, transactionHash[31] & 1 == 1 else {
+            throw CommittedTransactionInclusionErrorV1.invalidInput
+        }
+        return try verifyNative(response: response, nativeFinalityProofChainJSON: nativeFinalityProofChainJSON,
+            networkId: networkId, expectedChain: expectedChain, trustedCheckpoint: trustedCheckpoint,
+            originalOrHash: transactionHash, exactSuccessful: false)
+    }
+
+    /// Confirms successful execution of the exact independently retained canonical
+    /// SignedTransaction wire, including its signature. The original must come from
+    /// local durable approval state, never from this proof response.
+    public static func verifyExactSuccessful(
+        response: Data, nativeFinalityProofChainJSON: Data,
+        networkId: NetworkId, expectedChain: String, trustedCheckpoint: Data,
+        originalSignedTransaction: Data
+    ) throws -> VerifiedCommittedTransactionV1 {
+        guard !originalSignedTransaction.isEmpty, originalSignedTransaction.count <= 4 * 1024 * 1024 else {
+            throw CommittedTransactionInclusionErrorV1.invalidInput
+        }
+        return try verifyNative(response: response, nativeFinalityProofChainJSON: nativeFinalityProofChainJSON,
+            networkId: networkId, expectedChain: expectedChain, trustedCheckpoint: trustedCheckpoint,
+            originalOrHash: originalSignedTransaction, exactSuccessful: true)
+    }
+
+    private static func verifyNative(
+        response: Data, nativeFinalityProofChainJSON: Data,
+        networkId: NetworkId, expectedChain: String, trustedCheckpoint: Data,
+        originalOrHash: Data, exactSuccessful: Bool
+    ) throws -> VerifiedCommittedTransactionV1 {
         guard !response.isEmpty, response.count <= 32 * 1024 * 1024,
               !nativeFinalityProofChainJSON.isEmpty, nativeFinalityProofChainJSON.count <= 16 * 1024 * 1024,
               !expectedChain.isEmpty, expectedChain.utf8.count <= 1024,
-              !trustedCheckpoint.isEmpty, trustedCheckpoint.count <= 68 * 1024 * 1024,
-              transactionHash.count == 32, transactionHash[31] & 1 == 1 else {
+              !trustedCheckpoint.isEmpty, trustedCheckpoint.count <= 68 * 1024 * 1024 else {
             throw CommittedTransactionInclusionErrorV1.invalidInput
         }
         #if canImport(Darwin)
         let bridge = NoritoNativeBridge.shared
         guard bridge.isAvailable,
               let function: VerifyFn = bridge.resolveNativeSymbol(
-                "connect_norito_verify_committed_transaction_inclusion_v1", as: VerifyFn.self
+                exactSuccessful ? "connect_norito_verify_exact_successful_committed_transaction_v1"
+                    : "connect_norito_verify_committed_transaction_inclusion_v1", as: VerifyFn.self
               ),
               let free: FreeFn = bridge.resolveNativeSymbol("connect_norito_free", as: FreeFn.self)
         else { throw CommittedTransactionInclusionErrorV1.bridgeUnavailable }
@@ -238,7 +267,7 @@ public enum CommittedTransactionInclusionV1 {
                 networkId.bytes.withUnsafeBytes { networkBuffer in
                     label.withUnsafeBytes { labelBuffer in
                         trustedCheckpoint.withUnsafeBytes { checkpointBuffer in
-                            transactionHash.withUnsafeBytes { transactionBuffer in
+                            originalOrHash.withUnsafeBytes { transactionBuffer in
                                 outputHash.withUnsafeMutableBufferPointer { outputBuffer in
                                     blockHash.withUnsafeMutableBufferPointer { blockBuffer in
                                         function(
@@ -247,7 +276,7 @@ public enum CommittedTransactionInclusionV1 {
                                             networkBuffer.bindMemory(to: UInt8.self).baseAddress, UInt(networkId.bytes.count),
                                             labelBuffer.bindMemory(to: UInt8.self).baseAddress, UInt(label.count),
                                             checkpointBuffer.bindMemory(to: UInt8.self).baseAddress, UInt(trustedCheckpoint.count),
-                                            transactionBuffer.bindMemory(to: UInt8.self).baseAddress, UInt(transactionHash.count),
+                                            transactionBuffer.bindMemory(to: UInt8.self).baseAddress, UInt(originalOrHash.count),
                                             &rowPointer, &rowLength, outputBuffer.baseAddress, blockBuffer.baseAddress,
                                             &blockHeight, &resultOk, &checkpointPointer, &checkpointLength
                                         )
@@ -266,7 +295,8 @@ public enum CommittedTransactionInclusionV1 {
         guard status == 0 else { throw CommittedTransactionInclusionErrorV1.nativeRejected(status) }
         guard let rowPointer, rowLength > 0, rowLength <= 4 * 1024 * 1024,
               let checkpointPointer, checkpointLength > 0, checkpointLength <= 68 * 1024 * 1024,
-              blockHeight > 0, resultOk == 0 || resultOk == 1 else {
+              blockHeight > 0, resultOk == 0 || resultOk == 1,
+              !exactSuccessful || resultOk == 1 else {
             throw CommittedTransactionInclusionErrorV1.invalidNativeResult
         }
         return VerifiedCommittedTransactionV1(

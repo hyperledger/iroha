@@ -23,4 +23,25 @@ queries! {
         /// Opaque participant reference commitment.
         pub reference_digest: [u8; 32],
     }
+
+    /// Read zero or one immutable native FI occurrence candidate by its exact key.
+    ///
+    /// Only the exact wallet or current Global asset owner may read this private
+    /// original. This query supplies no certified membership or execution proof.
+    #[derive(Display)]
+    #[display("Find FI receipt for `{account_id}` at `{execution_call_hash}`/{transcript_index}")]
+    #[norito(deny_unknown_fields)]
+    #[norito_schema(name = "iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1")]
+    pub struct FindAssetFiTransferReceiptV1 {
+        /// Exact Global asset definition.
+        pub asset_definition_id: AssetDefinitionId,
+        /// Exact historical incarnation captured by the native occurrence.
+        pub expected_incarnation: crate::nexus::AxtAssetIncarnationV1,
+        /// Exact source wallet retained in the receipt.
+        pub account_id: AccountId,
+        /// Native call whose transfer transcript contains the occurrence.
+        pub execution_call_hash: iroha_crypto::Hash,
+        /// Zero-based actual transfer transcript ordinal within that call.
+        pub transcript_index: u64,
+    }
 }

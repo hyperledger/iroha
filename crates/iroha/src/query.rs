@@ -1,6 +1,9 @@
 //! Functions and types to make queries to the Iroha peer.
 #![allow(clippy::result_large_err)]
 mod asynchronous;
+mod escrow_scope;
+mod fi_context;
+mod transaction_details_candidate;
 use crate::{
     client::{APPLICATION_NORITO, Client, QueryResult, ResponseReport, join_torii_url},
     crypto::{HashOf, KeyPair},
@@ -23,6 +26,7 @@ use crate::{
     http_default::{DefaultHttpTransport, DefaultRequestBuilder},
 };
 pub use asynchronous::{AsyncQueryBuilderExt, QueryStream};
+pub use transaction_details_candidate::transaction_details_candidate_response_v1;
 use eyre::{Report, Result, eyre};
 use http::{StatusCode, header::CONTENT_TYPE};
 use iroha_data_model::query::QueryOutputBatchBoxTuple;
@@ -188,7 +192,7 @@ impl ClientQueryRequestHead {
     fn assemble_canonical_norito_body_at(
         &self,
         body: Vec<u8>,
-        path: &'static str,
+        path: &str,
     ) -> DefaultRequestBuilder {
         let mut headers = self.headers.clone();
         headers.retain(|name, _| {

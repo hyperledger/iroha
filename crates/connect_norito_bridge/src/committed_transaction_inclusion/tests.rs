@@ -455,3 +455,311 @@ fn ffi_returns_row_and_same_verified_checkpoint_as_two_owned_buffers() {
     )
     .unwrap();
 }
+
+fn original_wire(fixture: &Fixture) -> Vec<u8> {
+    let TransactionEntrypoint::External(original) = &fixture.selected.entrypoint else {
+        panic!("fixture must contain a signed external transaction");
+    };
+    original.encode_wire_v1().unwrap()
+}
+
+fn verify_original(
+    fixture: &Fixture,
+    original: &[u8],
+) -> Result<VerifiedCommittedTransaction, String> {
+    verify_exact_successful_committed_transaction(
+        &response(vec![fixture.selected.clone()]),
+        &fixture.chain_json(),
+        fixture.network(),
+        fixture.checkpoint.chain_id(),
+        &fixture.checkpoint_bytes(),
+        original,
+    )
+}
+
+#[test]
+fn exact_successful_requires_retained_signature_and_preserves_general_rejection_support() {
+    let fixture = Fixture::new(false);
+    let original = original_wire(&fixture);
+    let verified = verify_original(&fixture, &original).unwrap();
+    assert!(verified.result_ok);
+    assert_eq!(verified.row, norito::to_bytes(&fixture.selected).unwrap());
+    assert_eq!(verified.block_height, 3);
+
+    let TransactionEntrypoint::External(mut replacement) = fixture.selected.entrypoint.clone()
+    else {
+        panic!("expected external transaction");
+    };
+    replacement.set_signature(iroha_data_model::transaction::TransactionSignature(
+        iroha_crypto::SignatureOf::from_signature(iroha_crypto::Signature::from_bytes(&[0x77; 64])),
+    ));
+    assert_eq!(
+        replacement.hash_as_entrypoint(),
+        fixture.selected.entrypoint_hash,
+        "the identity deliberately excludes authorization"
+    );
+    let replacement_wire = replacement.encode_wire_v1().unwrap();
+    assert_ne!(original, replacement_wire);
+    assert!(
+        verify_original(&fixture, &replacement_wire)
+            .err()
+            .unwrap()
+            .contains("differs from the retained original")
+    );
+
+    let rejected = Fixture::new(true);
+    assert!(
+        !rejected
+            .verify(&response(vec![rejected.selected.clone()]))
+            .unwrap()
+            .result_ok
+    );
+    assert!(
+        verify_original(&rejected, &original_wire(&rejected))
+            .err()
+            .unwrap()
+            .contains("did not execute successfully")
+    );
+}
+
+#[test]
+fn exact_successful_rejects_noncanonical_original_and_wrong_checkpoint_network_or_output() {
+    let fixture = Fixture::new(false);
+    let original = original_wire(&fixture);
+    for malformed in [
+        Vec::new(),
+        vec![0x71; 32],
+        {
+            let mut trailing = original.clone();
+            trailing.push(0);
+            trailing
+        },
+        vec![0; MAX_ORIGINAL_TRANSACTION_BYTES + 1],
+    ] {
+        assert!(verify_original(&fixture, &malformed).is_err());
+    }
+    let response_bytes = response(vec![fixture.selected.clone()]);
+    let wrong_network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"wrong exact network",
+    )));
+    assert!(
+        verify_exact_successful_committed_transaction(
+            &response_bytes,
+            &fixture.chain_json(),
+            wrong_network,
+            fixture.checkpoint.chain_id(),
+            &fixture.checkpoint_bytes(),
+            &original
+        )
+        .is_err()
+    );
+    let wrong_checkpoint = build_checkpoint(&fixture.chain.state().view(), 1)
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
+    assert!(
+        verify_exact_successful_committed_transaction(
+            &response_bytes,
+            &fixture.chain_json(),
+            fixture.network(),
+            fixture.checkpoint.chain_id(),
+            &wrong_checkpoint,
+            &original
+        )
+        .is_err()
+    );
+    assert!(
+        verify_exact_successful_committed_transaction(
+            &response_bytes,
+            &fixture.chain_json(),
+            fixture.network(),
+            "foreign-chain",
+            &fixture.checkpoint_bytes(),
+            &original
+        )
+        .is_err()
+    );
+    let mut altered = fixture.selected.clone();
+    altered.output_hash = HashOf::from_untyped_unchecked(Hash::new(b"replacement exact result"));
+    assert!(
+        verify_exact_successful_committed_transaction(
+            &response(vec![altered]),
+            &fixture.chain_json(),
+            fixture.network(),
+            fixture.checkpoint.chain_id(),
+            &fixture.checkpoint_bytes(),
+            &original
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn exact_successful_ffi_failure_clears_every_output_before_rejection() {
+    let mut row_pointer = ptr::dangling_mut::<u8>();
+    let mut row_len: c_ulong = 12;
+    let mut output_hash = [0xff; 32];
+    let mut block_hash = [0xff; 32];
+    let mut height = 42_u64;
+    let mut result_ok = 1_u8;
+    let mut checkpoint_pointer = ptr::dangling_mut::<u8>();
+    let mut checkpoint_len: c_ulong = 12;
+    let status = unsafe {
+        connect_norito_verify_exact_successful_committed_transaction_v1(
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            &mut row_pointer,
+            &mut row_len,
+            output_hash.as_mut_ptr(),
+            block_hash.as_mut_ptr(),
+            &mut height,
+            &mut result_ok,
+            &mut checkpoint_pointer,
+            &mut checkpoint_len,
+        )
+    };
+    assert_eq!(status, ERR_COMMITTED_INCLUSION);
+    assert!(row_pointer.is_null());
+    assert_eq!(row_len, 0);
+    assert_eq!(output_hash, [0; 32]);
+    assert_eq!(block_hash, [0; 32]);
+    assert_eq!(height, 0);
+    assert_eq!(result_ok, 0);
+    assert!(checkpoint_pointer.is_null());
+    assert_eq!(checkpoint_len, 0);
+}
+
+#[test]
+fn exact_successful_ffi_returns_only_success_and_same_verified_checkpoint() {
+    let fixture = Fixture::new(false);
+    let original = original_wire(&fixture);
+    let response_bytes = response(vec![fixture.selected.clone()]);
+    let chain = fixture.chain_json();
+    let checkpoint = fixture.checkpoint_bytes();
+    let network = fixture.network();
+    let label = fixture.checkpoint.chain_id();
+    let mut row_ptr = ptr::null_mut();
+    let mut row_len = 0;
+    let mut checkpoint_ptr = ptr::null_mut();
+    let mut checkpoint_len = 0;
+    let mut output = [0; 32];
+    let mut block = [0; 32];
+    let mut height = 0;
+    let mut result_ok = 0;
+    let status = unsafe {
+        connect_norito_verify_exact_successful_committed_transaction_v1(
+            response_bytes.as_ptr(),
+            response_bytes.len() as c_ulong,
+            chain.as_ptr(),
+            chain.len() as c_ulong,
+            network.as_bytes().as_ptr(),
+            32,
+            label.as_ptr(),
+            label.len() as c_ulong,
+            checkpoint.as_ptr(),
+            checkpoint.len() as c_ulong,
+            original.as_ptr(),
+            original.len() as c_ulong,
+            &mut row_ptr,
+            &mut row_len,
+            output.as_mut_ptr(),
+            block.as_mut_ptr(),
+            &mut height,
+            &mut result_ok,
+            &mut checkpoint_ptr,
+            &mut checkpoint_len,
+        )
+    };
+    assert_eq!(status, 0);
+    assert!(!row_ptr.is_null());
+    assert!(!checkpoint_ptr.is_null());
+    let row = unsafe { slice::from_raw_parts(row_ptr, row_len as usize) }.to_vec();
+    let checkpoint =
+        unsafe { slice::from_raw_parts(checkpoint_ptr, checkpoint_len as usize) }.to_vec();
+    crate::connect_norito_free(row_ptr);
+    crate::connect_norito_free(checkpoint_ptr);
+    assert_eq!(row, norito::to_bytes(&fixture.selected).unwrap());
+    assert_eq!(output, *fixture.selected.output_hash.as_ref());
+    assert_eq!(block, *fixture.block.hash().as_ref());
+    assert_eq!(height, 3);
+    assert_eq!(result_ok, 1);
+    let promoted = SumeragiFinalityCheckpoint::decode_canonical(&checkpoint).unwrap();
+    assert_eq!(promoted.block_hash(), fixture.block.hash());
+    iroha_data_model::sumeragi_finality::SumeragiFinalityVerifier::from_trusted_checkpoint(
+        &promoted, &network, label,
+    )
+    .unwrap();
+}
+
+#[test]
+fn exact_successful_rejects_certified_private_root_while_general_inclusion_remains_supported() {
+    // Genuine native certificate fixture; synthetic Log result only. This tests
+    // proof scope admission and makes no World/business execution claim.
+    use iroha_data_model::{
+        block::consensus::SumeragiRootScope,
+        sumeragi_finality::test_fixtures::NativeFinalityFixture,
+    };
+    let parent = NativeFinalityFixture::new();
+    let mut private = NativeFinalityFixture::start_with_scope(
+        "private-inclusion-root",
+        SumeragiRootScope::Dataspace {
+            parent_network_id: parent.network_id(),
+            dataspace_id: iroha_model_base::topology::DataSpaceId::new(9),
+        },
+    );
+    let second = private.certify(private.block_with_submitted_work(private.next_header()));
+    let checkpoint = private.checkpoint();
+    let third = private.certify(private.block_with_submitted_work(private.next_header()));
+    let verified = private.verifier().verify_retained_decision(&third).unwrap();
+    assert_ne!(verified.root_scope(), SumeragiRootScope::Global);
+    let block = verified.block();
+    let output = ExecutionOutputV1::Network(block.network_output_at(0).unwrap().1.clone());
+    let selected = CommittedTransaction {
+        block_hash: block.hash(),
+        entrypoint_hash: block.network_entrypoint_at(0).unwrap().hash(),
+        entrypoint_proof: block.network_input_proof(0).unwrap(),
+        entrypoint: block.network_entrypoint_at(0).unwrap().clone(),
+        output_hash: HashOf::new(&output),
+        output_proof: block.output_proof(0).unwrap(),
+        output,
+    };
+    assert!(selected.verify_inclusion_in_block(block));
+    let original = match &selected.entrypoint {
+        TransactionEntrypoint::External(transaction) => transaction.encode_wire_v1().unwrap(),
+        _ => panic!("fixture must retain an external signed original"),
+    };
+    let row = response(vec![selected.clone()]);
+    let chain = json::to_vec(&vec![second, third]).unwrap();
+    let checkpoint = checkpoint.encode_canonical().unwrap();
+    let general = verify_committed_transaction_inclusion(
+        &row,
+        &chain,
+        private.network_id(),
+        private.chain_id(),
+        &checkpoint,
+        selected.entrypoint_hash,
+    )
+    .unwrap();
+    assert!(general.result_ok);
+    let error = verify_exact_successful_committed_transaction(
+        &row,
+        &chain,
+        private.network_id(),
+        private.chain_id(),
+        &checkpoint,
+        &original,
+    )
+    .err()
+    .expect("FI exact-success requires Global");
+    assert!(error.contains("authenticated Global root"), "{error}");
+}

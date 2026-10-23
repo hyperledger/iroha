@@ -71,6 +71,8 @@ fn every_empty_batch_variant() -> Vec<QueryOutputBatchBox> {
         QueryOutputBatchBox::BondRecord(Vec::new()),
         QueryOutputBatchBox::AssetUidPolicyViewV1(Vec::new()),
         QueryOutputBatchBox::AssetFiRelationshipViewV1(Vec::new()),
+        QueryOutputBatchBox::AssetFiTransferReceiptV1(Vec::new()),
+        QueryOutputBatchBox::AssetFiContextSnapshotV1(Vec::new()),
         QueryOutputBatchBox::AssetUidEnrollmentViewV1(Vec::new()),
     ]
 }

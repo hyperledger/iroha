@@ -6,7 +6,9 @@ use crate::{
     escrow::AssetEscrowRecord,
     asset::uid::AssetUidPolicyViewV1,
     asset::uid_enrollment::AssetUidEnrollmentViewV1,
-    asset::fi_link::AssetFiRelationshipViewV1,
+    asset::fi_link::{AssetFiRelationshipViewV1, AssetFiTransferReceiptV1},
+    asset::fi_context::AssetFiContextSnapshotV1,
+    escrow::scoped::AssetEscrowScopeOriginalV1,
     events::data::oracle::FeedEventRecord,
     nft::{Nft, NftId},
     oracle::{
@@ -126,6 +128,9 @@ mod single_item {
         AssetUidPolicyViewV1,
         AssetUidEnrollmentViewV1,
         AssetFiRelationshipViewV1,
+        AssetFiTransferReceiptV1,
+        AssetFiContextSnapshotV1,
+        AssetEscrowScopeOriginalV1,
     );
 }
 /// Query result item represented by one typed batch column.

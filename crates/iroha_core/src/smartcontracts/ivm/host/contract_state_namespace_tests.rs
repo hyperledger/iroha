@@ -304,10 +304,12 @@ fn contract_state_namespace_access_covers_consensus_owned_prefixes() {
 #[test]
 fn retail_daily_state_paths_reject_generic_read_write_and_delete_admission() {
     for root in [
+        iroha_data_model::escrow::scoped::SCOPE_ROOT,
         crate::state::retail_daily_limit_state::POLICY_ROOT,
         crate::state::asset_fi::FI_ROOT,
         crate::state::asset_fi::ATTESTATION_ROOT,
         crate::state::asset_fi::LINK_ROOT,
+        crate::state::asset_fi::RECEIPT_ROOT,
         crate::state::asset_uid_enrollment::ENROLLMENT_ROOT,
         crate::state::asset_uid_enrollment::SYSTEM_ROOT,
         crate::state::asset_uid_reader::READER_ROOT,
@@ -699,5 +701,78 @@ fn state_get_reserves_exact_available_gas_for_base_overlay_miss_and_tombstone() 
                 assert_eq!(input_after, input_before + before_len.next_multiple_of(8));
             }
         }
+    }
+}
+
+#[test]
+fn escrow_scope_rejects_forged_generic_durable_writes_and_deletes() {
+    for text in ["sc/native/asset_escrow_scope_v1", "sc/native/asset_escrow_scope_v1/asset/incarnation"] {
+        let path: StatePath = text.parse().unwrap();
+        assert!(validate_reserve_durable_state_path(&path).is_err());
+    }
+    let unrelated: StatePath = "unrelated_user_scope/value".parse().unwrap();
+    assert!(validate_reserve_durable_state_path(&unrelated).is_ok());
+}
+
+#[test]
+fn fi_receipt_physical_namespace_is_opaque_without_reserving_old_logical_keys() {
+    for text in [
+        "sc/native/asset_fi_transfer_receipt_v1",
+        "sc/native/asset_fi_transfer_receipt_v1/definition/account/call/0",
+    ] {
+        let path: StatePath = text.parse().unwrap();
+        let mut host = local_contract_host(fixture_account("alice"));
+        let mut vm = IVM::new(10_000);
+        let ptr = store_state_path_tlv(&mut vm, &path);
+        let value = norito::to_bytes(&7_u64).unwrap();
+        let value_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &value);
+        for syscall in [
+            ivm_sys::SYSCALL_STATE_GET,
+            ivm_sys::SYSCALL_STATE_HAS,
+            ivm_sys::SYSCALL_STATE_LEN,
+            ivm_sys::SYSCALL_STATE_SET,
+            ivm_sys::SYSCALL_STATE_DEL,
+        ] {
+            vm.set_register(10, ptr);
+            vm.set_register(11, value_ptr);
+            assert!(matches!(
+                host.syscall(syscall, &mut vm),
+                Err(ivm::VMError::PermissionDenied)
+            ));
+        }
+        assert!(host.durable_state_overlay.is_empty());
+    }
+    // These are ordinary logical names, not aliases for native receipt storage.
+    // Local-debug mode exercises namespace admission without claiming a deployed
+    // contract capability. Normal runtime scope/authorization checks stay intact.
+    for text in [
+        "asset_fi_transfer_receipt_v1",
+        "asset_fi_transfer_receipt_v1/definition/account/call/0",
+    ] {
+        let path: StatePath = text.parse().unwrap();
+        let mut host = local_contract_host(fixture_account("alice"));
+        let mut vm = IVM::new(10_000);
+        let ptr = store_state_path_tlv(&mut vm, &path);
+        vm.set_register(10, ptr);
+        host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm).unwrap();
+        assert_eq!(
+            vm.register(10),
+            0,
+            "absent ordinary key stays a successful miss"
+        );
+        let bytes = norito::to_bytes(&7_u64).unwrap();
+        let value_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &bytes);
+        vm.set_register(10, ptr);
+        vm.set_register(11, value_ptr);
+        host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm).unwrap();
+        vm.set_register(10, ptr);
+        host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm).unwrap();
+        assert_eq!(
+            vm.memory.validate_tlv(vm.register(10)).unwrap().payload,
+            bytes.as_slice()
+        );
+        vm.set_register(10, ptr);
+        host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm).unwrap();
+        assert_eq!(host.durable_state_overlay.get(&path), Some(&None));
     }
 }

@@ -89,6 +89,10 @@ fn fixture(first: u32, second: u32) -> (Fixture, State) {
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
+    // Complete the fixture-defined asset's real genesis registration boundary.
+    // This World-only fixture publication does not create a certified ledger tip.
+    state.block(header(1, 0)).commit_world_overlay_for_testing()
+        .expect("complete fixture asset incarnation before native FI execution");
     (f, state)
 }
 
@@ -789,4 +793,5 @@ fn uid_controlled_lock_retains_payer_and_blocks_generic_or_unframed_mutation() {
 
 mod enrollment;
 mod fi_link;
+mod fi_context;
 mod controlled_waterfall;

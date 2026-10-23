@@ -1,12 +1,16 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 353
-type rows preserve 396 populated values and 1,584 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 354
+type rows preserve 397 populated values and 1,588 complete root, vector, option
 and map frames.
 
 The current fixture SHA-256 is
-`1e9a7ca2168893938c067a67d5111e4a3ace06083c3b791026ef9f2f0abcbda8`.
+`406b1a90cf08df6e94eed470bb228e21b5561da1e6c75f4603b305db451182ef`.
+The 2026-10-23 native UID/controlled-lock maintenance producer adds the
+`InitializeAssetEscrowReadScopeV1` row from executable canonical encodings.
+The other 353 rows are unchanged. This capture establishes codec identity only.
+
 The 2026-10-21 native UID/controlled-lock capture adds seven instruction rows and
 refreshes the current UID policy and controlled settlement layouts from populated
 typed values. All other rows remain exact. The capture validates all four frame

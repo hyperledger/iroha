@@ -28,6 +28,9 @@ extern "C" {
 #define CONNECT_NORITO_ERR_PRIVATE_SETTLEMENT_RESPONSE -507
 #define CONNECT_NORITO_ERR_COMMITTED_TRANSACTION_INCLUSION -508
 #define CONNECT_NORITO_ERR_COMMITTED_TRANSACTION_QUERY -509
+#define CONNECT_NORITO_ERR_FI_CHECKPOINT -510
+#define CONNECT_NORITO_ERR_FI_CONTEXT -511
+#define CONNECT_NORITO_ERR_FI_CHECKPOINT_ADVANCE -512
 #define CONNECT_NORITO_ERR_CONNECT_IDENTITY -410
 #define CONNECT_NORITO_ERR_CONNECT_APPROVAL -411
 
@@ -100,6 +103,80 @@ typedef struct ConnectNoritoSorafsReferenceBundlePayload {
 // ---------------- Bridge ABI ----------------
 uint32_t connect_norito_bridge_abi_version(void);
 
+// Independently signed runtime selects all six inputs. Authenticates historical Global tip only.
+// Output is bounded JSON {height:decimal-string,context_id:hex,block_hash:hex}; free with connect_norito_free.
+int32_t connect_norito_verify_fi_checkpoint_selection_v1(
+    const uint8_t* checkpoint, unsigned long checkpoint_len,
+    const uint8_t* network_utf8, unsigned long network_len,
+    const uint8_t* chain_utf8, unsigned long chain_len,
+    const uint8_t* sha256_32, unsigned long sha256_len,
+    const uint8_t* height_decimal_utf8, unsigned long height_len,
+    const uint8_t* context_32, unsigned long context_len,
+    uint8_t** out_json, unsigned long* out_json_len);
+
+// Exact retained request and independently admitted local checkpoint/trust inputs.
+// Capsule is untrusted. Success returns native-authenticated FI snapshot JSON;
+// it grants no signing authority, freshness decision or physical execution route.
+// All inputs are bounded before reads; outputs are zeroed on failure (-511).
+// Free the bridge-owned output using connect_norito_free.
+int32_t connect_norito_verify_fi_context_assertion_v1(
+    const uint8_t* capsule, unsigned long capsule_len,
+    const uint8_t* original_request, unsigned long original_request_len,
+    const uint8_t* checkpoint, unsigned long checkpoint_len,
+    const uint8_t* local_trust_json, unsigned long local_trust_json_len,
+    uint8_t** out_json, unsigned long* out_json_len);
+
+// Advance an independently selected checkpoint through exact original proof frames.
+// Requires 2..4096 frames, at most 16 MiB total, exact initial decision and
+// consecutive Global successors under the independently admitted network/chain.
+// Checkpoint input/output is at most 68 MiB; metadata output is at most 4096 bytes.
+// All input/output storage must remain live and disjoint for the call. On failure
+// (-512), both output pointers and lengths are cleared. Free both owned outputs
+// independently with connect_norito_free. This call performs no persistence.
+int32_t connect_norito_advance_fi_checkpoint_v1(
+    const uint8_t* checkpoint, unsigned long checkpoint_len,
+    const uint8_t* const* proof_frames,
+    const unsigned long* proof_lengths, unsigned long proof_count,
+    const uint8_t* network, unsigned long network_len,
+    const uint8_t* chain, unsigned long chain_len,
+    const uint8_t* sha256, unsigned long sha256_len,
+    const uint8_t* decimal_height, unsigned long decimal_height_len,
+    const uint8_t* context_id, unsigned long context_id_len,
+    uint8_t** out_checkpoint, unsigned long* out_checkpoint_len,
+    uint8_t** out_metadata, unsigned long* out_metadata_len);
+
+// Admit the exact signed singleton assertion against its retained raw request and
+// independently selected original checkpoint/trust. This checks signed shape and
+// original selection only; it proves no execution, snapshot or freshness.
+// Wire and request are each <=64 KiB, checkpoint <=68 MiB, trust <=32 KiB;
+// their aggregate is <=71467008 bytes. Output is closed JSON <=2048 bytes.
+// Input/output storage must be live and disjoint. Failure (-513) clears both
+// output slots. Free successful output with connect_norito_free.
+int32_t connect_norito_admit_fi_assertion_original_v1(
+    const uint8_t* wire, unsigned long wire_len,
+    const uint8_t* original_request, unsigned long original_request_len,
+    const uint8_t* original_checkpoint, unsigned long original_checkpoint_len,
+    const uint8_t* original_trust_json, unsigned long original_trust_json_len,
+    uint8_t** out_json, unsigned long* out_json_len);
+
+// Authenticate the exact retained signed assertion from a separately admitted
+// Global proof cursor. Execution must be after the unchanged original floor;
+// cursor may equal the carrier. The protected caller owns verified lineage,
+// original runtime/root and current owner/PSP/branch-generation checks.
+// Capsule <=512 KiB, request and retained wire each <=64 KiB, each checkpoint
+// <=68 MiB, closed continuation trust <=36 KiB; aggregate <=143298560 bytes.
+// Output uses the existing closed FI observation JSON schema, <=512 KiB.
+// Input/output storage must be live and disjoint. Failure (-514) clears both
+// output slots. Free successful output with connect_norito_free.
+int32_t connect_norito_verify_fi_context_continuation_v1(
+    const uint8_t* capsule, unsigned long capsule_len,
+    const uint8_t* original_request, unsigned long original_request_len,
+    const uint8_t* retained_wire, unsigned long retained_wire_len,
+    const uint8_t* original_checkpoint, unsigned long original_checkpoint_len,
+    const uint8_t* cursor_checkpoint, unsigned long cursor_checkpoint_len,
+    const uint8_t* continuation_trust_json, unsigned long continuation_trust_json_len,
+    uint8_t** out_json, unsigned long* out_json_len);
+
 // Releases any bridge-owned byte buffer returned through an out pointer.
 void connect_norito_free(uint8_t *ptr);
 
@@ -126,6 +203,31 @@ int32_t connect_norito_verify_committed_transaction_inclusion_v1(
     unsigned long trusted_checkpoint_len,
     const uint8_t* expected_transaction_hash,
     unsigned long expected_transaction_hash_len,
+    uint8_t** out_row,
+    unsigned long* out_row_len,
+    uint8_t* out_output_hash_32,
+    uint8_t* out_block_hash_32,
+    uint64_t* out_block_height,
+    uint8_t* out_result_ok,
+    uint8_t** out_checkpoint,
+    unsigned long* out_checkpoint_len);
+
+// Same independent trust and output ownership contract as the general verifier.
+// Requires canonical versioned original SignedTransaction (1..4 MiB), including
+// its exact signature; returns success only for certified successful execution.
+int32_t connect_norito_verify_exact_successful_committed_transaction_v1(
+    const uint8_t* response,
+    unsigned long response_len,
+    const uint8_t* native_finality_proof_chain_json,
+    unsigned long native_finality_proof_chain_json_len,
+    const uint8_t* expected_network_id,
+    unsigned long expected_network_id_len,
+    const uint8_t* expected_chain_utf8,
+    unsigned long expected_chain_utf8_len,
+    const uint8_t* trusted_checkpoint,
+    unsigned long trusted_checkpoint_len,
+    const uint8_t* original_signed_transaction,
+    unsigned long original_signed_transaction_len,
     uint8_t** out_row,
     unsigned long* out_row_len,
     uint8_t* out_output_hash_32,

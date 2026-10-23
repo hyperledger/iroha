@@ -12,8 +12,8 @@ use iroha_data_model::{
 use jni::{objects::JByteArray, sys::jobjectArray};
 
 use crate::committed_transaction_inclusion::{
-    MAX_CHAIN_JSON_BYTES, MAX_RESPONSE_BYTES, candidate_block_hash,
-    verify_committed_transaction_inclusion,
+    MAX_CHAIN_JSON_BYTES, MAX_RESPONSE_BYTES, VerifiedCommittedTransaction, candidate_block_hash,
+    verify_committed_transaction_inclusion, verify_exact_successful_committed_transaction,
 };
 use crate::committed_transaction_query::{exact_query_payload, finalize_query, query_payload_hash};
 
@@ -325,6 +325,97 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_client_CommittedTra
             return std::ptr::null_mut();
         }
     };
+    verified_to_java(&mut env, verified)
+}
+
+/// Verify exact retained authorization bytes and successful native execution through the same
+/// independently selected checkpoint used by the general inclusion verifier.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_client_CommittedTransactionInclusionBridge_nativeVerifyExactSuccessfulCommittedTransaction(
+    mut env: jni::JNIEnv<'_>,
+    _class: jni::objects::JClass<'_>,
+    response: JByteArray<'_>,
+    chain_json: JByteArray<'_>,
+    network_id: JByteArray<'_>,
+    expected_chain: JByteArray<'_>,
+    trusted_checkpoint: JByteArray<'_>,
+    original_signed_transaction: JByteArray<'_>,
+) -> jobjectArray {
+    let Some(response) = read_java_byte_array_bounded(
+        &mut env,
+        &response,
+        "committedTransactionResponse",
+        MAX_RESPONSE_BYTES,
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let Some(chain_json) = read_java_byte_array_bounded(
+        &mut env,
+        &chain_json,
+        "nativeFinalityProofChainJson",
+        MAX_CHAIN_JSON_BYTES,
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let Some(network_id) = read_java_byte_array_bounded(&mut env, &network_id, "networkId", 32)
+    else {
+        return std::ptr::null_mut();
+    };
+    let Some(label) =
+        read_java_byte_array_bounded(&mut env, &expected_chain, "expectedChain", 1024)
+    else {
+        return std::ptr::null_mut();
+    };
+    let Some(checkpoint) = read_java_byte_array_bounded(
+        &mut env,
+        &trusted_checkpoint,
+        "trustedCheckpoint",
+        iroha_data_model::sumeragi_finality::MAX_FINALITY_CHECKPOINT_BYTES,
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let Some(original) = read_java_byte_array_bounded(
+        &mut env,
+        &original_signed_transaction,
+        "originalSignedTransaction",
+        4 * 1024 * 1024,
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let Some(result) = catch_unwind_to_java(&mut env, "exact successful transaction inclusion", || {
+        let network_bytes: [u8; 32] = network_id
+            .try_into()
+            .map_err(|_| "networkId must be exactly 32 bytes".to_owned())?;
+        if network_bytes[31] & 1 == 0 {
+            return Err("networkId must be a marked hash".to_owned());
+        }
+        let network_id = NetworkId::from_genesis_hash(
+            HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed(network_bytes)),
+        );
+        let label =
+            std::str::from_utf8(&label).map_err(|_| "expectedChain is not UTF-8".to_owned())?;
+        verify_exact_successful_committed_transaction(
+            &response,
+            &chain_json,
+            network_id,
+            label,
+            &checkpoint,
+            &original,
+        )
+    }) else {
+        return std::ptr::null_mut();
+    };
+    match result {
+        Ok(verified) => verified_to_java(&mut env, verified),
+        Err(error) => {
+            throw_java_illegal_argument(&mut env, error);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+fn verified_to_java(env: &mut jni::JNIEnv<'_>, verified: VerifiedCommittedTransaction) -> jobjectArray {
     let fields = [
         verified.row,
         verified.output_hash.to_vec(),
@@ -346,7 +437,7 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_client_CommittedTra
         Ok(array) => array,
         Err(error) => {
             throw_java_illegal_state(
-                &mut env,
+                env,
                 format!("committed inclusion result allocation failed: {error}"),
             );
             std::ptr::null_mut()

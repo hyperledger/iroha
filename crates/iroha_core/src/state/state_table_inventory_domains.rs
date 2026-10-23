@@ -56,10 +56,11 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Name,
-        reason: "Native FI relationship, asset UID policy/enrollment/reader and controlled-lock storage-key prefixes in world.smart_contract_state. They name canonical record paths; these literals compute no digest or independent State root",
+        reason: "Native FI relationship/occurrence receipts, asset UID policy/enrollment/reader and controlled-lock storage-key prefixes in world.smart_contract_state. They name canonical record paths; these literals compute no digest or independent State root",
         literals: &[
             r"asset_fi_link_attestation_v1/",
             r"asset_fi_link_v1/",
+            r"asset_fi_transfer_receipt_v1/",
             r"asset_fi_v1/",
             r"asset_lock_control_v1/",
             r"asset_uid_binding_v1/",

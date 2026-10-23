@@ -1810,8 +1810,23 @@ record!(
 );
 
 record!(
+    asset_fi_context_assert_current_v1,
+    crate::isi::asset_fi_context::AssertAssetFiContextV1,
+    "iroha_data_model::isi::asset_fi_context::AssertAssetFiContextV1"
+);
+record!(
+    asset_fi_context_assert_receipt_v1,
+    crate::isi::asset_fi_context::AssertAssetFiTransferReceiptV1,
+    "iroha_data_model::isi::asset_fi_context::AssertAssetFiTransferReceiptV1"
+);
+record!(
     asset_fi_transfer_to_linked_fi_v1,
     crate::isi::asset_fi::TransferToLinkedFiV1,
     "iroha_data_model::isi::asset_fi::TransferToLinkedFiV1"
+);
+record!(
+    asset_escrow_scope_initialize_v1,
+    crate::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1,
+    "iroha_data_model::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1"
 );
 }

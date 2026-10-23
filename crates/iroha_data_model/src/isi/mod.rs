@@ -266,9 +266,12 @@ impl_direct_instruction_box!(crate::isi::asset_uid::SetAssetUidPolicyReaderV1);
 impl_direct_instruction_box!(crate::isi::asset_uid_enrollment::ActivateAssetUidEnrollmentV1);
 impl_direct_instruction_box!(crate::isi::asset_uid_enrollment::SetAssetUidSystemAccountV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiV1);
+impl_direct_instruction_box!(crate::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiLinkAttestationV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::SetAssetFiLinkV1);
 impl_direct_instruction_box!(crate::isi::asset_fi::TransferToLinkedFiV1);
+impl_direct_instruction_box!(crate::isi::asset_fi_context::AssertAssetFiContextV1);
+impl_direct_instruction_box!(crate::isi::asset_fi_context::AssertAssetFiTransferReceiptV1);
 
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::BindRetailIdentityV1);
 impl_direct_instruction_box!(crate::isi::retail_daily_limit::RetailMonetaryMovementV1);
@@ -2039,6 +2042,8 @@ pub mod retail_daily_limit;
 pub mod asset_uid;
 pub mod asset_uid_enrollment;
 pub mod asset_fi;
+pub mod asset_fi_context;
+pub mod asset_escrow_scope;
 /// Runtime upgrade instructions and payloads.
 pub mod runtime_upgrade;
 /// Real-world asset lot instructions.
@@ -2910,7 +2915,9 @@ pub mod prelude {
         },
         asset_uid::{SetAssetUidPolicyV1, SetAssetUidPolicyReaderV1},
         asset_uid_enrollment::{ActivateAssetUidEnrollmentV1, SetAssetUidSystemAccountV1},
+        asset_escrow_scope::InitializeAssetEscrowReadScopeV1,
         asset_fi::{SetAssetFiV1, SetAssetFiLinkAttestationV1, SetAssetFiLinkV1, TransferToLinkedFiV1},
+        asset_fi_context::{AssertAssetFiContextV1, AssertAssetFiTransferReceiptV1},
         rwa::{
             ForceTransferRwa, FreezeRwa, HoldRwa, MergeRwas, RedeemRwa, RegisterRwa, ReleaseRwa,
             RwaInstructionBox, SetRwaControls, TransferRwa, UnfreezeRwa,

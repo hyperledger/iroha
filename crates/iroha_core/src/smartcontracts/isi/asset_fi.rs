@@ -184,16 +184,27 @@ pub(crate) struct VerifiedLinkedFiTransfer {
     destination: AssetId,
     amount: Quantity,
     binding: Vec<u8>,
+    receipt: asset_fi::receipt::Capture,
 }
 
 impl VerifiedLinkedFiTransfer {
-    pub(crate) fn into_parts(self) -> (AccountId, AssetId, AssetId, Quantity, Vec<u8>) {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        AccountId,
+        AssetId,
+        AssetId,
+        Quantity,
+        Vec<u8>,
+        asset_fi::receipt::Capture,
+    ) {
         (
             self.authority,
             self.source,
             self.destination,
             self.amount,
             self.binding,
+            self.receipt,
         )
     }
 }
@@ -256,6 +267,14 @@ fn execute_transfer(
             ));
         }
     }
+    let receipt = asset_fi::receipt::Capture::admitted(
+        tx,
+        &instruction,
+        authority,
+        context,
+        link.clone(),
+        &policy,
+    )?;
     let binding = asset_uid::encode(&(instruction.clone(), link.clone(), authority.clone()))?;
     let verified = VerifiedLinkedFiTransfer {
         authority: authority.clone(),
@@ -266,6 +285,7 @@ fn execute_transfer(
         destination: AssetId::new(instruction.asset_definition_id, link.fi_account_id),
         amount: instruction.amount,
         binding,
+        receipt,
     };
     super::asset::isi::execute_verified_linked_fi_transfer(tx, verified)
 }
@@ -318,5 +338,16 @@ impl crate::smartcontracts::ValidQuery for iroha_data_model::query::asset_fi::Fi
         let row = asset_fi::view(state.world(), &self, now, height)
             .map_err(|error| QueryExecutionFail::Conversion(error.to_string()))?;
         Ok(core::iter::once(row).filter(move |row| filter.applies(row)))
+    }
+}
+
+impl crate::smartcontracts::ValidQuery for iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1 {
+    fn execute(self, _filter: iroha_data_model::query::dsl::CompoundPredicate<iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1>,
+        _state: &impl crate::state::StateReadOnly)
+        -> Result<impl Iterator<Item = iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1>, iroha_data_model::query::error::QueryExecutionFail>
+    {
+        Err::<core::iter::Empty<iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1>, _>(
+            iroha_data_model::query::error::QueryExecutionFail::Conversion(
+                "FI receipt requires bounded ordinary native query admission".into()))
     }
 }

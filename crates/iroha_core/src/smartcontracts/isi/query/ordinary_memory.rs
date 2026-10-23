@@ -690,6 +690,12 @@ enum AdmittedIterableSource {
     AssetUidPolicies,
     /// Exact owner-private FI relationship.
     AssetFiLink,
+    /// Exact immutable FI occurrence candidate, ephemeral only.
+    AssetFiReceipt,
+    /// Exact current FI context, owner-only and ephemeral.
+    AssetFiContext,
+    /// Complete selected-asset escrow original, ephemeral only.
+    AssetEscrowScope,
     /// Exact owner-private mandatory enrollment status.
     AssetUidEnrollment,
 }
@@ -704,6 +710,9 @@ impl AdmittedIterableSource {
             QueryItemKind::AssetUidPolicyViewV1 => Some(Self::AssetUidPolicies),
             QueryItemKind::AssetUidEnrollmentViewV1 => Some(Self::AssetUidEnrollment),
             QueryItemKind::AssetFiRelationshipViewV1 => Some(Self::AssetFiLink),
+            QueryItemKind::AssetFiTransferReceiptV1 => Some(Self::AssetFiReceipt),
+            QueryItemKind::AssetFiContextSnapshotV1 => Some(Self::AssetFiContext),
+            QueryItemKind::AssetEscrowScopeOriginalV1 => Some(Self::AssetEscrowScope),
             _ => None,
         }
     }
@@ -763,6 +772,9 @@ fn iterable_query_name(
         QueryItemKind::AssetUidPolicyViewV1 => "FindAssetUidPoliciesV1",
         QueryItemKind::AssetUidEnrollmentViewV1 => "FindAssetUidEnrollmentV1",
         QueryItemKind::AssetFiRelationshipViewV1 => "FindAssetFiLinkV1",
+        QueryItemKind::AssetFiTransferReceiptV1 => "FindAssetFiTransferReceiptV1",
+        QueryItemKind::AssetFiContextSnapshotV1 => "FindAssetFiContextV1",
+        QueryItemKind::AssetEscrowScopeOriginalV1 => "FindAssetEscrowsByAssetDefinitionV1",
     }
 }
 fn ensure_world_state_start_shape(
@@ -807,7 +819,7 @@ fn ensure_world_state_start_shape(
             "admits only a zero offset",
         ));
     }
-    if source == AdmittedIterableSource::Peers && mode != OrdinaryCursorMode::Ephemeral {
+    if matches!(source, AdmittedIterableSource::Peers | AdmittedIterableSource::AssetEscrowScope | AdmittedIterableSource::AssetFiReceipt | AdmittedIterableSource::AssetFiContext) && mode != OrdinaryCursorMode::Ephemeral {
         return Err(signed_query_shape_not_admitted(
             query,
             "is admitted only in ephemeral cursor mode",
@@ -850,6 +862,9 @@ fn admitted_source_has_pass_predicate(
     match source {
         AdmittedIterableSource::AssetUidPolicies => pass_shape!(iroha_data_model::query::asset_uid::FindAssetUidPoliciesV1, iroha_data_model::asset::uid::AssetUidPolicyViewV1),
         AdmittedIterableSource::AssetFiLink => pass_shape!(iroha_data_model::query::asset_fi::FindAssetFiLinkV1, iroha_data_model::asset::fi_link::AssetFiRelationshipViewV1),
+        AdmittedIterableSource::AssetFiReceipt => pass_shape!(iroha_data_model::query::asset_fi::FindAssetFiTransferReceiptV1, iroha_data_model::asset::fi_link::AssetFiTransferReceiptV1),
+        AdmittedIterableSource::AssetFiContext => pass_shape!(iroha_data_model::query::asset_fi_context::FindAssetFiContextV1, iroha_data_model::asset::fi_context::AssetFiContextSnapshotV1),
+        AdmittedIterableSource::AssetEscrowScope => pass_shape!(iroha_data_model::query::asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1, iroha_data_model::escrow::scoped::AssetEscrowScopeOriginalV1),
         AdmittedIterableSource::AssetUidEnrollment => pass_shape!(iroha_data_model::query::asset_uid_enrollment::FindAssetUidEnrollmentV1, iroha_data_model::asset::uid_enrollment::AssetUidEnrollmentViewV1),
         AdmittedIterableSource::Peers => pass_shape!(FindPeers, PeerId),
         AdmittedIterableSource::AccountIds => pass_shape!(FindAccountIds, AccountId),
@@ -2205,6 +2220,192 @@ mod tests {
             Err(Error::CapacityLimit),
             "bounded Start must account for offset, first page, retained tail, and overflow probe"
         );
+    }
+#[test]
+fn fi_context_start_admits_only_a_complete_owner_ephemeral_candidate() {
+    use iroha_data_model::{
+        asset::fi_context::{AssetFiContextSnapshotV1, AssetFiContextTargetV1},
+        query::{asset_fi_context::FindAssetFiContextV1, dsl::CompoundPredicate},
+    };
+    use norito::codec::Encode as _;
+    let query = FindAssetFiContextV1 {
+        target: AssetFiContextTargetV1::Transfer {
+            instruction: iroha_data_model::isi::asset_fi::TransferToLinkedFiV1 {
+                asset_definition_id: "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().unwrap(),
+                account_id: iroha_test_samples::ALICE_ID.clone(),
+                amount: 5_u32.into(),
+                expected_link_revision: 1,
+                expected_policy_revision: 1,
+            },
+            fi_account_id: iroha_test_samples::BOB_ID.clone(),
+            reference_digest: [9; 32],
+            expected_fi_revision: 1,
+            expected_attestation_revision: 1,
+        },
+        expected_incarnation: iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(
+            *iroha_crypto::Hash::new("context-incarnation").as_ref(),
+        )
+        .unwrap(),
+        expected_uid: [7; 32],
+    };
+    let mut params = peer_params();
+    params.fetch_size = FetchSize::new(Some(nonzero!(1_u64)));
+    let request = erased_start::<AssetFiContextSnapshotV1>(
+        CompoundPredicate::PASS,
+        query.encode(),
+        params.clone(),
+    );
+    ensure_request_admitted(
+        &request,
+        OrdinaryCursorMode::Ephemeral,
+        bounded_ordinary_limits(),
+        limits(),
+    )
+    .unwrap();
+    assert!(
+        ensure_request_admitted(
+            &request,
+            OrdinaryCursorMode::Stored,
+            bounded_ordinary_limits(),
+            limits()
+        )
+        .is_err()
+    );
+    assert!(
+        ensure_request_admitted(
+            &request,
+            OrdinaryCursorMode::Ephemeral,
+            QueryLimits::new(16),
+            limits()
+        )
+        .is_err()
+    );
+    let filtered = erased_start::<AssetFiContextSnapshotV1>(
+        CompoundPredicate::<AssetFiContextSnapshotV1>::build(|record| record.exists("uid")),
+        query.encode(),
+        params.clone(),
+    );
+    assert!(
+        ensure_request_admitted(
+            &filtered,
+            OrdinaryCursorMode::Ephemeral,
+            bounded_ordinary_limits(),
+            limits()
+        )
+        .is_err(),
+        "a semantic filter cannot make an complete context disappear"
+    );
+    let mut sorted = params.clone();
+    sorted.sorting =
+        iroha_data_model::query::parameters::Sorting::by_metadata_key("context".parse().unwrap());
+    let sorted =
+        erased_start::<AssetFiContextSnapshotV1>(CompoundPredicate::PASS, query.encode(), sorted);
+    assert!(
+        ensure_request_admitted(
+            &sorted,
+            OrdinaryCursorMode::Ephemeral,
+            bounded_ordinary_limits(),
+            limits()
+        )
+        .is_err()
+    );
+    params.pagination = Pagination::new(None, 1);
+    let offset =
+        erased_start::<AssetFiContextSnapshotV1>(CompoundPredicate::PASS, query.encode(), params);
+    assert!(
+        ensure_request_admitted(
+            &offset,
+            OrdinaryCursorMode::Ephemeral,
+            bounded_ordinary_limits(),
+            limits()
+        )
+        .is_err()
+    );
+    let QueryRequest::Start(start) = &request else {
+        unreachable!()
+    };
+    let mut projected = start.clone();
+    projected.selector_bytes.push(0);
+    assert!(
+        ensure_request_admitted(
+            &QueryRequest::Start(projected),
+            OrdinaryCursorMode::Ephemeral,
+            bounded_ordinary_limits(),
+            limits()
+        )
+        .is_err(),
+        "nonempty/trailing selector must not project away evidence"
+    );
+    let QueryRequest::Start(mut predicated) = request else {
+        unreachable!()
+    };
+    predicated.predicate_bytes.push(0);
+    assert!(
+        ensure_request_admitted(
+            &QueryRequest::Start(predicated),
+            OrdinaryCursorMode::Ephemeral,
+            bounded_ordinary_limits(),
+            limits()
+        )
+        .is_err(),
+        "predicate must decode exactly as pass"
+    );
+}
+
+    #[test]
+    fn fi_receipt_start_admits_only_a_complete_exact_ephemeral_candidate() {
+        use iroha_data_model::{asset::fi_link::AssetFiTransferReceiptV1,
+            query::{asset_fi::FindAssetFiTransferReceiptV1, dsl::CompoundPredicate}};
+        use norito::codec::Encode as _;
+        let query = FindAssetFiTransferReceiptV1 {
+            asset_definition_id: "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().unwrap(),
+            account_id: iroha_test_samples::ALICE_ID.clone(),
+            expected_incarnation: iroha_data_model::nexus::AxtAssetIncarnationV1::try_from_bytes(*iroha_crypto::Hash::new("receipt-incarnation").as_ref()).unwrap(),
+            execution_call_hash: iroha_crypto::Hash::new("receipt-shape"), transcript_index: u64::MAX,
+        };
+        let mut params = peer_params();
+        params.fetch_size = FetchSize::new(Some(nonzero!(1_u64)));
+        let request = erased_start::<AssetFiTransferReceiptV1>(CompoundPredicate::PASS, query.encode(), params.clone());
+        ensure_request_admitted(&request, OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).unwrap();
+        assert!(ensure_request_admitted(&request, OrdinaryCursorMode::Stored, bounded_ordinary_limits(), limits()).is_err());
+        assert!(ensure_request_admitted(&request, OrdinaryCursorMode::Ephemeral, QueryLimits::new(16), limits()).is_err());
+        let filtered = erased_start::<AssetFiTransferReceiptV1>(CompoundPredicate::<AssetFiTransferReceiptV1>::build(|record| record.exists("uid")), query.encode(), params.clone());
+        assert!(ensure_request_admitted(&filtered, OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).is_err(), "a semantic filter cannot make an exact receipt disappear");
+        let mut sorted = params.clone();
+        sorted.sorting = iroha_data_model::query::parameters::Sorting::by_metadata_key("receipt".parse().unwrap());
+        let sorted = erased_start::<AssetFiTransferReceiptV1>(CompoundPredicate::PASS, query.encode(), sorted);
+        assert!(ensure_request_admitted(&sorted, OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).is_err());
+        params.pagination = Pagination::new(None, 1);
+        let offset = erased_start::<AssetFiTransferReceiptV1>(CompoundPredicate::PASS, query.encode(), params);
+        assert!(ensure_request_admitted(&offset, OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).is_err());
+        let QueryRequest::Start(start) = &request else { unreachable!() };
+        let mut projected = start.clone();
+        projected.selector_bytes.push(0);
+        assert!(ensure_request_admitted(&QueryRequest::Start(projected), OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).is_err(), "nonempty/trailing selector must not project away evidence");
+        let QueryRequest::Start(mut predicated) = request else { unreachable!() };
+        predicated.predicate_bytes.push(0);
+        assert!(ensure_request_admitted(&QueryRequest::Start(predicated), OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).is_err(), "predicate must decode exactly as pass");
+    }
+
+    #[test]
+    fn escrow_scope_start_admits_only_one_bounded_ephemeral_shape() {
+        use iroha_data_model::{escrow::scoped::AssetEscrowScopeOriginalV1,
+            nexus::AxtAssetIncarnationV1,
+            query::{asset_escrow_scope::FindAssetEscrowsByAssetDefinitionV1, dsl::CompoundPredicate}};
+        use norito::codec::Encode as _;
+        let query = FindAssetEscrowsByAssetDefinitionV1 {
+            asset_definition_id: "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().unwrap(),
+            expected_incarnation: AxtAssetIncarnationV1::try_from_bytes(*iroha_crypto::Hash::new("scope-shape").as_ref()).unwrap(),
+        };
+        let mut params = peer_params();
+        params.fetch_size = FetchSize::new(Some(nonzero!(1_u64)));
+        let request = erased_start::<AssetEscrowScopeOriginalV1>(CompoundPredicate::PASS, query.encode(), params.clone());
+        ensure_request_admitted(&request, OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).unwrap();
+        assert!(ensure_request_admitted(&request, OrdinaryCursorMode::Stored, bounded_ordinary_limits(), limits()).is_err(), "no stored continuation may mix scope originals");
+        assert!(ensure_request_admitted(&request, OrdinaryCursorMode::Ephemeral, QueryLimits::new(16), limits()).is_err(), "exact counting is not an admitted bounded scan");
+        params.pagination = Pagination::new(None, 1);
+        let request = erased_start::<AssetEscrowScopeOriginalV1>(CompoundPredicate::PASS, query.encode(), params);
+        assert!(ensure_request_admitted(&request, OrdinaryCursorMode::Ephemeral, bounded_ordinary_limits(), limits()).is_err(), "offset must not silently omit the only complete original");
     }
     fn bounded_ordinary_limits() -> QueryLimits {
         QueryLimits::new(16)

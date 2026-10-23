@@ -73,7 +73,14 @@ fn print_uid_and_controlled_lock_record_fixture_rows() {
     let mut lock = OpenAssetLock::new(escrow_id, asset.clone(), destination, 30_u32);
     lock.release_authority = Some(controller.subject_id());
     lock.expires_at_ms = Some(604_800_000);
+    // Actual capture output must be retained by the native qualification producer.
+
     let rows = vec![
+        row(crate::isi::asset_escrow_scope::InitializeAssetEscrowReadScopeV1 {
+            asset_definition_id: asset.clone(),
+            expected_incarnation: crate::nexus::AxtAssetIncarnationV1::try_from_bytes(*Hash::new("scope-capture").as_ref()).unwrap(),
+            expected_revision: 0,
+        }),
         row(crate::isi::asset_uid::SetAssetUidPolicyReaderV1 {
             asset_definition_id: asset.clone(), controller: controller.clone(), revision: 1, enabled: true,
         }),

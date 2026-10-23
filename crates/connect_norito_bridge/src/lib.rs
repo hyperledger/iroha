@@ -134,9 +134,22 @@ use zeroize::{Zeroize, Zeroizing};
 mod account_onboarding;
 pub use account_onboarding::connect_norito_encode_account_onboarding_plan_body_v1;
 mod committed_transaction_inclusion;
+mod fi_checkpoint_selection;
+pub use fi_checkpoint_selection::connect_norito_verify_fi_checkpoint_selection_v1;
+mod fi_checkpoint_advance;
+pub use fi_checkpoint_advance::connect_norito_advance_fi_checkpoint_v1;
+mod fi_context_verification;
+mod fi_context_bridge;
+pub use fi_context_bridge::connect_norito_verify_fi_context_assertion_v1;
+mod fi_context_continuation;
+pub use fi_context_continuation::{
+    connect_norito_admit_fi_assertion_original_v1,
+    connect_norito_verify_fi_context_continuation_v1,
+};
 pub use committed_transaction_inclusion::{
     connect_norito_committed_transaction_candidate_block_hash_v1,
     connect_norito_verify_committed_transaction_inclusion_v1,
+    connect_norito_verify_exact_successful_committed_transaction_v1,
 };
 mod committed_transaction_query;
 pub use committed_transaction_query::{
@@ -5142,8 +5155,181 @@ mod detached_transaction_scaffold_tests {
             }
         }
 
+        fn linked_fi_transfer_fixture(key: &KeyPair) -> TransferToLinkedFiV1 {
+            let owner_link = fixture(key);
+            TransferToLinkedFiV1 {
+                asset_definition_id: owner_link.link.asset_definition_id,
+                account_id: owner_link.link.account_id,
+                amount: "184467440737095516.15".parse().unwrap(),
+                expected_link_revision: u64::MAX,
+                expected_policy_revision: u64::MAX - 1,
+            }
+        }
+
+        fn linked_fi_transfer_scaffold(
+            key: &KeyPair,
+            value: TransferToLinkedFiV1,
+        ) -> SignedTransaction {
+            scaffold_transaction(key, Executable::from([InstructionBox::from(value)]), |_| {})
+        }
+
         #[test]
-        fn refuses_attestation_offramp_and_mixed_executables() {
+        fn linked_fi_transfer_inspection_has_exact_signed_fields_and_no_invented_destination() {
+            let key = fixture_keypair(0x61);
+            let value = linked_fi_transfer_fixture(&key);
+            let tx = linked_fi_transfer_scaffold(&key, value.clone());
+            let observed = inspect_value(&tx);
+            let root = observed.as_object().unwrap();
+            assert_eq!(
+                root.get("executable"),
+                Some(&::norito::json!({
+                    "kind": "asset_fi_link_transfer",
+                    "asset_definition_id": (value.asset_definition_id.to_string()),
+                    "account_id": (value.account_id.to_string()),
+                    "amount": (value.amount.to_string()),
+                    "expected_link_revision": (u64::MAX),
+                    "expected_policy_revision": (u64::MAX - 1),
+                }))
+            );
+            assert_eq!(root["executable"].as_object().unwrap().len(), 6);
+            assert_eq!(
+                root.get("authority"),
+                Some(&JsonValue::from(tx.authority().to_string()))
+            );
+            assert_eq!(
+                root.get("network_id"),
+                Some(&norito::json::to_value(tx.network_id().unwrap()).unwrap())
+            );
+            assert_eq!(
+                root.get("fee_payment"),
+                Some(&norito::json::to_value(tx.fee_payment_intent()).unwrap())
+            );
+            assert_eq!(
+                root.get("metadata"),
+                Some(&norito::json::to_value(tx.metadata()).unwrap())
+            );
+            assert_eq!(
+                root.get("payload_signing_hash_hex"),
+                Some(&JsonValue::from(hex::encode(
+                    iroha_crypto::HashOf::new(tx.payload()).as_ref()
+                )))
+            );
+            assert_eq!(
+                root.get("payload_hash_hex"),
+                Some(&JsonValue::from(hex::encode(
+                    Hash::new(&norito::encode_canonical(tx.payload()).unwrap()).as_ref()
+                )))
+            );
+            assert_eq!(
+                root.get("entrypoint_hash_hex"),
+                Some(&JsonValue::from(hex::encode(
+                    tx.hash_as_entrypoint().as_ref()
+                )))
+            );
+        }
+
+        #[test]
+        fn linked_fi_transfer_each_wire_field_changes_review_and_payload_hash() {
+            type Change = fn(&mut TransferToLinkedFiV1);
+            let changes: [(&str, Change); 5] = [
+                ("asset_definition_id", |value| {
+                    value.asset_definition_id = AssetDefinitionId::derive_from_components(
+                        DomainId::try_new("wallet", "universal").unwrap(),
+                        "other".parse().unwrap(),
+                    )
+                }),
+                ("account_id", |value| {
+                    value.account_id = AccountId::new(fixture_keypair(0x63).public_key().clone())
+                }),
+                ("amount", |value| value.amount = "0.01".parse().unwrap()),
+                ("expected_link_revision", |value| {
+                    value.expected_link_revision -= 1
+                }),
+                ("expected_policy_revision", |value| {
+                    value.expected_policy_revision -= 1
+                }),
+            ];
+            let key = fixture_keypair(0x61);
+            let original = linked_fi_transfer_fixture(&key);
+            let baseline = inspect_value(&linked_fi_transfer_scaffold(&key, original.clone()));
+            let baseline = baseline.as_object().unwrap();
+            let before = baseline["executable"].as_object().unwrap();
+            for (field, change) in changes {
+                let mut value = original.clone();
+                change(&mut value);
+                let actual = inspect_value(&linked_fi_transfer_scaffold(&key, value));
+                let actual = actual.as_object().unwrap();
+                let after = actual["executable"].as_object().unwrap();
+                for (name, value) in before {
+                    if name == field {
+                        assert_ne!(after.get(name), Some(value), "{field}");
+                    } else {
+                        assert_eq!(after.get(name), Some(value), "{field} changed {name}");
+                    }
+                }
+                assert_ne!(
+                    baseline.get("payload_signing_hash_hex"),
+                    actual.get("payload_signing_hash_hex"),
+                    "{field}"
+                );
+                assert_ne!(
+                    baseline.get("payload_hash_hex"),
+                    actual.get("payload_hash_hex"),
+                    "{field}"
+                );
+            }
+        }
+
+        #[test]
+        fn linked_fi_transfer_rejects_duplicate_mixed_batch_and_generic_relabeling() {
+            let key = fixture_keypair(0x61);
+            let off = InstructionBox::from(linked_fi_transfer_fixture(&key));
+            let link = InstructionBox::from(fixture(&key));
+            let ordinary = transfer_scaffold(&key, false);
+            let Executable::Instructions(transfers) = ordinary.instructions() else {
+                panic!("transfer fixture");
+            };
+            let transfer = transfers[0].clone();
+            let ordinary_review = inspect_value(&ordinary);
+            assert_eq!(
+                ordinary_review.as_object().unwrap()["executable"]
+                    .as_object()
+                    .unwrap()["kind"]
+                    .as_str(),
+                Some("asset_transfer")
+            );
+            for items in [
+                vec![off.clone(), off.clone()],
+                vec![off.clone(), transfer.clone()],
+                vec![transfer, off.clone()],
+                vec![link, off.clone()],
+            ] {
+                let tx = scaffold_transaction(&key, Executable::from(items.clone()), |_| {});
+                assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
+                let tx = scaffold_transaction(
+                    &key,
+                    Executable::Batch(
+                        items
+                            .into_iter()
+                            .map(ExecutableBatchItem::Instruction)
+                            .collect::<Vec<_>>()
+                            .into(),
+                    ),
+                    |_| {},
+                );
+                assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
+            }
+            // A single instruction hidden in a batch is not the dedicated shape.
+            let tx = scaffold_transaction(
+                &key,
+                Executable::Batch(vec![ExecutableBatchItem::Instruction(off)].into()),
+                |_| {},
+            );
+            assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
+        }
+
+        #[test]
+        fn refuses_attestation_and_mixed_link_executables() {
             let key = fixture_keypair(0x61);
             let approved = fixture(&key);
             let link = &approved.link;
@@ -5157,20 +5343,12 @@ mod detached_transaction_scaffold_tests {
                     enabled: true,
                 },
             };
-            let offramp = TransferToLinkedFiV1 {
-                asset_definition_id: link.asset_definition_id.clone(),
-                account_id: link.account_id.clone(),
-                amount: Quantity::from(1_u32),
-                expected_link_revision: link.revision,
-                expected_policy_revision: approved.expected_policy_revision,
-            };
-            for other in [
-                InstructionBox::from(attestation),
-                InstructionBox::from(offramp),
-            ] {
-                let tx = scaffold_transaction(&key, Executable::from([other]), |_| {});
-                assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
-            }
+            let tx = scaffold_transaction(
+                &key,
+                Executable::from([InstructionBox::from(attestation)]),
+                |_| {},
+            );
+            assert!(inspect_detached_transaction_scaffold(&tx.encode_versioned()).is_err());
             let fi = InstructionBox::from(approved.clone());
             let ordinary = transfer_scaffold(&key, false);
             let Executable::Instructions(transfers) = ordinary.instructions() else {

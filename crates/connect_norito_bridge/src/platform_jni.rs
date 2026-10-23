@@ -18,11 +18,15 @@ mod account_address;
 mod committed_transaction_inclusion;
 mod confidential_prover;
 mod detached_transaction;
+mod fi_checkpoint_selection;
+mod fi_checkpoint_advance;
 mod gpu;
 mod kagemusha_wallet_advance;
 mod kagemusha_wallet_observation;
 mod kagemusha_wallet_review;
 mod privacy_intent;
+mod fi_context_assertion;
+mod fi_context_continuation;
 
 include!("platform_jni/part_1.rs");
 include!("platform_jni/part_2.rs");

@@ -75,6 +75,51 @@ class DetachedTransactionInspectionTest {
 
     private val fiLink = """{"kind":"asset_fi_link_set","asset_definition_id":"ds","account_id":"owner","fi_account_id":"fi","reference_digest":"42d0bab39490854dd81ea51610e83141952bd0c4c06224a5f1cc41745459f7b8","fi_revision":18446744073709551615,"attestation_revision":18446744073709551614,"revision":18446744073709551613,"enabled":true,"controller":"irohac1controller","waterfall":true,"reverse_waterfall":false,"expected_policy_revision":18446744073709551612}"""
 
+    private val fiTransfer = """{"kind":"asset_fi_link_transfer","asset_definition_id":"ds","account_id":"owner","amount":"184467440737095516.15","expected_link_revision":18446744073709551615,"expected_policy_revision":18446744073709551614}"""
+
+    @Test fun linkedFiTransferRetainsExactFieldsWithoutDestinationEvidence() {
+        val value = assertIs<DetachedExecutableInspection.AssetFiLinkTransfer>(parse(review(fiTransfer)).executable)
+        assertEquals("ds", value.assetDefinitionId)
+        assertEquals("owner", value.accountId)
+        assertEquals("184467440737095516.15", value.amount)
+        assertEquals(BigInteger("18446744073709551615"), value.expectedLinkRevision)
+        assertEquals(BigInteger("18446744073709551614"), value.expectedPolicyRevision)
+        val zero = fiTransfer.replace("18446744073709551615", "0")
+        assertEquals(BigInteger.ZERO, assertIs<DetachedExecutableInspection.AssetFiLinkTransfer>(parse(review(zero)).executable).expectedLinkRevision)
+    }
+
+    @Test fun linkedFiTransferRejectsMissingDuplicateWrongAndUnsignedDisplayFields() {
+        val fields = listOf(
+            "asset_definition_id" to "\"ds\"", "account_id" to "\"owner\"",
+            "amount" to "\"184467440737095516.15\"",
+            "expected_link_revision" to "18446744073709551615",
+            "expected_policy_revision" to "18446744073709551614",
+        )
+        for ((key, value) in fields) {
+            val field = "\"$key\":$value"
+            for (replacement in listOf("\"unknown_$key\":$value", "$field,$field", "\"$key\":[]")) {
+                assertFails(key) { parse(review(fiTransfer.replace(field, replacement))) }
+            }
+            if (key.endsWith("revision")) {
+                for (wrong in listOf("-1", "-0", "1.0", "1e0", "\"1\"", "true", "null", "18446744073709551616")) {
+                    assertFails(key + wrong) { parse(review(fiTransfer.replace(field, "\"$key\":$wrong"))) }
+                }
+            }
+        }
+        for (extra in listOf("fi_account_id", "destination_account_id", "reference_digest", "fi_revision", "attestation_revision", "purpose", "waterfall")) {
+            assertFails(extra) { parse(review(fiTransfer.replace("\"kind\":", "\"$extra\":\"untrusted\",\"kind\":"))) }
+        }
+        for (hostile in listOf(
+            fiTransfer.replace("asset_fi_link_transfer", "asset_transfer"),
+            fiTransfer.replace("\"amount\":\"184467440737095516.15\"", "\"amount\":184467440737095516.15"),
+            fiTransfer.replace("\"account_id\":\"owner\"", "\"account_id\":\"\""),
+            fiTransfer.replace("\"asset_definition_id\":\"ds\"", "\"asset_definition_id\":\"\""),
+            fiTransfer.replace("\"amount\":\"184467440737095516.15\"", "\"amount\":\"\""),
+            """{"kind":"transfer_instruction_sequence","transfers":[$fiTransfer,$fiTransfer]}""",
+            """{"kind":"atomic_transfer_sequence","transfers":[$fiTransfer,$fiTransfer]}""",
+        )) { assertFails { parse(review(hostile)) } }
+    }
+
     @Test fun fiLinkRetainsAllFieldsRawReferenceAndFullUnsignedRevisions() {
         val maximum = BigInteger("18446744073709551615")
         for (enabled in listOf(false, true)) {

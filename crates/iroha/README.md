@@ -183,6 +183,14 @@ node reports more rows but returns no continuation cursor, the stream ends with
 `QueryError::Truncated` instead of stopping silently. List collections with the
 collection queries below.
 
+The native `iroha::query::transaction_details_candidate_response_v1` helper converts
+one canonical `PipelineTransactionDetailsResponse` into a single-row canonical
+`QueryResponse` for selective finality verification. It bounds both frames and
+checks local source/output bindings while preserving the exact committed row,
+including rejection results. The caller retains the original details bytes. This
+is only an untrusted candidate conversion: it does not authenticate execution,
+choose a checkpoint, or replace the required consecutive native finality proofs.
+
 ## Collection queries
 
 Domains, accounts, asset definitions, NFTs, RWA lots, account assets, asset
@@ -500,3 +508,9 @@ The current context transport requires `CanReadAllLedgerData` because its comple
 World hashes disclose unrelated row identities and low-entropy values. A bank's
 selected-dataspace grants do not authorize that response; scoped authenticated
 context proofs remain unfinished.
+
+`Client::get_asset_fi_context_snapshot` requests one owner-authorized FI context
+using explicit ephemeral/bounded query execution. It bounds the encoded response
+and rejects incomplete, cursor-bearing or changed-selector results. The returned
+snapshot is an untrusted observation; only exact native assertion execution and
+independent finality verification can authenticate its use in a wallet review.
