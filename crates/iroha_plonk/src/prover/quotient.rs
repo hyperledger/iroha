@@ -66,7 +66,9 @@ use crate::{
         descriptor::{ColumnKindV1, ExprNodeV1, ExprV1, LookupV1, MAX_EXPRESSION_STACK, QueryV1},
     },
     keys::{CosetPolynomial, KeyError, ProvingKey},
-    protocol::{ConstraintFilter, ConstraintTerm, LookupConstraint, Protocol, ProtocolError},
+    protocol::{
+        ConstraintFilter, ConstraintTerm, LookupConstraint, Protocol, ProtocolError, Shape,
+    },
     transcript::decode_scalar,
 };
 
@@ -712,7 +714,15 @@ pub(super) fn workspace_elements<C: PastaCurve>(
     protocol: &Protocol,
 ) -> Result<usize, ProtocolError> {
     let shape = protocol.shape();
-    let key_columns = if pk.has_coset_cache() {
+    fused_workspace_columns(shape, pk.has_coset_cache())?
+        .checked_mul(shape.n)
+        .ok_or(ProtocolError::Overflow)
+}
+
+/// Field columns of [`workspace_elements`] for a key that does (`cached`) or does not keep
+/// its coset cache.
+pub(super) fn fused_workspace_columns(shape: &Shape, cached: bool) -> Result<usize, ProtocolError> {
+    let key_columns = if cached {
         0
     } else {
         shape
@@ -735,7 +745,6 @@ pub(super) fn workspace_elements<C: PastaCurve>(
     transformed
         .checked_add(shape.lookups)
         .and_then(|v| v.checked_add(usize::from(transformed != 0)))
-        .and_then(|v| v.checked_mul(shape.n))
         .ok_or(ProtocolError::Overflow)
 }
 
