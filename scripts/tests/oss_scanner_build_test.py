@@ -137,8 +137,9 @@ class OssScannerBuildTests(unittest.TestCase):
         self.assertEqual((self.state / "observed").read_text(), "release binaries\n")
 
     def test_default_budget_reserves_time_for_image_export(self) -> None:
-        # Replay the timings from PR #886's project-builds job without Cargo or signals:
+        # Replay PR #886's compile timings and check both observed packaging budgets without Cargo or signals:
         # https://github.com/anthropics/oss-scanner/actions/runs/39428500594/job/118647066955
+        # https://github.com/anthropics/oss-scanner/actions/runs/39900308730/job/120240130197
         budget = re.search(r"^ARG OSS_SCANNER_BUDGET_MINUTES=(\d+)$", self.source, re.MULTILINE)
         self.assertIsNotNone(budget)
         self.environment["OSS_SCANNER_BUDGET_MINUTES"] = budget.group(1)
@@ -166,6 +167,9 @@ class OssScannerBuildTests(unittest.TestCase):
         compilation_seconds = int((self.state / "now").read_text()) - 10000
         # Include measured setup/export costs and the wrapper's full termination grace.
         self.assertLess(56 + compilation_seconds + 60 + 455, 37 * 60)
+        # The retry took ~100s for setup/probes and >=699s exporting/unpacking. Unpacking
+        # was canceled, so reserve two more minutes beyond that lower bound.
+        self.assertLess(100 + compilation_seconds + 60 + 699 + 120, 38 * 60)
         self.assertIn("release binaries: done in 1082s", result.stdout)
         self.assertIn("kagami: stopped at the deadline", result.stdout)
         self.assertIn("norito tests: skipped", result.stdout)

@@ -13,7 +13,7 @@
 # abnormal exits, including SIGKILL, fail the build. /opt/oss-scanner/build.log in the image records how each step
 # ended. Package installation, toolchain installation, fetching dependencies and exporting/unpacking the image
 # also count toward the scanner's overall limit. Leave time for those outside this compilation budget: exporting
-# and unpacking the compiled artifacts alone can take over seven minutes.
+# and unpacking the compiled artifacts alone can take over eleven minutes.
 #
 # Dockerfile.dockerignore beside this file replaces the repository's .dockerignore for this build, so the image keeps
 # the whole checkout, .git included.
@@ -107,7 +107,7 @@ RUN cargo fetch --locked
 # so each crate's tests are a separate build from the node's. The most useful come first, and the deadline decides how
 # far the list gets. Initialize the deadline in this same RUN: cached setup layers must not consume a future build's
 # compilation budget, and every compilation step must share the newly initialized deadline.
-ARG OSS_SCANNER_BUDGET_MINUTES=25
+ARG OSS_SCANNER_BUDGET_MINUTES=20
 RUN echo $(( $(date +%s) + ${OSS_SCANNER_BUDGET_MINUTES} * 60 )) > /opt/oss-scanner/deadline \
     && within-budget "release binaries" cargo build --locked \
          -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain \

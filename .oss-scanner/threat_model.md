@@ -184,7 +184,7 @@ Out of scope:
 - `CARGO_NET_OFFLINE=true` prevents registry access. `CARGO_INCREMENTAL=0` and the mold linker setting in
   `/usr/local/cargo/config.toml` match the prebuilt artifacts; changing compilation settings such as these,
   `RUSTFLAGS` or a profile can invalidate those artifacts.
-- `/opt/oss-scanner/build.log` says which prebuild steps finished. The shared compilation budget defaults to 25
+- `/opt/oss-scanner/build.log` says which prebuild steps finished. The shared compilation budget defaults to 20
   minutes, leaving time for image export and unpacking. It starts after dependency fetch and is reset whenever the
   compilation layer runs, including after cached setup layers. Package and toolchain installation, dependency
   fetch, image export and unpacking are outside that budget and still count toward the scanner's overall build
