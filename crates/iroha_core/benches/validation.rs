@@ -92,14 +92,17 @@ fn build_test_and_transient_state() -> State {
             let params = state_view.world.parameters();
             (params.sumeragi().max_clock_drift(), params.transaction())
         };
-        let crypto_cfg = state.crypto();
         let unverified_block = BlockBuilder::new(vec![
             AcceptedTransaction::accept(
                 transaction,
                 &network_id,
                 max_clock_drift,
                 tx_limits,
-                crypto_cfg.as_ref(),
+                &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                ])
+                .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             )
             .unwrap(),
         ])
@@ -171,7 +174,6 @@ fn accept_transaction(criterion: &mut Criterion) {
         (params.sumeragi().max_clock_drift(), params.transaction())
     };
     let transaction = build_test_transaction(network_id).sign(STARTER_KEYPAIR.private_key());
-    let crypto_cfg = state.crypto();
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
@@ -181,7 +183,11 @@ fn accept_transaction(criterion: &mut Criterion) {
                 &network_id,
                 max_clock_drift,
                 tx_limits,
-                crypto_cfg.as_ref(),
+                &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                ])
+                .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             ) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
@@ -229,14 +235,17 @@ fn validate_transaction(criterion: &mut Criterion) {
         let params = state_view.world.parameters();
         (params.sumeragi().max_clock_drift(), params.transaction())
     };
-    let crypto_cfg = state.crypto();
     let unverified_block = BlockBuilder::new(vec![
         AcceptedTransaction::accept(
             transaction,
             &network_id,
             max_clock_drift,
             tx_limits,
-            crypto_cfg.as_ref(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         )
         .unwrap(),
     ])
@@ -260,7 +269,11 @@ fn validate_transaction(criterion: &mut Criterion) {
         &network_id,
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
@@ -333,13 +346,16 @@ fn sign_blocks(criterion: &mut Criterion) {
         let params = state_view.parameters();
         (params.sumeragi().max_clock_drift(), params.transaction())
     };
-    let crypto_cfg = state.crypto();
     let transaction = AcceptedTransaction::accept(
         build_test_transaction(network_id).sign(STARTER_KEYPAIR.private_key()),
         &network_id,
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("Failed to accept transaction.");
     let (_, peer_private_key) = KeyPair::random().into_parts();

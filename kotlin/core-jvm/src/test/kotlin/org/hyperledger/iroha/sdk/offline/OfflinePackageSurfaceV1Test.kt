@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test
  * Only the KAGEMUSHA wallet V1 wire, typed ordinary Activate/IssueLoad constructors, account originals and check codes, enrollment binding,
  * E1 policy originals and the closed E1 refusal table, P-256 codec,
  * Eligibility middleware, native installation/admission and operation owners, ledger and output
- * projections, platform adapter, and private native replies remain. The retired coordinator,
+ * projections, bounded process-local worker diagnostics, platform adapter, and private native replies remain. The retired coordinator,
  * ordinary-runtime, device-lifecycle, probe, provider and
  * Torii sources must not return in production source sets. The explicit `androidTest` inventory
  * includes the maintained enrollment and monetary qualification harness. Neither Android module
@@ -155,10 +155,12 @@ class OfflinePackageSurfaceV1Test {
             "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidStorageV1.kt",
             "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletNativeCallsV1.kt",
             "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletNativeWorkerV1.kt",
+            "kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletWorkerMetricsV1.kt",
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyAttemptGateTest.kt",
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidCustodyStorageV1Test.kt",
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletAndroidStorageV1Test.kt",
             "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletNativeWorkerV1Test.kt",
+            "kagemusha-wallet-android/src/test/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletWorkerMetricsV1Test.kt",
             "kagemusha-wallet-android/src/testSupport/kotlin/org/hyperledger/iroha/sdk/offline/wallet/KagemushaNearbyAttemptGate.kt",
         )
 

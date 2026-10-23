@@ -129,3 +129,42 @@ fn inbound_controller_decode_and_admission_clone_still_require_capacity() {
         account
     );
 }
+
+#[test]
+fn retained_output_radix_scratch_refuses_physical_allocation_without_decode_credit() {
+    use crate::amx_prepare_streaming_allocations::with_exact_allocation_denial;
+    use std::alloc::Layout;
+
+    for account in [AccountId::new(key(23)), multisig()] {
+        let canonical = account
+            .to_account_address()
+            .unwrap()
+            .canonical_bytes()
+            .unwrap();
+        let expected = account.canonical_i105().unwrap();
+        // Nonzero canonical header: all bytes are significant. Base 105 carries
+        // at least six bits per digit in the sole shared radix kernel.
+        let layouts = [
+            Layout::array::<u64>(canonical.len().div_ceil(8)).unwrap(),
+            Layout::array::<u8>((canonical.len() * 8).div_ceil(6)).unwrap(),
+        ];
+        for layout in layouts {
+            let ((result, denied), usage) =
+                norito::core::with_decode_limits_measured(zero_budget(), || {
+                    with_exact_allocation_denial(layout, || account.canonical_i105())
+                });
+            assert!(
+                denied,
+                "the real output allocator must receive the selected radix layout"
+            );
+            assert!(matches!(
+                result,
+                Err(AccountAddressError::DecodeResource(
+                    norito::core::DecodeResourceError::AllocationFailed { bytes }
+                )) if bytes == u64::try_from(layout.size()).unwrap()
+            ));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(account.canonical_i105().unwrap(), expected);
+        }
+    }
+}

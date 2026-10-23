@@ -8,6 +8,8 @@
 //! The mantissa is a raw [`crate::bigint::BigInt`] integer (no decimal scale
 //! is embedded in the integer), and the scale is stored separately as a `u32`.
 use crate::bigint::{BigInt, BigIntAdmissionCloneError};
+#[path = "numeric/prepared_numeric.rs"]
+mod prepared_numeric;
 mod prepared_quantity;
 use core::{cmp::Ordering, str::FromStr};
 pub use iroha_primitives_derive::numeric;
@@ -17,6 +19,7 @@ use norito::{
 };
 use num_bigint::{BigInt as UnboundedBigInt, BigUint as UnboundedBigUint, Sign as UnboundedSign};
 use num_traits::{One as _, Signed as _, ToPrimitive as _, Zero as _};
+pub use prepared_numeric::{ChargedNumeric, NumericDecimalAdmissionError};
 pub use prepared_quantity::{
     ChargedQuantity, PreparedQuantityDecode, QuantityBackingError, QuantityDecodeAdmissionError,
     QuantityDecodePlan, QuantityDestinationError, QuantityJsonAdmissionError,
@@ -450,6 +453,31 @@ pub enum NumericSpecParseError {
     InvalidScale(#[source] <u32 as FromStr>::Err),
 }
 impl Numeric {
+    /// Exact native-digit backing required to copy this signed decimal.
+    ///
+    /// This measures the retained mantissa, without normalization or scratch.
+    /// The caller must fund the layout before copying and retain its charge.
+    ///
+    /// # Errors
+    /// Rejects an unrepresentable native-digit layout.
+    pub fn admission_clone_layout(&self) -> Result<Layout, BigIntAdmissionCloneError> {
+        self.mantissa.admission_clone_layout()
+    }
+
+    /// Copy the exact canonical mantissa and scale through one fallible allocation.
+    ///
+    /// This does not normalize, round, or allocate an arithmetic intermediate.
+    /// The caller owns admission and must retain the original allocation charge
+    /// until the returned independent copy is destroyed.
+    ///
+    /// # Errors
+    /// Preserves native-layout or physical allocator refusal.
+    pub fn try_clone_for_admission(&self) -> Result<Self, BigIntAdmissionCloneError> {
+        Ok(Self {
+            mantissa: self.mantissa.try_clone_for_admission()?,
+            scale: self.scale,
+        })
+    }
     /// Zero numeric value
     pub fn zero() -> Self {
         Self::new(BigInt::zero(), 0)
@@ -1555,7 +1583,7 @@ impl Quantity {
     /// # Errors
     /// Rejects an unrepresentable native-digit layout.
     pub fn admission_clone_layout(&self) -> Result<Layout, BigIntAdmissionCloneError> {
-        self.mantissa().admission_clone_layout()
+        self.0.admission_clone_layout()
     }
     /// Fallibly clone this quantity through one exact native-digit allocation.
     ///
@@ -1565,10 +1593,7 @@ impl Quantity {
     /// # Errors
     /// Rejects an unrepresentable layout or physical allocator refusal.
     pub fn try_clone_for_admission(&self) -> Result<Self, BigIntAdmissionCloneError> {
-        Ok(Self(Numeric {
-            mantissa: self.mantissa().try_clone_for_admission()?,
-            scale: self.scale(),
-        }))
+        self.0.try_clone_for_admission().map(Self)
     }
     /// Canonicalize and validate a decimal as a non-negative quantity.
     ///
@@ -3157,55 +3182,11 @@ impl NumericSpec {
 }
 impl core::str::FromStr for Numeric {
     type Err = NumericError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let trimmed = s.trim();
-        if trimmed.is_empty() {
-            return Err(NumericError::Malformed);
-        }
-        let (negative, digits) = match trimmed.as_bytes().first() {
-            Some(b'-') => (true, &trimmed[1..]),
-            Some(b'+') => (false, &trimmed[1..]),
-            _ => (false, trimmed),
-        };
-        let mut scale = 0u32;
-        let mut mantissa_str = String::new();
-        let mut seen_dot = false;
-        for ch in digits.chars() {
-            if ch == '.' {
-                if seen_dot {
-                    return Err(NumericError::Malformed);
-                }
-                seen_dot = true;
-                continue;
-            }
-            if !ch.is_ascii_digit() {
-                return Err(NumericError::Malformed);
-            }
-            mantissa_str.push(ch);
-            if seen_dot {
-                scale = scale.saturating_add(1);
-            }
-        }
-        while scale > 0 && mantissa_str.ends_with('0') {
-            mantissa_str.pop();
-            scale -= 1;
-        }
-        if mantissa_str.is_empty() {
-            return Err(NumericError::Malformed);
-        }
-        if mantissa_str.bytes().all(|byte| byte == b'0') {
-            return Ok(Numeric::zero());
-        }
-        if negative {
-            mantissa_str.insert(0, '-');
-        }
-        let unbounded = mantissa_str
-            .parse::<UnboundedBigInt>()
-            .map_err(|_| NumericError::Malformed)?;
-        let mantissa = BigInt::from_inner(unbounded).map_err(|_| NumericError::MantissaTooLarge)?;
-        Numeric::try_new(mantissa, scale)
+    fn from_str(source: &str) -> Result<Self, Self::Err> {
+        prepared_numeric::parse_ordinary(source)
     }
 }
+
 impl core::fmt::Display for NumericSpec {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "Numeric")?;

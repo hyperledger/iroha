@@ -116,14 +116,14 @@ fn encode_account_address(
                 corrupt_state(format!("invalid orderbook owner public key: {error}"))
             })?;
             if let Ok(length) = u8::try_from(payload.len()) {
-                for byte in [0, curve_id(algorithm)?, length] {
+                for byte in [0, curve_id(algorithm), length] {
                     push_bounded(canonical, maximum, byte)?;
                 }
             } else {
                 let length = u16::try_from(payload.len())
                     .map_err(|_| corrupt_state("orderbook owner public key is too long"))?;
                 push_bounded(canonical, maximum, 2)?;
-                push_bounded(canonical, maximum, curve_id(algorithm)?)?;
+                push_bounded(canonical, maximum, curve_id(algorithm))?;
                 for byte in length.to_be_bytes() {
                     push_bounded(canonical, maximum, byte)?;
                 }
@@ -150,7 +150,7 @@ fn encode_account_address(
                         "invalid orderbook owner multisig public key: {error}"
                     ))
                 })?;
-                push_bounded(canonical, maximum, curve_id(algorithm)?)?;
+                push_bounded(canonical, maximum, curve_id(algorithm))?;
                 for byte in member.weight().to_be_bytes() {
                     push_bounded(canonical, maximum, byte)?;
                 }
@@ -181,10 +181,8 @@ fn push_bounded(
     bytes.push(byte);
     Ok(())
 }
-fn curve_id(algorithm: Algorithm) -> Result<u8, InstructionExecutionError> {
-    CurveId::try_from_algorithm(algorithm)
-        .map(CurveId::as_u8)
-        .map_err(|_| corrupt_state("orderbook owner uses an unsupported account-address curve"))
+fn curve_id(algorithm: Algorithm) -> u8 {
+    CurveId::from_algorithm(algorithm).as_u8()
 }
 fn encode_base105_in_scratch(
     scratch: &mut Vec<u8>,

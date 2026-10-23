@@ -251,6 +251,44 @@ impl NativeContextArchive {
         result: &RetainedPayload<CertifiedResultV1>,
         witness: &CapturedExecWitness,
     ) -> Result<(), NativeContextArchiveError> {
+        self.prepare_amx_intents_from_source(original, overlay, executed, result, witness, None)
+    }
+
+    /// Capture genesis intents using its sole independently authenticated execution owner.
+    /// No predecessor tip is synthesized; ordinary and genesis capture share all checks.
+    pub(crate) fn prepare_genesis_amx_intents(
+        &self,
+        original: &mut PreparedNativeContext,
+        overlay: &StateBlock<'_>,
+        executed: &SignedBlock,
+        result: &RetainedPayload<CertifiedResultV1>,
+        witness: &CapturedExecWitness,
+        genesis: &crate::sumeragi::startup::GenesisExecutionAuthorization<'_, '_>,
+    ) -> Result<(), NativeContextArchiveError> {
+        let scope = genesis
+            .original_archive_scope(overlay, executed, result)
+            .ok_or(NativeContextArchiveError::Source(
+                "genesis intent lost its authenticated execution source",
+            ))?;
+        self.prepare_amx_intents_from_source(
+            original,
+            overlay,
+            executed,
+            result,
+            witness,
+            Some(scope),
+        )
+    }
+
+    fn prepare_amx_intents_from_source(
+        &self,
+        original: &mut PreparedNativeContext,
+        overlay: &StateBlock<'_>,
+        executed: &SignedBlock,
+        result: &RetainedPayload<CertifiedResultV1>,
+        witness: &CapturedExecWitness,
+        genesis_scope: Option<SumeragiRootScope>,
+    ) -> Result<(), NativeContextArchiveError> {
         // Ordinary no-AMX blocks retain their original capture path unchanged.
         if original.intents_complete && original.prepared_intents.is_none() {
             return Ok(());
@@ -279,10 +317,13 @@ impl NativeContextArchive {
             original.intents_complete = true;
             return Ok(());
         }
-        let scope = overlay
-            .native_execution_tip()
-            .as_ref()
-            .map(|tip| tip.root_scope())
+        let scope = genesis_scope
+            .or_else(|| {
+                overlay
+                    .native_execution_tip()
+                    .as_ref()
+                    .map(|tip| tip.root_scope())
+            })
             .ok_or(NativeContextArchiveError::Source(
                 "AMX capture lacks original root scope",
             ))?;

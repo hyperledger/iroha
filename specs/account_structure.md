@@ -209,27 +209,28 @@ All key bytes are encoded exactly as returned by `PublicKey::to_bytes`; decoders
 
 ##### 2.3.1 Curve identifier registry (ADDR-1d)
 
-| ID (`curve_id`) | Algorithm | Feature gate | Notes |
+| ID (`curve_id`) | Algorithm | Implementation feature | Notes |
 |-----------------|-----------|--------------|-------|
 | `0x00` | Reserved | — | MUST NOT be emitted; decoders surface `ERR_UNKNOWN_CURVE`. |
-| `0x01` | Ed25519 | — | Canonical v1 algorithm (`Algorithm::Ed25519`); enabled in the default config. |
-| `0x02` | ML‑DSA-65 | — | Uses the protocol-fixed 1,952-byte, nonzero ML‑DSA-65 public key. Single-key addresses use extended controller tag `0x02`; multisig members use their existing `u16` lengths. |
+| `0x01` | Ed25519 | — | Canonical v1 identity (`Algorithm::Ed25519`); ordinary admission follows the committed policy. |
+| `0x02` | ML‑DSA-65 | `pqc` | Canonical identity and the protocol-fixed 1,952-byte, nonzero public-key geometry exist in every build; cryptographic operations require the PQC implementation. Single-key addresses use extended controller tag `0x02`; multisig members use their existing `u16` lengths. |
 | `0x03` | BLS12‑381 (normal) | `bls` | Public keys in G1 (48 bytes), signatures in G2 (96 bytes). |
 | `0x04` | secp256k1 | — | Deterministic ECDSA over SHA‑256; public keys use the 33‑byte SEC1 compressed form and signatures use the canonical 64‑byte `r∥s` layout. |
 | `0x05` | BLS12‑381 (small) | `bls` | Public keys in G2 (96 bytes), signatures in G1 (48 bytes). |
-| `0x0A` | GOST R 34.10‑2012 (256, set A) | `gost` | Available only when the `gost` feature is enabled. |
-| `0x0B` | GOST R 34.10‑2012 (256, set B) | `gost` | Available only when the `gost` feature is enabled. |
-| `0x0C` | GOST R 34.10‑2012 (256, set C) | `gost` | Available only when the `gost` feature is enabled. |
-| `0x0D` | GOST R 34.10‑2012 (512, set A) | `gost` | Available only when the `gost` feature is enabled. |
-| `0x0E` | GOST R 34.10‑2012 (512, set B) | `gost` | Available only when the `gost` feature is enabled. |
-| `0x0F` | SM2 | `sm` | DistID length (u16 BE) + DistID bytes + 65‑byte SEC1 uncompressed SM2 key; available only when `sm` is enabled. |
+| `0x0A` | GOST R 34.10‑2012 (256, set A) | `gost` | Canonical identity exists in every build; cryptographic operations require the GOST implementation. |
+| `0x0B` | GOST R 34.10‑2012 (256, set B) | `gost` | Canonical identity exists in every build; cryptographic operations require the GOST implementation. |
+| `0x0C` | GOST R 34.10‑2012 (256, set C) | `gost` | Canonical identity exists in every build; cryptographic operations require the GOST implementation. |
+| `0x0D` | GOST R 34.10‑2012 (512, set A) | `gost` | Canonical identity exists in every build; cryptographic operations require the GOST implementation. |
+| `0x0E` | GOST R 34.10‑2012 (512, set B) | `gost` | Canonical identity exists in every build; cryptographic operations require the GOST implementation. |
+| `0x0F` | SM2 | `sm` | DistID length (u16 BE) + DistID bytes + 65‑byte SEC1 uncompressed SM2 key; canonical identity exists in every build; cryptographic operations require the SM implementation. |
 
 Slots `0x06–0x09` remain unassigned for additional curves; introducing a new
 algorithm requires matching data-model, SDK, host, fixture, and test coverage
-in the same change. Encoders
-MUST reject any unsupported algorithm with `ERR_UNSUPPORTED_ALGORITHM`, and
-decoders MUST fail fast on unknown ids with `ERR_UNKNOWN_CURVE` to preserve
-fail-closed behaviour.
+in the same change. Algorithm and curve identity are independent of implementation
+features: every assigned identifier is known in every Rust build. Unknown identifiers
+remain invalid. A known algorithm whose required cryptographic implementation is
+unavailable returns the typed `UnsupportedImplementation` cause; it must not be
+reported as an unknown curve, invalid signature, or completed protocol rejection.
 
 The canonical registry (including a machine-readable JSON export) lives under
 [`references/address_curve_registry.md`](references/address_curve_registry.md).
@@ -243,12 +244,13 @@ consistent across SDKs and operator workflows.
   `configureCurveSupport({ allowMlDsa: true, allowGost: true, allowSm2: true })`.
   secp256k1 support is available but not enabled by default in the JS/Android
   SDKs; callers must opt in explicitly when emitting non‑Ed25519 controllers.
-- **Host gating:** `Register<Account>` rejects controllers whose signatories use algorithms
-  missing from the node’s `crypto.allowed_signing` list **or** curve identifiers absent from
-  `crypto.curves.allowed_curve_ids`, so clusters must advertise support (configuration +
-  genesis) before ML‑DSA/GOST/SM controllers can be registered. BLS controller
-  algorithms are always allowed when compiled (consensus keys rely on them),
-  and the default configuration enables Ed25519 + secp256k1.【crates/iroha_core/src/smartcontracts/isi/domain.rs:32】
+- **Host admission:** `Register<Account>` and other ordinary controller consumers
+  require every signatory algorithm to belong to the original committed
+  `CryptoAdmissionPolicyV1`. Permitted curves follow the canonical algorithm-to-curve
+  mapping; there is no independently authored curve list or BLS account exemption.
+  Genesis authenticates the initial policy, and updates become effective for the
+  next block. A missing local implementation is a separate capability failure and
+  cannot change this protocol policy. See [ordinary crypto admission](crypto_admission_policy.md).
 
 ##### 2.3.2 Multisig controller guidance
 

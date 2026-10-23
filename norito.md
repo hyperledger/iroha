@@ -16,6 +16,13 @@ does not change the V1 header, payload layout, checksum or signed bytes.
 `core::PayloadRef` forwards an existing field's binary and JSON serialization,
 length hints, and errors without inserting a wrapper field. It has no decoder
 or frame identity; its containing record retains the canonical schema.
+For generic payload-only fields, use `PayloadRef(&value)` to retain the original
+owner while forwarding its bytes; a plain `&T` is not a payload adapter. Executor
+V1 validation encodes this adapter inside the bare `Validate` payload and prepends
+the existing fixed `u64` total-length prefix. Owned and borrowed targets
+therefore produce identical executor input bytes and decode through the existing
+owned target. This does not equate generic nominal frame identities or add a
+borrowed decoder.
 
 `DeserializePayload<'a>` owns `deserialize` and `try_deserialize` within the
 active bounded payload context. Both typed frame directions are blanket
@@ -1750,11 +1757,27 @@ so all native artifact captures and generated ABI hash material must be produced
 from the changed compiler before their mandatory consumers pass.
 
 
-The JSON parser's `parse_string_with_buffer` and typed map/sequence callbacks share
-ordinary parsing, framing and logical-quota kernels. A caller can admit an exact
-original-pool string/key destination before copying without replacing a resource
-refusal with syntax. These callbacks do not fund enclosing maps, crypto validation
-scratch or retained retry state, and do not change canonical JSON or binary layouts.
+The JSON parser's `parse_string_with_buffer`, `parse_array_with` and typed
+map/sequence callbacks share ordinary parsing, framing and logical-quota kernels.
+A caller can admit an exact original-pool destination before copying without
+replacing a resource refusal with syntax. `validate_canonical_json_with_buffer`
+uses those same string/container/number kernels and checked scalar writers to
+compare emitted bytes with the original input. Its bounded iterative visitor
+state retains only the previous object key; caller-owned string scratch replaces
+an owned Value tree or rewritten document. Duplicate or descending object keys,
+alternate number/string spellings, whitespace and trailing bytes are rejected.
+The decoder context and original refusal observer are never reset.
+
+The data model's `CustomParameters` has one sorted contiguous representation;
+keys are derived from each stored value's identity. Its canonical map field
+layout rejects duplicate, descending or mismatched key/value identities. Ordinary
+codecs construct authoring values. Direct JSON admission funds entry/identifier
+backing and preserves each Json leaf's original text/control charge through all
+shared clones. Immutable State publication must check the original pool and bind
+the exact predecessor; these collection APIs alone do not fund enclosing State,
+source bytes, other projection validation scratch or retained retry state.
+Actual schema and SDK artifacts must be regenerated when the first-release
+nominal collection identity is adopted. No alternate legacy map decoder exists.
 
 
 ### Private pool public context cut

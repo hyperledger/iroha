@@ -117,6 +117,15 @@ mod model {
     pub struct Name(pub(super) ConstString);
 }
 impl Name {
+    /// Exact optional persistent backing requested by the canonical JSON reader.
+    ///
+    /// This plans storage only. Canonical validation and its separately reported
+    /// normalization scratch remain mandatory before a Name is accepted.
+    #[must_use]
+    pub fn json_decode_allocation_layout(candidate: &str) -> Option<std::alloc::Layout> {
+        ConstString::decode_allocation_layout(candidate)
+    }
+
     /// Exact optional string allocation made by [`Self::try_clone_for_admission`].
     #[must_use]
     pub fn admission_clone_layout(&self) -> Option<std::alloc::Layout> {
@@ -904,3 +913,20 @@ mod scratch_tests;
 
 #[cfg(test)]
 mod borrowed_text_tests;
+
+#[cfg(test)]
+mod json_decode_layout_tests {
+    use super::*;
+    #[test]
+    fn json_decode_plan_matches_exact_validated_name_backing() {
+        for length in (1..=40).chain([255]) {
+            let text = "x".repeat(length);
+            let value =
+                <Name as norito::json::JsonObjectKeyOwned>::from_json_key_text(&text).unwrap();
+            assert_eq!(
+                Name::json_decode_allocation_layout(&text),
+                value.admission_clone_layout()
+            );
+        }
+    }
+}

@@ -30,7 +30,15 @@ fn build_raw_coalesces_parameters_into_one_authoritative_snapshot() -> Result<()
         GenesisBuilder::new_without_executor(
             ChainId::from("iroha:test:build-raw-authoritative"),
             ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+        .expect("explicit fixture staking policy")
         .append_parameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(100)))
         .next_transaction()
         .append_parameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(667)))
@@ -263,8 +271,19 @@ fn prepared_proposal_fixture() -> (RawGenesisTransaction, KeyPair, SignedBlock, 
         })
         .collect::<Vec<_>>();
     let manifest = complete_test_builder(
-        GenesisBuilder::new_without_executor(ChainId::from("prepared-verifier-fixture"), ".")
-            .set_topology(topology),
+        GenesisBuilder::new_without_executor(
+            ChainId::from("prepared-verifier-fixture"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology(topology),
     )
     .build_raw()
     .expect("complete prepared-verifier fixture genesis")
@@ -542,8 +561,19 @@ fn prepared_bundle_verifier_rejects_manifest_semantics_and_validator_pops() {
         .collect::<Vec<_>>();
     bad_entries[0].pop_hex = Some(hex::encode([0_u8; 8]));
     let bad_manifest = complete_test_builder(
-        GenesisBuilder::new_without_executor(ChainId::from("prepared-verifier-bad-pop"), ".")
-            .set_topology(bad_entries),
+        GenesisBuilder::new_without_executor(
+            ChainId::from("prepared-verifier-bad-pop"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology(bad_entries),
     )
     .build_raw()
     .expect("complete bad-PoP verifier fixture genesis")

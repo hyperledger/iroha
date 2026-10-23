@@ -161,7 +161,6 @@ fn genesis_projection_preserves_explicit_default_sora_topology_and_execution_pol
         iroha_config::parameters::actual::execution_policy_digest_v1(
             &config.pipeline,
             &config.oracle,
-            &config.crypto,
             &config.fraud_monitoring,
             &config.gov,
             &config.content,

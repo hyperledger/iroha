@@ -990,20 +990,21 @@ define_zk_ace_digest384!(
     "iroha_data_model::privacy::PrivacyZkAceReplayNullifierV1"
 );
 
-/// Pinned six-word commitment to [`PRIVACY_EXACT12_CATALOG_PREIMAGE_V1`].
-pub use iroha_crypto::privacy::PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1;
+/// Pinned full native commitment to [`PRIVACY_EXACT12_CATALOG_PREIMAGE_V1`].
+pub use iroha_crypto::privacy::PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1;
 
-/// Recompute the final Exact12 catalog commitment from its canonical preimage.
+/// Recompute the Exact12 catalog through the sole canonical native frame owner.
 ///
-/// Release tests compare this result to
-/// [`PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1`].
+/// This commits to all ordered protocol ordinals, labels and security models.
+/// It does not establish the cryptographic qualification asserted by any row.
 #[must_use]
-pub fn compute_privacy_exact12_catalog_commitment_v1() -> GoldilocksDigest384V1 {
-    fastpq_isi::hash_bytes_384_v1(
-        fastpq_isi::GoldilocksDigestDomainV1 {
+pub fn compute_privacy_exact12_catalog_commitment_v1()
+-> iroha_crypto::native_commitment::NativeCommitmentDigestV1 {
+    use iroha_crypto::native_commitment::{NativeCommitmentDomainV1, NativeCommitmentFrameV1};
+    NativeCommitmentFrameV1::new(
+        NativeCommitmentDomainV1 {
             catalog: PRIVACY_EXACT12_CATALOG_ID_V1,
             protocol: b"privacy-exact12-catalog-v1",
-            profile: b"poseidon-x7-goldilocks-6x64-v1",
             role: b"catalog",
             phase: b"commitment",
             level: 0,
@@ -1013,112 +1014,103 @@ pub fn compute_privacy_exact12_catalog_commitment_v1() -> GoldilocksDigest384V1 
         &[PRIVACY_EXACT12_CATALOG_PREIMAGE_V1],
     )
     .expect("the fixed Exact12 catalog preimage is within framing limits")
-    .into()
+    .digest()
 }
 
-/// Validated commitment to the only first-release Exact12 catalog.
+/// Validated full native commitment to the only first-release Exact12 catalog.
 ///
-/// Unlike a generic digest, every decoder requires the single pinned value.
-/// Consequently a proof envelope cannot select a different catalog while
-/// retaining otherwise valid protocol ordinals.
+/// Every decoder requires the sole pinned 32-byte value. A proof envelope
+/// cannot select a different catalog while retaining valid protocol ordinals.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, IntoSchema)]
 #[repr(transparent)]
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1")]
-pub struct PrivacyExact12CatalogCommitmentV1(GoldilocksDigest384V1);
+pub struct PrivacyExact12CatalogCommitmentV1([u8; 32]);
 
 impl PrivacyExact12CatalogCommitmentV1 {
+    /// Exact full native digest width; no marker, field reduction or truncation.
+    pub const BYTES: usize = 32;
+
     /// Return the sole catalog commitment accepted by first-release nodes.
     #[must_use]
-    pub fn canonical() -> Self {
-        Self(
-            GoldilocksDigest384V1::new(PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1)
-                .expect("pinned Exact12 catalog words are canonical"),
-        )
+    pub const fn canonical() -> Self {
+        Self(PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1)
     }
 
-    /// Borrow the underlying six-lane digest.
+    /// Borrow every byte in native BLAKE3 output order.
     #[must_use]
-    pub const fn digest(&self) -> &GoldilocksDigest384V1 {
+    pub const fn as_bytes(&self) -> &[u8; Self::BYTES] {
         &self.0
     }
 
-    fn from_digest(digest: GoldilocksDigest384V1) -> Option<Self> {
-        (digest.into_words() == PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1).then_some(Self(digest))
+    fn from_bytes(bytes: [u8; Self::BYTES]) -> Option<Self> {
+        (bytes == PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1).then_some(Self(bytes))
     }
 }
-
 impl Default for PrivacyExact12CatalogCommitmentV1 {
     fn default() -> Self {
         Self::canonical()
     }
 }
-
 impl norito::core::SerializePayload for PrivacyExact12CatalogCommitmentV1 {
     fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::SerializePayload::serialize(&self.0, writer)
+        writer.write_all(&self.0)?;
+        Ok(())
     }
-
     fn encoded_len_hint(&self) -> Option<usize> {
-        Some(GoldilocksDigest384V1::BYTES)
+        Some(Self::BYTES)
     }
-
     fn encoded_len_exact(&self) -> Option<usize> {
-        Some(GoldilocksDigest384V1::BYTES)
+        Some(Self::BYTES)
     }
 }
-
 impl<'de> norito::core::DeserializePayload<'de> for PrivacyExact12CatalogCommitmentV1 {
     fn deserialize(archived: &'de norito::core::Archived<Self>) -> Self {
         Self::try_deserialize(archived).expect("canonical Exact12 catalog commitment")
     }
-
     fn try_deserialize(
         archived: &'de norito::core::Archived<Self>,
     ) -> Result<Self, norito::core::Error> {
-        let digest = <GoldilocksDigest384V1 as norito::core::DeserializePayload>::try_deserialize(
-            archived.cast(),
-        )?;
-        Self::from_digest(digest).ok_or_else(|| {
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let mut offset = 0;
+        let bytes = norito::core::decode_context_byte_array::<{ Self::BYTES }>(ptr, &mut offset)?;
+        norito::core::finish_context_fields(ptr, offset)?;
+        Self::from_bytes(bytes).ok_or_else(|| {
             norito::core::Error::Message("unknown first-release Exact12 catalog commitment".into())
         })
     }
 }
-
 impl<'de> norito::core::DecodeFromSlice<'de> for PrivacyExact12CatalogCommitmentV1 {
     fn decode_from_slice(bytes: &'de [u8]) -> Result<(Self, usize), norito::core::Error> {
-        let (digest, used) =
-            <GoldilocksDigest384V1 as norito::core::DecodeFromSlice>::decode_from_slice(bytes)?;
-        Self::from_digest(digest)
-            .map(|commitment| (commitment, used))
-            .ok_or_else(|| {
-                norito::core::Error::Message(
-                    "unknown first-release Exact12 catalog commitment".into(),
-                )
-            })
+        let raw = bytes
+            .get(..Self::BYTES)
+            .ok_or(norito::core::Error::LengthMismatch)?;
+        let mut value = [0; Self::BYTES];
+        value.copy_from_slice(raw);
+        let commitment = Self::from_bytes(value).ok_or_else(|| {
+            norito::core::Error::Message("unknown first-release Exact12 catalog commitment".into())
+        })?;
+        norito::core::note_payload_access(bytes, Self::BYTES);
+        Ok((commitment, Self::BYTES))
     }
 }
-
 impl norito::json::FastJsonWrite for PrivacyExact12CatalogCommitmentV1 {
     fn write_json(&self, out: &mut String) {
-        norito::json::FastJsonWrite::write_json(&self.0, out);
+        crate::json_helpers::fixed_bytes::serialize(&self.0, out);
     }
-
     fn write_json_to(
         &self,
         out: &mut dyn norito::json::JsonWriteSink,
     ) -> Result<(), norito::json::BoundedJsonError> {
-        norito::json::FastJsonWrite::write_json_to(&self.0, out)
+        crate::json_helpers::fixed_bytes::serialize_bounded(&self.0, out)
     }
 }
-
 impl norito::json::JsonDeserialize for PrivacyExact12CatalogCommitmentV1 {
     fn json_deserialize(
         parser: &mut norito::json::Parser<'_>,
     ) -> Result<Self, norito::json::Error> {
-        let digest =
-            <GoldilocksDigest384V1 as norito::json::JsonDeserialize>::json_deserialize(parser)?;
-        Self::from_digest(digest).ok_or_else(|| {
+        let bytes = crate::json_helpers::fixed_bytes::deserialize(parser)?;
+        Self::from_bytes(bytes).ok_or_else(|| {
             norito::json::Error::Message(
                 "unknown first-release Exact12 catalog commitment".to_owned(),
             )

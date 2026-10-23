@@ -110,10 +110,9 @@ EXPECTED_FEATURES: dict[str, dict[str, tuple[str, ...]]] = {
     "iroha_data_model": {
         "mutation-testing": (),
         "default": ("application-model",),
-        "application-model": ("governance", "pqc", "bls", "gost", "sm"),
+        "application-model": ("pqc", "bls", "gost", "sm"),
         "bls": ("iroha_crypto/bls",),
         "gost": ("iroha_crypto/gost",),
-        "governance": (),
         "http": (),
         "pqc": ("iroha_crypto/pqc", "sorafs_manifest/pqc"),
         "privacy-exact12-conformance": (),

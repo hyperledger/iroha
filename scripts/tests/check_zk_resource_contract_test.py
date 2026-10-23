@@ -1986,11 +1986,19 @@ def test_node_local_validity_limits_are_checked_against_the_typed_catalogs() -> 
     assert len(catalogs["execution_policy_digest_v1"]["fields"]) == 15
     assert len(catalogs["zk_consensus_policy_hash"]["fields"]) == 45
     assert len(catalogs["nexus_consensus_policy_v1"]["fields"]) == 10
-    # The execution-policy digest binds 161 fields: fraud is one exact typed policy,
-    # and ten committee sizes come from a loop.
+    # The execution-policy digest binds 157 fields: fraud is one exact typed policy,
+    # and ten committee sizes come from a loop. Ordinary signing admission now has
+    # the separate committed CryptoAdmissionPolicyV1 owner, so the four retired
+    # node-local crypto fields are absent from this digest.
     execution_source = (ROOT / catalogs["execution_policy_digest_v1"]["path"]).read_text(encoding="utf-8")
     execution_fields = CHECKER["catalog_fields"](execution_source, catalogs["execution_policy_digest_v1"], "t")
-    assert len(execution_fields) == 161
+    assert len(execution_fields) == 157
+    assert {
+        "crypto.default_hash",
+        "crypto.allowed_signing",
+        "crypto.sm2_distid_default",
+        "crypto.allowed_curve_ids",
+    }.isdisjoint(execution_fields)
     assert "governance.fma_committee_size" in execution_fields
     # The Nexus digest is not a catalog of identities only: it is the third catalog.
     assert catalogs["execution_policy_digest_v1"]["digests"] == {

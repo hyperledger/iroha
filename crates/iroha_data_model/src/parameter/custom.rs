@@ -4,7 +4,10 @@ use iroha_model_base::name::Name;
 use iroha_primitives::json::Json;
 
 use norito::json::{self, JsonDeserialize, JsonSerialize};
-use std::collections::BTreeMap;
+mod collection;
+pub use collection::{
+    CustomParameters, CustomParametersAdmissionError, CustomParametersJsonAdmissionError,
+};
 
 pub mod json_helpers {
     //! JSON helper utilities for serializing and deserializing custom parameters.
@@ -68,46 +71,17 @@ pub mod json_helpers {
     /// Returns [`json::Error`] when the input is not an object or contains
     /// invalid parameter identifiers/payloads.
     pub fn deserialize(parser: &mut Parser<'_>) -> Result<CustomParameters, json::Error> {
-        let value = Value::json_deserialize(parser)?;
-        from_value(value)
+        CustomParameters::json_deserialize(parser)
     }
-    /// Convert a JSON [`Value`] into `CustomParameters`.
+    /// Convert an already owned JSON value through the sole strict collection decoder.
     ///
     /// # Errors
-    ///
-    /// Returns [`json::Error`] when the value is not an object or individual
-    /// parameter entries fail to parse.
+    /// Preserves original resource errors and rejects malformed, duplicate or mismatched entries.
     pub fn from_value(value: Value) -> Result<CustomParameters, json::Error> {
-        let map = match value {
-            Value::Object(map) => map,
-            other => {
-                return Err(json::Error::Message(format!(
-                    "expected object for CustomParameters, got {other:?}"
-                )));
-            }
-        };
-        let mut out: CustomParameters = CustomParameters::default();
-        for (key, entry) in map {
-            let id: CustomParameterId =
-                key.parse()
-                    .map_err(|err: <CustomParameterId as core::str::FromStr>::Err| {
-                        json::Error::InvalidField {
-                            field: key.clone(),
-                            message: err.to_string(),
-                        }
-                    })?;
-            let entry_json = norito::json::to_json(&entry)
-                .map_err(|err| json::Error::Message(err.to_string()))?;
-            let mut entry_parser = Parser::new(&entry_json);
-            let mut parameter = CustomParameter::json_deserialize(&mut entry_parser)?;
-            parameter.id = id.clone();
-            out.insert(id, parameter);
-        }
-        Ok(out)
+        norito::json::value::from_value(value)
     }
 }
-/// Collection of [`CustomParameter`]s
-pub(crate) type CustomParameters = BTreeMap<CustomParameterId, CustomParameter>;
+
 pub use self::model::*;
 #[iroha_data_model_derive::model]
 mod model {
@@ -233,42 +207,10 @@ impl JsonSerialize for CustomParameter {
 
 impl JsonDeserialize for CustomParameter {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = json::Value::json_deserialize(parser)?;
-        let mut map = match value {
-            json::Value::Object(map) => map,
-            _ => {
-                return Err(json::Error::InvalidField {
-                    field: String::from("CustomParameter"),
-                    message: String::from("expected object"),
-                });
-            }
-        };
-        let id_value = map.remove("id").ok_or_else(|| json::Error::MissingField {
-            field: String::from("id"),
-        })?;
-        let payload_value = map
-            .remove("payload")
-            .ok_or_else(|| json::Error::MissingField {
-                field: String::from("payload"),
-            })?;
-        if let Some((field, _)) = map.into_iter().next() {
-            return Err(json::Error::UnknownField { field });
-        }
-        let id = {
-            let json_id = norito::json::to_json(&id_value)
-                .map_err(|err| json::Error::Message(err.to_string()))?;
-            let mut parser = norito::json::Parser::new(&json_id);
-            CustomParameterId::json_deserialize(&mut parser)?
-        };
-        let payload = {
-            let json_payload = norito::json::to_json(&payload_value)
-                .map_err(|err| json::Error::Message(err.to_string()))?;
-            let mut parser = norito::json::Parser::new(&json_payload);
-            Json::json_deserialize(&mut parser)?
-        };
-        Ok(Self { id, payload })
+        collection::decode_parameter(parser)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

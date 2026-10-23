@@ -163,7 +163,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         Ok(Completion::Complete(digest.to_vec()))
     }
 
-    /// The list selected by the current manifest, if any; reads local custody only.
+    /// Inspect the manifest-selected local list in custody regression tests.
+    #[cfg(test)]
     pub(in crate::kagemusha_wallet_state_v1) fn local_blacklist(
         &mut self,
     ) -> Result<Option<KagemushaWalletBlacklistV1>, Error> {

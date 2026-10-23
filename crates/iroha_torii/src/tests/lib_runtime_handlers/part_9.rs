@@ -1519,10 +1519,36 @@ impl RuntimeApiRouterFixture {
 }
 #[tokio::test]
 async fn node_capabilities_http_bootstraps_without_registered_account() {
-    // This fixture has an empty world and mounts the production route catalog,
-    // including authentication middleware. Calling the handler alone misses
-    // the circular dependency between account registration and SDK preflight.
-    let fixture = RuntimeApiRouterFixture::standard("public-node-capabilities-test");
+    // The original world has an explicitly authored policy and no registered
+    // accounts. Mount the production catalog and authentication middleware to
+    // retain the account-registration/SDK-preflight bootstrap control.
+    let mut world = World::default();
+    let policy = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+        Algorithm::Ed25519,
+        Algorithm::Secp256k1,
+    ])
+    .expect("explicit public capability fixture policy");
+    let mut block = world.block();
+    block
+        .parameters
+        .set_parameter(policy.into_parameter().expect("canonical fixture policy"))
+        .expect("author policy before State construction");
+    block.commit();
+    let kura = Kura::blank_kura_for_testing();
+    let state = Arc::new(IrohaState::new_for_testing(
+        world,
+        kura.clone(),
+        LiveQueryStore::start_test(),
+    ));
+    let fixture = RuntimeApiRouterFixture::with_runtime(
+        "public-node-capabilities-test",
+        kura,
+        state,
+        ToriiRuntimeDeps::new(
+            crate::build_identity_test_fixture::build_identity(),
+            routing::MaybeTelemetry::disabled(),
+        ),
+    );
     for (path, expected) in [
         ("/v1/node/capabilities", StatusCode::OK),
         ("/v1/privacy/capabilities", StatusCode::UNAUTHORIZED),

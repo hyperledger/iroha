@@ -33,7 +33,7 @@ This script is the drift guard for that file. It fails when:
   committed World maps that hold pool or nullifier state (so another
   shielded pool cannot appear without a protocol entry or a recorded reason
   for leaving it out);
-* an effect row disagrees with the operation inventory about its handler or
+* an effect row disagrees with the operation inventory about its checked execution entry or
   about whether the effect is implemented, gated, unreachable or absent;
 * a cited handler, enforcement site, apply site or carrier is gone (text is
   compared after collapsing whitespace; a site given `within` must lie in the
@@ -333,6 +333,15 @@ class Checker:
     def operations(self) -> dict[str, dict]:
         document = self.document(OPERATIONS) or {}
         return {item["id"]: item for item in document.get("operations", [])}
+
+    def operation_handler(self, operation: dict) -> dict | None:
+        """Resolve the checked execution entry, including original-invocation custody."""
+        if not operation.get("handler"):
+            return None
+        checker = readers.Checker(self.document(OPERATIONS) or {}, self.tree)
+        handler = checker.operation_execution_entry(f"operation {operation.get('id')}", operation)
+        self.errors.extend(checker.errors)
+        return handler
 
     def tasks(self) -> set[str]:
         graph = self.document(GRAPH) or {}
@@ -761,8 +770,9 @@ class Checker:
                 continue
             handler = effect.get("handler")
             status = effect.get("effect_status")
-            if operation.get("handler"):
-                expected = {key: operation["handler"][key] for key in ("path", "symbol")}
+            execution = self.operation_handler(operation)
+            if execution:
+                expected = {key: execution[key] for key in ("path", "symbol")}
                 if not handler or {key: handler.get(key) for key in ("path", "symbol")} != expected:
                     self.error(f"{label}: handler differs from the operation inventory ({expected})")
             elif status == "absent":
@@ -926,8 +936,8 @@ class Checker:
                 self.error(f"{label}: a reachable effect cites a mutation test or an open defect for the missing one")
 
     def value_tokens(self, operation: dict) -> list[str] | None:
-        """Ledger-value identifiers in an operation's handler and the functions of its file it calls."""
-        handler = operation.get("handler")
+        """Ledger-value identifiers in the checked execution entry and its same-file callees."""
+        handler = self.operation_handler(operation)
         if not handler:
             return None
         tripwire = self.inventory.get("tripwire", {})

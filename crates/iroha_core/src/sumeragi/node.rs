@@ -1646,26 +1646,39 @@ mod tests {
             iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
         // Ordinary fixture work pays the committed fee policy. Establish its funds
         // in the original signed genesis so replay reconstructs the same supply.
-        let mut builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
-            .append_instruction(Register::asset_definition(AssetDefinition::numeric(
-                fee_asset.clone(),
-                "node fixture fee",
-                iroha_data_model::asset::AssetBalancePolicy::Global,
-                Some(iroha_genesis::GENESIS_DOMAIN_ID.clone()),
-            )))
-            .append_instruction(Mint::asset_quantity(
-                1_000_000_u32,
-                AssetId::new(fee_asset.clone(), ALICE_ID.clone()),
-            ))
-            .append_instruction(Mint::asset_quantity(
-                1_000_000_u32,
-                AssetId::new(fee_asset, second_shard_account()),
-            ))
-            .append_parameter(Parameter::Sumeragi(
-                SumeragiParameter::PayloadRetryIntervalMs(
-                    NonZeroU64::new(payload_retry_interval_ms).expect("non-zero"),
-                ),
-            ));
+        let mut builder = GenesisBuilder::new_without_executor(
+            chain_id.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::sumeragi::test_chain::staking_fixture_policy(
+            fee_asset.clone(),
+        ))
+        .expect("explicit fixture staking author")
+        .append_instruction(Register::asset_definition(AssetDefinition::numeric(
+            fee_asset.clone(),
+            "node fixture fee",
+            iroha_data_model::asset::AssetBalancePolicy::Global,
+            Some(iroha_genesis::GENESIS_DOMAIN_ID.clone()),
+        )))
+        .append_instruction(Mint::asset_quantity(
+            1_000_000_u32,
+            AssetId::new(fee_asset.clone(), ALICE_ID.clone()),
+        ))
+        .append_instruction(Mint::asset_quantity(
+            1_000_000_u32,
+            AssetId::new(fee_asset, second_shard_account()),
+        ))
+        .append_parameter(Parameter::Sumeragi(
+            SumeragiParameter::PayloadRetryIntervalMs(
+                NonZeroU64::new(payload_retry_interval_ms).expect("non-zero"),
+            ),
+        ));
         for parameter in extra {
             builder = builder.append_parameter(parameter);
         }
@@ -2093,7 +2106,11 @@ mod tests {
             &network_id,
             Duration::from_secs(10),
             TransactionParameters::default(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         )
         .expect("accepted");
         let hash = accepted.hash_as_entrypoint();

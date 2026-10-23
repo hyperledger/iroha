@@ -1738,9 +1738,9 @@
    "protocol": "anonymous_pgc",
    "operation": "privacy::BootstrapPrivacyPgcAccountsV1",
    "class": "private_issuance",
-   "summary": "Governance creates the complete encrypted account table of a pool with a public total supply and a proof that the encrypted balances sum to it.",
+   "summary": "Governance creates the complete encrypted account table of a pool with a public total supply through its original signed invocation and a proof that the encrypted balances sum to it.",
    "effect_status": "gated",
-   "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "symbol": "impl Execute for BootstrapPrivacyPgcAccountsV1"},
+   "handler": {"path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "symbol": "pub(crate) fn execute_pgc_bootstrap("},
    "authorized_issuance_source": {
     "kind": "governance_authority",
     "statement": "The signer holds CanEnactGovernance, or the block is the signed initial genesis block. The total supply is a public number of the bootstrap payload.",
@@ -1761,17 +1761,22 @@
       {
        "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
        "symbol": "\"Anonymous PGC account state is already initialized\"",
-       "within": "impl Execute for BootstrapPrivacyPgcAccountsV1 {"
+       "within": "pub(crate) fn execute_pgc_bootstrap("
       },
       {
        "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
        "symbol": "let pool_invariant = PrivacyPgcPoolInvariantV1::new(",
-       "within": "impl Execute for BootstrapPrivacyPgcAccountsV1 {"
+       "within": "pub(crate) fn execute_pgc_bootstrap("
       },
       {
-       "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
-       "symbol": "\"native PGC bootstrap verifier returned inconsistent effects\"",
-       "within": "impl Execute for BootstrapPrivacyPgcAccountsV1 {"
+       "path": "crates/iroha_core/src/executor/attachment_custody/pgc_bootstrap.rs",
+       "symbol": "return Err(BootstrapError::VerifiedValuesMismatch);",
+       "within": "fn check_pgc_bootstrap("
+      },
+      {
+       "path": "crates/iroha_core/src/executor/attachment_custody/pgc_bootstrap.rs",
+       "symbol": "if verified.total_supply() != bootstrap.total_supply || verified.account_count() != bootstrap.accounts.len() || verified.bootstrap_table_digest() != native.bootstrap_table_digest()",
+       "within": "fn check_pgc_bootstrap("
       }
      ],
      "does_not_establish": ["proof_soundness", "hidden_conservation"],
@@ -1798,7 +1803,7 @@
       {
        "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
        "symbol": "\"privacy PGC bootstrap root does not match the canonical account table\"",
-       "within": "impl Execute for BootstrapPrivacyPgcAccountsV1 {"
+       "within": "pub(crate) fn execute_pgc_bootstrap("
       }
      ],
      "does_not_establish": ["proof_soundness"],
@@ -1815,22 +1820,56 @@
      "kind": "no_transparent_boundary",
      "status": "enforced_by_absence",
      "statement": "The bootstrap names no asset balance and no reserve: PGC units exist only in the pool's encrypted account table.",
-     "absence": {
-      "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
-      "within": "impl Execute for BootstrapPrivacyPgcAccountsV1 {",
-      "forbidden": [
-       "execute_verified_",
-       "withdraw_numeric_asset",
-       "deposit_numeric_asset",
-       "Quantity",
-       "Mint",
-       "Burn",
-       "PreparedNumericAssetMovement",
-       "increase_asset_total_amount",
-       "decrease_asset_total_amount",
-       "reserve_account"
-      ]
-     },
+     "absence": [
+      {
+       "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
+       "within": "pub(crate) fn execute_pgc_bootstrap(",
+       "forbidden": [
+        "execute_verified_",
+        "withdraw_numeric_asset",
+        "deposit_numeric_asset",
+        "Quantity",
+        "Mint",
+        "Burn",
+        "PreparedNumericAssetMovement",
+        "increase_asset_total_amount",
+        "decrease_asset_total_amount",
+        "reserve_account"
+       ]
+      },
+      {
+       "path": "crates/iroha_core/src/executor/attachment_custody/pgc_bootstrap.rs",
+       "within": "pub(crate) fn consume_pgc_bootstrap(",
+       "forbidden": [
+        "execute_verified_",
+        "withdraw_numeric_asset",
+        "deposit_numeric_asset",
+        "Quantity",
+        "Mint",
+        "Burn",
+        "PreparedNumericAssetMovement",
+        "increase_asset_total_amount",
+        "decrease_asset_total_amount",
+        "reserve_account"
+       ]
+      },
+      {
+       "path": "crates/iroha_core/src/executor/attachment_custody/pgc_bootstrap.rs",
+       "within": "fn check_pgc_bootstrap(",
+       "forbidden": [
+        "execute_verified_",
+        "withdraw_numeric_asset",
+        "deposit_numeric_asset",
+        "Quantity",
+        "Mint",
+        "Burn",
+        "PreparedNumericAssetMovement",
+        "increase_asset_total_amount",
+        "decrease_asset_total_amount",
+        "reserve_account"
+       ]
+      }
+     ],
      "does_not_establish": ["proof_soundness"]
     },
     {
@@ -6325,7 +6364,7 @@
    "owner": ["P.5"],
    "path": "crates/iroha_data_model/src/privacy/protocol.rs",
    "symbol": "Suspended(PrivacySuspendedLifecycleV1),",
-   "line": 2345,
+   "line": 2363,
    "summary": "The governance instruction TransitionPrivacyProtocolLifecycleV1 moves a registered protocol to Suspended or Retired. Every proof of that protocol is then refused, including an Orchard unshield and a private-IVM withdrawal, and Retired is terminal. A pool reserve can be debited only by a verified proof of its pool, so value shielded in a pool has no exit while its protocol is suspended and none at all after retirement.",
    "required": "Remove the lifecycle availability switch (plan, 'Runtime validity without activation gates'). A relation that must be corrected is replaced by an ordinary signed deployment with a defined exit for existing notes.",
    "census": "privacy.activation"
@@ -6336,7 +6375,7 @@
    "owner": ["P.5"],
    "path": "crates/iroha_data_model/src/privacy/protocol.rs",
    "symbol": "Proposed(PrivacyProposedLifecycleV1),",
-   "line": 2339,
+   "line": 2357,
    "summary": "A registered protocol starts in Proposed and its effects, pool bootstraps and generic root publication are refused until an explicit activation transition and the all-twelve qualification record exist.",
    "required": "Registration of a supported canonical profile creates usable state; remove the activation step and the qualification record (P.5).",
    "census": "privacy.activation"
@@ -6348,7 +6387,7 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
    "symbol": "\"cannot publish a root for a retired privacy protocol\"",
    "within": "impl Execute for PublishPrivacyRootV1 {",
-   "line": 677,
+   "line": 700,
    "summary": "Generic root publication reads the protocol lifecycle: a root of a retired protocol cannot be published, and a proof-managed root cannot advance while its protocol is not Active because only a proof advances it.",
    "required": "Root publication and history follow the committed root policy alone; remove the lifecycle read with the lifecycle itself (P.5).",
    "census": "privacy.activation"
@@ -6359,7 +6398,7 @@
    "owner": ["P.5", "P.20"],
    "path": "crates/iroha_core/src/state.rs",
    "symbol": "fn ensure_private_settlement_feature_active_v1(",
-   "line": 41391,
+   "line": 41671,
    "summary": "Every settlement instruction first requires the node-configured atomic-settlement switch, its activation height and notice period, and an Active private-IVM protocol activation. Turning either off stops pool activation, prepare, finalize and abort for every pool.",
    "required": "Atomic settlement is usable when its relation and keys are committed; remove the node-configured switch and the activation read (P.5, P.20).",
    "census": "cfg.nexus.settlement_activation"
@@ -6391,7 +6430,7 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/asset.rs",
    "symbol": "VerifiedPrivacyPublicBalancePurpose::PoolWithdrawal(owner),",
    "within": "pub(crate) fn execute_verified_privacy_pool_public_balance_transfer(",
-   "line": 3421,
+   "line": 3493,
    "summary": "The public turnstile is built: the custody row of an Orchard or private-IVM reserve carries a committed funded allowance that only verified pool deposits raise and verified withdrawals consume with the exact reserve balance. What stays open: no committed supply or issuance cap bound to the pool relation exists, so nothing bounds how much a pool takes in or the hidden value a deposit appends; hidden issuance is unbounded, including the genesis notes of a private-IVM bootstrap; the ledger checks neither hidden conservation nor per-depositor entitlement; and nothing reconciles value across pools. The allowance is one aggregate counter per reserve, so a wrongly accepted withdrawal can consume allowance that other depositors funded.",
    "required": "P.16 requires explicitly committed supply or issuance caps, and the private-IVM pools of P.18 need the same bound, including for the hidden value of their bootstrap notes (D-IVM-GENESIS-NOTES-UNBACKED); P.2 enforces them, with committed issuance allowances and cross-pool conservation where applicable, as ordinary committed transaction rules. Hidden conservation and per-depositor entitlement remain properties of the relations: the funded allowance bounds the public exit of a pool and does not establish them."
   },
@@ -6402,7 +6441,7 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
    "symbol": "} else if let Some(commitments) = self.bootstrap.initial_note_commitments() {",
    "within": "impl Execute for BootstrapPrivacyProofManagedPoolV1 {",
-   "line": 1202,
+   "line": 1225,
    "summary": "A private-IVM pool is bootstrapped with a non-empty set of genesis note commitments chosen by governance. Their hidden value is matched by no reserve deposit and consumes no committed issuance allowance, although the pool has a transparent exit. Bootstrap starts the reserve's funded allowance at zero, so a genesis note can be withdrawn only from allowance that verified deposits funded: it is paid by other depositors.",
    "required": "Shielded value seeded at bootstrap is matched by an equal reserve deposit when the pool is admitted, or the genesis set carries a committed public amount (finding R6-22, item 2)."
   },
@@ -6413,7 +6452,7 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
    "symbol": "if let Some(outputs) = self.bootstrap.initial_fcmp_outputs() {",
    "within": "impl Execute for BootstrapPrivacyProofManagedPoolV1 {",
-   "line": 1176,
+   "line": 1199,
    "summary": "The whole supply of an FCMP++ pool is the hidden value of the genesis outputs governance supplies at bootstrap. No public figure, committed allowance or backing asset movement bounds it.",
    "required": "State the issuance source of the pool: a committed public supply figure the bootstrap is checked against, or a funded bridge with its own invariant (plan: an added bridge requires explicit economics)."
   },
@@ -6432,9 +6471,9 @@
    "kind": "issuance_unbounded",
    "owner": ["P.2", "P.10"],
    "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
-   "symbol": "self.bootstrap.total_supply,",
-   "within": "impl Execute for BootstrapPrivacyPgcAccountsV1 {",
-   "line": 1588,
+   "symbol": "instruction.bootstrap.total_supply,",
+   "within": "pub(crate) fn execute_pgc_bootstrap(",
+   "line": 1710,
    "summary": "The total supply of an Anonymous PGC pool is a public number governance chooses at bootstrap. It is bound to no asset definition and consumes no committed issuance allowance; the bootstrap proof is the only check that the encrypted balances sum to it.",
    "required": "Name what a PGC unit is: bind the pool to an asset and a committed allowance, or state that the units are pool-local with no claim on any asset."
   },
@@ -6466,8 +6505,8 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
    "symbol": "match effects.into_ledger() {",
    "within": "fn execute_after_admission(",
-   "line": 4661,
-   "summary": "The checks the proof handler applies to a verified effect (Orchard, FCMP++, Anonymous PGC, ZK-ACE) are inline after the one verifier call, and so are the checks of the PGC bootstrap handler after its own verifier call. No entry point takes a verified effect, so a test cannot apply the effect a faulty verifier would return and observe those checks. Only the public reserve bridge and the private-note apply function are reachable that way today.",
+   "line": 4718,
+   "summary": "The proof handler applies checks to a verified effect (Orchard, FCMP++, Anonymous PGC, ZK-ACE) inline after its verifier call. PGC bootstrap checks the native verifier outputs inside the original-invocation consumer and applies State changes in execute_pgc_bootstrap. No test-only entry point injects an erroneously accepted effect at either boundary to observe the remaining ledger checks. Only the public reserve bridge and the private-note apply function are reachable that way today.",
    "required": "Split the handler into verification and an apply function over the verified effect (the single state executor per role of P.1), and give every ledger effect a test-only constructor like the proof-managed one (P.3)."
   },
   {
@@ -6507,7 +6546,7 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/game.rs",
    "symbol": "crate::execution_proofs::verify_game_proof_for_history_v1(",
    "within": "impl Execute for SettleGameSessionV1 {",
-   "line": 1227,
+   "line": 1222,
    "summary": "No test settles a game session with a proof, real or forced. Staked sessions are refused at open while the compiled profile is unqualified, so only unfunded sessions settle today.",
    "required": "B.3 delivers the RaceV1 relation on the shared backend with settlement tests, including a forced-success verifier showing that a wrong outcome pays at most the session liability."
   },
@@ -6528,7 +6567,7 @@
    "path": "crates/iroha_core/src/smartcontracts/isi/privacy.rs",
    "symbol": "\"native Orchard effect is inconsistent with trusted state or its statement\"",
    "within": "VerifiedPrivacyLedgerEffectsV1::OrchardActions(effect) => {",
-   "line": 4806,
+   "line": 4863,
    "summary": "No test in the ledger crate submits an Orchard bundle, valid or mutated: the nullifier, anchor, successor and expiry checks of the Orchard apply arm are exercised by no test there.",
    "required": "P.16 supplies genuine Orchard proofs and mutations; P.3 supplies the shared ledger-effect tests."
   }

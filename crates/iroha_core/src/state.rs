@@ -333,6 +333,8 @@ mod canonical_history;
 mod committed_execution_read;
 mod contract_event_journal;
 pub(crate) mod native_execution_tip;
+#[cfg(test)]
+mod world_view_admission_parameters_tests;
 pub use native_execution_tip::NativeExecutionTip;
 mod carrier_da_effects;
 mod carrier_lifecycle_effects;
@@ -1777,8 +1779,7 @@ pub struct BlockHashes {
 mod block_hashes_admission;
 use block_hashes_admission::BlockHashPolicy;
 pub use block_hashes_admission::{
-    BlockHashAdmissionError, RootScopeDecodeRefusal, StateAdmissionError, StateBlockStartError,
-    StateStorageAdmissionError,
+    BlockHashAdmissionError, StateAdmissionError, StateBlockStartError, StateStorageAdmissionError,
 };
 pub use storage_transactions::{MembershipAdmissionError, MembershipRestoreError};
 #[path = "state/local_storage_refusal.rs"]
@@ -9976,6 +9977,15 @@ fn private_settlement_ledger_evidence_commitment_v1(
 }
 
 impl WorldView<'_> {
+    /// Borrow the original parameters and validated admission policies of this view.
+    ///
+    /// The returned owner is captured with the rest of this world snapshot. Reading it
+    /// neither acquires another view nor decodes or substitutes an absent crypto policy.
+    #[must_use]
+    pub fn transaction_admission_parameters(&self) -> &StateParameters {
+        self.parameters.get()
+    }
+
     /// Commit every globally replicated private-settlement financial/terminal
     /// map for a test-network atomicity observation.
     ///
@@ -11610,20 +11620,22 @@ pub(crate) struct StatelessValidationContext {
     network_id: iroha_data_model::NetworkId,
     max_clock_drift_ms: u64,
     tx_params: iroha_data_model::parameter::TransactionParameters,
-    allowed_signing: Vec<iroha_crypto::Algorithm>,
+    allowed_algorithms: [bool; iroha_crypto::Algorithm::ALL.len()],
 }
 impl StatelessValidationContext {
     pub(crate) fn new(
         network_id: iroha_data_model::NetworkId,
         max_clock_drift_ms: u64,
         tx_params: iroha_data_model::parameter::TransactionParameters,
-        allowed_signing: Vec<iroha_crypto::Algorithm>,
+        policy: &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1,
     ) -> Self {
         Self {
             network_id,
             max_clock_drift_ms,
             tx_params,
-            allowed_signing,
+            allowed_algorithms: std::array::from_fn(|index| {
+                policy.allows(iroha_crypto::Algorithm::ALL[index])
+            }),
         }
     }
 }
@@ -11858,6 +11870,56 @@ mod stateless_validation_cache_tests {
         assert!(!cache.get_ok(&key, 100));
         assert!(!cache.contains_key(&key));
     }
+    #[test]
+    fn cache_context_uses_original_policy_membership_and_invalidates_changed_policy() {
+        use iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1;
+        let mut initial = super::StateParameters::default();
+        initial
+            .set_parameter(
+                CryptoAdmissionPolicyV1::new(vec![Algorithm::Ed25519])
+                    .unwrap()
+                    .into_parameter()
+                    .unwrap(),
+            )
+            .unwrap();
+        let parameters = mv::cell::Cell::new(initial);
+        let old = parameters.view();
+        let make_context = |value: &super::StateParameters| {
+            StatelessValidationContext::new(
+                context(7).network_id,
+                0,
+                value.transaction(),
+                value.require_crypto_policy().unwrap(),
+            )
+        };
+        let mut cache = StatelessValidationCache::new(2);
+        let key = dummy_hash(4);
+        cache.ensure_context(make_context(old.get()));
+        cache.insert_ok(key, None, 0);
+        let mut change = parameters.block();
+        change
+            .get_mut()
+            .set_parameter(
+                CryptoAdmissionPolicyV1::new(vec![Algorithm::Ed25519, Algorithm::Secp256k1])
+                    .unwrap()
+                    .into_parameter()
+                    .unwrap(),
+            )
+            .unwrap();
+        change.commit();
+        cache.ensure_context(make_context(old.get()));
+        assert!(
+            cache.get_ok(&key, 100),
+            "retained original view has unchanged membership"
+        );
+        cache.ensure_context(make_context(parameters.view().get()));
+        assert!(
+            !cache.get_ok(&key, 100),
+            "new committed membership invalidates old admission"
+        );
+        assert!(!cache.contains_key(&key));
+    }
+
     fn context(seed: u8) -> StatelessValidationContext {
         StatelessValidationContext::new(
             NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
@@ -11865,7 +11927,10 @@ mod stateless_validation_cache_tests {
             )),
             0,
             TransactionParameters::default(),
-            vec![Algorithm::Ed25519],
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+            ])
+            .expect("this cache fixture explicitly selects Ed25519"),
         )
     }
 }
@@ -12743,6 +12808,12 @@ pub use view_acquisition::StateViewError;
 
 /// Original executing State fields, jointly retired by their enclosing owner.
 pub struct StateBlockFields<'state> {
+    /// Source-authenticated initial policy retained only by its original genesis overlay.
+    pub(crate) genesis_crypto_policy:
+        Option<crate::block::genesis_crypto_policy::GenesisCryptoPolicy>,
+    /// Original signed staking instruction, retained through unpublished execution.
+    pub(crate) genesis_staking_policy:
+        Option<crate::block::genesis_staking_policy::GenesisStakingPolicy>,
     /// First local storage refusal, sticky across every child rollback and error handler.
     local_storage_refusal: Option<StateStorageAdmissionError>,
     /// Immutable policy inputs captured with this scope's actual predecessor.
@@ -13069,6 +13140,24 @@ impl Drop for StateBlock<'_> {
 }
 
 impl<'state> StateBlock<'state> {
+    /// Borrow the single ordinary policy at this scope's immutable admission cut.
+    ///
+    /// Genesis must retain its original installed source capability. All other
+    /// scopes read the original block preimage, even after an applied sibling
+    /// changes the current parameter. An absent policy is never a default.
+    pub(crate) fn crypto_admission_policy(
+        &self,
+    ) -> Result<&iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1, &'static str>
+    {
+        if let Some(original) = self.genesis_crypto_policy.as_ref() {
+            original.policy_for_parameters(&self._curr_block, self.world.parameters.get())
+        } else {
+            self.world
+                .parameters
+                .get_before_block()
+                .require_crypto_policy()
+        }
+    }
     /// Returns the world view associated with this block scope.
     #[inline]
     pub fn world(&self) -> &WorldBlock<'state> {
@@ -14041,6 +14130,11 @@ pub(crate) fn standalone_governance_ballot_instruction_v1(
 }
 /// Aggregated state changes for one transaction.
 pub struct StateTransaction<'block, 'state> {
+    /// Borrow the original genesis authentication evidence, never infer it from height.
+    genesis_crypto_policy: Option<&'block crate::block::genesis_crypto_policy::GenesisCryptoPolicy>,
+    /// Borrow the original authenticated staking source through the whole child attempt.
+    genesis_staking_policy:
+        Option<&'block crate::block::genesis_staking_policy::GenesisStakingPolicy>,
     /// Original signed genesis committee, borrowed from the pristine native schedule owner.
     pub(crate) native_genesis_context:
         Option<&'block iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1>,
@@ -14383,6 +14477,61 @@ impl<'block, 'state> StateTransaction<'block, 'state> {
         self.static_policy
     }
 
+    /// Borrow the staking monetary policy from this block's original parameter cut.
+    ///
+    /// An unapplied update and an earlier applied sibling both leave this borrow
+    /// on the predecessor. The committed successor becomes visible only in the
+    /// next block. Reading never decodes, clones, or consults node configuration.
+    ///
+    /// # Errors
+    /// A missing original policy is invalid; transaction-local initialization
+    /// cannot replace it. Genesis instead borrows its retained authenticated source.
+    /// TODO(F4): fund original parameter admission before live adoption.
+    pub(crate) fn staking_monetary_policy(
+        &self,
+    ) -> Result<
+        &iroha_data_model::block::consensus::PublicLaneStakingPolicy,
+        iroha_data_model::block::consensus::PublicLaneStakingPolicyError,
+    > {
+        if let Some(original) = self.genesis_staking_policy {
+            original.policy_for_parameters(&self._curr_block, self.world.parameters.get())
+        } else {
+            self.world
+                .parameters
+                .get_before_block()
+                .require_staking_policy()
+        }
+    }
+
+    /// Authenticate an actual genesis assignment against its retained original source.
+    /// A height-one header and an equal transaction-local value cannot create this authority.
+    pub(crate) fn require_genesis_staking_parameter(
+        &self,
+        parameter: &iroha_data_model::parameter::CustomParameter,
+    ) -> Result<(), iroha_data_model::block::consensus::PublicLaneStakingPolicyError> {
+        self.genesis_staking_policy
+            .ok_or(iroha_data_model::block::consensus::PublicLaneStakingPolicyError::GenesisSourceMismatch)?
+            .require_parameter(&self._curr_block, self.world.parameters.get(), parameter)
+    }
+
+    /// Borrow the single ordinary policy at this scope's immutable admission cut.
+    ///
+    /// Genesis must retain its original installed source capability. All other
+    /// scopes read the original block preimage, even after an applied sibling
+    /// changes the current parameter. An absent policy is never a default.
+    pub(crate) fn crypto_admission_policy(
+        &self,
+    ) -> Result<&iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1, &'static str>
+    {
+        if let Some(original) = self.genesis_crypto_policy.as_ref() {
+            original.policy_for_parameters(&self._curr_block, self.world.parameters.get())
+        } else {
+            self.world
+                .parameters
+                .get_before_block()
+                .require_crypto_policy()
+        }
+    }
     /// Return whether execution is currently inside a scheduled or data-trigger body.
     #[inline]
     pub(crate) const fn is_trigger_execution_active(&self) -> bool {
@@ -14592,6 +14741,9 @@ pub struct StateQueryView<'state> {
     pub(crate) native_execution_tip: CellView<'state, Option<NativeExecutionTip>>,
     /// World data captured in the same query publication generation.
     pub world: WorldView<'state>,
+    /// Original undo value captured with current Parameters in the same publication generation.
+    /// `None` denotes an unchanged latest block, not missing policy history.
+    parameters_before_latest_block: CellView<'state, Option<StateParameters>>,
     /// Snapshot of committed block hashes.
     pub block_hashes: BlockHashesView<'state>,
     /// Topology used to commit latest block.
@@ -14768,6 +14920,23 @@ impl<'state> StateView<'state> {
     }
 }
 impl<'state> StateQueryView<'state> {
+    /// Borrow the policy for this original current or same-height replacement cut.
+    pub(crate) fn crypto_admission_policy_for_validation(
+        &self,
+        replacement: bool,
+    ) -> Result<&iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1, &'static str>
+    {
+        let parameters = if replacement {
+            self.parameters_before_latest_block
+                .get()
+                .as_ref()
+                .unwrap_or(self.world.parameters.get())
+        } else {
+            self.world.parameters.get()
+        };
+        parameters.require_crypto_policy()
+    }
+
     /// Returns the world view for this read-only snapshot.
     #[inline]
     pub fn world(&self) -> &WorldView<'state> {
@@ -23155,7 +23324,9 @@ impl WorldTransaction<'_, '_> {
         let shared: Vec<_> = prev_ids.intersection(&new_ids).cloned().collect();
         let params = self.parameters.get_mut();
         for id in &removed {
-            params.remove_custom_parameter(id);
+            params
+                .remove_custom_parameter(id)
+                .expect("executor reconciliation excludes mandatory committed policies");
         }
         if !removed.is_empty() {
             iroha_logger::trace!(
@@ -30134,6 +30305,7 @@ impl State {
         let total_start = Instant::now();
         let (
             world,
+            parameters_before_latest_block,
             native_execution_tip,
             block_hashes,
             block_hashes_wait,
@@ -30157,6 +30329,7 @@ impl State {
             let query_ledger_time_ms = self.latest_block_creation_time_ms_fast();
             let world_start = Instant::now();
             let mut world = self.world.view();
+            let parameters_before_latest_block = self.world.parameters.predecessor_view();
             let runtime = self.canonical_runtime.view();
             let native_execution_tip = self.native_execution_tip.view();
             let projection = self.project_canonical_runtime(runtime.get(), &world);
@@ -30174,6 +30347,7 @@ impl State {
                 world.dataspace_catalog = projection.nexus.dataspace_catalog.clone();
                 break (
                     world,
+                    parameters_before_latest_block,
                     native_execution_tip,
                     block_hashes,
                     block_hashes_wait,
@@ -30218,6 +30392,7 @@ impl State {
             );
         }
         StateQueryView {
+            parameters_before_latest_block,
             native_execution_tip,
             block_hashes,
             commit_topology,
@@ -31086,20 +31261,14 @@ impl State {
     pub fn has_committed_entrypoint(&self, hash: HashOf<TransactionEntrypoint>) -> bool {
         self.transactions.view().get(&hash).is_some()
     }
-    /// Return the transaction admission limits used by ingress validation.
+    /// Borrow the original committed parameter cell used by ingress validation.
     ///
-    /// This avoids acquiring a full [`WorldView`] when transaction admission only
-    /// needs current Sumeragi clock drift and transaction limit parameters.
+    /// Keep this owner alive while borrowing clock drift, limits and the required crypto
+    /// policy, so one attempt cannot join policy and limits from different publications.
     #[track_caller]
     #[must_use]
-    pub fn transaction_admission_limits(
-        &self,
-    ) -> (
-        Duration,
-        iroha_data_model::parameter::system::TransactionParameters,
-    ) {
-        let params = self.world.parameters.view();
-        (params.sumeragi().max_clock_drift(), params.transaction())
+    pub fn transaction_admission_parameters(&self) -> CellView<'_, StateParameters> {
+        self.world.parameters.view()
     }
     #[cfg(test)]
     /// Warm the block stateless-validation cache for a Torii batch with one cache lock.
@@ -31122,7 +31291,13 @@ impl State {
         if cache_cap == 0 {
             return;
         }
-        let (max_clock_drift, tx_params) = self.transaction_admission_limits();
+        let parameters = self.transaction_admission_parameters();
+        let Ok(policy) = parameters.require_crypto_policy() else {
+            // No ordinary admission exists before genesis. Never warm a partial cache context.
+            return;
+        };
+        let max_clock_drift = parameters.sumeragi().max_clock_drift();
+        let tx_params = parameters.transaction();
         let max_clock_drift_ms = max_clock_drift.as_millis();
         let entries = txs
             .into_iter()
@@ -31131,12 +31306,11 @@ impl State {
         if entries.is_empty() {
             return;
         }
-        let allowed_signing = self.crypto.read().allowed_signing.clone();
         let context = StatelessValidationContext::new(
             self.network_id,
             u64::try_from(max_clock_drift_ms).unwrap_or(u64::MAX),
             tx_params,
-            allowed_signing,
+            policy,
         );
         let mut cache = self.stateless_validation_cache.lock();
         cache.set_cap(cache_cap);
@@ -36699,7 +36873,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
 -> Vec<iroha_data_model::parameter::CustomParameterId> {
     use iroha_data_model::{
         account::admission::AccountAdmissionPolicy,
-        block::consensus::RootFeePolicy,
+        block::consensus::{PublicLaneStakingPolicy, RootFeePolicy},
         da::ingest::DaIngestAdmissionPolicyV1,
         hijiri::HijiriParametersV1,
         isi::settlement::FxCorridorPolicyRegistry,
@@ -36717,6 +36891,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         crate::zk_validity_policy::ZkValidityPolicyV1::parameter_id(),
         crate::pipeline_validity_policy::PipelineValidityPolicyV1::parameter_id(),
         crate::fraud_admission_policy::FraudAdmissionPolicyV1::parameter_id(),
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::parameter_id(),
         SumeragiLanePolicy::parameter_id(),
         DaIngestAdmissionPolicyV1::parameter_id(),
         NexusRuntimeCatalogV1::parameter_id(),
@@ -36729,6 +36904,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         ValidationFeePolicyRegistryV1::parameter_id(),
         AccountAdmissionPolicy::parameter_id(),
         RootFeePolicy::parameter_id(),
+        PublicLaneStakingPolicy::parameter_id(),
         iroha_data_model::governance::anonymous_ballot::ParliamentCandidateTestingPolicyV1::parameter_id()
             .clone(),
         ReputationFinalizedArchiveRetentionRequestV1::parameter_id(),
@@ -36799,6 +36975,8 @@ mod consensus_owned_parameter_tests {
             "zk_validity_policy_v1",
             "pipeline_validity_policy_v1",
             "fraud_admission_policy_v1",
+            "crypto_admission_policy_v1",
+            "public_lane_staking_v1",
             "sumeragi_lane_policy",
             "ivm_gas_tech_account_id",
             "ivm_gas_accepted_assets",
@@ -36842,9 +37020,22 @@ mod consensus_owned_parameter_tests {
                 "pipeline_validity_policy_v1" => Json::new(
                     crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default(),
                 ),
+                "crypto_admission_policy_v1" => Json::new(
+                    iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                        iroha_crypto::Algorithm::Ed25519,
+                    ])
+                    .expect("explicit ordinary crypto policy"),
+                ),
                 "zk_validity_policy_v1" => Json::new(
                     iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default(),
                 ),
+                "public_lane_staking_v1" => {
+                    Json::new(crate::sumeragi::test_chain::staking_fixture_policy(
+                        iroha_config::parameters::defaults::nexus::staking::stake_asset_id()
+                            .parse()
+                            .expect("explicit fixture staking asset"),
+                    ))
+                }
                 "root_fees_v1" => {
                     Json::new(iroha_config::parameters::defaults::nexus::fees::genesis_policy())
                 }
@@ -36920,42 +37111,117 @@ mod consensus_owned_parameter_tests {
             drop(transaction);
             drop(block);
 
-            // A chain without the parameter does not acquire it from an executor.
-            let state = state_over(World::default());
-            let mut block = state.block(second_header());
-            let mut transaction = block.transaction();
-            // Fixture startup installs some protected policies, including root
-            // fees. Explicitly establish the absent case before reconciliation.
-            transaction
-                .world
-                .parameters
-                .get_mut()
-                .remove_custom_parameter(&id);
-            assert!(
-                transaction
-                    .world
-                    .parameters
-                    .get()
-                    .custom()
-                    .get(&id)
-                    .is_none()
-            );
+            // Test the absent case on an admitted uninitialized World checkpoint.
+            // Removing an initialized mandatory policy is correctly refused by its
+            // owner and therefore cannot construct an absence fixture.
+            let world = World::default();
+            let mut block = world.block();
+            let mut transaction = block.transaction_without_telemetry(LaneConfig::default(), 0);
+            assert!(transaction.parameters.get().custom().get(&id).is_none());
             let mut declares = ExecutorDataModel::default();
             declares.parameters.insert(id.clone(), attacker);
-            transaction.world.apply_executor_data_model(declares);
+            transaction.apply_executor_data_model(declares);
             assert!(
-                transaction
-                    .world
-                    .parameters
-                    .get()
-                    .custom()
-                    .get(&id)
-                    .is_none(),
+                transaction.parameters.get().custom().get(&id).is_none(),
                 "{id:?} must not be inserted"
             );
         }
     }
+
+    #[test]
+    fn executor_reconciliation_cannot_acquire_a_valid_staking_policy() {
+        use iroha_data_model::block::consensus::PublicLaneStakingPolicy;
+
+        let id = PublicLaneStakingPolicy::parameter_id();
+        let policy = crate::sumeragi::test_chain::staking_fixture_policy(
+            iroha_config::parameters::defaults::nexus::staking::stake_asset_id()
+                .parse()
+                .expect("explicit fixture staking asset"),
+        );
+        let committed = policy
+            .clone()
+            .into_custom_parameter()
+            .expect("valid policy");
+        let mut replacement = policy;
+        replacement.unbonding_delay_ms += 1;
+        let attacker = replacement
+            .into_custom_parameter()
+            .expect("valid replacement");
+        assert_ne!(committed, attacker);
+
+        let world = World::default();
+        let mut block = world.block();
+        let mut transaction = block.transaction_without_telemetry(LaneConfig::default(), 0);
+        transaction
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(committed.clone()))
+            .expect("install original typed owner");
+        let mut declaration = ExecutorDataModel::default();
+        declaration.parameters.insert(id.clone(), attacker);
+        transaction.apply_executor_data_model(declaration);
+        assert_eq!(
+            transaction.parameters.get().custom().get(&id),
+            Some(&committed)
+        );
+        assert!(
+            transaction
+                .executor_data_model
+                .get()
+                .parameters()
+                .get(&id)
+                .is_none()
+        );
+        transaction.apply_executor_data_model(ExecutorDataModel::default());
+        assert_eq!(
+            transaction.parameters.get().custom().get(&id),
+            Some(&committed)
+        );
+    }
+
+    #[test]
+    fn executor_reconciliation_cannot_retire_a_staking_owner_from_its_previous_schema() {
+        use iroha_data_model::block::consensus::PublicLaneStakingPolicy;
+
+        let id = PublicLaneStakingPolicy::parameter_id();
+        let committed = crate::sumeragi::test_chain::staking_fixture_policy(
+            iroha_config::parameters::defaults::nexus::staking::stake_asset_id()
+                .parse()
+                .expect("explicit fixture staking asset"),
+        )
+        .into_custom_parameter()
+        .expect("valid policy");
+        let world = World::default();
+        let mut block = world.block();
+        let mut transaction = block.transaction_without_telemetry(LaneConfig::default(), 0);
+        transaction
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(committed.clone()))
+            .expect("install original typed owner");
+        // An adversarial prior declaration must not cause reconciliation to invoke
+        // removal on the mandatory owner, even when the new schema drops that ID.
+        transaction
+            .executor_data_model
+            .get_mut()
+            .parameters
+            .insert(id.clone(), committed.clone());
+        transaction.apply_executor_data_model(ExecutorDataModel::default());
+        assert_eq!(
+            transaction.parameters.get().custom().get(&id),
+            Some(&committed)
+        );
+        assert!(
+            transaction
+                .executor_data_model
+                .get()
+                .parameters()
+                .get(&id)
+                .is_none()
+        );
+    }
 }
+
 fn zk_policy_put_bytes(hasher: &mut Sha256, bytes: &[u8]) {
     let len = u64::try_from(bytes.len()).expect("ZK policy field length must fit into u64");
     Sha2Digest::update(hasher, len.to_be_bytes());
@@ -37302,7 +37568,6 @@ pub fn compute_zk_consensus_policy_hash(
 fn compute_execution_policy_digest_v1(
     pipeline: &iroha_config::parameters::actual::Pipeline,
     oracle: &iroha_config::parameters::actual::Oracle,
-    crypto: &iroha_config::parameters::actual::Crypto,
     nexus: &iroha_config::parameters::actual::Nexus,
     lane_manifests: &LaneManifestRegistry,
     lane_compliance: Option<&LaneComplianceEngine>,
@@ -37325,7 +37590,6 @@ fn compute_execution_policy_digest_v1(
         iroha_config::parameters::actual::execution_policy_digest_v1(
             pipeline,
             oracle,
-            crypto,
             fraud_monitoring,
             governance,
             content,
@@ -37380,7 +37644,6 @@ impl State {
         [u8; 32],
         iroha_config::parameters::actual::NexusConsensusPolicyDigestError,
     > {
-        let crypto = self.crypto.read().clone();
         // The committed ZK and pipeline validity policies, as every view and block reads them.
         let zk = self.zk_snapshot();
         let pipeline = self.pipeline_snapshot();
@@ -37391,7 +37654,6 @@ impl State {
         compute_execution_policy_digest_v1(
             &pipeline,
             &self.oracle,
-            crypto.as_ref(),
             &nexus,
             lane_manifests,
             lane_compliance,
@@ -37429,7 +37691,6 @@ impl StateBlock<'_> {
         compute_execution_policy_digest_v1(
             &self.pipeline,
             &self.oracle,
-            self.crypto.as_ref(),
             &authored_nexus,
             self.lane_manifests.as_ref(),
             self.lane_compliance.as_deref(),
@@ -37456,7 +37717,6 @@ impl StateBlock<'_> {
         compute_execution_policy_digest_v1(
             &self.pipeline,
             &self.oracle,
-            self.crypto.as_ref(),
             &self.nexus,
             self.lane_manifests.as_ref(),
             self.lane_compliance.as_deref(),
@@ -38709,6 +38969,8 @@ impl<'state> StateBlock<'state> {
         );
         let axt_next_handle_counters_after_block = fields.axt_next_handle_counters.clone();
         Ok(StateTransaction {
+            genesis_crypto_policy: fields.genesis_crypto_policy.as_ref(),
+            genesis_staking_policy: fields.genesis_staking_policy.as_ref(),
             native_epoch_boundary: fields.sumeragi_schedule.frozen_boundary(),
             native_genesis_context: fields.sumeragi_schedule.original_genesis_context(),
             local_storage_refusal: &mut fields.local_storage_refusal,
@@ -43720,11 +43982,10 @@ impl StateTransaction<'_, '_> {
                     error.map_rejection(ValidationFail::InternalError),
                 )
             })?;
+            self.hydrate_zk_snapshots_for_execution(&mut host)?;
             host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
             crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
-            host.set_zk_snapshots_from_state(self).map_err(|error| {
-                ValidationFail::InternalError(format!("invalid ZK snapshot state: {error}"))
-            })?;
+
             let run_result = vm
                 .run_with_host(&mut host)
                 .and_then(|()| host.finish_contract_result(&vm).map(|_| ()));
@@ -44251,12 +44512,11 @@ impl StateTransaction<'_, '_> {
                             )
                         },
                     )?;
+                self.hydrate_zk_snapshots_for_execution(&mut host)?;
                 host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                 host.set_contract_runtime_context(contract_runtime_context.clone());
                 host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
-                host.set_zk_snapshots_from_state(self).map_err(|e| {
-                    ValidationFail::InternalError(format!("invalid ZK snapshot state: {e}"))
-                })?;
+
                 vm.set_max_cycles(eff_cycles.get());
                 vm.set_gas_limit(gas_limit);
                 let precharge_result = contract_call_context
@@ -44545,16 +44805,13 @@ impl StateTransaction<'_, '_> {
                                             error.map_rejection(ValidationFail::InternalError),
                                         )
                                     })?;
+                            self.hydrate_zk_snapshots_for_execution(&mut host)?;
                             host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                             host.set_contract_runtime_context(contract_runtime_context.clone());
                             host.set_contract_entrypoint_authorization(Some(
                                 entrypoint_authorization,
                             ));
-                            host.set_zk_snapshots_from_state(self).map_err(|e| {
-                                ValidationFail::InternalError(format!(
-                                    "invalid ZK snapshot state: {e}"
-                                ))
-                            })?;
+
                             vm.set_max_cycles(eff_cycles.get());
                             vm.set_gas_limit(gas_limit);
                             let precharge_result = contract_call_context
@@ -45007,20 +45264,20 @@ impl SnapshotNexusRuntime {
         }
     }
 }
+#[path = "state/asset_fi.rs"]
+pub(crate) mod asset_fi;
+#[path = "state/asset_uid.rs"]
+pub(crate) mod asset_uid;
+#[path = "state/asset_uid_enrollment.rs"]
+pub(crate) mod asset_uid_enrollment;
+#[path = "state/asset_uid_reader.rs"]
+pub(crate) mod asset_uid_reader;
 // TODO: publish only after a finalized accumulated root and restricted read ACL.
 #[cfg(test)]
 #[path = "state/retail_contract_state_snapshot.rs"]
 mod retail_contract_state_snapshot;
 #[path = "state/retail_daily_limit_state.rs"]
 pub(crate) mod retail_daily_limit_state;
-#[path = "state/asset_uid.rs"]
-pub(crate) mod asset_uid;
-#[path = "state/asset_fi.rs"]
-pub(crate) mod asset_fi;
-#[path = "state/asset_uid_enrollment.rs"]
-pub(crate) mod asset_uid_enrollment;
-#[path = "state/asset_uid_reader.rs"]
-pub(crate) mod asset_uid_reader;
 pub(crate) mod deserialize {
     use iroha_model_base::domain::DomainId;
     use iroha_model_base::peer::PeerId;

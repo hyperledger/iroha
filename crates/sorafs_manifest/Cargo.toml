@@ -8,8 +8,9 @@ license = "Apache-2.0"
 description = "Norito-encoded manifest types for SoraFS artifacts."
 
 [features]
-# No `default` feature: consumers request `pqc` explicitly, so focused and
-# node builds resolve the same feature tokens and share one artifact.
+# No `default` feature. This local `pqc` feature enables hybrid-envelope support.
+# The unconditional crypto `application` dependency below already supplies ML-DSA
+# for PoTR and governance signature verification, including focused builds.
 dev-tools = []
 pqc = ["iroha_crypto/pqc", "soranet_pq/pqc"]
 

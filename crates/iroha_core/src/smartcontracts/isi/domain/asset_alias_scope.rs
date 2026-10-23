@@ -1169,10 +1169,15 @@ pub(crate) fn precheck_register_account(
                 .into(),
             ));
     }
-    ensure_controller_capabilities(
+    ensure_controller_policy(
         account.controller(),
-        &state_transaction.crypto.allowed_signing,
-        &state_transaction.crypto.allowed_curve_ids,
+        state_transaction
+            .crypto_admission_policy()
+            .map_err(|message| {
+                iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                    message.into(),
+                )
+            })?,
     )?;
     let account_id = account.id();
     if state_transaction.world.account(account_id).is_ok() {
@@ -1607,7 +1612,11 @@ impl Execute for Unregister<Account> {
                 )
                 .into());
         }
-        if let Some(owned_definition_id) = crate::state::range_bounds::index_members(&state_transaction.world.asset_definitions_by_owner, &account_id).next()
+        if let Some(owned_definition_id) = crate::state::range_bounds::index_members(
+            &state_transaction.world.asset_definitions_by_owner,
+            &account_id,
+        )
+        .next()
         {
             return Err(InstructionExecutionError::InvariantViolation(
                     format!(
@@ -3297,40 +3306,15 @@ impl Execute for Transfer<Account, DomainId, Account> {
         Ok(())
     }
 }
-pub(crate) fn ensure_controller_capabilities(
+/// Check every ordinary controller algorithm against the canonical chain policy.
+/// Consensus validator-key requirements do not exempt account controllers.
+pub(crate) fn ensure_controller_policy(
     controller: &AccountController,
-    allowed_algorithms: &[Algorithm],
-    allowed_curve_ids: &[u8],
+    policy: &CryptoAdmissionPolicyV1,
 ) -> Result<(), InstructionExecutionError> {
-    if let Some(disallowed) = first_disallowed_algorithm(controller, allowed_algorithms)? {
-        let allowed_summary = if allowed_algorithms.is_empty() {
-            "none".to_string()
-        } else {
-            allowed_algorithms
-                .iter()
-                .copied()
-                .map(Algorithm::as_static_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
+    if let Some(disallowed) = first_disallowed_algorithm(controller, policy.allowed_algorithms())? {
         return Err(InstructionExecutionError::InvariantViolation(
-            format!(
-                "account controller uses signing algorithm {disallowed} which is not \
-                     permitted by crypto.allowed_signing (allowed: {allowed_summary})"
-            )
-            .into(),
-        ));
-    }
-    if let Some(curve) = first_disallowed_curve(controller, allowed_curve_ids)? {
-        let algo = curve.algorithm();
-        let curve_code: u8 = curve.into();
-        return Err(InstructionExecutionError::InvariantViolation(
-            format!(
-                "account controller uses curve id {curve_code:#04X} ({}) which is not \
-                     permitted by crypto.curves.allowed_curve_ids",
-                algo.as_static_str()
-            )
-            .into(),
+            format!("account controller uses signing algorithm {disallowed} which is not permitted by the committed crypto admission policy").into(),
         ));
     }
     Ok(())
@@ -3364,76 +3348,10 @@ fn controller_algorithm(public_key: &PublicKey) -> Result<Algorithm, Instruction
     })
 }
 fn algorithm_if_disallowed(algo: Algorithm, allowed: &[Algorithm]) -> Option<Algorithm> {
-    if allowed.contains(&algo) || is_bls_algorithm(algo) {
+    if allowed.contains(&algo) {
         None
     } else {
         Some(algo)
-    }
-}
-fn first_disallowed_curve(
-    controller: &AccountController,
-    allowed_curve_ids: &[u8],
-) -> Result<Option<CurveId>, InstructionExecutionError> {
-    match controller {
-        AccountController::Single(signatory) => {
-            let algo = controller_algorithm(signatory)?;
-            curve_if_disallowed(algo, allowed_curve_ids).map_err(|err| {
-                InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "account controller uses signing algorithm {} which is not registered in \
-                             the account curve registry: {err}",
-                        algo.as_static_str()
-                    )
-                    .into(),
-                )
-            })
-        }
-        AccountController::Multisig(policy) => {
-            for member in policy.members() {
-                let algo = controller_algorithm(member.public_key())?;
-                match curve_if_disallowed(algo, allowed_curve_ids) {
-                    Ok(Some(curve)) => return Ok(Some(curve)),
-                    Ok(None) => {}
-                    Err(err) => {
-                        return Err(InstructionExecutionError::InvariantViolation(
-                                format!(
-                                    "account controller uses signing algorithm {} which is not registered in \
-                                     the account curve registry: {err}",
-                                    algo.as_static_str()
-                                )
-                                .into(),
-                            ));
-                    }
-                }
-            }
-            Ok(None)
-        }
-    }
-}
-fn curve_if_disallowed(
-    algo: Algorithm,
-    allowed_curve_ids: &[u8],
-) -> Result<Option<CurveId>, CurveRegistryError> {
-    if is_bls_algorithm(algo) {
-        // Consensus validators rely on BLS controller keys even when admission is restricted.
-        return Ok(None);
-    }
-    let curve = CurveId::try_from_algorithm(algo)?;
-    if allowed_curve_ids.contains(&curve.as_u8()) {
-        Ok(None)
-    } else {
-        Ok(Some(curve))
-    }
-}
-fn is_bls_algorithm(algo: Algorithm) -> bool {
-    #[cfg(feature = "bls")]
-    {
-        matches!(algo, Algorithm::BlsNormal | Algorithm::BlsSmall)
-    }
-    #[cfg(not(feature = "bls"))]
-    {
-        let _ = algo;
-        false
     }
 }
 

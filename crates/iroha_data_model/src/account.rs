@@ -25,6 +25,7 @@ pub mod admission;
 pub mod controller;
 pub mod curve;
 pub(crate) mod prepared_decode;
+pub use prepared_decode::{AccountLiteralAdmissionError, ChargedAccount};
 
 mod i105_json;
 pub mod recovery;
@@ -233,6 +234,9 @@ impl norito::json::JsonObjectKeyOwned for AccountId {
 fn account_id_from_json_str(value: &str) -> Result<AccountId, norito::json::Error> {
     reserve_account_literal_json_decode(value.len())?;
     AccountId::parse_encoded(value).map_err(|error| match error {
+        AccountIdParseError::Address(AccountAddressError::UnsupportedImplementation(original)) => {
+            norito::json::Error::UnsupportedFeature(original.algorithm.as_static_str())
+        }
         AccountIdParseError::Address(error) if error.is_decode_resource_limit() => {
             address::map_account_address_json_error(error)
         }
@@ -241,7 +245,12 @@ fn account_id_from_json_str(value: &str) -> Result<AccountId, norito::json::Erro
 }
 
 fn invalid_account_id_json() -> norito::json::Error {
-    norito::json::Error::Message("invalid I105 account identifier".to_owned())
+    norito::json::Error::WithPos {
+        msg: "invalid I105 account identifier",
+        byte: 0,
+        line: 1,
+        col: 1,
+    }
 }
 
 pub(super) fn reserve_account_literal_json_decode(
@@ -695,30 +704,16 @@ impl AccountId {
     ///
     /// Preserves original decoder resource refusals; invalid formats retain their diagnostic code.
     pub fn parse_encoded(input: &str) -> Result<Self, AccountIdParseError> {
-        if input.is_empty() || input.trim() != input || input.contains('@') {
-            return Err(AccountIdParseError::InvalidFormat);
-        }
-        let expected_prefix = address::chain_discriminant();
-        let address = AccountAddress::from_i105_for_discriminant(input, Some(expected_prefix))
-            .map_err(|error| match error {
-                AccountAddressError::MissingI105Sentinel
-                | AccountAddressError::I105TooShort
-                | AccountAddressError::InvalidI105Char(_)
-                | AccountAddressError::InvalidI105Base
-                | AccountAddressError::InvalidI105Digit(_)
-                | AccountAddressError::UnsupportedAddressFormat
-                | AccountAddressError::InvalidLength => AccountIdParseError::InvalidFormat,
-                error => AccountIdParseError::from_address_error(error),
-            })?;
-        let canonical = address
-            .to_i105_for_discriminant(expected_prefix)
-            .map_err(AccountIdParseError::from_address_error)?;
-        if canonical != input {
-            return Err(AccountIdParseError::InvalidFormat);
-        }
-        let controller = address
-            .to_account_controller()
-            .map_err(AccountIdParseError::from_address_error)?;
+        let controller = address::parse_account_literal(input).map_err(|error| match error {
+            AccountAddressError::MissingI105Sentinel
+            | AccountAddressError::I105TooShort
+            | AccountAddressError::InvalidI105Char(_)
+            | AccountAddressError::InvalidI105Base
+            | AccountAddressError::InvalidI105Digit(_)
+            | AccountAddressError::UnsupportedAddressFormat
+            | AccountAddressError::InvalidLength => AccountIdParseError::InvalidFormat,
+            error => AccountIdParseError::from_address_error(error),
+        })?;
         Ok(Self { controller })
     }
     /// Canonicalise a textual identifier into the i105 form.
@@ -2028,7 +2023,15 @@ mod json_tests {
             assert!(usage.total_allocated_bytes() < demand);
         }
         let invalid = AccountId::json_from_value(&norito::json::Value::Bool(false)).unwrap_err();
-        assert!(matches!(invalid, norito::json::Error::Message(_)));
+        assert!(matches!(
+            invalid,
+            norito::json::Error::WithPos {
+                msg: "invalid I105 account identifier",
+                byte: 0,
+                line: 1,
+                col: 1,
+            }
+        ));
         assert_eq!(value.as_str().unwrap().as_ptr(), source_pointer);
         assert_eq!(value.as_str(), Some(literal.as_str()));
         drop(original);

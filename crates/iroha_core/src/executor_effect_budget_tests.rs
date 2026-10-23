@@ -65,7 +65,7 @@ mod effect_budget {
             tx.pipeline.overlay_max_instructions = cap;
             tx.pipeline.overlay_max_bytes = 0;
             let result = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, source, &mut cache)
+                .execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache)
                 .map_err(crate::execution_attempt::expect_completed_rejection);
             if cap == 1 {
                 assert_limit(
@@ -134,7 +134,7 @@ mod effect_budget {
             tx.pipeline.overlay_max_instructions = 0;
             tx.pipeline.overlay_max_bytes = cap;
             let result = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, source, &mut cache)
+                .execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache)
                 .map_err(crate::execution_attempt::expect_completed_rejection);
             if cap == exact - 1 {
                 assert_limit(
@@ -302,7 +302,7 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
             tx.pipeline.overlay_max_instructions = cap;
             tx.pipeline.overlay_max_bytes = 0;
             let result = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, source, &mut cache)
+                .execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache)
                 .map_err(crate::execution_attempt::expect_completed_rejection);
             assert!(
                 tx.last_tx_gas_used > 0,
@@ -382,7 +382,7 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
             tx.pipeline.overlay_max_instructions = cap;
             tx.pipeline.overlay_max_bytes = 0;
             let result = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, source, &mut cache)
+                .execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache)
                 .map_err(crate::execution_attempt::expect_completed_rejection);
             assert!(tx.last_tx_gas_used > 0);
             assert!(
@@ -595,7 +595,7 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
             tx.pipeline.overlay_max_instructions = 0;
             tx.pipeline.overlay_max_bytes = 0;
             let result = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, source, &mut cache)
+                .execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache)
                 .map_err(crate::execution_attempt::expect_completed_rejection);
             let cycles = tx
                 .completed_execution_cycles_for_tests()

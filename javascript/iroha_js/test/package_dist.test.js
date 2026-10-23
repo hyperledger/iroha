@@ -526,6 +526,7 @@ test("package Nexus browser export has an enforced browser-only dependency graph
       "dist/kotodamaProducts.js",
       "dist/multisig.js",
       "dist/native.browser.js",
+      "dist/nativeAccountInspection.js",
       "dist/nativeRuntime.js",
       "dist/networkId.js",
       "dist/networkPrefix.js",

@@ -401,7 +401,7 @@ fn ed25519_seed_from_material(seed: &[u8]) -> Zeroizing<[u8; 32]> {
 }
 fn validate_ed25519_seed_not_all_zero(seed: &[u8; 32]) -> Result<(), ParseError> {
     if seed.iter().all(|&byte| byte == 0) {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "ed25519 private key seed material must not be all zero".to_string(),
         ));
     }
@@ -479,13 +479,13 @@ impl Ed25519Sha512 {
                 public.copy_from_slice(&payload[32..]);
                 let signing_key = PrivateKey::from_bytes(&seed);
                 if signing_key.verifying_key().to_bytes() != public {
-                    return Err(ParseError(
+                    return Err(ParseError::Invalid(
                         "ed25519 private key payload has mismatched public key".to_string(),
                     ));
                 }
                 Ok(signing_key)
             }
-            len => Err(ParseError(format!(
+            len => Err(ParseError::Invalid(format!(
                 "the payload size is incorrect: expected 32 or 64, but got {len}"
             ))),
         }
@@ -507,14 +507,15 @@ impl Ed25519Sha512 {
                     return Ok(());
                 }
             }
-            let s = Signature::try_from(signature).map_err(|e| ParseError(e.to_string()))?;
+            let s =
+                Signature::try_from(signature).map_err(|e| ParseError::Invalid(e.to_string()))?;
             validate_signature_r_for_strict_batch(signature)?;
             pk.verify_strict(message, &s)
                 .map_err(|_| Error::BadSignature)?;
             remember_verify_ok(pk, message, signature);
             return Ok(());
         }
-        let s = Signature::try_from(signature).map_err(|e| ParseError(e.to_string()))?;
+        let s = Signature::try_from(signature).map_err(|e| ParseError::Invalid(e.to_string()))?;
         validate_signature_r_for_strict_batch(signature)?;
         pk.verify_strict(message, &s)
             .map_err(|_| Error::BadSignature)
@@ -1086,7 +1087,7 @@ mod test {
             .expect_err("cached non-canonical public key must be rejected");
         assert_eq!(first, second);
         assert!(
-            second.0.contains("non-canonical"),
+            matches!(&second, ParseError::Invalid(reason) if reason.contains("non-canonical")),
             "unexpected error: {second:?}"
         );
         assert_eq!(
@@ -1107,7 +1108,7 @@ mod test {
             .expect_err("cached weak public key must be rejected");
         assert_eq!(first, second);
         assert!(
-            second.0.contains("small-order"),
+            matches!(&second, ParseError::Invalid(reason) if reason.contains("small-order")),
             "unexpected error: {second:?}"
         );
         assert_eq!(
@@ -1129,7 +1130,7 @@ mod test {
             .expect_err("cached mixed-torsion public key must be rejected");
         assert_eq!(first, second);
         assert!(
-            second.0.contains("prime-order subgroup"),
+            matches!(&second, ParseError::Invalid(reason) if reason.contains("prime-order subgroup")),
             "unexpected error: {second:?}"
         );
         assert_eq!(
@@ -1150,7 +1151,7 @@ mod test {
             .expect_err("cached invalid public key encoding must be rejected");
         assert_eq!(first, second);
         assert!(
-            second.0.contains("invalid ed25519 public key encoding"),
+            matches!(&second, ParseError::Invalid(reason) if reason.contains("invalid ed25519 public key encoding")),
             "unexpected error: {second:?}"
         );
         assert_eq!(
@@ -1196,7 +1197,7 @@ mod test {
             let err = Ed25519Sha512::parse_public_key(&[])
                 .expect_err("wrong-length public key must be rejected");
             assert!(
-                err.0.contains("expected 32, but got 0"),
+                err.to_string().contains("expected 32, but got 0"),
                 "unexpected error: {err:?}"
             );
         }
@@ -1371,12 +1372,16 @@ mod test {
         let err = Ed25519Sha512::parse_public_key(&[]).unwrap_err();
         assert_eq!(
             err,
-            ParseError("the payload size is incorrect: expected 32, but got 0".to_string())
+            ParseError::Invalid(
+                "the payload size is incorrect: expected 32, but got 0".to_string()
+            )
         );
         let err = Ed25519Sha512::parse_private_key(&[1, 2, 3]).unwrap_err();
         assert_eq!(
             err,
-            ParseError("the payload size is incorrect: expected 32 or 64, but got 3".to_string())
+            ParseError::Invalid(
+                "the payload size is incorrect: expected 32 or 64, but got 3".to_string()
+            )
         );
     }
     #[test]
@@ -1426,7 +1431,7 @@ mod test {
         let err = Ed25519Sha512::parse_private_key(&[0u8; 32])
             .expect_err("all-zero seed material must fail");
         assert!(
-            err.0.contains("all zero"),
+            err.to_string().contains("all zero"),
             "unexpected error for all-zero seed: {err:?}"
         );
     }
@@ -1439,7 +1444,7 @@ mod test {
         let err = Ed25519Sha512::parse_private_key(&keypair_bytes)
             .expect_err("all-zero keypair seed material must fail");
         assert!(
-            err.0.contains("all zero"),
+            err.to_string().contains("all zero"),
             "unexpected error for all-zero keypair seed: {err:?}"
         );
     }
@@ -1453,39 +1458,51 @@ mod test {
         keypair_bytes[63] ^= 0x01;
         let err = Ed25519Sha512::parse_private_key(&keypair_bytes).unwrap_err();
         assert!(
-            err.0.contains("mismatched public key"),
+            err.to_string().contains("mismatched public key"),
             "unexpected error: {err:?}"
         );
     }
     #[test]
     fn parse_public_key_rejects_small_order() {
         let err = Ed25519Sha512::parse_public_key(&ED25519_SMALL_ORDER_POINT).unwrap_err();
-        assert!(err.0.contains("small-order"), "unexpected error: {err:?}");
+        assert!(
+            err.to_string().contains("small-order"),
+            "unexpected error: {err:?}"
+        );
     }
     #[test]
     fn parse_public_key_rejects_mixed_torsion_point() {
         let mixed = mixed_torsion_public_key();
         let err = Ed25519Sha512::parse_public_key(&mixed).unwrap_err();
         assert!(
-            err.0.contains("prime-order subgroup"),
+            err.to_string().contains("prime-order subgroup"),
             "unexpected error: {err:?}"
         );
     }
     #[test]
     fn parse_public_key_rejects_all_zero_material() {
         let err = Ed25519Sha512::parse_public_key(&[0u8; 32]).unwrap_err();
-        assert!(err.0.contains("all zero"), "unexpected error: {err:?}");
+        assert!(
+            err.to_string().contains("all zero"),
+            "unexpected error: {err:?}"
+        );
     }
     #[test]
     fn parse_public_key_rejects_non_canonical_encoding() {
         let err = Ed25519Sha512::parse_public_key(&ED25519_NON_CANONICAL_IDENTITY).unwrap_err();
-        assert!(err.0.contains("non-canonical"), "unexpected error: {err:?}");
+        assert!(
+            err.to_string().contains("non-canonical"),
+            "unexpected error: {err:?}"
+        );
     }
     #[test]
     fn parse_public_key_rejects_non_canonical_non_small_order_encoding() {
         let err = Ed25519Sha512::parse_public_key(&ED25519_NON_CANONICAL_NON_SMALL_ORDER_POINT)
             .unwrap_err();
-        assert!(err.0.contains("non-canonical"), "unexpected error: {err:?}");
+        assert!(
+            err.to_string().contains("non-canonical"),
+            "unexpected error: {err:?}"
+        );
     }
     #[test]
     fn cached_and_uncached_public_key_validation_are_equivalent() {

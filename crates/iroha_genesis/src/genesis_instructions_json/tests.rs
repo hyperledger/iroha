@@ -970,6 +970,18 @@ fn parse_allows_null_executor_in_canonical_manifest() {
     );
     manifest_fields.insert("executor".to_string(), Value::Null);
     manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical fixture policy"),
+        )
+        .expect("serialize authored crypto policy"),
+    );
+    manifest_fields.insert(
         "wire_protocol_version".to_string(),
         norito::json::value::to_value(&CONSENSUS_PROTOCOL_VERSION)
             .expect("serialize wire protocol version"),
@@ -1050,9 +1062,8 @@ fn generated_genesis_group_shapes_have_finite_source_capacity() {
     use iroha_data_model::{
         block::consensus::SumeragiGenesisContextParameters,
         parameter::{
-            ExecutionOutputPolicyV1, FastpqSourcePolicyV1,
-            custom::CustomParameter,
-            system::{confidential_metadata, crypto_metadata},
+            ExecutionOutputPolicyV1, FastpqSourcePolicyV1, custom::CustomParameter,
+            system::confidential_metadata,
         },
     };
     use iroha_model_base::chain::ChainId;
@@ -1082,9 +1093,28 @@ fn generated_genesis_group_shapes_have_finite_source_capacity() {
                 chain,
                 root.join("defaults/executor.to"),
                 root.join("defaults"),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
+            .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+            .expect("explicit fixture staking policy")
         } else {
-            super::super::GenesisBuilder::new_without_executor(chain, root.join("defaults"))
+            super::super::GenesisBuilder::new_without_executor(
+                chain,
+                root.join("defaults"),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+            .expect("explicit fixture staking policy")
         };
         let mut builder = builder
             .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended());
@@ -1150,7 +1180,7 @@ fn generated_genesis_group_shapes_have_finite_source_capacity() {
             assert_eq!(
                 ids,
                 [
-                    crypto_metadata::manifest_meta_id(),
+                    iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::parameter_id(),
                     confidential_metadata::registry_root_id()
                 ]
             );

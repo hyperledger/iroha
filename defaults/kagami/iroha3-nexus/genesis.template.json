@@ -22,21 +22,12 @@
     "nexus_amx_context_hash": "09123D10CBD06B24C7E9CD43E0813779F3C533F010E7B6F06D58C1F2BE10842F",
     "execution_policy_hash": "0DAF0A3D7FA7E8E2629256AE8D7E748BB5EFB0CFE7B58D1801CDDC9A0B674097"
   },
-  "crypto": {
-    "allowed_curve_ids": [
-      1,
-      3,
-      4
-    ],
-    "allowed_signing": [
+  "crypto_admission_policy": {
+    "allowed_algorithms": [
       "ed25519",
       "secp256k1",
       "bls_normal"
-    ],
-    "default_hash": "blake2b-256",
-    "sm2_distid_default": "1234567812345678",
-    "sm_intrinsics": "auto",
-    "sm_openssl_preview": false
+    ]
   },
   "executor": null,
   "ivm_dir": ".",
@@ -235,6 +226,19 @@
               "per_byte_fee": "0",
               "per_instruction_fee": "0.001",
               "per_gas_unit_fee": "0.00005"
+            }
+          },
+          "public_lane_staking_v1": {
+            "id": "public_lane_staking_v1",
+            "payload": {
+              "min_validator_stake": "1",
+              "max_stake_shares_per_validator": 256,
+              "max_pending_unbonds_per_share": 8,
+              "unbonding_delay_ms": 0,
+              "max_slash_bps": 10000,
+              "stake_asset_id": null,
+              "stake_escrow_account_id": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "slash_sink_account_id": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
             }
           }
         },

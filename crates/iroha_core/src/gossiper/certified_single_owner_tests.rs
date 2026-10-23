@@ -159,13 +159,16 @@ fn shipped_gossip_frames_carry_the_maximum_admitted_signed_transaction() {
     assert_eq!(canonical.len(), transaction_cap);
     let decoded: SignedTransaction = norito::decode_canonical(&canonical).unwrap();
     assert_eq!(decoded, signed);
-    let crypto = iroha_config::parameters::actual::Crypto::default();
     AcceptedTransaction::validate_with_now(
         &signed,
         &test_network_id(),
         Duration::ZERO,
         limits,
-        &crypto,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         signed.creation_time(),
     )
     .expect("a maximum-sized ordinary transaction passes stateless admission");
@@ -179,7 +182,11 @@ fn shipped_gossip_frames_carry_the_maximum_admitted_signed_transaction() {
         &test_network_id(),
         Duration::ZERO,
         limits,
-        &crypto,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         too_large.creation_time(),
     )
     .expect_err("one additional signed byte must exceed the governed transaction cap");

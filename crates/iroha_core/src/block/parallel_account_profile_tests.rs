@@ -296,14 +296,19 @@ impl AccountProfileValidationFixture {
         );
         // Isolate the production snapshot validator from unrelated consensus
         // header admission, as the neighboring stateless snapshot tests do.
+        let view = state.query_view();
         let static_data = {
-            let view = state.query_view();
             let pipeline_cfg = view.pipeline().clone();
             StaticValidationData {
                 expected_block_height: 2,
                 max_clock_drift: view.world().parameters().sumeragi().max_clock_drift(),
                 tx_params: view.world().parameters().transaction(),
-                crypto_cfg: view.crypto(),
+                crypto_policy: Some(
+                    view.world()
+                        .transaction_admission_parameters()
+                        .require_crypto_policy()
+                        .expect("original signed profile policy"),
+                ),
                 pipeline_parallelism: crate::state::PipelineParallelism::new(&pipeline_cfg),
                 pipeline_cfg,
                 aggregate_lane: view.nexus().routing_policy.default_lane,
@@ -345,6 +350,8 @@ impl AccountProfileValidationFixture {
         if let Some(scope) = pool_scope.as_ref() {
             scope.assert_profile(worker_discriminant.expect("parallel profile"));
         }
+        drop(static_data);
+        drop(view);
         let (mut state_block, recorder) = state
             .block_with_recorded_pristine_carrier_stage(
                 &block,

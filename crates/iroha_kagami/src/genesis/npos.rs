@@ -48,8 +48,18 @@ mod tests {
         params: Parameter,
         consensus_mode: SumeragiConsensusMode,
     ) -> RawGenesisTransaction {
-        let builder =
-            GenesisBuilder::new_without_executor(ChainId::from("npos-genesis"), PathBuf::from("."));
+        let builder = GenesisBuilder::new_without_executor(
+            ChainId::from("npos-genesis"),
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy");
         super::super::complete_test_genesis_builder(builder.append_parameter(params))
             .build_raw()
             .expect("complete NPoS parameter test genesis")
@@ -79,8 +89,18 @@ mod tests {
     }
     #[test]
     fn ignores_unrelated_set_parameter() {
-        let mut builder =
-            GenesisBuilder::new_without_executor(ChainId::from("npos-genesis"), PathBuf::from("."));
+        let mut builder = GenesisBuilder::new_without_executor(
+            ChainId::from("npos-genesis"),
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy");
         let grant = Grant::account_permission(
             iroha_executor_data_model::permission::parameter::CanSetParameters,
             ALICE_ID.clone(),

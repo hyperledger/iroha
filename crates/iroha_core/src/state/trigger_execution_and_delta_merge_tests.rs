@@ -2125,7 +2125,10 @@ fn execute_data_triggers_dfs_uses_registered_trigger_authority() {
             state.network_id_ref(),
             max_clock_drift,
             limits,
-            state.crypto().as_ref(),
+            state
+                .transaction_admission_parameters()
+                .require_crypto_policy()
+                .expect("original fixture policy"),
             &time_source,
         )
         .expect("accept the original signed Mint source");

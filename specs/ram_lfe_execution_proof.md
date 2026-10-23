@@ -963,8 +963,14 @@ These are not decided by this contract. Each names its owner in the
 3. **Circuit privacy (R.11).** The sanitization construction, its parameters and
    its proof are not chosen. Until then nothing bounds what an opener learns
    from an evaluated ciphertext.
-4. **Client well-formedness (R.11).** The relation and its binding to the input
-   commitment are not implemented.
+4. **Client well-formedness (R.11).** A fixture-only offline BGV encryption
+   oracle retains clearing bounded coins and checks the existing equations
+   against its exact borrowed key/plaintext and complete fresh ciphertext.
+   Crypto-layer tests compose scalar-subalgebra decoding, all 64 canonical
+   length/byte input slots and zero upper slots. This variable-time oracle is
+   not a proof or admission route and does not establish honest key/randomness
+   provenance. TODO(R.11): the committed client/key relation, its authenticated
+   binding to input/policy/context and a hiding proof backend remain unimplemented.
 5. **Fixed public schedules (C.3, R.3, R.7, R.9, R.11).** No class profile has
    a [schedule](#fixed-public-schedule). The largest normal form of each class
    is fixed above. The physical schedule of each class profile is not derived:

@@ -5,7 +5,7 @@ Set: 2026-09-26. Execution resumed: 2026-09-30. Reviewed: 2026-10-04. Overall st
 This record owns the remediation requested after the current-source ZK critique.
 It supplements [first-release completion](first_release_completion_goals.md) and
 [privacy closure](privacy_first_release_closure.md). Implementation remains in the
-existing `/Users/takemiyamakoto/soramitsudev/iroha` checkout on `optimizations`.
+repository checkout on `optimizations`.
 All further implementation and validation use this checkout; earlier separate
 candidates are historical evidence only. Unrelated changes remain.
 
@@ -597,19 +597,18 @@ Kaigi, spentness, MKHE or privacy-model owners calls a digest without a
 recorded role. It establishes consistency, not cryptographic qualification or
 performance. What it records:
 
-- The catalog commitment, the Kaigi authorization identities, the confidential
-  spentness tree and the MKHE proof digest all hash today with the six-lane
-  `GoldilocksDigest384V1`, which
-  [the digest boundary](fastpq_compact_digest_security.md) records as
-  unqualified. H.2 selected raw BLAKE3-256 over one canonical byte frame as the
-  canonical native commitment for the moving roles other than the spentness
-  tree, and records the required property and the accepted level of each role:
-  about 128 bits against classical and about 85 bits against quantum collision
-  search in the query model, so no composition that binds one of these digests
-  may be labelled 128 bits against quantum collision search. The spentness
-  tree is selected with the State commitment in G.3 and never stays on the
-  six-lane digest. F.5 implements the selection. `iroha_crypto::Hash` stays the
-  ledger identity hash.
+- The Exact12 catalog uses the canonical native BLAKE3-256 frame and a 32-byte
+  commitment. The privacy and generic STARK frames and MKHE proof-hash context
+  carry those exact catalog bytes. The MKHE parameter, release, source and
+  receipt identity roles also use the canonical native frame. Kaigi authorization
+  identities, the confidential spentness tree and the MKHE proof-internal digest
+  still use their recorded six-lane `GoldilocksDigest384V1` profiles, which
+  [the digest boundary](fastpq_compact_digest_security.md) records as unqualified.
+  Their remaining migrations and qualification are open. G.3 selects the spentness
+  tree with the State commitment. `iroha_crypto::Hash` remains the ledger identity
+  hash. Each role's required property and accepted security level remain explicit
+  in the specification; a native framing change establishes no stronger composed
+  security claim.
 - H.2 froze the shared backend transcript: the FIPS 202-based atomic
   whole-tape transcript of the committed q77 engine, whose every hash input now
   absorbs one complete typed profile descriptor in place of a legacy
@@ -631,41 +630,43 @@ performance. What it records:
   no relation opens it today.
 - MKHE: the commitment, transcript and challenge hash of the qPCS is
   proof-internal and follows the shared backend. Its outer parameter, release,
-  source and receipt identities are domain-tagged Keccak-256 digests; the
-  release manifest digest and the readiness digest seed the admission proof
-  through the compiled profile digest. The ceremony identities and the BLAKE3
-  payload digests exist in test-only code only. The statement identity shared
-  by all twelve protocols is BLAKE3-256 and is absorbed by every engine.
+  source and receipt identities use domain-tagged canonical BLAKE3-256 frames.
+  The ceremony identity implementation remains test-only Keccak-256; payload
+  BLAKE3 digests are also test-only. These distinct roles are recorded separately
+  from the proof-internal digest and do not imply complete MKHE qualification.
+  The statement identity shared by all twelve protocols is BLAKE3-256 and is
+  absorbed by every engine.
 - Two Pasta Poseidon parameterizations are compiled: 57 partial rounds (the
   Axiom tables of the confidential relations and the PLONK gadgets) and 56
   (P128Pow5T3 of the Kaigi relation and the SoraFS credential circuit). The
   56-round owner in `iroha_zkp_poseidon::pasta` is a candidate without
   production callers. The thirteen public RAM-LFE commitments use the ledger
   identity hash; only the private ones use BLAKE3.
-- BN254 Poseidon: an independent Grain and Cauchy regeneration reproduces all
-  621 fixed field elements and every square MDS minor is nonzero. The
-  width-three table uses 56 partial rounds where the published BN254
-  instantiation uses 57, so no constant is shared with it. The width-six table
-  is one partial round below the paper's margin rule as evaluated here (a
-  margin-rule defect candidate, not an attack). The two- and six-input helpers
-  are single permutations without capacity or domain separation. H.2 froze the
-  corrections: the published width-three instantiation with 57 partial rounds,
-  width six with 8 full and 60 partial rounds (the deployed circomlib table
-  values; equality of the generated table with that table is not yet checked),
-  and fixed-arity sponges with one tagged capacity coordinate, the six-input
-  hash over two rate-5 blocks. F.5 implements them with I.5; the parameters in
-  the tree are unchanged until then.
+- BN254 Poseidon uses the selected width-three 8/57 and width-six 8/60
+  parameters. Independent Grain/Cauchy regeneration covers all 648 fixed field
+  elements, with the pinned circomlibjs table comparison and nonzero MDS minors
+  recorded in the specification. The fixed-arity helpers reserve capacity
+  coordinate zero for the arity tag and return coordinate one; the six-input
+  helper absorbs two rate-5 blocks. These source corrections replace D1–D3's
+  prior forms. Parameter equality and vectors do not establish cryptographic
+  security or current native/IVM/SDK/accelerator qualification; those remain
+  explicit F.5 obligations. The Iroha helper mode is distinct from circomlib's
+  helper semantics, and no constrained BN254 Halo2 consumer is present.
 - Post-quantum: `Cargo.lock` holds no pre-standard package. ML-KEM-512/768/1024
   and ML-DSA-44/65/87 reproduce the official known-answer response and the
   identities that separate FIPS 203 and FIPS 204 from the round-three
   algorithms. Kyber and Dilithium names still label these bytes in types,
-  configuration keys and telemetry, and ACVP vectors are not covered. The
+  configuration keys and telemetry. The [pinned ACVP subset](../crates/soranet_pq/tests/fixtures/acvp/README.md)
+  adds 50 official cases in 24 groups for all six ML-KEM/ML-DSA parameter sets,
+  with exact-source extraction and separate repository negative controls. This
+  bounded test surface is not NIST certification or complete downstream/target
+  qualification. The
   Falcon-512 trapdoor arithmetic of the Bootle Lantern issuer is adapted in
   tree from a pre-standard implementation and is invisible to a lockfile audit.
   H.2 froze it as a Falcon-512-derived Lantern trapdoor profile, never labelled
   FN-DSA, and the ML-KEM and ML-DSA profiles as the final FIPS 203 and FIPS 204
-  parameter sets; the known answers for the adaptation and ACVP coverage are
-  F.5 and P.13 work.
+  parameter sets. Known answers for the adaptation, remaining ACVP interfaces
+  and complete consumer qualification remain F.5 and P.13 work.
 - Exploratory workloads for the shared backend and the product roles name the
   frozen profiles they depend on and the selections they still wait for; H.3
   measures only those whose selections are complete. Every recorded

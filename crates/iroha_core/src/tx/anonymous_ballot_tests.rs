@@ -68,7 +68,10 @@ fn signerless_admission_and_lane_check_remain_locally_unavailable() {
                 &network,
                 Duration::ZERO,
                 TransactionParameters::default(),
-                &iroha_config::parameters::actual::Crypto::default(),
+                &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                ])
+                .expect("explicit signerless structural fixture policy"),
                 Duration::ZERO,
                 signature_prechecked,
             ),
@@ -84,13 +87,13 @@ fn signerless_admission_and_lane_check_remain_locally_unavailable() {
     ), Err(ExecutionAttemptError::Deferred(reason))
         if reason.reason() == ivm::error::ExecutionDeferral::VerifierInitializationUnavailable));
 }
-
 #[test]
 fn unavailable_admission_cannot_be_projected_into_a_committed_rejection() {
-    let refusal = execution_rejection_from_admission_failure(
-        AcceptTransactionFail::AnonymousBallotUnavailable,
-    )
-    .unwrap_err();
+    let ExecutionAttemptError::Deferred(refusal) =
+        execution_attempt_from_admission_failure(AcceptTransactionFail::AnonymousBallotUnavailable)
+    else {
+        panic!("unavailable anonymous admission cannot become a completed rejection");
+    };
     assert_eq!(
         refusal.reason(),
         ivm::error::ExecutionDeferral::VerifierInitializationUnavailable
@@ -98,11 +101,10 @@ fn unavailable_admission_cannot_be_projected_into_a_committed_rejection() {
     let malformed = TransactionLimitError {
         reason: "actual completed limit check".into(),
     };
-    assert_eq!(
-        execution_rejection_from_admission_failure(AcceptTransactionFail::TransactionLimit(
-            malformed.clone()
-        ),)
-        .unwrap(),
-        TransactionRejectionReason::LimitCheck(malformed)
-    );
+    let ExecutionAttemptError::Rejected(retained) = execution_attempt_from_admission_failure(
+        AcceptTransactionFail::TransactionLimit(malformed.clone()),
+    ) else {
+        panic!("completed limit verdict must remain a rejection");
+    };
+    assert_eq!(retained, TransactionRejectionReason::LimitCheck(malformed));
 }

@@ -1591,11 +1591,14 @@ fn register_public_lane_validator(
     ensure_positive_amount(&registration.initial_stake, "initial stake")?;
     let meets_min = meets_min_stake(
         &registration.initial_stake,
-        &state_transaction.nexus.staking.min_validator_stake,
+        &state_transaction
+            .staking_monetary_policy()
+            .map_err(|error| Error::InvariantViolation(error.to_string().into_boxed_str()))?
+            .min_validator_stake,
     )?;
     if !meets_min {
         return Err(Error::InvariantViolation(
-            "initial stake below minimum configured amount".into(),
+            "initial stake below committed minimum amount".into(),
         ));
     }
     let stake_ctx = stake_context(
@@ -4127,6 +4130,7 @@ pub(crate) mod tests {
     include!("staking_preparation_tests.rs");
     include!("staking_custody_tests.rs");
     include!("staking_index_demand_tests.rs");
+    include!("staking_committed_policy_tests.rs");
     #[test]
     fn stake_context_accepts_i105_account_literals() {
         let state = setup_state();
@@ -8441,7 +8445,15 @@ pub(crate) mod tests {
     #[test]
     fn register_rejects_below_min_stake() {
         let mut state = setup_state();
-        state.nexus.get_mut().staking.min_validator_stake = 2_000_u64.into();
+        // Local configuration cannot lower the committed registration minimum.
+        state.nexus.get_mut().staking.min_validator_stake = Quantity::zero();
+        let mut parameters = state.world.parameters.block();
+        let mut policy = parameters.require_staking_policy().unwrap().clone();
+        policy.min_validator_stake = 2_000_u64.into();
+        parameters
+            .set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()))
+            .unwrap();
+        parameters.commit();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());
         let mut stx = state_block.transaction_for_callback_testing();
@@ -8461,7 +8473,11 @@ pub(crate) mod tests {
             metadata: Metadata::default(),
         }
         .execute(&validator, &mut stx);
-        assert!(res.is_err(), "expected min stake rejection");
+        assert!(
+            matches!(res, Err(Error::InvariantViolation(ref message))
+                if message.as_ref() == "initial stake below committed minimum amount"),
+            "expected the committed minimum to reject: {res:?}"
+        );
     }
     #[test]
     fn register_rejects_when_peer_missing() {

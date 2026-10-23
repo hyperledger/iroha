@@ -9554,7 +9554,14 @@ pub fn accept_transaction_for_ingress(
     );
     #[cfg(feature = "telemetry")]
     let verify_started = std::time::Instant::now();
-    let (max_clock_drift, tx_limits) = state.transaction_admission_limits();
+    let parameters = state.transaction_admission_parameters();
+    let max_clock_drift = parameters.sumeragi().max_clock_drift();
+    let tx_limits = parameters.transaction();
+    let crypto_policy = parameters.require_crypto_policy().map_err(|_| {
+        Error::TransactionAdmissionDeferred(
+            ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable.into(),
+        )
+    })?;
     if let TransactionEntrypoint::External(signed) = &tx
         && let Some(rejection) = reject_direct_multisig_signing(state.as_ref(), signed)
     {
@@ -9613,14 +9620,13 @@ pub fn accept_transaction_for_ingress(
             )
         }
     };
-    let crypto_cfg = state.crypto();
     let network_id = *state.network_id_ref();
     match iroha_core::tx::AcceptedTransaction::accept_entrypoint(
         tx,
         &network_id,
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        crypto_policy,
     ) {
         Ok(tx) => {
             #[cfg(feature = "telemetry")]
@@ -9634,6 +9640,20 @@ pub fn accept_transaction_for_ingress(
             Ok(tx)
         }
         Err(err) => {
+            let err = match err.into_execution_deferred() {
+                Ok(original) => {
+                    #[cfg(feature = "telemetry")]
+                    observe_route_stage_latency(
+                        telemetry,
+                        "transaction",
+                        "verify",
+                        "deferred",
+                        verify_started.elapsed(),
+                    );
+                    return Err(Error::TransactionAdmissionDeferred(original));
+                }
+                Err(completed) => completed,
+            };
             iroha_logger::warn!(?err, "transaction admission did not complete");
             #[cfg(feature = "telemetry")]
             telemetry.with_metrics(|tel| {
@@ -9694,7 +9714,14 @@ pub fn accept_decoded_signed_transaction_for_ingress_with_precheck(
     );
     #[cfg(feature = "telemetry")]
     let verify_started = std::time::Instant::now();
-    let (max_clock_drift, tx_limits) = state.transaction_admission_limits();
+    let parameters = state.transaction_admission_parameters();
+    let max_clock_drift = parameters.sumeragi().max_clock_drift();
+    let tx_limits = parameters.transaction();
+    let crypto_policy = parameters.require_crypto_policy().map_err(|_| {
+        Error::TransactionAdmissionDeferred(
+            ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable.into(),
+        )
+    })?;
     if let Some(rejection) = reject_direct_multisig_signing(state.as_ref(), tx.signed()) {
         iroha_logger::warn!(
             authority = %tx.authority(),
@@ -9733,7 +9760,6 @@ pub fn accept_decoded_signed_transaction_for_ingress_with_precheck(
             authority_label,
         )
     };
-    let crypto_cfg = state.crypto();
     let network_id = *state.network_id_ref();
     let accepted = if let Some(err) = precheck_rejection {
         Err(err)
@@ -9742,10 +9768,10 @@ pub fn accept_decoded_signed_transaction_for_ingress_with_precheck(
             &network_id,
             max_clock_drift,
             tx_limits,
-            crypto_cfg.as_ref(),
+            crypto_policy,
         )
     } else {
-        tx.into_accepted(&network_id, max_clock_drift, tx_limits, crypto_cfg.as_ref())
+        tx.into_accepted(&network_id, max_clock_drift, tx_limits, crypto_policy)
     };
     match accepted {
         Ok(tx) => {
@@ -9760,6 +9786,20 @@ pub fn accept_decoded_signed_transaction_for_ingress_with_precheck(
             Ok(tx)
         }
         Err(err) => {
+            let err = match err.into_execution_deferred() {
+                Ok(original) => {
+                    #[cfg(feature = "telemetry")]
+                    observe_route_stage_latency(
+                        telemetry,
+                        "transaction",
+                        "verify",
+                        "deferred",
+                        verify_started.elapsed(),
+                    );
+                    return Err(Error::TransactionAdmissionDeferred(original));
+                }
+                Err(completed) => completed,
+            };
             iroha_logger::warn!(?err, "transaction admission did not complete");
             #[cfg(feature = "telemetry")]
             telemetry.with_metrics(|tel| {
@@ -10060,7 +10100,11 @@ async fn handle_transaction_with_metrics_and_routing_plan(
         &telemetry,
         "transaction",
         "handle",
-        if result.is_ok() { "ok" } else { "error" },
+        match &result {
+            Ok(_) => "ok",
+            Err(Error::TransactionAdmissionDeferred(_)) => "deferred",
+            Err(_) => "error",
+        },
         start.elapsed(),
     );
     #[cfg(feature = "telemetry")]
@@ -20892,6 +20936,7 @@ dataspace_catalog,
         test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400aa")
     }
     fn build_state(mut world: World) -> Arc<State> {
+        crate::test_utils::author_ready_fixture_crypto_policy(&mut world);
         // Fee quotation reads the immutable root even when this fixture charges zero.
         crate::test_utils::bind_fixture_root(
             &mut world,
@@ -22214,9 +22259,9 @@ None,
         let clock = TimeSource::new_fixed(network_now);
         let max_clock_drift = Duration::from_millis(1_000);
         let limits = iroha_data_model::parameter::TransactionParameters::default();
-        let crypto = iroha_config::parameters::actual::Crypto::default();
+        let crypto_policy = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![iroha_crypto::Algorithm::Ed25519, iroha_crypto::Algorithm::Secp256k1]).expect("explicit fixture admission policy");
         let accept = |tx, source: &TimeSource| AcceptedTransaction::accept_with_time_source(
-            tx, state.network_id_ref(), max_clock_drift, limits, &crypto, source,
+            tx, state.network_id_ref(), max_clock_drift, limits, &crypto_policy, source,
         );
         let signed = builder.clone().try_sign(keypair.private_key()).expect("sign exact draft");
         let accepted = accept(signed.clone(), &clock).expect("network-time draft passes admission");

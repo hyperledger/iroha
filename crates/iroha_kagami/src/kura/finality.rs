@@ -194,12 +194,12 @@ mod tests {
         assert_eq!(budget.reserved_bytes(), bytes);
         assert_eq!(
             retained.encode_wire().unwrap(),
-            chain.genesis().encode_wire().unwrap()
+            chain.committed(1).block().encode_wire().unwrap()
         );
         drop(retained);
         assert_eq!(budget.reserved_bytes(), 0);
         let retry = read_block(&mut store, 1, &budget).expect("released capacity permits retry");
-        assert_eq!(retry.hash(), chain.genesis().hash());
+        assert_eq!(retry.hash(), chain.committed(1).block().hash());
     }
 }
 

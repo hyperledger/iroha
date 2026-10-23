@@ -188,16 +188,41 @@ mod tests {
     }
 
     fn private_manifest(parent_network_id: NetworkId) -> RawGenesisTransaction {
+        let _author = iroha_data_model::account::address::ChainDiscriminantGuard::enter(1337);
+        let custody = iroha_config::parameters::defaults::governance::bond_escrow_account_id();
         let mut context = SumeragiGenesisContextParameters::recommended();
         context.root_scope = SumeragiRootScope::Dataspace {
             parent_network_id,
             dataspace_id: DATASPACE,
         };
+        let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        fees.fee_sink_account_id = custody.clone();
+        fees.sponsor_vault_custody_account_id = custody.clone();
+        fees.base_fee = 1_u64.into();
+        fees.per_gas_unit_fee = 1_u64.into();
+        fees.successful_claim_fee_exempt_authorities.clear();
         GenesisBuilder::new_without_executor(
             ChainId::from("explicit-private-amx"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::default_staking_policy(
+            iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+                .parse()
+                .unwrap(),
+            custody.clone(),
+            custody,
+        ))
+        .unwrap()
         .with_sumeragi_context_parameters(context)
+        .append_parameter(iroha_data_model::parameter::Parameter::Custom(
+            fees.into_custom_parameter().unwrap(),
+        ))
         .append_instruction(Log::new(Level::INFO, "original private instruction".into()))
         .set_topology(
             iroha_core::sumeragi::test_chain::fixture_validators()
@@ -212,6 +237,33 @@ mod tests {
 
     fn wire(chain: &CertifiedTestChain, height: u64) -> Vec<u8> {
         chain.committed(height).block().encode_wire().unwrap()
+    }
+
+    #[test]
+    fn private_manifest_authors_positive_fees_in_its_original_signed_scope() {
+        use iroha_data_model::block::consensus::{PublicLaneStakingPolicy, RootFeePolicy};
+        let (_, chain) = sources();
+        let manifest = private_manifest(chain.network_id());
+        let _author = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+            manifest.chain_discriminant(),
+        );
+        manifest
+            .validate_mode_specific_consensus_parameters()
+            .unwrap();
+        let parameters = manifest.effective_parameters().unwrap();
+        let fees = RootFeePolicy::from_parameters(&parameters)
+            .unwrap()
+            .unwrap();
+        let staking = PublicLaneStakingPolicy::from_parameters(&parameters).unwrap();
+        assert_eq!(fees.base_fee, 1_u64.into());
+        assert_eq!(fees.per_gas_unit_fee, 1_u64.into());
+        assert!(fees.successful_claim_fee_exempt_authorities.is_empty());
+        assert_eq!(fees.fee_asset_id, staking.stake_asset_id);
+        assert!(matches!(
+            manifest.sumeragi_context_parameters().root_scope,
+            SumeragiRootScope::Dataspace { parent_network_id, dataspace_id }
+                if parent_network_id == chain.network_id() && dataspace_id == DATASPACE
+        ));
     }
 
     #[test]

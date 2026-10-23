@@ -102,7 +102,7 @@ classified_owner!(State, check_state_fields, STATE_FIELDS, {
     oracle: iroha_config::parameters::actual::Oracle => ("state.oracle",
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:oracle:v1", encoder: "state::authority_registry::oracle_policy::OraclePolicyV1::from_actual; oracle state transitions and execution_policy_digest_v1", layout: V1_LAYOUT })));
     crypto: PublicationRwLock<Arc<iroha_config::parameters::actual::Crypto>> => ("state.crypto",
-        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:crypto:v1", encoder: "state::authority_registry::crypto_policy::CryptoAdmissionPolicyV1::from_actual; transaction/account admission and IVM SM host policy", layout: V1_LAYOUT })));
+        Role::Local("Local key-generation defaults and portable/backend implementation selection; ordinary algorithm/curve admission is the canonical world.parameters crypto_admission_policy_v1 and mandatory SM semantics have no local gate"));
     nexus: PublicationRwLock<iroha_config::parameters::actual::Nexus> => ("state.nexus",
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:nexus:v1", encoder: "state::authority_registry::nexus_policy::canonical_preimage_once; exact effective policy from generation-bound canonical runtime, protected World catalog, materialized manifests, and installed compliance", layout: V1_LAYOUT })));
     canonical_runtime: Cell<SnapshotNexusRuntime> => ("state.canonical_runtime",

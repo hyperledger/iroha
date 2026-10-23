@@ -16,7 +16,7 @@ base64 = { workspace = true }
 hex = { workspace = true }
 indexmap = "2.12.0"
 iroha_crypto = { path = "../iroha_crypto", default-features = false, features = ["json"] }
-iroha_data_model = { path = "../iroha_data_model", default-features = false, features = ["transparent_api", "governance", "bls"] }
+iroha_data_model = { path = "../iroha_data_model", default-features = false, features = ["transparent_api", "bls"] }
 iroha_i18n = { path = "../iroha_i18n" }
 iroha_primitives = { path = "../iroha_primitives", default-features = false }
 ivm_abi = { path = "../ivm_abi" }

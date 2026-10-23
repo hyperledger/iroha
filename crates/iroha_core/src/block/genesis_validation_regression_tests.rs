@@ -41,11 +41,7 @@ fn block_authenticated_genesis_rejects_invalid_per_transaction_bls_proof() {
         chain_id.clone(),
     );
     install_test_lane_manifests_for_keypairs(&state, std::slice::from_ref(&genesis_keypair));
-    let mut crypto = iroha_config::parameters::actual::Crypto::default();
-    if !crypto.allowed_signing.contains(&Algorithm::BlsNormal) {
-        crypto.allowed_signing.push(Algorithm::BlsNormal);
-    }
-    state.set_crypto(crypto);
+    // Genesis root authorization is purpose-specific, independent of ordinary admission.
     let block = with_current_state_confidential_features(
         block,
         &state,

@@ -1050,6 +1050,84 @@ def _swift_cutover_gates(root: Path) -> dict[str, bool]:
     }
 
 
+_NATIVE_CATALOG_HEX = "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0"
+_CATALOG_CONSUMER_FILES = {
+    "javascript-napi": ("javascript/iroha_js/src/norito.js",),
+    "python-pyo3": ("python/iroha_python/src/iroha_python/privacy_exact12.py",),
+    "jvm-android": (
+        "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyCapabilitiesV1.kt",
+        "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyExact12CapabilityManifestV1.kt",
+    ),
+    "swift": (
+        "IrohaSwift/Sources/IrohaSwift/PrivacyExact12CapabilityManifestV1.swift",
+        "IrohaSwift/Sources/IrohaSwift/PrivacyExact12FixtureBundle.swift",
+    ),
+    "csharp": ("csharp/src/Hyperledger.Iroha.Sdk/Privacy/PrivacyExact12CapabilityManifestV1.cs",),
+}
+
+
+def _native_catalog_identity(root: Path, sdk: str) -> bool:
+    """Check the full native catalog KAT and exact managed decoder anchors.
+
+    This is a source prerequisite only. Actual Rust-generated fixtures and each
+    consumer's width/substitution tests remain necessary execution evidence.
+    """
+    def array(source: str, pattern: str) -> bytes | None:
+        match = re.search(pattern, source, re.S)
+        if match is None:
+            return None
+        literals = re.findall(r"0x([0-9a-fA-F]{2})(?![0-9a-fA-F])", match.group(1))
+        return bytes(int(value, 16) for value in literals)
+
+    def hexadecimal(source: str, pattern: str) -> bytes | None:
+        match = re.search(pattern, source, re.S)
+        if match is None:
+            return None
+        words = re.findall(r'"([0-9a-fA-F]+)"', match.group(1))
+        try:
+            return bytes.fromhex("".join(words)) if words else None
+        except ValueError:
+            return None
+
+    expected = bytes.fromhex(_NATIVE_CATALOG_HEX)
+    rust = _read(root, "crates/iroha_crypto/src/privacy.rs")
+    model = _read(root, "crates/iroha_data_model/src/privacy.rs")
+    if array(rust, r"PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1:\s*\[u8; 32\]\s*=\s*\[(.*?)\];") != expected:
+        return False
+    if "pub struct PrivacyExact12CatalogCommitmentV1([u8; 32]);" not in model:
+        return False
+    sources = [_read(root, path) for path in _CATALOG_CONSUMER_FILES[sdk]]
+    if sdk == "javascript-napi":
+        return hexadecimal(sources[0], r"PRIVACY_EXACT12_CATALOG_COMMITMENT_V1\s*=.*?Buffer\.from\((.*?)\);") == expected and (
+            "envelopeFields.catalog_commitment.equals(PRIVACY_EXACT12_CATALOG_COMMITMENT_V1)" in sources[0]
+        )
+    if sdk == "python-pyo3":
+        return hexadecimal(sources[0], r"_CATALOG_COMMITMENT_V1: Final = bytes\.fromhex\((.*?)\)") == expected and (
+            "if fields[1] != _CATALOG_COMMITMENT_V1:" in sources[0]
+        )
+    if sdk == "jvm-android":
+        return array(sources[0], r"CANONICAL_BYTES: ByteArray = byteArrayOf\((.*?)\n        \)") == expected and all((
+            "require(value.contentEquals(CANONICAL_BYTES))" in sources[0],
+            "private const val CATALOG_COMMITMENT_BYTES = 32" in sources[1],
+            'fixedBytes(claim["catalog_commitment"], CATALOG_COMMITMENT_BYTES,' in sources[1],
+        ))
+    if sdk == "swift":
+        return all(array(source, pattern) == expected for source, pattern in zip(sources, (
+            r"private static let exact12CatalogCommitment = Data\(\[(.*?)\]\)",
+            r"private static let catalogCommitment = Data\(\[(.*?)\]\)",
+        ))) and all((
+            'maximum: 32,\n            label: "release catalog commitment"' in sources[0],
+            'maximum: 32,\n            label: "security claim catalog commitment"' in sources[0],
+            "guard catalogCommitment == exact12CatalogCommitment else" in sources[0],
+            "guard fields[0] == proofWireMagic, fields[1] == exact12CatalogCommitment else" in sources[0],
+            "guard fields[1] == catalogCommitment else" in sources[1],
+        ))
+    return hexadecimal(sources[0], r"Exact12CatalogCommitment = Convert\.FromHexString\((.*?)\);") == expected and all((
+        "catalogCommitment.AsSpan().SequenceEqual(Exact12CatalogCommitment)" in sources[0],
+        "catalogCommitment.SequenceEqual(Exact12CatalogCommitment)" in sources[0],
+    ))
+
+
 def _sdk_result(root: Path, contract: SdkContract) -> dict[str, object]:
     model = _combined(root, contract.model_files)
     native = _combined(root, contract.native_files)
@@ -1058,7 +1136,9 @@ def _sdk_result(root: Path, contract: SdkContract) -> dict[str, object]:
     native_validation = all(marker in native for marker in contract.native_markers)
     tuple_match = all(marker in model + "\n" + native for marker in contract.tuple_markers)
     transaction_admission = bool(_ADMISSION_MARKER.search(transactions))
-    extra_gates: dict[str, bool] = {}
+    extra_gates: dict[str, bool] = {
+        "native_catalog_identity": _native_catalog_identity(root, contract.name),
+    }
     if contract.name in _NETWORK_AUTHORITY_REQUIREMENTS:
         extra_gates["authenticated_network_authority"] = (
             _authenticated_network_authority(root, contract.name)

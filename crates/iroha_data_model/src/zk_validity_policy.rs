@@ -17,7 +17,7 @@ use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize,
+    DeriveJsonSerialize,
     parameter::custom::{CustomParameter, CustomParameterId},
 };
 
@@ -54,6 +54,9 @@ pub enum ZkValidityPolicyError {
     Incoherent(&'static str),
 }
 
+mod json_admission;
+pub use json_admission::{AdmittedZkValidityPolicy, ZkPolicyJsonAdmissionError};
+
 macro_rules! policy_section {
     (
         $(#[$meta:meta])*
@@ -69,12 +72,13 @@ macro_rules! policy_section {
             Decode,
             IntoSchema,
             DeriveJsonSerialize,
-            DeriveJsonDeserialize,
         )]
         #[norito(deny_unknown_fields)]
         pub struct $name {
             $( $(#[$field_meta])* pub $field: $type, )+
         }
+
+        json_admission::record_json! { $name { $( $field: $type ),+ } }
 
         impl $name {
             /// Names of the fields of this section, in declaration order.
@@ -111,17 +115,7 @@ macro_rules! policy_section {
 }
 
 /// Reference to a registered verifying key by backend and name.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, IntoSchema, DeriveJsonSerialize)]
 #[norito(deny_unknown_fields)]
 pub struct ZkVerifyingKeyRefV1 {
     /// Backend identifier of the verifying key.
@@ -129,6 +123,8 @@ pub struct ZkVerifyingKeyRefV1 {
     /// Name of the verifying key inside the backend namespace.
     pub name: String,
 }
+
+json_admission::record_json! { ZkVerifyingKeyRefV1 { backend: String, name: String } }
 
 policy_section! {
     /// Native PIPA-R verification policy.
@@ -296,17 +292,7 @@ policy_section! {
 }
 
 /// The complete first-release ZK validity policy of a chain.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, IntoSchema, DeriveJsonSerialize)]
 #[norito(deny_unknown_fields)]
 pub struct ZkValidityPolicyV1 {
     /// Native PIPA-R verification policy.
@@ -321,6 +307,17 @@ pub struct ZkValidityPolicyV1 {
     pub confidential: ZkConfidentialValidityV1,
     /// Verification gas schedule.
     pub gas: ZkVerificationGasV1,
+}
+
+json_admission::record_json! {
+    ZkValidityPolicyV1 {
+        pipa_r: ZkPipaRValidityV1,
+        stark: ZkStarkValidityV1,
+        sccp: ZkSccpValidityV1,
+        proofs: ZkProofValidityV1,
+        confidential: ZkConfidentialValidityV1,
+        gas: ZkVerificationGasV1,
+    }
 }
 
 fn non_zero_u32(value: u32, field: &'static str) -> Result<(), ZkValidityPolicyError> {

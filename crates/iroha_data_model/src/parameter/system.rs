@@ -2,7 +2,6 @@
 pub use self::model::*;
 use super::{execution_output::ExecutionOutputPolicyV1, fastpq_source::FastpqSourcePolicyV1};
 
-use super::custom::json_helpers;
 use super::custom::{CustomParameter, CustomParameterId, CustomParameters};
 use core::{
     convert::TryFrom,
@@ -19,7 +18,9 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 mod npos_json;
+pub(in crate::parameter) mod parameters_json;
 pub use npos_json::{AdmittedSumeragiNposParameters, SumeragiNposJsonAdmissionError};
+pub use parameters_json::{AdmittedParameters, ParametersCustody, ParametersJsonAdmissionError};
 pub mod resource_coherence;
 /// Largest committed clock-drift allowance in milliseconds (`specs/sumeragi.md` §4.5 CT4).
 pub const MAX_CLOCK_DRIFT_BOUND_MS: u64 = 60_000;
@@ -216,29 +217,7 @@ impl JsonSerialize for ConsensusFingerprint {
 
 impl JsonDeserialize for ConsensusFingerprint {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let encoded = String::json_deserialize(parser)?;
-        let body = encoded
-            .strip_prefix("0x")
-            .ok_or_else(|| json::Error::InvalidField {
-                field: "consensus_fingerprint".to_owned(),
-                message: "expected lowercase 0x-prefixed 32-byte hexadecimal digest".to_owned(),
-            })?;
-        if body.len() != 64
-            || !body
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
-            return Err(json::Error::InvalidField {
-                field: "consensus_fingerprint".to_owned(),
-                message: "expected lowercase 0x-prefixed 32-byte hexadecimal digest".to_owned(),
-            });
-        }
-        let mut bytes = [0; 32];
-        hex::decode_to_slice(body, &mut bytes).map_err(|error| json::Error::InvalidField {
-            field: "consensus_fingerprint".to_owned(),
-            message: error.to_string(),
-        })?;
-        Ok(Self(bytes))
+        consensus_handshake_json::fingerprint(parser, &json::scratch::OrdinaryScratch)
     }
 }
 /// Where the committee of a Sumeragi instance comes from (§10 of `specs/sumeragi.md`).
@@ -299,6 +278,11 @@ impl From<ConsensusMode> for SumeragiConsensusMode {
         }
     }
 }
+mod consensus_handshake_json;
+pub use consensus_handshake_json::{
+    AdmittedConsensusHandshakeMetadata, HandshakeJsonAdmissionError,
+};
+
 /// Canonical signed Sumeragi handshake metadata stored in genesis.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::parameter::system::ConsensusHandshakeMetadata")]
@@ -309,7 +293,6 @@ impl From<ConsensusMode> for SumeragiConsensusMode {
     PartialEq,
     Eq,
     norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
     norito::codec::Encode,
     norito::codec::Decode,
     iroha_schema::IntoSchema,
@@ -327,6 +310,16 @@ pub struct ConsensusHandshakeMetadata {
     /// Signed inputs for the first Sumeragi height context.
     pub sumeragi_context: crate::block::consensus::SumeragiGenesisContextParameters,
 }
+/// Intrinsic signed-handshake failure with no allocated diagnostic payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ConsensusHandshakeValidationError {
+    /// The first release accepts exactly one consensus wire version.
+    #[error("wire_protocol_version must equal the first-release protocol version")]
+    WireVersion,
+    /// Original signed-context validation failure.
+    #[error("{0}")]
+    Context(crate::block::consensus::ValidationError),
+}
 impl ConsensusHandshakeMetadata {
     /// Validate the first-release signed handshake envelope.
     ///
@@ -334,16 +327,14 @@ impl ConsensusHandshakeMetadata {
     ///
     /// Returns an error when the wire version is not the first-release version
     /// or the signed Sumeragi context is invalid.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConsensusHandshakeValidationError> {
         let expected_version = u32::from(crate::sumeragi::PROTOCOL_VERSION);
         if self.wire_protocol_version != expected_version {
-            return Err(
-                "wire_protocol_version must equal the first-release protocol version".to_owned(),
-            );
+            return Err(ConsensusHandshakeValidationError::WireVersion);
         }
         self.sumeragi_context
             .validate()
-            .map_err(|error| error.to_string())?;
+            .map_err(ConsensusHandshakeValidationError::Context)?;
         Ok(())
     }
 }
@@ -459,11 +450,6 @@ mod json_support {
     }
 }
 
-fn parse_custom_parameters_value(value: json::Value) -> Result<CustomParameters, json::Error> {
-    let map = json_support::expect_object(value, "Parameters.custom")?;
-    let value = json::Value::Object(map);
-    json_helpers::from_value(value)
-}
 #[model]
 mod model {
     use super::*;
@@ -1018,7 +1004,7 @@ mod model {
         /// Collection of blockchain specific parameters
         #[getset(get = "pub")]
         #[norito(default)]
-        #[norito(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        #[norito(skip_serializing_if = "CustomParameters::is_empty")]
         pub custom: CustomParameters,
     }
     /// Single blockchain parameter.
@@ -1290,14 +1276,7 @@ impl JsonSerialize for SumeragiConsensusMode {
 
 impl JsonDeserialize for SumeragiConsensusMode {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = parser.parse_string()?;
-        match value.as_str() {
-            "Permissioned" => Ok(SumeragiConsensusMode::Permissioned),
-            "Npos" => Ok(SumeragiConsensusMode::Npos),
-            other => Err(json::Error::UnknownField {
-                field: other.to_owned(),
-            }),
-        }
+        consensus_handshake_json::mode(parser, &json::scratch::OrdinaryScratch)
     }
 }
 // (Codecs are provided by derives and candidate decoders. Tests use wrappers where needed.)
@@ -1605,84 +1584,7 @@ impl JsonSerialize for SumeragiParameters {
 
 impl JsonDeserialize for SumeragiParameters {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = json::Value::json_deserialize(parser)?;
-        let mut map = json_support::expect_object(value, "SumeragiParameters")?;
-        let block_cadence_ms = map
-            .remove("block_cadence_ms")
-            .map(|value| json_support::expect_nonzero_u64(&value, "block_cadence_ms"))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::block_cadence_ms);
-        let max_clock_drift_ms = map
-            .remove("max_clock_drift_ms")
-            .map(|value| json_support::expect_u64(&value, "max_clock_drift_ms"))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::max_clock_drift_ms);
-        let due_work_max_lag_ms = json_support::expect_nonzero_u64(
-            &map.remove("due_work_max_lag_ms")
-                .ok_or_else(|| json::Error::MissingField {
-                    field: "due_work_max_lag_ms".into(),
-                })?,
-            "due_work_max_lag_ms",
-        )?;
-        let key_activation_lead_blocks = map
-            .remove("key_activation_lead_blocks")
-            .map(|value| json_support::expect_u64(&value, "key_activation_lead_blocks"))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::key_activation_lead_blocks);
-        let key_overlap_grace_blocks = map
-            .remove("key_overlap_grace_blocks")
-            .map(|value| json_support::expect_u64(&value, "key_overlap_grace_blocks"))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::key_overlap_grace_blocks);
-        let key_expiry_grace_blocks = map
-            .remove("key_expiry_grace_blocks")
-            .map(|value| json_support::expect_u64(&value, "key_expiry_grace_blocks"))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::key_expiry_grace_blocks);
-        let key_allowed_algorithms = map
-            .remove("key_allowed_algorithms")
-            .map(|value| json_support::parse_value_as::<Vec<Algorithm>>(&value))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::key_allowed_algorithms);
-        let mut nonzero = |field: &str, default: fn() -> NonZeroU64| {
-            map.remove(field)
-                .map(|value| json_support::expect_nonzero_u64(&value, field))
-                .transpose()
-                .map(|value| value.unwrap_or_else(default))
-        };
-        let payload_retry_interval_ms = nonzero(
-            "payload_retry_interval_ms",
-            defaults::sumeragi::payload_retry_interval_ms,
-        )?;
-        let exec_budget_ms = nonzero("exec_budget_ms", defaults::sumeragi::exec_budget_ms)?;
-        let apply_budget_ms = nonzero("apply_budget_ms", defaults::sumeragi::apply_budget_ms)?;
-        let epoch_length_blocks = nonzero(
-            "epoch_length_blocks",
-            defaults::sumeragi::epoch_length_blocks,
-        )?;
-        let demotion_window = nonzero("demotion_window", defaults::sumeragi::demotion_window)?;
-        let max_block_bytes = map
-            .remove("max_block_bytes")
-            .map(|value| json_support::expect_nonzero_u32(&value, "max_block_bytes"))
-            .transpose()?
-            .unwrap_or_else(defaults::sumeragi::max_block_bytes);
-        json_support::ensure_no_extra(map)?;
-        let params = Self {
-            block_cadence_ms,
-            max_clock_drift_ms,
-            due_work_max_lag_ms,
-            key_activation_lead_blocks,
-            key_overlap_grace_blocks,
-            key_expiry_grace_blocks,
-            key_allowed_algorithms,
-            payload_retry_interval_ms,
-            exec_budget_ms,
-            apply_budget_ms,
-            max_block_bytes,
-            epoch_length_blocks,
-            demotion_window,
-        };
-        Ok(params)
+        parameters_json::decode_sumeragi(parser)
     }
 }
 mod defaults {
@@ -1733,8 +1635,9 @@ mod defaults {
         pub const fn key_expiry_grace_blocks() -> u64 {
             0
         }
+        pub const KEY_ALLOWED_ALGORITHMS: &[Algorithm] = &[Algorithm::BlsNormal];
         pub fn key_allowed_algorithms() -> Vec<Algorithm> {
-            vec![Algorithm::BlsNormal]
+            KEY_ALLOWED_ALGORITHMS.to_vec()
         }
         pub mod npos {
             use core::num::NonZeroU64;
@@ -1902,32 +1805,7 @@ impl JsonSerialize for BlockParameters {
 
 impl JsonDeserialize for BlockParameters {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = json::Value::json_deserialize(parser)?;
-        let mut map = json_support::expect_object(value, "BlockParameters")?;
-        let max_transactions = map
-            .remove("max_transactions")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_transactions"))
-            .transpose()?
-            .unwrap_or_else(defaults::block::max_transactions);
-        let max_time_trigger_invocations =
-            json_support::parse_value_as(&map.remove("max_time_trigger_invocations").ok_or_else(
-                || json::Error::Message("missing max_time_trigger_invocations".into()),
-            )?)?;
-        let execution_output = json_support::parse_value_as(
-            &map.remove("execution_output")
-                .ok_or_else(|| json::Error::Message("missing execution_output".into()))?,
-        )?;
-        let fastpq_source = json_support::parse_value_as(
-            &map.remove("fastpq_source")
-                .ok_or_else(|| json::Error::Message("missing fastpq_source".into()))?,
-        )?;
-        json_support::ensure_no_extra(map)?;
-        Ok(Self {
-            max_transactions,
-            max_time_trigger_invocations,
-            execution_output,
-            fastpq_source,
-        })
+        parameters_json::decode_block(parser)
     }
 }
 impl Default for TransactionParameters {
@@ -2024,7 +1902,14 @@ impl Parameters {
             )
             .chain(self.custom.values().cloned().map(Parameter::Custom))
     }
-    /// Set `parameter` value to corresponding parameter in `self`
+    /// Set a parameter on an explicitly unadmitted authoring instance.
+    ///
+    /// Retained State exposes immutable borrowing only. Its owner must prepare a
+    /// separate fallible replacement and admit it before atomic publication.
+    ///
+    /// # Panics
+    /// Custom parameter mutation panics if this collection is already retained
+    /// or authoring allocation fails; State preparation uses the fallible APIs.
     pub fn set_parameter(&mut self, parameter: Parameter) {
         macro_rules! apply_parameter {
             ($($container:ident($param:ident.$field:ident) => $single:ident::$variant:ident),* $(,)?) => {
@@ -2035,7 +1920,7 @@ impl Parameters {
                     }
                     )*
                     Parameter::Custom(next) => {
-                        self.custom.insert(next.id.clone(), next);
+                        self.custom.insert(next);
                     }
                 }
             };
@@ -2089,21 +1974,6 @@ pub mod consensus_metadata {
     /// Identifier of the custom parameter embedding consensus handshake metadata.
     pub fn handshake_meta_id() -> CustomParameterId {
         HANDSHAKE_META_ID.clone()
-    }
-}
-/// Cryptography snapshot metadata helpers used during genesis provisioning.
-pub mod crypto_metadata {
-    use super::*;
-    use core::str::FromStr as _;
-    use iroha_model_base::name::Name;
-    static MANIFEST_META_ID: LazyLock<CustomParameterId> = LazyLock::new(|| {
-        CustomParameterId::new(
-            Name::from_str("crypto_manifest_meta").expect("crypto_manifest_meta is a valid Name"),
-        )
-    });
-    /// Identifier of the custom parameter anchoring the genesis crypto snapshot.
-    pub fn manifest_meta_id() -> CustomParameterId {
-        MANIFEST_META_ID.clone()
     }
 }
 /// Confidential registry metadata helpers used during genesis provisioning.
@@ -2178,47 +2048,7 @@ impl JsonSerialize for Parameters {
 
 impl JsonDeserialize for Parameters {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = json::Value::json_deserialize(parser)?;
-        let mut map = json_support::expect_object(value, "Parameters")?;
-        let sumeragi = map
-            .remove("sumeragi")
-            .map(|value| json_support::parse_value_as::<SumeragiParameters>(&value))
-            .transpose()?
-            .unwrap_or_default();
-        let block = map
-            .remove("block")
-            .map(|value| json_support::parse_value_as::<BlockParameters>(&value))
-            .transpose()?
-            .unwrap_or_default();
-        let transaction = map
-            .remove("transaction")
-            .map(|value| json_support::parse_value_as::<TransactionParameters>(&value))
-            .transpose()?
-            .unwrap_or_default();
-        let executor = map
-            .remove("executor")
-            .map(|value| json_support::parse_value_as::<SmartContractParameters>(&value))
-            .transpose()?
-            .unwrap_or_default();
-        let smart_contract = map
-            .remove("smart_contract")
-            .map(|value| json_support::parse_value_as::<SmartContractParameters>(&value))
-            .transpose()?
-            .unwrap_or_default();
-        let custom = map
-            .remove("custom")
-            .map(parse_custom_parameters_value)
-            .transpose()?
-            .unwrap_or_default();
-        json_support::ensure_no_extra(map)?;
-        Ok(Self {
-            sumeragi,
-            block,
-            transaction,
-            executor,
-            smart_contract,
-            custom,
-        })
+        parameters_json::decode_parameters(parser)
     }
 }
 impl SumeragiParameters {
@@ -2549,75 +2379,7 @@ impl JsonSerialize for TransactionParameters {
 
 impl JsonDeserialize for TransactionParameters {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = json::Value::json_deserialize(parser)?;
-        let mut map = json_support::expect_object(value, "TransactionParameters")?;
-        let max_signatures = map
-            .remove("max_signatures")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_signatures"))
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::max_signatures);
-        let max_instructions = map
-            .remove("max_instructions")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_instructions"))
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::max_instructions);
-        let ivm_bytecode_size = map
-            .remove("ivm_bytecode_size")
-            .map(|value| json_support::expect_nonzero_u64(&value, "ivm_bytecode_size"))
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::ivm_bytecode_size);
-        let max_tx_bytes = map
-            .remove("max_tx_bytes")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_tx_bytes"))
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::max_tx_bytes);
-        let max_decompressed_bytes = map
-            .remove("max_decompressed_bytes")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_decompressed_bytes"))
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::max_decompressed_bytes);
-        let require_height_ttl = map
-            .remove("require_height_ttl")
-            .map(|value| json_support::expect_bool(&value, "require_height_ttl"))
-            .transpose()?
-            .unwrap_or(false);
-        let max_time_to_live_ms = map
-            .remove("max_time_to_live_ms")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_time_to_live_ms"))
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::max_time_to_live_ms);
-        let require_sequence = map
-            .remove("require_sequence")
-            .map(|value| json_support::expect_bool(&value, "require_sequence"))
-            .transpose()?
-            .unwrap_or(false);
-        let max_metadata_depth = map
-            .remove("max_metadata_depth")
-            .map(|value| {
-                let depth = json_support::expect_nonzero_u64(&value, "max_metadata_depth")?;
-                let depth_u16 =
-                    u16::try_from(depth.get()).map_err(|_| json::Error::InvalidField {
-                        field: String::from("max_metadata_depth"),
-                        message: String::from("value exceeds u16::MAX"),
-                    })?;
-                NonZeroU16::new(depth_u16).ok_or_else(|| json::Error::InvalidField {
-                    field: String::from("max_metadata_depth"),
-                    message: String::from("value must be non-zero"),
-                })
-            })
-            .transpose()?
-            .unwrap_or_else(defaults::transaction::max_metadata_depth);
-        json_support::ensure_no_extra(map)?;
-        Ok(Self::with_max_signatures(
-            max_signatures,
-            max_instructions,
-            ivm_bytecode_size,
-            max_tx_bytes,
-            max_decompressed_bytes,
-            max_metadata_depth,
-        )
-        .with_max_time_to_live_ms(max_time_to_live_ms)
-        .with_ingress_enforcement(require_height_ttl, require_sequence))
+        parameters_json::decode_transaction(parser)
     }
 }
 
@@ -2850,41 +2612,7 @@ impl JsonSerialize for SmartContractParameters {
 
 impl JsonDeserialize for SmartContractParameters {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = json::Value::json_deserialize(parser)?;
-        let mut map = json_support::expect_object(value, "SmartContractParameters")?;
-        let fuel = map
-            .remove("fuel")
-            .map(|value| json_support::expect_nonzero_u64(&value, "fuel"))
-            .transpose()?
-            .unwrap_or_else(defaults::smart_contract::fuel);
-        let memory = map
-            .remove("memory")
-            .map(|value| json_support::expect_nonzero_u64(&value, "memory"))
-            .transpose()?
-            .unwrap_or_else(defaults::smart_contract::memory);
-        let execution_depth = map
-            .remove("execution_depth")
-            .map(|value| json_support::expect_u8(&value, "execution_depth"))
-            .transpose()?
-            .unwrap_or_else(defaults::smart_contract::execution_depth);
-        let max_output_items = map
-            .remove("max_output_items")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_output_items"))
-            .transpose()?
-            .unwrap_or_else(defaults::smart_contract::max_output_items);
-        let max_output_bytes = map
-            .remove("max_output_bytes")
-            .map(|value| json_support::expect_nonzero_u64(&value, "max_output_bytes"))
-            .transpose()?
-            .unwrap_or_else(defaults::smart_contract::max_output_bytes);
-        json_support::ensure_no_extra(map)?;
-        Ok(Self {
-            fuel,
-            memory,
-            execution_depth,
-            max_output_items,
-            max_output_bytes,
-        })
+        parameters_json::decode_smart_contract(parser)
     }
 }
 

@@ -507,3 +507,7 @@ pub fn ram_lfe_reference_evaluate_v1(
 #[cfg(test)]
 #[path = "reference_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "input_encryption_relation_tests.rs"]
+mod input_encryption_relation_tests;

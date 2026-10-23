@@ -395,14 +395,12 @@ fn final_catalog_binds_ordinals_labels_and_weakest_security_models() {
     }
     assert_eq!(PRIVACY_EXACT12_CATALOG_PREIMAGE_V1.len(), 525);
     assert_eq!(
-        compute_privacy_exact12_catalog_commitment_v1().into_words(),
-        PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1
+        *compute_privacy_exact12_catalog_commitment_v1().as_bytes(),
+        PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1
     );
     assert_eq!(
-        PrivacyExact12CatalogCommitmentV1::canonical()
-            .digest()
-            .into_words(),
-        PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1
+        *PrivacyExact12CatalogCommitmentV1::canonical().as_bytes(),
+        PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1
     );
 }
 
@@ -411,24 +409,22 @@ fn proof_envelope_wire_rejects_pre_release_layout_magic_and_catalog() {
     let envelope = envelope(statement_for(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1));
     let encoded = envelope.encode();
     let magic_bytes = PrivacyProofWireMagicV1::canonical().encode();
-    let catalog_bytes = PrivacyExact12CatalogCommitmentV1::canonical()
-        .digest()
-        .to_le_bytes();
+    let catalog_bytes = *PrivacyExact12CatalogCommitmentV1::canonical().as_bytes();
     assert_eq!(magic_bytes, PRIVACY_PROOF_WIRE_MAGIC_BYTES_V1);
     assert_eq!(usize::from(encoded[0]), magic_bytes.len());
     assert_eq!(&encoded[1..=magic_bytes.len()], &magic_bytes);
     let catalog_length_offset = 1 + magic_bytes.len();
     assert_eq!(
         usize::from(encoded[catalog_length_offset]),
-        GoldilocksDigest384V1::BYTES
+        PrivacyExact12CatalogCommitmentV1::BYTES
     );
     let catalog_offset = catalog_length_offset + 1;
     assert_eq!(
-        &encoded[catalog_offset..catalog_offset + GoldilocksDigest384V1::BYTES],
+        &encoded[catalog_offset..catalog_offset + PrivacyExact12CatalogCommitmentV1::BYTES],
         &catalog_bytes
     );
 
-    let pre_release_layout = &encoded[catalog_offset + GoldilocksDigest384V1::BYTES..];
+    let pre_release_layout = &encoded[catalog_offset + PrivacyExact12CatalogCommitmentV1::BYTES..];
     let mut pre_release_cursor = pre_release_layout;
     assert!(PrivacyProofEnvelopeV1::decode(&mut pre_release_cursor).is_err());
 
@@ -2919,5 +2915,44 @@ fn proposed_lifecycle_norito_rejects_removed_schedule_payload() {
         };
         let frame = norito::encode_canonical(&removed).expect("encode removed payload fixture");
         assert!(norito::decode_from_bytes::<PrivacyProposedLifecycleV1>(&frame).is_err());
+    }
+}
+
+#[test]
+fn exact12_catalog_native32_fixed_vector_and_strict_codecs() {
+    let expected = hex!("5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0");
+    let canonical = PrivacyExact12CatalogCommitmentV1::canonical();
+    assert_eq!(canonical.as_bytes(), &expected);
+    assert_eq!(
+        compute_privacy_exact12_catalog_commitment_v1().as_bytes(),
+        &expected
+    );
+    assert_eq!(canonical.encode(), expected);
+    let json = norito::json::to_json(&canonical).unwrap();
+    assert_eq!(
+        norito::json::from_str::<PrivacyExact12CatalogCommitmentV1>(&json).unwrap(),
+        canonical
+    );
+    for byte in 0..PrivacyExact12CatalogCommitmentV1::BYTES {
+        for bit in 0..8 {
+            let mut changed = expected;
+            changed[byte] ^= 1 << bit;
+            assert!(PrivacyExact12CatalogCommitmentV1::decode(&mut changed.as_slice()).is_err());
+            let json = norito::json::to_json(&changed.to_vec()).unwrap();
+            assert!(norito::json::from_str::<PrivacyExact12CatalogCommitmentV1>(&json).is_err());
+        }
+    }
+    for length in [0, 31, 33, 48] {
+        let mut bytes = expected.to_vec();
+        bytes.resize(length, 0);
+        let json = norito::json::to_json(&bytes).unwrap();
+        assert!(norito::json::from_str::<PrivacyExact12CatalogCommitmentV1>(&json).is_err());
+        let framed =
+            norito::core::frame_bare_with_header_flags::<PrivacyExact12CatalogCommitmentV1>(
+                &bytes,
+                norito::core::default_encode_flags(),
+            )
+            .unwrap();
+        assert!(norito::decode_canonical::<PrivacyExact12CatalogCommitmentV1>(&framed).is_err());
     }
 }

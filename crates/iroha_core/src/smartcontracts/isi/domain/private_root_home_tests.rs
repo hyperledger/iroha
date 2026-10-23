@@ -396,6 +396,7 @@ fn original_private_home_root_decode_refusal_remains_local_and_global_policy_sta
         0,
         64,
     ));
+    let mut original_refusal = None;
     let mut block = chain.state().block(header(&chain));
     {
         let mut tx = block.transaction_for_callback_testing();
@@ -416,10 +417,27 @@ fn original_private_home_root_decode_refusal_remains_local_and_global_policy_sta
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
                 "private home admission must retain the original local root decoder refusal"
             );
+            let cause = tx
+                .borrow_execution_deferral()
+                .unwrap()
+                .decode_refusal()
+                .expect("original private-home root decoder")
+                .clone();
+            assert!(matches!(cause.resource_error(),
+                norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+                    if attempted > 0));
+            if let Some(first) = &original_refusal {
+                assert_eq!(
+                    &cause, first,
+                    "later reads cannot replace the first original scope"
+                );
+            } else {
+                original_refusal = Some(cause.clone());
+            }
             assert_eq!(
                 tx.require_storage_admission(),
                 Err(crate::state::StateStorageAdmissionError::RootScopeDecode(
-                    crate::state::RootScopeDecodeRefusal::Budget
+                    cause
                 ))
             );
 
@@ -434,7 +452,7 @@ fn original_private_home_root_decode_refusal_remains_local_and_global_policy_sta
     assert_eq!(
         block.require_storage_admission(),
         Err(crate::state::StateStorageAdmissionError::RootScopeDecode(
-            crate::state::RootScopeDecodeRefusal::Budget
+            original_refusal.unwrap()
         ))
     );
     drop(block);

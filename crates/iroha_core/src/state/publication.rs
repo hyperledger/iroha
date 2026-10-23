@@ -383,6 +383,8 @@ impl<'state> StateBlock<'state> {
         // armed through every refusal, preparation and publication unwind.
         let world_cut_capture = this.world_cut_capture.as_ref();
         let StateBlockFields {
+            genesis_crypto_policy: _genesis_crypto_policy,
+            genesis_staking_policy: _genesis_staking_policy,
             local_storage_refusal: _,
             _read_releases: _,
             // Keep the linear finality/output and native-source owners alive

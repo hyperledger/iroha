@@ -376,6 +376,9 @@ fn node_configuration_cells() -> Vec<String> {
                 .unwrap_or_else(|| panic!("unclassified node-configuration owner {id}"));
             match field.role {
                 Role::Canonical(Canonical::Cell(_)) => true,
+                // Ordinary crypto admission belongs to world.parameters. This exact
+                // config owner retains only local key generation/backend defaults.
+                Role::Local(_) if id == "state.crypto" => false,
                 Role::Derived {
                     sources: &["world.parameters"],
                     check: DerivationCheck::Rebuild(_),
@@ -384,6 +387,27 @@ fn node_configuration_cells() -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Local crypto defaults cannot re-enter the inventory of canonical policy cells.
+#[test]
+fn node_configuration_inventory_excludes_local_crypto_defaults() {
+    let mut fields = Vec::new();
+    flatten(STATE_FIELDS, &mut fields);
+    let crypto = fields
+        .iter()
+        .find(|field| field.id == "state.crypto")
+        .expect("the actual registry classifies the crypto configuration owner");
+    assert!(matches!(crypto.role, Role::Local(_)));
+    let configured = node_configuration_cells();
+    assert!(!configured.iter().any(|id| id == "state.crypto"));
+    for canonical in ["state.nexus", "state.pipeline", "state.zk"] {
+        assert!(configured.iter().any(|id| id == canonical), "{canonical}");
+    }
+    assert!(
+        !domain_owners().contains_key("iroha:state:crypto:v1"),
+        "the retired local-config schema cannot claim canonical policy authority"
+    );
 }
 
 /// What a listed commitment is. The class fixes how its disposition is checked.
@@ -8273,14 +8297,13 @@ fn state_level_canonical_fields_have_no_accumulator_slot_and_no_witness_family()
         [
             "state.pipeline",
             "state.oracle",
-            "state.crypto",
             "state.nexus",
             "state.zk",
             "state.gov",
             "state.content",
             "state.settlement",
         ],
-        "exactly the canonical policy owners installed from node configuration"
+        "only the remaining canonical policy owners belong to this inventory"
     );
     for id in &configured {
         assert!(uncommitted.contains(&id.as_str()), "{id}");

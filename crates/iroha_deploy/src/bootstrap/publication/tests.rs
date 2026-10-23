@@ -183,15 +183,33 @@ fn release_policy_rejects_signer_substitution_expiry_excess_lifetime_and_untrust
 
 #[test]
 fn operator_preparation_refuses_unpinned_genesis_key_and_network_before_signing() {
+    // This fixture explicitly owns both the native proof and manifest address context.
+    let _author = iroha_data_model::account::address::ChainDiscriminantGuard::enter(369);
     let fixture = NativeFinalityFixture::new();
     let metadata = iroha_genesis::signed_genesis_consensus_metadata(fixture.genesis()).unwrap();
+    let custody = iroha_config::parameters::defaults::governance::bond_escrow_account_id();
     let manifest = iroha_genesis::GenesisBuilder::new_without_executor(
         fixture.chain_id().parse().unwrap(),
         ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
     )
+    .with_staking_policy(crate::genesis::default_staking_policy(
+        iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+            .parse()
+            .unwrap(),
+        custody.clone(),
+        custody,
+    ))
+    .unwrap()
     .with_sumeragi_context_parameters(metadata.sumeragi_context)
     .build_raw()
     .unwrap();
+    assert_eq!(manifest.chain_discriminant(), 369);
     let wire = fixture.genesis().encode_wire().unwrap();
     let manifest_json = norito::json::to_json(&manifest).unwrap();
     let manifest_sha256 = iroha_crypto::sha256(manifest_json.as_bytes());

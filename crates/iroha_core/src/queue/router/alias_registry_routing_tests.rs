@@ -495,14 +495,17 @@ fn accepted_executable(fixture: &Fixture, executable: Executable) -> AcceptedTra
     let view = fixture.state.view();
     let drift = view.world().parameters().sumeragi().max_clock_drift();
     let parameters = view.world().parameters().transaction();
-    let crypto = fixture.state.crypto.read().clone();
     let (_, clock) = TimeSource::new_mock(Duration::from_millis(2));
     AcceptedTransaction::accept_with_time_source(
         signed,
         fixture.state.network_id_ref(),
         drift,
         parameters,
-        crypto.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &clock,
     )
     .expect("signed transaction passes stateless admission")

@@ -6,16 +6,17 @@ use super::*;
 use crate::privacy::{
     BootleLanternIssuerPolicyV1, PrivacyBootleLanternIssuerPolicyDigestV1,
     PrivacyConsensusLimitsV1, PrivacyExact12QualificationRecordV1, PrivacyOrchardPoolBootstrapV1,
-    PrivacyPgcAccountBootstrapV1, PrivacyPgcBootstrapProofBytesV1, PrivacyProofEnvelopeV1,
-    PrivacyProofManagedPoolBootstrapV1, PrivacyProtocolActivationLimitsV1,
-    PrivacyProtocolActivationRecordV1, PrivacyProtocolIdV1, PrivacyProtocolLifecycleV1,
-    PrivacyRootPublicationV1, PrivacyVegaIssuerRecordDigestV1, PrivacyVegaIssuerRecordV1,
-    PrivacyZkAcePolicyRecordDigestV1, PrivacyZkAcePolicyRecordV1, PrivacyZkAmsRegistryBootstrapV1,
-    PrivacyZkX509CertificatePolicyRecordDigestV1, PrivacyZkX509CertificatePolicyRecordV1,
-    PrivacyZkX509CrlRecordDigestV1, PrivacyZkX509CrlRecordV1,
-    PrivacyZkX509TrustAnchorRecordDigestV1, PrivacyZkX509TrustAnchorRecordV1,
+    PrivacyPgcAccountBootstrapV1, PrivacyProofEnvelopeV1, PrivacyProofManagedPoolBootstrapV1,
+    PrivacyProtocolActivationLimitsV1, PrivacyProtocolActivationRecordV1, PrivacyProtocolIdV1,
+    PrivacyProtocolLifecycleV1, PrivacyRootPublicationV1, PrivacyVegaIssuerRecordDigestV1,
+    PrivacyVegaIssuerRecordV1, PrivacyZkAcePolicyRecordDigestV1, PrivacyZkAcePolicyRecordV1,
+    PrivacyZkAmsRegistryBootstrapV1, PrivacyZkX509CertificatePolicyRecordDigestV1,
+    PrivacyZkX509CertificatePolicyRecordV1, PrivacyZkX509CrlRecordDigestV1,
+    PrivacyZkX509CrlRecordV1, PrivacyZkX509TrustAnchorRecordDigestV1,
+    PrivacyZkX509TrustAnchorRecordV1,
 };
 
+use crate::transaction::signed_attachments::ActionAttachmentRefV1;
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
 isi! {
     /// Register one immutable proposal for explicit governed activation.
@@ -201,8 +202,8 @@ isi! {
     pub struct BootstrapPrivacyPgcAccountsV1 {
         /// Complete canonical pool namespace, root, epoch, and ordered accounts.
         pub bootstrap: PrivacyPgcAccountBootstrapV1,
-        /// Exact canonical native proof of account well-formedness, range, and supply.
-        pub proof: PrivacyPgcBootstrapProofBytesV1,
+        /// Reference to the original signed native proof of well-formedness, range, and supply.
+        pub proof_ref: ActionAttachmentRefV1,
     }
 }
 impl crate::seal::Instruction for BootstrapPrivacyPgcAccountsV1 {}
@@ -211,11 +212,11 @@ impl BootstrapPrivacyPgcAccountsV1 {
     pub const WIRE_ID: &'static str = "iroha.privacy.bootstrap_pgc_accounts.v1";
     /// Construct a governed Anonymous PGC account bootstrap.
     #[must_use]
-    pub fn new(
-        bootstrap: PrivacyPgcAccountBootstrapV1,
-        proof: PrivacyPgcBootstrapProofBytesV1,
-    ) -> Self {
-        Self { bootstrap, proof }
+    pub fn new(bootstrap: PrivacyPgcAccountBootstrapV1, proof_ref: ActionAttachmentRefV1) -> Self {
+        Self {
+            bootstrap,
+            proof_ref,
+        }
     }
 }
 isi! {
@@ -779,7 +780,7 @@ impl_privacy_decode_from_slice!(BootstrapPrivacyProofManagedPoolV1 {
 });
 impl_privacy_decode_from_slice!(BootstrapPrivacyPgcAccountsV1 {
     bootstrap: PrivacyPgcAccountBootstrapV1,
-    proof: PrivacyPgcBootstrapProofBytesV1,
+    proof_ref: ActionAttachmentRefV1,
 });
 impl_privacy_decode_from_slice!(BootstrapPrivacyZkAmsRegistryV1 {
     bootstrap: PrivacyZkAmsRegistryBootstrapV1,
@@ -853,6 +854,12 @@ impl_privacy_decode_from_slice!(RevokePrivacyZkX509CrlV1 {
 impl_privacy_decode_from_slice!(SubmitPrivacyProofV1 {
     envelope: PrivacyProofEnvelopeV1,
 });
+/// Reuse the populated privacy proof fixture for current typed record capture.
+#[cfg(test)]
+pub(super) fn current_submit_proof_fixture_v1() -> SubmitPrivacyProofV1 {
+    SubmitPrivacyProofV1::new(tests::envelope())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -994,7 +1001,7 @@ mod tests {
         );
     }
 
-    fn envelope() -> PrivacyProofEnvelopeV1 {
+    pub(super) fn envelope() -> PrivacyProofEnvelopeV1 {
         let activation = activation();
         let context = PrivacyStatementContextV1 {
             network_id: NetworkId::from_genesis_hash(
@@ -1389,7 +1396,10 @@ mod tests {
                 BootstrapPrivacyPgcAccountsV1::WIRE_ID,
                 BootstrapPrivacyPgcAccountsV1::new(
                     pgc_bootstrap(),
-                    PrivacyPgcBootstrapProofBytesV1::new(vec![0xA5, 0x5A, 1]),
+                    ActionAttachmentRefV1 {
+                        action_index: 0,
+                        slot_index: 0
+                    },
                 )
             );
             $check!(
@@ -1688,4 +1698,5 @@ mod tests {
             assert!(!wire_id.contains("aztec"));
         }
     }
+    include!("privacy_direct_attachment_tests.rs");
 }

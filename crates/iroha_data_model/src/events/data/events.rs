@@ -121,7 +121,6 @@ mod model {
         /// Oracle feed aggregation lifecycle events
         #[codec(index = 18)]
         Oracle(super::oracle::OracleEvent),
-        #[cfg(feature = "governance")]
         /// Governance lifecycle events
         #[codec(index = 19)]
         Governance(super::governance::GovernanceEvent),
@@ -2700,9 +2699,6 @@ impl DataEvent {
     pub fn domain(&self) -> Option<&DomainId> {
         match self {
             Self::Domain(event) => Some(event.origin()),
-            Self::Account(_) | Self::Asset(_) | Self::AssetDefinition(_) => None,
-            #[cfg(feature = "governance")]
-            Self::Governance(_) => None,
             _ => None,
         }
     }

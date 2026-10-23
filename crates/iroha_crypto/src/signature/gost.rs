@@ -342,7 +342,7 @@ fn params_for_algorithm(algorithm: Algorithm) -> Result<Params<'static>, ParseEr
         Algorithm::Gost3410_2012_256ParamSetC => Ok(Params::Bits256(&PARAM_256_C)),
         Algorithm::Gost3410_2012_512ParamSetA => Ok(Params::Bits512(&PARAM_512_A)),
         Algorithm::Gost3410_2012_512ParamSetB => Ok(Params::Bits512(&PARAM_512_B)),
-        other => Err(ParseError(format!(
+        other => Err(ParseError::Invalid(format!(
             "algorithm {other:?} is not a supported GOST parameter set"
         ))),
     }
@@ -559,7 +559,7 @@ fn increment_nonce(params: &CurveParams, current: &BigUint) -> BigUint {
 }
 fn parse_private_generic(params: &CurveParams, payload: &[u8]) -> Result<PrivateKey, ParseError> {
     if payload.len() != params.scalar_len {
-        return Err(ParseError(format!(
+        return Err(ParseError::Invalid(format!(
             "invalid private key length for {}: expected {}, got {}",
             params.name,
             params.scalar_len,
@@ -568,7 +568,7 @@ fn parse_private_generic(params: &CurveParams, payload: &[u8]) -> Result<Private
     }
     let scalar = le_bytes_to_biguint(payload);
     if scalar.is_zero() || scalar >= params.q {
-        return Err(ParseError(format!(
+        return Err(ParseError::Invalid(format!(
             "private key outside [1, q-1] for {}",
             params.name
         )));

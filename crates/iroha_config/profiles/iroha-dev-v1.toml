@@ -39,12 +39,8 @@ per_gas_unit_fee = "0.00005"
 allowed_algorithms = ["bls_normal"]
 
 [static.crypto]
-allowed_signing = ["ed25519", "secp256k1", "bls_normal"]
 
-# Empty: parsing derives the curve ids from `allowed_signing` (ed25519 1, bls_normal 3,
-# secp256k1 4). Omitting the section would keep the code default, which omits bls_normal.
-[static.crypto.curves]
-allowed_curve_ids = []
+# Ordinary signature and controller policy is authored in signed genesis.
 
 [derive]
 authenticated_non_validator_sources = 2

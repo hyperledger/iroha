@@ -10713,14 +10713,17 @@ mod tests {
             default_limits.max_decompressed_bytes(),
             default_limits.max_metadata_depth(),
         );
-        let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
         let (_, time_source) = TimeSource::new_mock(core::time::Duration::from_millis(2));
         AcceptedTransaction::accept_with_time_source(
             tx,
             &network_id,
             core::time::Duration::from_secs(30),
             params,
-            &crypto_cfg,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time_source,
         )
         .expect("tx should be accepted")
@@ -10765,14 +10768,17 @@ mod tests {
             default_limits.max_decompressed_bytes(),
             default_limits.max_metadata_depth(),
         );
-        let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
         let (_, time_source) = TimeSource::new_mock(core::time::Duration::from_millis(2));
         AcceptedTransaction::accept_with_time_source(
             tx,
             &network_id,
             core::time::Duration::from_secs(30),
             params,
-            &crypto_cfg,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time_source,
         )
         .expect("tx should be accepted")

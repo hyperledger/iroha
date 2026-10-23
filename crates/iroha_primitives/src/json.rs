@@ -4,14 +4,21 @@
 //! parses it back into the bounded semantic value, and stores only the canonical compact rendering.
 //! Text constructors require that exact canonical rendering; JSON and Norito wire decoding reject
 //! alternate lexical spellings instead of normalizing a signed payload.
+//!
+//! [`Json::try_retain_in`] places text and its shared control allocation in one
+//! original finite pool. Every clone keeps that custody until the last reader
+//! retires; ordinary authoring/decoder construction has no pool authority.
 use core::str::FromStr;
-use derive_more::Display;
 use iroha_schema::{IntoSchema, MetaMap, Metadata, TypeId, UnnamedFieldsMeta};
 use norito::{
     Decode, Encode,
     json::{self, JsonDeserializeOwned, JsonSerialize, Parser, Value},
 };
-use std::{borrow::Cow, string::String, sync::Arc, vec::Vec};
+use std::{borrow::Cow, string::String, vec::Vec};
+
+mod custody;
+pub use custody::JsonRetentionError;
+use custody::{JsonText, SharedJsonText};
 /// Maximum UTF-8 byte length of one [`Json`] document.
 ///
 /// This fixed V1 protocol bound matches the ledger's default metadata-value ceiling and applies
@@ -34,11 +41,9 @@ pub const MAX_JSON_NESTING_DEPTH: usize = json::MAX_JSON_VALUE_NESTING_DEPTH;
 /// let values = BTreeMap::from([(Json::new("key"), 1_u8)]);
 /// let _ = norito::json::to_json(&values);
 /// ```
-#[derive(Debug, Display, Clone, PartialOrd, PartialEq, Ord, Eq)]
-#[display("{_0}")]
-#[derive(norito::NoritoSchema)]
+#[derive(Clone, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_primitives::json::Json")]
-pub struct Json(Arc<String>);
+pub struct Json(SharedJsonText);
 // Canonical Json is one self-delimiting string field. The borrowed serializer
 // avoids copying the shared text, while the owned helper provides a strict
 // slice decoder that reports the parsed prefix.
@@ -113,7 +118,7 @@ impl Json {
     ///
     /// An exact source allocation remains shared. Spare source capacity is
     /// discarded with a fallible exact copy of the already canonical text.
-    /// Both paths charge the complete retained string and Arc backing before
+    /// Both paths charge the complete retained string and shared control backing before
     /// ownership; no parser graph is reconstructed.
     ///
     /// # Errors
@@ -142,7 +147,7 @@ impl Json {
         let bytes = self
             .0
             .capacity()
-            .checked_add(norito::core::owned_arc_allocation_bytes::<String>()?)
+            .checked_add(SharedJsonText::layout().size())
             .ok_or(norito::Error::LengthMismatch)?;
         norito::core::reserve_decode_allocation(bytes)?;
         Ok(self.clone())
@@ -157,8 +162,13 @@ impl Json {
         Ok(())
     }
     fn try_from_canonical_string(value: String) -> Result<Self, norito::core::Error> {
-        norito::core::reserve_decode_arc_allocation::<String>()?;
-        Ok(Self(Arc::new(value)))
+        let layout = SharedJsonText::layout();
+        norito::core::reserve_decode_allocation(layout.size())?;
+        SharedJsonText::try_new(JsonText::untracked(value), None)
+            .map(Self)
+            .map_err(|(_value, _charge, error)| norito::Error::AllocationFailed {
+                bytes: error.layout().size() as u64,
+            })
     }
     fn take_wire_text_field(bytes: &[u8]) -> Result<(&[u8], usize), norito::core::Error> {
         let (field_len, field_header_len) = norito::core::inspect_len_from_slice(bytes)?;
@@ -208,14 +218,39 @@ impl Json {
         canonical
     }
     fn require_canonical_text(value: &str) -> Result<String, norito::Error> {
-        let canonical = Self::canonicalize_text(value)?;
-        if canonical == value {
-            Ok(canonical)
-        } else {
-            Err(norito::Error::from(
-                "Json payload is valid but not in canonical lexical form",
-            ))
+        Self::ensure_size(value)?;
+        json::validate_canonical_json_with_buffer(value, |length| {
+            let mut scratch = Vec::new();
+            scratch.try_reserve_exact(length).map_err(|_| {
+                json::Error::from_decode_resource(norito::Error::AllocationFailed {
+                    bytes: length as u64,
+                })
+            })?;
+            if scratch.capacity() != length {
+                return Err(json::Error::from_decode_resource(
+                    norito::Error::AllocationFailed {
+                        bytes: length as u64,
+                    },
+                ));
+            }
+            scratch.resize(length, 0);
+            Ok(scratch)
+        })
+        .map_err(json::Error::into_core_error)?;
+        norito::core::reserve_decode_allocation(value.len())?;
+        let mut retained = String::new();
+        retained
+            .try_reserve_exact(value.len())
+            .map_err(|_| norito::Error::AllocationFailed {
+                bytes: value.len() as u64,
+            })?;
+        if retained.capacity() != value.len() {
+            return Err(norito::Error::AllocationFailed {
+                bytes: value.len() as u64,
+            });
         }
+        retained.push_str(value);
+        Ok(retained)
     }
     /// Serializes `payload` into a JSON string.
     ///
@@ -298,7 +333,7 @@ impl Json {
     }
     /// Returns a reference to the inner JSON string.
     pub fn get(&self) -> &String {
-        self.0.as_ref()
+        &self.0.value
     }
     /// Returns `true` when `self` and `other` share the same immutable backing allocation.
     ///
@@ -306,7 +341,7 @@ impl Json {
     /// [`Json`] values can compare equal while this method returns `false`.
     #[must_use]
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        SharedJsonText::ptr_eq(&self.0, &other.0)
     }
     /// Convert a Norito JSON value into this JSON wrapper by normalizing it
     /// into a compact string representation.
@@ -332,6 +367,7 @@ impl json::JsonSerialize for Json {
 }
 impl json::JsonDeserialize for Json {
     fn json_deserialize(p: &mut Parser<'_>) -> Result<Self, json::Error> {
+        p.skip_ws();
         let value_start = p.position();
         let slice = p.raw_value_slice()?;
         let input = p.input();
@@ -414,7 +450,10 @@ impl FromStr for Json {
 }
 impl Default for Json {
     fn default() -> Self {
-        Self(Arc::new("null".to_owned()))
+        Self(SharedJsonText::new(
+            JsonText::untracked("null".to_owned()),
+            None,
+        ))
     }
 }
 // Provide slice-based decoding for Json so it can live inside sequences
@@ -443,6 +482,10 @@ impl AsRef<str> for Json {
 #[cfg(all(test, feature = "json"))]
 mod tests {
     use super::*;
+
+    fn unchecked(value: String) -> Json {
+        Json(SharedJsonText::new(JsonText::untracked(value), None))
+    }
     use norito::codec::{Decode as _, Encode as _};
     /// Wire oracle for the canonical single-string representation.
     #[derive(Encode, Decode)]
@@ -468,7 +511,7 @@ mod tests {
     #[test]
     fn admitted_clone_charges_retained_backing_at_exact_boundary() {
         let source = Json::new("original validated canonical value");
-        let exact = source.0.len() + norito::core::owned_arc_allocation_bytes::<String>().unwrap();
+        let exact = source.0.len() + SharedJsonText::layout().size();
         let limits = |allocated| norito::DecodeLimits::new(0, 0, 0, allocated, 0);
         let (copy, usage) = norito::core::with_decode_limits_measured(limits(exact), || {
             source.try_clone_for_admission()
@@ -491,8 +534,8 @@ mod tests {
     fn admitted_clone_discards_spare_capacity_without_reparsing_canonical_text() {
         let mut text = String::with_capacity(4096);
         text.push_str("{\"a\":[1,2,3]}");
-        let source = Json(Arc::new(text));
-        let exact = source.0.len() + norito::core::owned_arc_allocation_bytes::<String>().unwrap();
+        let source = unchecked(text);
+        let exact = source.0.len() + SharedJsonText::layout().size();
         let limits = |allocated| norito::DecodeLimits::new(0, 0, 0, allocated, 0);
         let (copy, usage) = norito::core::with_decode_limits_measured(limits(exact), || {
             source.try_clone_for_admission()
@@ -706,7 +749,7 @@ mod tests {
                 error.to_string().contains("canonical lexical form"),
                 "unexpected slice error for {raw}: {error}"
             );
-            let framed = norito::to_bytes(&Json(Arc::new(raw.to_owned())))
+            let framed = norito::to_bytes(&unchecked(raw.to_owned()))
                 .expect("encode hostile noncanonical Json fixture");
             let error = norito::decode_from_bytes::<Json>(&framed)
                 .expect_err("framed binary Json must reject alternate spelling");
@@ -1239,9 +1282,8 @@ mod tests {
         );
     }
     #[test]
-    fn shared_json_backing_charges_the_arc_allocation() {
-        let allocation = norito::core::owned_arc_allocation_bytes::<String>()
-            .expect("Arc<String> allocation layout");
+    fn shared_json_backing_charges_the_exact_control_allocation() {
+        let allocation = SharedJsonText::layout().size();
         let limits = norito::core::DecodeLimits::new(
             usize::MAX,
             usize::MAX,
@@ -1252,7 +1294,7 @@ mod tests {
         let canonical = "null".to_owned();
         let error =
             norito::core::with_decode_limits(limits, || Json::try_from_canonical_string(canonical))
-                .expect_err("Arc allocation must be charged before construction");
+                .expect_err("shared control allocation must be charged before construction");
         assert!(matches!(
             error,
             norito::core::Error::TotalAllocationExceeded { attempted, limit }
@@ -1275,8 +1317,8 @@ mod tests {
                 <Json as norito::core::DecodeFromSlice>::decode_from_slice(&encoded).is_err(),
                 "slice decoding accepted invalid Json payload: {invalid}"
             );
-            let framed = norito::to_bytes(&Json(Arc::new(invalid.to_owned())))
-                .expect("encode hostile Json wire");
+            let framed =
+                norito::to_bytes(&unchecked(invalid.to_owned())).expect("encode hostile Json wire");
             assert!(
                 norito::decode_from_bytes::<Json>(&framed).is_err(),
                 "framed decoding accepted invalid Json payload: {invalid}"
@@ -1352,7 +1394,7 @@ mod tests {
             error.to_string().contains("1048576-byte"),
             "decoder reached a generic truncation error before the Json limit: {error}"
         );
-        let oversized_frame = norito::to_bytes(&Json(Arc::new(over_limit)))
+        let oversized_frame = norito::to_bytes(&unchecked(over_limit))
             .expect("encode oversized hostile Json fixture");
         assert!(
             norito::decode_from_bytes::<Json>(&oversized_frame).is_err(),

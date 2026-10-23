@@ -3,10 +3,14 @@
 This source-checkout directory hosts JavaScript snippets that illustrate common
 `@iroha/iroha-js` workflows. Each example favours deterministic Norito payloads
 and mirrors the validation logic exported by the SDK. The portable registry
-tarball includes only `iso_bridge_builder.mjs` and `nexus_app_transfer.mjs`;
+tarball includes only `iso_bridge_builder.mjs`, `nexus_app_transfer.mjs`, and their
+shared `iso_bridge_context.mjs` configuration helper;
 examples that require a source checkout, credentials, or a live Torii endpoint
-are identified below. The Nexus recipe requires the verified native host even
-when installed from that tarball.
+are identified below. Both the Nexus recipe and ISO builder require an
+authenticated matching native host for canonical account validation, including
+when installed from that tarball. The ISO builder can render XML offline with
+that host; submitting a payment additionally requires its runtime signer and
+Torii endpoint.
 
 ## batching.mjs
 

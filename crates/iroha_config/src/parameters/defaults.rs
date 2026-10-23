@@ -1,9 +1,5 @@
 //! Parameters default values
-use iroha_crypto::Algorithm;
-use iroha_data_model::{
-    account::{AccountId, curve::CurveId},
-    asset::prelude::AssetDefinitionId,
-};
+use iroha_data_model::{account::AccountId, asset::prelude::AssetDefinitionId};
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::name::Name;
 use iroha_primitives::numeric::Quantity;
@@ -26,19 +22,14 @@ fn canonical_asset_definition_literal(domain: &str, name: &str) -> String {
 }
 /// Cryptography configuration defaults.
 pub mod crypto {
-    use super::*;
     /// Preview toggle for OpenSSL-backed SM helpers.
     pub const ENABLE_SM_OPENSSL_PREVIEW: bool = false;
     /// Default SM intrinsic dispatch policy.
     pub const SM_INTRINSICS_POLICY: &str = "auto";
     /// Default hash algorithm identifier used when none is supplied.
     pub const DEFAULT_HASH: &str = "blake2b-256";
-    /// Default signing algorithms permitted on the network.
-    pub const ALLOWED_SIGNING: &[Algorithm] = &[Algorithm::Ed25519, Algorithm::Secp256k1];
     /// Default distinguishing identifier for SM2 signatures.
     pub const SM2_DISTID_DEFAULT: &str = "1234567812345678";
-    /// Default set of curve identifiers permitted for account controllers.
-    pub const ALLOWED_CURVE_IDS: &[u8] = &[CurveId::ED25519.as_u8(), CurveId::SECP256K1.as_u8()];
     /// Default hash algorithm identifier used when none is supplied.
     pub fn default_hash() -> String {
         DEFAULT_HASH.to_string()
@@ -51,32 +42,9 @@ pub mod crypto {
     pub fn sm_intrinsics_policy() -> String {
         SM_INTRINSICS_POLICY.to_owned()
     }
-    /// Default set of signing algorithms permitted on the network.
-    pub fn allowed_signing() -> Vec<Algorithm> {
-        ALLOWED_SIGNING.to_vec()
-    }
-    /// Default set of signing algorithms expressed as strings (for env overrides).
-    pub fn allowed_signing_env() -> Vec<String> {
-        ALLOWED_SIGNING.iter().map(Algorithm::to_string).collect()
-    }
     /// Default distinguishing identifier for SM2 signatures.
     pub fn sm2_distid_default() -> String {
         SM2_DISTID_DEFAULT.to_string()
-    }
-    /// Derive the curve capability list from the supplied signing algorithms.
-    pub fn derive_curve_ids_from_algorithms(algorithms: &[Algorithm]) -> Vec<u8> {
-        let mut ids: Vec<u8> = algorithms
-            .iter()
-            .filter_map(|algo| CurveId::try_from_algorithm(*algo).ok())
-            .map(CurveId::as_u8)
-            .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        ids
-    }
-    /// Default set of curve identifiers permitted on the network.
-    pub fn allowed_curve_ids() -> Vec<u8> {
-        derive_curve_ids_from_algorithms(ALLOWED_SIGNING)
     }
 }
 /// Common configuration defaults shared across components.

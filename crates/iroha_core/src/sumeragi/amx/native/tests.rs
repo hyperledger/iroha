@@ -1618,7 +1618,7 @@ fn native_amx_caught_completed_failure_cannot_publish_partial_world_effects() {
         .begin_execution_effect_budget(&signed_payload)
         .unwrap();
     attempt
-        .admit_authored_execution_effects(std::slice::from_ref(&write))
+        .admit_authored_execution_effects(std::slice::from_ref(&write).iter())
         .unwrap();
     write.execute(&account(&signer), &mut attempt).unwrap();
     // Exercise the local failure-owner contract after a real staged effect. This unit control

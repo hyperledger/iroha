@@ -44,7 +44,11 @@ fn resource_contract_accept(
         &queue_test_network_id(),
         Duration::from_millis(10),
         limits,
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         time,
     )
 }
@@ -134,14 +138,17 @@ fn transaction_cap_is_exact_at_admission_and_block_validation() {
     };
     assert_eq!(admission.reason, reason);
     // Block validation (the follower and lane-merge entry).
-    let crypto = iroha_config::parameters::actual::Crypto::default();
     let follower = |transaction: &iroha_data_model::transaction::SignedTransaction| {
         AcceptedTransaction::validate_with_now(
             transaction,
             &queue_test_network_id(),
             Duration::from_millis(10),
             limits,
-            &crypto,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             transaction.creation_time(),
         )
     };
@@ -524,14 +531,17 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     let over_cap = sized(cap + 1);
 
     // Transaction validation: the cap is inclusive at admission and in block validation.
-    let crypto = iroha_config::parameters::actual::Crypto::default();
     let follower = |transaction: &iroha_data_model::transaction::SignedTransaction| {
         AcceptedTransaction::validate_with_now(
             transaction,
             &queue_test_network_id(),
             Duration::from_millis(10),
             limits,
-            &crypto,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             transaction.creation_time(),
         )
     };

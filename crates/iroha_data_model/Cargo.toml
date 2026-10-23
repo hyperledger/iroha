@@ -17,8 +17,9 @@ workspace = true
 mutation-testing = []
 default = ["application-model"]
 dev-tools = ["dep:tempfile", "dep:rustix"]
-# Public application model; node-only additions are requested by node crates.
-application-model = ["governance", "pqc", "bls", "gost", "sm"]
+# Optional crypto implementations for the public application model.
+# Canonical governance instructions, events and wire identities are unconditional.
+application-model = ["pqc", "bls", "gost", "sm"]
 # Expose deterministic fixture constructors to non-shipping release tooling.
 test-fixtures = ["iroha_crypto/rand"]
 # Expose only the deterministic exact-12 privacy conformance generator and
@@ -36,8 +37,6 @@ transparent_api = ["iroha_data_model_derive/transparent_api", "iroha_model_base/
 fault_injection = []
 trybuild-tests = ["dep:trybuild"]
 bench = []
-# Authenticate governed registries against complete Parliament proposal preimages.
-governance = []
 pqc = ["iroha_crypto/pqc", "sorafs_manifest/pqc"]
 
 [dependencies]

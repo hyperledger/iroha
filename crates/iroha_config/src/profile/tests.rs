@@ -338,41 +338,28 @@ fn keyless_role_accounts_are_distinct_and_profile_scoped() {
     );
 }
 
-/// `crypto.curves.allowed_curve_ids` must follow each profile's `allowed_signing`; omitting the
-/// curves section would keep the code default, which drops `bls_normal`. The `bls_normal` curve id
-/// exists only in builds with the data model's `bls` feature, so the profile must request the
-/// derivation explicitly (an empty list) rather than rely on what this build derives.
+/// Profiles configure local implementations, while signed genesis owns ordinary admission.
 #[test]
-fn every_profile_derives_curve_ids_from_its_signing_algorithms() {
+fn profiles_do_not_install_local_crypto_admission_authorities() {
     use iroha_config_base::util::Emitter;
     for id in ProfileId::ALL {
         let profile = Profile::compiled(id).unwrap();
-        assert_eq!(
-            value_at(profile.static_config(), "crypto.curves.allowed_curve_ids").as_array(),
-            Some(&Vec::new()),
-            "{id} must derive crypto.curves.allowed_curve_ids from crypto.allowed_signing"
-        );
-        let crypto = profile
+        let table = profile
             .static_config()
             .get("crypto")
             .and_then(toml::Value::as_table)
-            .cloned()
-            .unwrap_or_else(|| panic!("{id} sets [static.crypto]"));
+            .expect("profile local crypto options")
+            .clone();
+        assert!(!table.contains_key("allowed_signing"));
+        assert!(!table.contains_key("curves"));
         let user = ConfigReader::new()
             .without_env()
-            .with_toml_source(TomlSource::inline(crypto))
+            .with_toml_source(TomlSource::inline(table))
             .read_and_complete::<user::Crypto>()
-            .unwrap_or_else(|report| panic!("{id}: {report:?}"));
+            .expect("local options parse");
         let mut emitter = Emitter::new();
-        let crypto = user.parse(&mut emitter);
-        emitter
-            .into_result()
-            .unwrap_or_else(|report| panic!("{id}: {report:?}"));
-        assert_eq!(
-            crypto.allowed_curve_ids,
-            defaults::crypto::derive_curve_ids_from_algorithms(&crypto.allowed_signing),
-            "{id}"
-        );
+        let _local = user.parse(&mut emitter);
+        emitter.into_result().unwrap();
     }
 }
 

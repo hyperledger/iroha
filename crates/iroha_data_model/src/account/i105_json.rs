@@ -184,9 +184,7 @@ fn key_parts(key: &PublicKey) -> Result<(u8, &[u8]), BoundedJsonError> {
     let (algorithm, payload) = key
         .try_to_bytes()
         .map_err(|_| BoundedJsonError::Unsupported)?;
-    let curve = CurveId::try_from_algorithm(algorithm)
-        .map(CurveId::as_u8)
-        .map_err(|_| BoundedJsonError::Unsupported)?;
+    let curve = CurveId::from_algorithm(algorithm).as_u8();
     Ok((curve, payload))
 }
 fn emit_canonical_address(

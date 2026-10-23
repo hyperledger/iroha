@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+from collections import Counter
+import re
 import json
 from pathlib import Path
 from runpy import run_path
@@ -526,7 +528,12 @@ def test_a_read_of_an_uncommitted_node_policy_field_is_detected(tmp_path: Path) 
     assert owners["axt.slot_length_ms"] == "cfg.nexus.axt_windows"
     assert owners["pipeline.ivm_max_cycles_upper_bound"] == "cfg.pipeline.bounds"
     assert owners["governance.voting_asset_id"] == "cfg.governance"
-    assert owners["crypto.allowed_signing"] == "cfg.crypto.algorithms"
+    # These exact node-policy readers were retired with committed crypto policy.
+    assert not set(owners) & {
+        "crypto.allowed_signing", "crypto.allowed_curve_ids",
+        "crypto.default_hash", "crypto.sm2_distid_default",
+    }
+    assert entry(CENSUS, "cfg.crypto.algorithms")["status"] == "open"
 
 
 def test_fraud_reads_use_the_exact_committed_catalog_owner(tmp_path: Path) -> None:
@@ -985,7 +992,10 @@ def test_native_owner_reconciliation_preserves_unfinished_relations() -> None:
     assert "Instant::now() >= control.deadline" in native
     execution = (ROOT / "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs").read_text(encoding="utf-8")
     assert "VerificationControl::Synchronous," in execution
-    assert "stx.arm_local_storage_refusal(local);" in execution
+    assert ("ForgeryLocalRefusal::Storage(original) => {\n"
+            "                        stx.arm_local_storage_refusal(original);") in execution
+    assert ("ForgeryLocalRefusal::Execution(original) => {\n"
+            "                        stx.world.record_execution_deferral(original);") in execution
     pin_shape = entry(CENSUS, "sccp.committee_pin_shape")
     assert pin_shape["status"] == "not_a_gate" and pin_shape["symbol"] == "ZeroPinCoordinate"
     assert "Shape validation does not authenticate a committee" in pin_shape["note"]
@@ -1098,3 +1108,131 @@ def test_cli_reports_drift_with_a_nonzero_status(tmp_path: Path, capsys) -> None
     assert "unlisted site" in capsys.readouterr().err
     assert CHECKER["main"](["--root", str(tmp_path), "--propose"]) == 0
     assert '"ZK_SKIP_VERIFY"' in capsys.readouterr().out
+
+
+def test_unavailable_family_filter_keeps_actual_identifier_membership(tmp_path: Path, tree_scan) -> None:
+    """Typed crypto errors outside family paths are a documented coverage limit."""
+    source = "fn f() { AnonymousBallotUnavailable; CryptoImplementationUnavailable; }"
+    outer = "crates/iroha_core/src/tx.rs"
+    inner = "crates/iroha_core/src/privacy.rs"
+    write(tmp_path, outer, source)
+    write(tmp_path, inner, source)
+    scanned = rows(tmp_path)
+    assert scanned[(outer, "unavailable", "unavailable")] == 1
+    assert scanned[(inner, "unavailable", "unavailable")] == 2
+    # Mutation: a second ballot identifier changes the outside-family row; a
+    # second crypto identifier changes only the inside-family row. Do not claim
+    # that this detector covers generic crypto transport throughout the tree.
+    write(tmp_path, outer, source + "fn g() { AnonymousBallotUnavailable; }")
+    write(tmp_path, inner, source + "fn g() { CryptoImplementationUnavailable; }")
+    scanned = rows(tmp_path)
+    assert scanned[(outer, "unavailable", "unavailable")] == 2
+    assert scanned[(inner, "unavailable", "unavailable")] == 3
+    code, strings = CHECKER["mask_rust"]((ROOT / outer).read_text())
+    code, _, _ = CHECKER["blank_test_items"](code, strings)
+    detector = CHECKER["DETECTORS"]["unavailable"]
+    names = Counter(name for name in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", code)
+                    if CHECKER["FAMILY_PATH"].search(name)
+                    and tree_scan.token_of(detector, name) == "unavailable")
+    assert names == {"anonymous_ballot_unavailable": 5, "AnonymousBallotUnavailable": 5}
+    assert tree_scan.rows[(outer, "unavailable", "unavailable")] == sum(names.values())
+
+
+def test_anonymous_adapter_remains_unsupported_and_mixed_service_row_is_explicit() -> None:
+    """An honest execution deferral does not implement authenticated ballot execution."""
+    ballot = entry(CENSUS, "voting.anonymous_entrypoint_unavailable")
+    assert (ballot["status"], ballot["owner"]) == ("unsupported", "P.8")
+    tx = (ROOT / ballot["path"]).read_text()
+    assert ("pub(crate) fn anonymous_ballot_unavailable() -> ExecutionDeferred {\n"
+            "    ivm::error::ExecutionDeferral::VerifierInitializationUnavailable.into()\n}") in tx
+    assert ("TransactionEntrypoint::AnonymousBallot(_) => {\n"
+            "            Err(AcceptTransactionFail::AnonymousBallotUnavailable)") in tx
+    assert "two AnonymousBallotUnavailable identifiers" in ballot["note"]
+    assert "two bootle_lantern_issuance_unavailable_response_v1 service helpers" in ballot["note"]
+    mixed = ["crates/iroha_torii/src/lib.rs", "unavailable", "unavailable", 4]
+    assert mixed in ballot["sites"]
+    assert mixed not in entry(CENSUS, "torii.unavailable")["sites"]
+    code, strings = CHECKER["mask_rust"]((ROOT / mixed[0]).read_text())
+    code, _, _ = CHECKER["blank_test_items"](code, strings)
+    assert len(re.findall(r"\bAnonymousBallotUnavailable\b", code)) == 2
+    assert len(re.findall(r"\bbootle_lantern_issuance_unavailable_response_v1\b", code)) == 2
+
+
+def test_canonical_ballot_decode_refusal_is_distinct_from_missing_execution() -> None:
+    """Only the original decoder refusal is local; schema limits stay deterministic."""
+    decoding = entry(CENSUS, "voting.canonical_decode_local_refusal")
+    assert (decoding["status"], decoding["owner"]) == ("local_resource", "P.8")
+    assert {tuple(site) for site in decoding["sites"]} == {
+        (f"crates/iroha_data_model/src/governance/anonymous_ballot/{name}.rs",
+         "unavailable", "unavailable", 2) for name in ("ballot", "context", "framing")
+    }
+    source = (ROOT / decoding["path"]).read_text()
+    assert "norito::decode_canonical_for_admission(bytes, limits).map_err(|error|" in source
+    assert ("match error.into_local_refusal() {\n"
+            "            Ok(refusal) => AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal),\n"
+            "            Err(error) => AnonymousBallotCodecErrorV1::codec(error.error()),") in source
+    assert "return Err(AnonymousBallotCodecErrorV1::TooLarge {" in source
+    assert entry(CENSUS, "voting.anonymous_entrypoint_unavailable")["status"] == "unsupported"
+
+
+def test_missing_crypto_implementation_remains_open_compiled_family_work() -> None:
+    """Typed transport preserves the missing backend; it does not certify availability."""
+    crypto = entry(CENSUS, "crypto.implementation_unavailable")
+    assert (crypto["status"], crypto["owner"]) == ("open", "M.2")
+    family = entry(CENSUS, "feature.sm_gost_bls_pqc")
+    assert (family["status"], family["owner"]) == ("open", "M.2")
+    implementation = (ROOT / "crates/iroha_crypto/src/implementation.rs").read_text()
+    assert "It does not carry or replace a local resource refusal." in implementation
+    for feature in ("pqc", "bls", "gost", "sm"):
+        assert f'cfg!(feature = "{feature}")' in implementation
+    admission = (ROOT / "crates/iroha_crypto/src/signature/admission.rs").read_text()
+    for feature in ("bls", "gost", "sm"):
+        assert f'#[cfg(not(feature = "{feature}"))]' in admission
+    privacy = entry(CENSUS, "privacy.unavailable")
+    assert privacy["status"] == "unsupported"
+    assert "UnsupportedOperation" in privacy["note"]
+    assert "TransactionSignatureError::UnsupportedImplementation" in privacy["note"]
+    assert ["crates/iroha_core/src/smartcontracts/isi/privacy.rs",
+            "unavailable", "unsupported", 2] in privacy["sites"]
+    for path in ("privacy.rs", "sccp/recipients.rs"):
+        source = (ROOT / "crates/iroha_core/src/smartcontracts/isi" / path).read_text()
+        assert "UnsupportedImplementation(original)" in source
+        assert "ExecutionAttemptError::Deferred(" in source
+        assert "CryptoImplementationUnavailable(original)" in source
+
+
+def test_crypto_policy_migration_does_not_close_qualification_or_retain_old_catalog() -> None:
+    """Retired node allowlists and surviving local generation preferences are distinct."""
+    policy = entry(CENSUS, "cfg.crypto.algorithms")
+    assert (policy["status"], policy["owner"]) == ("open", "F.4")
+    assert policy["symbol"] == "pub struct CryptoAdmissionPolicyV1"
+    assert "whole-node cross-build/restart qualification" in policy["open_reason"]
+    retired = {"crypto.allowed_signing", "crypto.allowed_curve_ids",
+               "crypto.default_hash", "crypto.sm2_distid_default"}
+    fields = {field for catalog in CENSUS["config_catalogs"]
+              for group in catalog["groups"] for field in group["fields"]}
+    assert not fields & retired
+    guards = {item["contains"] for item in policy["removed"]}
+    assert guards == {"pub allowed_signing:", "pub allowed_curve_ids:",
+                      "CRYPTO_ALLOWED_SIGNING", "CRYPTO_CURVES_ALLOWED_IDS"}
+    local = entry(CENSUS, "env.crypto.local_preferences")
+    assert (local["status"], local["owner"]) == ("not_a_gate", None)
+    assert {site[2] for site in local["sites"]} == {
+        "CRYPTO_DEFAULT_HASH", "CRYPTO_SM2_DISTID_DEFAULT",
+        "CRYPTO_SM_INTRINSICS",
+    }
+    aliases = entry(CENSUS, "env.config.validity_family_aliases")
+    assert (aliases["status"], aliases["owner"]) == ("open", "F.4")
+    assert {site[2] for site in aliases["sites"] if site[2].startswith("CRYPTO_")} == {
+        "CRYPTO_SM_OPENSSL_PREVIEW",
+    }
+    assert "HandshakeCryptoMismatch" in aliases["note"]
+    daemon = (ROOT / "crates/irohad/src/main.rs").read_text()
+    assert "sm_openssl_preview: config.crypto.enable_sm_openssl_preview," in daemon
+    peer = (ROOT / "crates/iroha_p2p/src/peer.rs").read_text()
+    assert ("match (sm_openssl_preview, caps.require_sm_openssl_preview_match) {\n"
+            "            (Some(remote_preview), true) => {\n"
+            "                if remote_preview != caps.sm_openssl_preview {\n"
+            "                    return Err(crate::Error::HandshakeCryptoMismatch);") in peer
+    assert any(test["name"] == "sm_syscalls_ignore_local_crypto_preferences"
+               for test in local["tests"])

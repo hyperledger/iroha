@@ -49,16 +49,32 @@ impl Frame {
         }
         measured.map_err(CaptureError::Codec)?;
         let mut result = Self(ChargedBuffer::new(length, budget)?);
-        encode(&mut result).map_err(CaptureError::Codec)?;
+        let mut writer = ExactWrite {
+            frame: &mut result,
+            failed: false,
+        };
+        // Preserve a propagated original codec error before checking for a writer
+        // refusal that the encoder swallowed. The flag belongs only to this pass.
+        encode(&mut writer).map_err(CaptureError::Codec)?;
+        if writer.failed {
+            return Err(CaptureError::EncodingChanged);
+        }
         if result.bytes().len() != length || Hash::new(result.bytes()) != digest {
             return Err(CaptureError::EncodingChanged);
         }
         Ok(result)
     }
 }
-impl Write for Frame {
+struct ExactWrite<'a> {
+    frame: &'a mut Frame,
+    failed: bool,
+}
+impl Write for ExactWrite<'_> {
     fn write(&mut self, value: &[u8]) -> io::Result<usize> {
-        self.0.append(value)?;
+        if let Err(original) = self.frame.0.append(value) {
+            self.failed = true;
+            return Err(original);
+        }
         Ok(value.len())
     }
     fn flush(&mut self) -> io::Result<()> {

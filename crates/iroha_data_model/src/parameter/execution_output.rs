@@ -27,7 +27,6 @@ use crate::block::{
     norito::NoritoSchema,
     iroha_schema::IntoSchema,
     norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
 )]
 #[norito_schema(name = "iroha_data_model::parameter::execution_output::ExecutionOutputPolicyV1")]
 #[norito(deny_unknown_fields)]
@@ -229,5 +228,13 @@ mod tests {
             .unwrap()
             .insert("local_memory_override".into(), 1_u64.into());
         assert!(norito::json::from_value::<ExecutionOutputPolicyV1>(value).is_err());
+    }
+}
+
+impl norito::json::JsonDeserialize for ExecutionOutputPolicyV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        super::system::parameters_json::decode_execution_output(parser)
     }
 }

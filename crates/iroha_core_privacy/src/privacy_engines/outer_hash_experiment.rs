@@ -90,7 +90,7 @@ fn sha_frame(domain: GoldilocksDigestDomainV1<'_>, fields: &[&[u8]]) -> ShaDiges
 }
 
 fn domain<'a>(
-    catalog: &'a [u8; 48],
+    catalog: &'a [u8; 32],
     role: &'a [u8],
     phase: &'a [u8],
     level: u64,
@@ -131,7 +131,7 @@ struct ShaTranscript {
 }
 
 impl ShaTranscript {
-    fn new(catalog: &[u8; 48], profile: ShaDigest, public: ShaDigest) -> Self {
+    fn new(catalog: &[u8; 32], profile: ShaDigest, public: ShaDigest) -> Self {
         Self {
             state: sha_frame(
                 domain(catalog, TRANSCRIPT_INIT_DOMAIN_V1, b"initialize", 0),
@@ -141,7 +141,7 @@ impl ShaTranscript {
         }
     }
 
-    fn absorb(&mut self, catalog: &[u8; 48], label: &[u8], fields: &[&[u8]]) {
+    fn absorb(&mut self, catalog: &[u8; 32], label: &[u8], fields: &[&[u8]]) {
         let message = sha_frame(
             GoldilocksDigestDomainV1 {
                 counter: self.counter,
@@ -181,7 +181,7 @@ impl ShaTranscript {
 
     fn sequence(
         &mut self,
-        catalog: &[u8; 48],
+        catalog: &[u8; 32],
         label: &[u8],
         count: usize,
     ) -> Option<Vec<[u64; 4]>> {
@@ -248,7 +248,7 @@ fn measure<T>(
     result
 }
 
-fn poseidon_run(pair: usize, catalog: &[u8; 48], rows: &[Vec<u8>]) {
+fn poseidon_run(pair: usize, catalog: &[u8; 32], rows: &[Vec<u8>]) {
     let width = u16::try_from(ivm_private_note::PRIVATE_NOTE_BASE_WIDTH_V1)
         .unwrap()
         .to_be_bytes();
@@ -396,7 +396,7 @@ fn poseidon_run(pair: usize, catalog: &[u8; 48], rows: &[Vec<u8>]) {
     );
 }
 
-fn sha_run(pair: usize, catalog: &[u8; 48], rows: &[Vec<u8>]) {
+fn sha_run(pair: usize, catalog: &[u8; 32], rows: &[Vec<u8>]) {
     let width = u16::try_from(ivm_private_note::PRIVATE_NOTE_BASE_WIDTH_V1)
         .unwrap()
         .to_be_bytes();

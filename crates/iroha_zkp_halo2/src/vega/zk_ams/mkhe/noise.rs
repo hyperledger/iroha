@@ -1,4 +1,8 @@
-//! Machine-checked infinity-norm schedule for the collective-ingress profile.
+//! Infinity-norm recurrence and retained collective-ingress certificate.
+//!
+//! `noise_feasibility` binds this recurrence to distinct actual/prospective
+//! evaluated-key constructions. This retained certificate alone does not account
+//! for the actual evaluated-key CKS residual or establish release readiness.
 //!
 //! A bound of `b` means that every centered coefficient has absolute value
 //! strictly smaller than `2^b`.  The rules below intentionally use only
@@ -212,6 +216,147 @@ impl Bound {
         ))
     }
 }
+/// Parameters for the one shared Phase-II/III norm recurrence.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct NoisePathInputsV1 {
+    pub ring_degree: usize,
+    pub party_count: usize,
+    pub sparse_map_fan_in: usize,
+    pub max_batch_size: usize,
+    pub ingress_bits: u16,
+    pub rotation_switch_bits: u16,
+    pub relinearization_switch_bits: u16,
+    pub terminal_overhead_bits: u16,
+}
+/// Bounds only; neither correctness nor admission is implied by this result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct NoisePathBoundsV1 {
+    pub max_composed_rotation_key_switch_count: usize,
+    pub composed_rotation_residual: u16,
+    pub mapped_fresh: u16,
+    pub linear_accumulator: u16,
+    pub cross_product: u16,
+    pub equation_6_cross_term: u16,
+    pub level_one_accumulator: u16,
+    pub encrypted_commitment: u16,
+    pub decryption_smudge_quotient: u16,
+    pub final_decryption_residual: u16,
+}
+/// Evaluate the actual norm recurrence with distinct rotation and relinearization inputs.
+pub(super) fn derive_noise_path_v1(
+    inputs: NoisePathInputsV1,
+) -> Result<NoisePathBoundsV1, ZkAmsMkheErrorV1> {
+    let NoisePathInputsV1 {
+        ring_degree,
+        party_count,
+        sparse_map_fan_in,
+        max_batch_size,
+        ingress_bits,
+        rotation_switch_bits,
+        relinearization_switch_bits,
+        terminal_overhead_bits,
+    } = inputs;
+    if ring_degree < 2
+        || !ring_degree.is_power_of_two()
+        || !(2..=8).contains(&party_count)
+        || sparse_map_fan_in == 0
+        || !(1..=8).contains(&max_batch_size)
+        || terminal_overhead_bits < 129
+    {
+        return Err(ZkAmsMkheErrorV1::InvalidProfile);
+    }
+    let log_n = ring_degree.trailing_zeros() as u16;
+    let plaintext = Bound(255);
+    let plaintext_modulus = Bound(256);
+    let collective_ingress_residual = Bound(ingress_bits);
+    let rotation_switch = Bound(rotation_switch_bits);
+    let relinearization_switch = Bound(relinearization_switch_bits);
+    let slot_count = ring_degree / 2;
+    let max_composed_rotation_key_switch_count =
+        phase23_max_composed_rotation_key_switch_count(slot_count)?;
+    // A canonical arbitrary rotation is a sequence of binary automorphisms.
+    // Automorphisms preserve the infinity norm, so its residual is the source
+    // plus one complete switch residual for every constituent key switch.
+    let composed_rotation_residual = if max_composed_rotation_key_switch_count == 0 {
+        collective_ingress_residual
+    } else {
+        collective_ingress_residual
+            .add(rotation_switch.sum(max_composed_rotation_key_switch_count)?)?
+    };
+    let mapped_fresh = composed_rotation_residual
+        .polynomial_mul(plaintext, log_n)?
+        .sum(sparse_map_fan_in)?;
+    // Replicated-U ingress is a fresh collective ciphertext and linear folds
+    // preserve that shape. Equation (6) consumes it directly, so it adds no
+    // expansion phase or expansion-specific residual.
+    let phase23_fresh_operand = Bound(mapped_fresh.0.max(collective_ingress_residual.0));
+    let challenge_times_mapped = mapped_fresh.polynomial_mul(plaintext, log_n)?;
+    let linear_accumulator = challenge_times_mapped.sum(max_batch_size)?;
+    // Multiplication of phases `(m1+r1)(m2+r2)` includes the exact plaintext
+    // reduction quotient, both mixed terms, and the residual product.
+    let plaintext_product_quotient = plaintext.polynomial_mul(plaintext, log_n)?.add(plaintext)?;
+    let first_mixed = plaintext.polynomial_mul(phase23_fresh_operand, log_n)?;
+    let second_mixed = plaintext.polynomial_mul(linear_accumulator, log_n)?;
+    let residual_product = linear_accumulator.polynomial_mul(phase23_fresh_operand, log_n)?;
+    let cross_product = Bound(
+        plaintext_product_quotient
+            .0
+            .max(first_mixed.0)
+            .max(second_mixed.0)
+            .max(residual_product.0),
+    )
+    .sum(4)?
+    .add(relinearization_switch)?;
+    let equation_6_cross_term = cross_product.sum(4)?;
+    let challenge_times_cross = equation_6_cross_term.polynomial_mul(plaintext, log_n)?;
+    let fresh_product = Bound(
+        plaintext_product_quotient.0.max(first_mixed.0).max(
+            phase23_fresh_operand
+                .polynomial_mul(phase23_fresh_operand, log_n)?
+                .0,
+        ),
+    )
+    .sum(4)?
+    .add(relinearization_switch)?;
+    let challenge_squared_times_fresh = fresh_product.polynomial_mul(plaintext, log_n)?;
+    let per_row_level_one = challenge_times_cross.add(challenge_squared_times_fresh)?;
+    let level_one_accumulator = per_row_level_one.sum(max_batch_size)?;
+    // Equation (7) applies one additional public sparse map but no encrypted
+    // multiplication; it is tracked separately even though E/rE dominate it.
+    let encrypted_commitment = linear_accumulator
+        .add(rotation_switch)?
+        .polynomial_mul(plaintext, log_n)?
+        .sum(sparse_map_fan_in)?;
+    // Public partial-decryption shares must statistically hide the full
+    // evaluated quotient.  Since p > 2^255, division by p loses at least 255
+    // bits.  Smudging is summed over every roster member before decoding.
+    let evaluated_residual = level_one_accumulator.0.max(encrypted_commitment.0);
+    let evaluated_quotient = evaluated_residual
+        .checked_sub(255)
+        .ok_or(ZkAmsMkheErrorV1::InvalidProfile)?;
+    let decryption_smudge_quotient = Bound(
+        evaluated_quotient
+            .checked_add(terminal_overhead_bits)
+            .ok_or(ZkAmsMkheErrorV1::InvalidProfile)?,
+    );
+    let aggregate_decryption_smudge = decryption_smudge_quotient.sum(party_count)?;
+    let aggregate_decryption_smudge_residual =
+        plaintext_modulus.scalar_mul(aggregate_decryption_smudge)?;
+    let final_decryption_residual =
+        Bound(evaluated_residual).add(aggregate_decryption_smudge_residual)?;
+    Ok(NoisePathBoundsV1 {
+        max_composed_rotation_key_switch_count,
+        composed_rotation_residual: composed_rotation_residual.0,
+        mapped_fresh: mapped_fresh.0,
+        linear_accumulator: linear_accumulator.0,
+        cross_product: cross_product.0,
+        equation_6_cross_term: equation_6_cross_term.0,
+        level_one_accumulator: level_one_accumulator.0,
+        encrypted_commitment: encrypted_commitment.0,
+        decryption_smudge_quotient: decryption_smudge_quotient.0,
+        final_decryption_residual: final_decryption_residual.0,
+    })
+}
 /// Derive the complete conservative schedule for the frozen construction.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn derive_noise_certificate_v1(
@@ -238,7 +383,6 @@ pub(super) fn derive_noise_certificate_v1(
     let error_bounds = derive_ingress_error_bounds_v1(sampled_error_eta)?;
     let log_n = u16::try_from(ring_degree.trailing_zeros())
         .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?;
-    let plaintext = Bound(255);
     let plaintext_modulus = Bound(256);
     let ternary = Bound(1);
     let sampled_rlwe_error = Bound(u16::from(error_bounds.sampled_bound_bits));
@@ -290,80 +434,28 @@ pub(super) fn derive_noise_certificate_v1(
     let hybrid_key_switch_residual = hybrid_digit
         .polynomial_mul(collective_rkg_residual, log_n)?
         .sum(hybrid_limb_count)?;
-    let slot_count = ring_degree / 2;
-    let max_composed_rotation_key_switch_count =
-        phase23_max_composed_rotation_key_switch_count(slot_count)?;
-    // A canonical arbitrary rotation is a sequence of binary automorphisms.
-    // Automorphisms preserve the infinity norm, so its residual is the source
-    // plus one complete switch residual for every constituent key switch.
-    let composed_rotation_residual = if max_composed_rotation_key_switch_count == 0 {
-        collective_ingress_residual
-    } else {
-        collective_ingress_residual
-            .add(hybrid_key_switch_residual.sum(max_composed_rotation_key_switch_count)?)?
-    };
-    let mapped_fresh = composed_rotation_residual
-        .polynomial_mul(plaintext, log_n)?
-        .sum(sparse_map_fan_in)?;
-    // Replicated-U ingress is a fresh collective ciphertext and linear folds
-    // preserve that shape. Equation (6) consumes it directly, so it adds no
-    // expansion phase or expansion-specific residual.
-    let phase23_fresh_operand = Bound(mapped_fresh.0.max(collective_ingress_residual.0));
-    let challenge_times_mapped = mapped_fresh.polynomial_mul(plaintext, log_n)?;
-    let linear_accumulator = challenge_times_mapped.sum(max_batch_size)?;
-    // Multiplication of phases `(m1+r1)(m2+r2)` includes the exact plaintext
-    // reduction quotient, both mixed terms, and the residual product.
-    let plaintext_product_quotient = plaintext.polynomial_mul(plaintext, log_n)?.add(plaintext)?;
-    let first_mixed = plaintext.polynomial_mul(phase23_fresh_operand, log_n)?;
-    let second_mixed = plaintext.polynomial_mul(linear_accumulator, log_n)?;
-    let residual_product = linear_accumulator.polynomial_mul(phase23_fresh_operand, log_n)?;
-    let cross_product = Bound(
-        plaintext_product_quotient
-            .0
-            .max(first_mixed.0)
-            .max(second_mixed.0)
-            .max(residual_product.0),
-    )
-    .sum(4)?
-    .add(hybrid_key_switch_residual)?;
-    let equation_6_cross_term = cross_product.sum(4)?;
-    let challenge_times_cross = equation_6_cross_term.polynomial_mul(plaintext, log_n)?;
-    let fresh_product = Bound(
-        plaintext_product_quotient.0.max(first_mixed.0).max(
-            phase23_fresh_operand
-                .polynomial_mul(phase23_fresh_operand, log_n)?
-                .0,
-        ),
-    )
-    .sum(4)?
-    .add(hybrid_key_switch_residual)?;
-    let challenge_squared_times_fresh = fresh_product.polynomial_mul(plaintext, log_n)?;
-    let per_row_level_one = challenge_times_cross.add(challenge_squared_times_fresh)?;
-    let level_one_accumulator = per_row_level_one.sum(max_batch_size)?;
-    // Equation (7) applies one additional public sparse map but no encrypted
-    // multiplication; it is tracked separately even though E/rE dominate it.
-    let encrypted_commitment = linear_accumulator
-        .add(hybrid_key_switch_residual)?
-        .polynomial_mul(plaintext, log_n)?
-        .sum(sparse_map_fan_in)?;
-    // Public partial-decryption shares must statistically hide the full
-    // evaluated quotient.  Since p > 2^255, division by p loses at least 255
-    // bits.  Smudging is summed over every roster member before decoding.
-    let evaluated_residual = level_one_accumulator.0.max(encrypted_commitment.0);
-    let evaluated_quotient = evaluated_residual
-        .checked_sub(255)
-        .ok_or(ZkAmsMkheErrorV1::InvalidProfile)?;
-    let decryption_smudge_quotient = Bound(
-        evaluated_quotient
-            .checked_add(statistical_security_bits)
-            .and_then(|bits| bits.checked_add(1))
+    let path = derive_noise_path_v1(NoisePathInputsV1 {
+        ring_degree,
+        party_count,
+        sparse_map_fan_in,
+        max_batch_size,
+        ingress_bits: collective_ingress_residual.0,
+        rotation_switch_bits: hybrid_key_switch_residual.0,
+        relinearization_switch_bits: hybrid_key_switch_residual.0,
+        terminal_overhead_bits: statistical_security_bits
+            .checked_add(1)
             .ok_or(ZkAmsMkheErrorV1::InvalidProfile)?,
-    );
-    let aggregate_decryption_smudge = decryption_smudge_quotient.sum(party_count)?;
-    let aggregate_decryption_smudge_residual =
-        plaintext_modulus.scalar_mul(aggregate_decryption_smudge)?;
-    let final_decryption_residual =
-        Bound(evaluated_residual).add(aggregate_decryption_smudge_residual)?;
+    })?;
+    let max_composed_rotation_key_switch_count = path.max_composed_rotation_key_switch_count;
+    let composed_rotation_residual = Bound(path.composed_rotation_residual);
+    let mapped_fresh = Bound(path.mapped_fresh);
+    let linear_accumulator = Bound(path.linear_accumulator);
+    let cross_product = Bound(path.cross_product);
+    let equation_6_cross_term = Bound(path.equation_6_cross_term);
+    let level_one_accumulator = Bound(path.level_one_accumulator);
+    let encrypted_commitment = Bound(path.encrypted_commitment);
+    let decryption_smudge_quotient = Bound(path.decryption_smudge_quotient);
+    let final_decryption_residual = Bound(path.final_decryption_residual);
     let ciphertext_modulus_bits =
         u16::try_from(ciphertext_modulus_bits).map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?;
     let centered_capacity = ciphertext_modulus_bits

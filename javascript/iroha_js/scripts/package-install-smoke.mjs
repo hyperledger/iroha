@@ -20,6 +20,7 @@ const ROOT = resolve(SCRIPT_DIR, "..");
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const ALLOWED_RECIPE_PATHS = new Set([
   "recipes/iso_bridge_builder.mjs",
+  "recipes/iso_bridge_context.mjs",
   "recipes/nexus_app_transfer.mjs",
   "recipes/README.md",
 ]);
@@ -107,6 +108,7 @@ export function validatePackPaths(metadata) {
     "dist/tairaTestnetProfile.js",
     "nexus-app.d.ts",
     "recipes/iso_bridge_builder.mjs",
+    "recipes/iso_bridge_context.mjs",
     "recipes/nexus_app_transfer.mjs",
   ]) {
     if (!paths.has(required)) {
@@ -317,12 +319,25 @@ async function main() {
         ISO_MESSAGE_ID: "package-smoke-message",
         ISO_CREATION_TIME: "2026-01-01T00:00:00.000Z",
         ISO_INSTRUCTION_ID: "package-smoke-instruction",
+        ISO_BUILDER_CONFIG: "",
+        ISO_SUBMIT: "0",
+        ISO_DRY_RUN: "1",
+        ISO_UETR: "123e4567-e89b-42d3-a456-426614174000",
+        ISO_NETWORK_ID: "hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0",
+        ISO_EXPIRES_AT_HEIGHT: "100",
+        ISO_SOURCE_ACCOUNT_ID: "sorauﾛ1P5ﾁXEｴﾕGjgﾕﾚﾎﾕｸﾁEtﾀ3ﾂｺ2gALｺﾒefﾍ8DLgｾoCVGUYHS5",
+        ISO_TARGET_ACCOUNT_ID: "sorauﾛ1PﾜdﾎｼﾋﾉNｸdﾁﾑkiﾇ3ｵﾓaPBQDTｲKqｼqｵrﾗｶwSQ1ﾌﾅQU61Y7",
+        ISO_ASSET_DEFINITION_ID: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
       },
     });
     for (const expected of [
       "<MsgId>package-smoke-message</MsgId>",
       "<InstrId>package-smoke-instruction</InstrId>",
       '<IntrBkSttlmAmt Ccy="EUR">100.00</IntrBkSttlmAmt>',
+      "<UETR>123e4567-e89b-42d3-a456-426614174000</UETR>",
+      "sorauﾛ1P5ﾁXEｴﾕGjgﾕﾚﾎﾕｸﾁEtﾀ3ﾂｺ2gALｺﾒefﾍ8DLgｾoCVGUYHS5",
+      "sorauﾛ1PﾜdﾎｼﾋﾉNｸdﾁﾑkiﾇ3ｵﾓaPBQDTｲKqｼqｵrﾗｶwSQ1ﾌﾅQU61Y7",
+      "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
     ]) {
       if (!isoBuilder.stdout.includes(expected)) {
         throw new Error(`packed ISO builder recipe output is missing: ${expected}`);

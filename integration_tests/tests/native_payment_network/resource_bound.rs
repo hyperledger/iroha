@@ -201,7 +201,12 @@ fn native_payment_exact_fixed_frame_and_first_excess_byte_use_real_signed_terms(
             &network.network_id(),
             Duration::from_secs(1),
             parameters.transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         );
         if allowed {
             // `ensure!` may evaluate its condition twice; consume the result first.

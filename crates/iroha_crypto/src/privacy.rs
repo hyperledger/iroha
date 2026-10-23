@@ -4,20 +4,14 @@
 //! commitment must not be added here until admission can resolve an on-chain verifying key and
 //! invoke its real cryptographic verifier.
 
-/// Fixed six-lane commitment to the sole first-release privacy protocol catalog.
+/// Complete native BLAKE3-256 commitment to the sole first-release privacy catalog.
 ///
-/// This is public catalog identity metadata. The data-model owner retains its
-/// exact canonical preimage, reproduction test, and strict catalog decoder; the
-/// lower cryptographic owner exposes the same words to native proof engines
-/// without introducing a data-model dependency or a second catalog value.
-pub const PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1: [u64;
-    fastpq_isi::GOLDILOCKS_DIGEST384_LANES_V1] = [
-    0x7c30_a004_39f1_37e0,
-    0x6b40_fb5c_d815_db00,
-    0x49a9_4401_d272_97d7,
-    0x2e34_8ea7_fdf3_f0de,
-    0xfabf_bf7c_7865_7f74,
-    0xffbb_e269_c311_4fc9,
+/// The data-model owner retains the exact ordered preimage and strict decoder.
+/// Native proof engines consume these same 32 raw bytes as public context;
+/// proof-internal hash outputs and parameters remain owned by their engines.
+pub const PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1: [u8; 32] = [
+    0x5b, 0xcf, 0x36, 0x6f, 0xb1, 0x8d, 0x2e, 0x43, 0x61, 0x48, 0x6c, 0x01, 0x5d, 0xa5, 0xb4, 0x1a,
+    0x3f, 0xb0, 0x0e, 0xdf, 0x05, 0x61, 0x10, 0x42, 0xcc, 0xc4, 0x52, 0x12, 0x0d, 0x17, 0x6e, 0xb0,
 ];
 
 use crate::{Hash, HashOf, MerkleProof, MerkleTree};

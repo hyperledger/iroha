@@ -98,7 +98,6 @@ pub mod consensus_keys;
 /// Domain endorsement management instructions.
 pub mod endorsement;
 /// Governance instruction module
-#[cfg(feature = "governance")]
 pub mod governance;
 /// Ministry agenda intake instructions.
 pub mod ministry;
@@ -631,37 +630,21 @@ impl_direct_instruction_box!(crate::isi::confidential::SetPedersenParamsLifecycl
 impl_direct_instruction_box!(crate::isi::confidential::PublishPoseidonParams);
 impl_direct_instruction_box!(crate::isi::confidential::SetPoseidonParamsLifecycle);
 // Allow direct boxing of governance instructions
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeDeployContract);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeContractLifecycleGovernance);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeContractEmergencyHold);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeGlobalDataTriggerPermissionGovernance);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeRuntimeUpgradeProposal);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeSccpRouteGovernance);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeSorafsProviderGovernance);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeValidationFeePolicy);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::ProposeValidationFeePayoutLifecycle);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::CreateParliamentGovernanceAttemptV1);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::SubmitParliamentLifecycleTransitionV1);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::CastZkBallot);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::CastPlainBallot);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::UpdatePlainConviction);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::SlashGovernanceLock);
-#[cfg(feature = "governance")]
 impl_direct_instruction_box!(crate::isi::governance::RestituteGovernanceLock);
 // Allow direct boxing of asset metadata helpers
 impl_direct_instruction_box!(crate::isi::transparent::SetAssetKeyValue);
@@ -1985,8 +1968,12 @@ pub mod account_recovery;
 pub mod alias_setup;
 /// Asset-definition alias binding instructions.
 pub mod asset_alias;
+pub mod asset_fi;
 /// Asset-scoped outbound transfer control instructions.
 pub mod asset_transfer_control;
+/// Additive identity-wide asset holding and activity policy.
+pub mod asset_uid;
+pub mod asset_uid_enrollment;
 /// Native bond-servicing kernel instructions.
 pub mod bond;
 /// Confidential registry management instructions. Bridge proof ingestion instructions.
@@ -2035,10 +2022,6 @@ mod registry_install;
 /// Repo settlement instructions.
 pub mod repo;
 pub mod retail_daily_limit;
-/// Additive identity-wide asset holding and activity policy.
-pub mod asset_uid;
-pub mod asset_uid_enrollment;
-pub mod asset_fi;
 /// Runtime upgrade instructions and payloads.
 pub mod runtime_upgrade;
 /// Real-world asset lot instructions.
@@ -2827,7 +2810,6 @@ pub mod error {
 }
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    #[cfg(feature = "governance")]
     pub use super::governance::parliament::*;
     pub use super::{
         GrantBox, Instruction, InstructionBox, RemoveKeyValueBox, RevokeBox, SetKeyValueBox,
@@ -2840,10 +2822,15 @@ pub mod prelude {
             CompareAndSetPrimaryAccountAlias, ConfigureAliasAutoRenew, EnsureAlias,
             RebindAccountAlias, RenewAliasLease,
         },
+        asset_fi::{
+            SetAssetFiLinkAttestationV1, SetAssetFiLinkV1, SetAssetFiV1, TransferToLinkedFiV1,
+        },
         asset_transfer_control::{
             SetAssetHoldingLimit, SetAssetTransferAvailability, SetAssetTransferBlacklist,
             SetAssetTransferControl,
         },
+        asset_uid::{SetAssetUidPolicyReaderV1, SetAssetUidPolicyV1},
+        asset_uid_enrollment::{ActivateAssetUidEnrollmentV1, SetAssetUidSystemAccountV1},
         bond::{
             BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
             FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
@@ -2908,9 +2895,6 @@ pub mod prelude {
         retail_daily_limit::{
             ActivateRetailDailyLimitV1, BindRetailIdentityV1, RetailMonetaryMovementV1,
         },
-        asset_uid::{SetAssetUidPolicyV1, SetAssetUidPolicyReaderV1},
-        asset_uid_enrollment::{ActivateAssetUidEnrollmentV1, SetAssetUidSystemAccountV1},
-        asset_fi::{SetAssetFiV1, SetAssetFiLinkAttestationV1, SetAssetFiLinkV1, TransferToLinkedFiV1},
         rwa::{
             ForceTransferRwa, FreezeRwa, HoldRwa, MergeRwas, RedeemRwa, RegisterRwa, ReleaseRwa,
             RwaInstructionBox, SetRwaControls, TransferRwa, UnfreezeRwa,

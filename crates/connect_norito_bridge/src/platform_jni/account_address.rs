@@ -1,17 +1,54 @@
 //! JNI admission of complete canonical account controllers through the Rust model owner.
 
-use super::{catch_unwind_to_java, read_java_byte_array_bounded, throw_java_illegal_argument};
-use iroha_data_model::account::address::AccountAddress;
+use super::{catch_unwind_to_java, read_java_byte_array_bounded, throw_java_illegal_state};
+use iroha_data_model::account::address::{AccountAddress, AccountAddressError};
+use jni::objects::{JThrowable, JValue};
 
 /// Maximum raw account-address input accepted by the SDK JNI resource boundary.
 const MAX_CANONICAL_ADDRESS_BYTES_V1: usize = 64 * 1024 * 1024;
 
-fn validate_canonical_address(bytes: &[u8]) -> Result<(), String> {
-    if bytes.is_empty() || bytes.len() > MAX_CANONICAL_ADDRESS_BYTES_V1 {
-        return Err("canonical account address exceeds the JNI input bound".to_owned());
+#[derive(Debug)]
+enum AddressAdmissionError {
+    InputBound,
+    NonCanonical,
+    Model(AccountAddressError),
+}
+impl AddressAdmissionError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::InputBound => "ERR_INVALID_LENGTH",
+            Self::NonCanonical => "ERR_INVALID_PUBLIC_KEY",
+            Self::Model(original) => original.code_str(),
+        }
     }
-    let address = AccountAddress::from_canonical_bytes(bytes).map_err(|error| error.to_string())?;
-    let encoded = address.canonical_hex().map_err(|error| error.to_string())?;
+    fn capability(&self) -> Option<iroha_crypto::UnsupportedImplementation> {
+        match self {
+            Self::Model(AccountAddressError::UnsupportedImplementation(original)) => {
+                Some(*original)
+            }
+            _ => None,
+        }
+    }
+    fn message(&self) -> String {
+        match self {
+            Self::InputBound => "canonical account address exceeds the JNI input bound".to_owned(),
+            Self::NonCanonical => {
+                "account address is not its exact canonical representation".to_owned()
+            }
+            Self::Model(original) => original.to_string(),
+        }
+    }
+}
+
+fn validate_canonical_address(bytes: &[u8]) -> Result<(), AddressAdmissionError> {
+    if bytes.is_empty() || bytes.len() > MAX_CANONICAL_ADDRESS_BYTES_V1 {
+        return Err(AddressAdmissionError::InputBound);
+    }
+    let address =
+        AccountAddress::from_canonical_bytes(bytes).map_err(AddressAdmissionError::Model)?;
+    let encoded = address
+        .canonical_hex()
+        .map_err(AddressAdmissionError::Model)?;
     let expected_len = 2 + bytes.len() * 2;
     let hex = b"0123456789abcdef";
     if encoded.len() != expected_len
@@ -23,9 +60,44 @@ fn validate_canonical_address(bytes: &[u8]) -> Result<(), String> {
                 pair[0] == hex[usize::from(byte >> 4)] && pair[1] == hex[usize::from(byte & 0x0f)]
             })
     {
-        return Err("account address is not its exact canonical representation".to_owned());
+        return Err(AddressAdmissionError::NonCanonical);
     }
     Ok(())
+}
+
+fn throw_address_error(env: &mut jni::JNIEnv<'_>, original: AddressAdmissionError) {
+    let code = original.code();
+    let capability = original.capability();
+    let message = original.message();
+    let algorithm = capability.map_or("", |cause| cause.algorithm.as_static_str());
+    let operation = capability.map_or_else(String::new, |cause| cause.operation.to_string());
+    let result = (|| -> jni::errors::Result<()> {
+        let code = env.new_string(code)?;
+        let message = env.new_string(message)?;
+        let algorithm = env.new_string(algorithm)?;
+        let operation = env.new_string(operation)?;
+        let throwable = env.new_object(
+            "org/hyperledger/iroha/sdk/address/AccountAddressNativeException",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            &[
+                JValue::Object(code.as_ref()),
+                JValue::Object(message.as_ref()),
+                JValue::Object(algorithm.as_ref()),
+                JValue::Object(operation.as_ref()),
+            ],
+        )?;
+        env.throw(JThrowable::from(throwable))
+    })();
+    if result.is_err() {
+        // JNI allocation/class loading can already have raised its original exception.
+        // Never erase that pending cause with an address-invalid replacement.
+        if matches!(env.exception_check(), Ok(false)) {
+            throw_java_illegal_state(
+                env,
+                "structured address exception could not be constructed".to_owned(),
+            );
+        }
+    }
 }
 
 /// Validate every controller key and policy and return the exact admitted canonical bytes.
@@ -51,8 +123,8 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_crypto_NativeSigner
     }) else {
         return std::ptr::null_mut();
     };
-    if let Err(message) = result {
-        throw_java_illegal_argument(&mut env, message);
+    if let Err(original) = result {
+        throw_address_error(&mut env, original);
         return std::ptr::null_mut();
     }
     match env.byte_array_from_slice(&bytes) {
@@ -70,6 +142,35 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_crypto_NativeSigner
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn address_jni_classifies_original_capability_unknown_curve_and_bad_material_separately() {
+        use iroha_crypto::{Algorithm, CryptoOperation};
+        for &algorithm in Algorithm::ALL {
+            let Err(expected) = algorithm.require_implementation(CryptoOperation::ParsePublicKey)
+            else {
+                continue;
+            };
+            let curve = iroha_data_model::account::curve::CurveId::from_algorithm(algorithm);
+            let mut bytes = vec![2, 0, curve.as_u8(), 48];
+            bytes.extend_from_slice(&[1; 48]);
+            let error = validate_canonical_address(&bytes).unwrap_err();
+            assert_eq!(error.code(), "ERR_UNSUPPORTED_IMPLEMENTATION");
+            assert_eq!(error.capability(), Some(expected));
+        }
+        let unknown = validate_canonical_address(&[2, 0, 255, 1, 1]).unwrap_err();
+        assert_eq!(unknown.code(), "ERR_UNKNOWN_CURVE");
+        assert!(unknown.capability().is_none());
+        let mut bad = vec![2, 0, 1, 32];
+        bad.extend_from_slice(&[0; 32]);
+        let error = validate_canonical_address(&bad).unwrap_err();
+        assert_eq!(error.code(), "ERR_INVALID_PUBLIC_KEY");
+        assert!(error.capability().is_none());
+        assert_eq!(
+            validate_canonical_address(&[]).unwrap_err().code(),
+            "ERR_INVALID_LENGTH"
+        );
+    }
 
     #[test]
     fn full_controller_fixture_is_accepted_without_byte_normalization() {

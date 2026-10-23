@@ -12,7 +12,6 @@
 //! unrelated readiness bit to bypass an open receipt handoff.
 
 use super::{MKHE_VERSION_V1, ZkAmsMkheErrorV1};
-use crate::vega::sponge::Keccak256;
 const RECEIPT_CAPABILITY_AUDIT_DOMAIN_V1: &[u8] =
     b"iroha.zk-ams.v1.mkhe.verified-receipt-capability-audit";
 const BLOCKER_CPK_AGGREGATE_V1: u16 = 1 << 0;
@@ -313,10 +312,14 @@ const fn receipt_capability_release_available_v1(audit: ZkAmsMkheReceiptCapabili
         && audit.blocker_mask == 0
 }
 fn receipt_capability_audit_digest_v1(audit: ZkAmsMkheReceiptCapabilityAuditV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(RECEIPT_CAPABILITY_AUDIT_DOMAIN_V1);
-    hash.update(&[audit.version]);
-    hash.update(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        RECEIPT_CAPABILITY_AUDIT_DOMAIN_V1,
+        4,
+    );
+    hash.push_field(&[audit.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         audit.cpk_relation_receipt_sealed.into(),
         audit.cpk_party_state_admission_consumes_receipt.into(),
         audit.cpk_aggregate_receipt_enforced.into(),
@@ -337,10 +340,16 @@ fn receipt_capability_audit_digest_v1(audit: ZkAmsMkheReceiptCapabilityAuditV1) 
         audit.split_decryption_receipts_enforced.into(),
         audit.persistent_decryption_equality_complete.into(),
         audit.persistent_decryption_replay_axes_specified.into(),
-    ]);
-    hash.update(&audit.blocker_mask.to_be_bytes());
-    hash.update(&[audit.release_available.into()]);
-    hash.finalize()
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.blocker_mask.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[audit.release_available.into()])
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 #[cfg(test)]
 mod tests {

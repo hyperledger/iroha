@@ -67,7 +67,7 @@ pub struct NodeCapabilitiesResponse {
     pub data_model_version: u32,
     /// Norito schema hash for `SignedTransaction` submit payloads.
     pub signed_transaction_schema_hash_hex: String,
-    /// Cryptography capabilities (SM, default hashes, allow-lists)
+    /// Implementation capabilities, local generation defaults and committed signing policy
     pub crypto: NodeCryptoCapabilities,
     /// Query DSL and projection-index capabilities.
     pub query: NodeQueryCapabilities,
@@ -87,13 +87,13 @@ pub struct NodeCryptoCapabilities {
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// SM capability manifest exported by the node.
 pub struct NodeSmCapabilities {
-    /// Whether SM helpers are enabled in this node.
+    /// Whether this node contains the SM2 verification implementation; not chain admission.
     pub enabled: bool,
-    /// Default transaction hash algorithm.
+    /// Node-local generation hash preference; it does not select transaction hashing or admission.
     pub default_hash: String,
-    /// Admission allow-list for signing algorithms.
+    /// Exact committed ordinary signing policy, in canonical algorithm tag order.
     pub allowed_signing: Vec<String>,
-    /// Default SM2 distinguishing identifier.
+    /// Node-local SM2 generation DistID; the omitted IVM operand uses the fixed protocol constant.
     pub sm2_distid_default: String,
     /// Whether the OpenSSL/Tongsuo preview backend is toggled on.
     pub openssl_preview: bool,
@@ -366,13 +366,21 @@ pub async fn handle_node_capabilities(
 ) -> Result<NodeCapabilitiesResponse, crate::Error> {
     let world = state.world_view();
     let crypto_cfg = state.crypto();
-    let allowed_signing: Vec<String> = crypto_cfg
-        .allowed_signing
+    let policy = world
+        .transaction_admission_parameters()
+        .require_crypto_policy()
+        .map_err(|_| {
+            crate::Error::TransactionAdmissionDeferred(
+                ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable.into(),
+            )
+        })?;
+    let allowed_signing: Vec<String> = policy
+        .allowed_algorithms()
         .iter()
         .map(|algo| algo.as_static_str().to_string())
         .collect();
     let latest_projection_checkpoint = state.query_projection_checkpoint_snapshot();
-    let curve_caps = summarize_curve_capabilities(&crypto_cfg);
+    let curve_caps = summarize_curve_capabilities(policy);
     #[cfg(feature = "sm")]
     let (neon_sm3, neon_sm4, policy_string) = {
         let advert = iroha_crypto::sm::acceleration_advert();
@@ -402,7 +410,9 @@ pub async fn handle_node_capabilities(
         signed_transaction_schema_hash_hex: signed_transaction_schema_hash_hex(),
         crypto: NodeCryptoCapabilities {
             sm: NodeSmCapabilities {
-                enabled: crypto_cfg.sm_helpers_enabled(),
+                enabled: iroha_crypto::Algorithm::Sm2
+                    .require_implementation(iroha_crypto::CryptoOperation::VerifySignature)
+                    .is_ok(),
                 default_hash: crypto_cfg.default_hash.clone(),
                 allowed_signing,
                 sm2_distid_default: crypto_cfg.sm2_distid_default.clone(),
@@ -1261,23 +1271,12 @@ fn signed_transaction_schema_hash_hex() -> String {
     hex::encode(norito::schema::identity::frame_hash::<SignedTransaction>())
 }
 fn summarize_curve_capabilities(
-    crypto: &iroha_config::parameters::actual::Crypto,
+    policy: &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1,
 ) -> NodeCurveCapabilities {
-    let mut ids = crypto.allowed_curve_ids.clone();
-    if ids.is_empty() {
-        ids = iroha_config::parameters::defaults::crypto::derive_curve_ids_from_algorithms(
-            &crypto.allowed_signing,
-        );
-    }
-    if ids.is_empty() {
-        warn!(
-            target: "iroha_torii::runtime",
-            "allowed_curve_ids resolved to an empty list; defaulting to ed25519-only advert"
-        );
-        ids.push(CurveId::ED25519.as_u8());
-    }
-    ids.sort_unstable();
-    ids.dedup();
+    let ids = policy
+        .allowed_curves()
+        .map(CurveId::as_u8)
+        .collect::<Vec<_>>();
     let bitmap = curve_bitmap_from_ids(&ids);
     NodeCurveCapabilities {
         registry_version: CURVE_REGISTRY_VERSION,
@@ -1621,6 +1620,19 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let world = iroha_core::state::World::default();
+        {
+            let mut block = world.block();
+            let policy =
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    Algorithm::Ed25519,
+                ])
+                .unwrap();
+            block
+                .parameters
+                .set_parameter(policy.into_parameter().unwrap())
+                .unwrap();
+            block.commit();
+        }
         let state = State::new_for_testing(world, kura, query_handle);
         let resp = handle_node_capabilities(std::sync::Arc::new(state))
             .await
@@ -1633,6 +1645,11 @@ mod tests {
         assert_eq!(
             resp.data_model_version,
             iroha_data_model::DATA_MODEL_VERSION
+        );
+        assert_eq!(resp.crypto.sm.allowed_signing, vec!["ed25519".to_owned()]);
+        assert_eq!(
+            resp.crypto.curves.allowed_curve_ids,
+            vec![CurveId::ED25519.as_u8()]
         );
         assert_eq!(resp.signed_transaction_schema_hash_hex.len(), 32);
         assert_eq!(
@@ -1719,6 +1736,19 @@ mod tests {
                 .allowed_curve_ids
                 .contains(&CurveId::ED25519.as_u8()),
             "expected ED25519 curve id to be advertised"
+        );
+    }
+    #[tokio::test]
+    async fn node_capabilities_without_initial_policy_is_local_readiness() {
+        let state = State::new_for_testing(
+            iroha_core::state::World::default(),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        let error = handle_node_capabilities(Arc::new(state)).await.unwrap_err();
+        assert!(
+            matches!(error, crate::Error::TransactionAdmissionDeferred(original)
+            if original.reason() == ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable)
         );
     }
     #[tokio::test]

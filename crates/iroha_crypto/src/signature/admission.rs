@@ -4,7 +4,9 @@
 //! Algorithm parsing and verification reuse the existing canonical relations.
 
 use super::{ed25519, mldsa, secp256k1};
-use crate::{Algorithm, Error, PublicKey, PublicKeyEnvelopeError, Signature};
+use crate::{
+    Algorithm, Error, PublicKey, PublicKeyEnvelopeError, Signature, UnsupportedImplementation,
+};
 
 /// Unformatted rejection from the borrowed, uncached signature relation.
 ///
@@ -25,9 +27,18 @@ enum Failure {
     #[cfg(feature = "sm")]
     Sm2(crate::sm::verification::KeyRejection),
     Signature,
+    UnsupportedImplementation(UnsupportedImplementation),
 }
 
 impl SignatureVerificationError {
+    /// Borrow the missing-implementation diagnostic without formatting or consuming this error.
+    pub fn unsupported_implementation(&self) -> Option<UnsupportedImplementation> {
+        match self.0 {
+            Failure::UnsupportedImplementation(original) => Some(original),
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "bls")]
     pub(crate) fn bad_signature() -> Self {
         Self(Failure::Signature)
@@ -55,6 +66,9 @@ impl SignatureVerificationError {
             #[cfg(feature = "sm")]
             Failure::Sm2(error) => error.into_parse_error().into(),
             Failure::Signature => Error::BadSignature,
+            Failure::UnsupportedImplementation(original) => {
+                Error::UnsupportedImplementation(original)
+            }
         }
     }
 }
@@ -89,8 +103,9 @@ pub fn verify_bls_normal_signature_borrowed(
 /// or positive-verdict caches.
 ///
 /// # Errors
-/// Returns the unformatted canonical parser or verification rejection. A caller
-/// must not interpret this semantic rejection as a local resource deferral.
+/// Returns the unformatted canonical parser or verification rejection, or the
+/// exact missing local implementation. An unavailable verifier does not establish
+/// an invalid signature and is distinct from a local resource deferral.
 pub fn verify_signature_borrowed(
     proof: &Signature,
     public_key: &PublicKey,
@@ -154,6 +169,14 @@ pub(crate) fn verify_bls_normal_pop_key_borrowed(
 
 fn verify(proof: &Signature, public_key: &PublicKey, message: &[u8]) -> Result<(), Failure> {
     let (algorithm, payload) = public_key.borrowed_parts().map_err(Failure::Envelope)?;
+    // Use the canonical capability owner before non-ML-DSA dispatch. Its missing
+    // backend branches already refused before key parsing. ML-DSA keeps its
+    // available key-geometry check before reporting an unavailable verifier.
+    if algorithm != Algorithm::MlDsa {
+        algorithm
+            .require_implementation(crate::CryptoOperation::VerifySignature)
+            .map_err(Failure::UnsupportedImplementation)?;
+    }
     match algorithm {
         Algorithm::Ed25519 => {
             let key = ed25519::Ed25519Sha512::parse_public_key_uncached_for_decode(payload)
@@ -170,9 +193,17 @@ fn verify(proof: &Signature, public_key: &PublicKey, message: &[u8]) -> Result<(
                 .map_err(|_| Failure::Signature)
         }
         Algorithm::MlDsa => {
-            // The original single-item batch admission adapter maps every fixed
-            // ML-DSA key/relation rejection to BadSignature, including no-PQC.
-            mldsa::verify(payload, proof.payload(), message).map_err(|_| Failure::Signature)
+            // Actual invalid key/signature relations retain their existing rejection;
+            // a missing local verifier is never evidence that this signature is invalid.
+            mldsa::verify(payload, proof.payload(), message).map_err(|error| match error {
+                #[cfg(not(feature = "pqc"))]
+                mldsa::Rejection::UnsupportedImplementation(original) => {
+                    Failure::UnsupportedImplementation(original)
+                }
+                mldsa::Rejection::Key(_) => Failure::Signature,
+                #[cfg(any(feature = "pqc", test))]
+                mldsa::Rejection::Signature => Failure::Signature,
+            })
         }
         #[cfg(feature = "gost")]
         Algorithm::Gost3410_2012_256ParamSetA
@@ -200,6 +231,31 @@ fn verify(proof: &Signature, public_key: &PublicKey, message: &[u8]) -> Result<(
             // Shared fixed identity-hash/scalar/point relation, BadSignature only.
             .verify(message, proof.payload())
             .map_err(|_| Failure::Signature),
+        #[cfg(not(feature = "bls"))]
+        Algorithm::BlsNormal | Algorithm::BlsSmall => Err(Failure::UnsupportedImplementation(
+            UnsupportedImplementation {
+                algorithm,
+                operation: crate::CryptoOperation::VerifySignature,
+            },
+        )),
+        #[cfg(not(feature = "gost"))]
+        Algorithm::Gost3410_2012_256ParamSetA
+        | Algorithm::Gost3410_2012_256ParamSetB
+        | Algorithm::Gost3410_2012_256ParamSetC
+        | Algorithm::Gost3410_2012_512ParamSetA
+        | Algorithm::Gost3410_2012_512ParamSetB => Err(Failure::UnsupportedImplementation(
+            UnsupportedImplementation {
+                algorithm,
+                operation: crate::CryptoOperation::VerifySignature,
+            },
+        )),
+        #[cfg(not(feature = "sm"))]
+        Algorithm::Sm2 => Err(Failure::UnsupportedImplementation(
+            UnsupportedImplementation {
+                algorithm,
+                operation: crate::CryptoOperation::VerifySignature,
+            },
+        )),
     }
 }
 

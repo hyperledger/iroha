@@ -481,13 +481,16 @@ fn accept_transaction(state: &State, tx: SignedTransaction) -> AcceptedTransacti
         .sumeragi()
         .max_clock_drift();
     let tx_params = state.view().world().parameters().transaction();
-    let crypto = state.crypto.read().clone();
     AcceptedTransaction::accept(
         tx,
         state.network_id_ref(),
         max_clock_drift,
         tx_params,
-        crypto.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("transaction admission should pass stateless checks")
 }

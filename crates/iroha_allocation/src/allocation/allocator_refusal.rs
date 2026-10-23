@@ -34,6 +34,7 @@ enum Original {
     Shared(PrepaidSharedError),
     BufferFromCharge(ChargedBufferFromChargeError),
     SharedFromCharge(SharedFromChargeError),
+    RawShared(crate::shared::ReservationError),
     VecReserve {
         original: std::collections::TryReserveError,
         layout: std::alloc::Layout,
@@ -41,6 +42,26 @@ enum Original {
 }
 
 impl AllocatorRefusal {
+    /// Borrow the actual failure of the concrete generic shared-shell allocator.
+    /// This contains its original checked layout and grants no pool wake source.
+    pub fn raw_shared_error(&self) -> Option<&crate::shared::ReservationError> {
+        match &self.original {
+            Original::RawShared(original) => Some(original),
+            _ => None,
+        }
+    }
+
+    /// Move out the same generic shared-shell failure without reconstruction.
+    ///
+    /// # Errors
+    /// Returns the complete owner unchanged when it holds a different cause.
+    pub fn into_raw_shared_error(self) -> Result<crate::shared::ReservationError, Self> {
+        match self.original {
+            Original::RawShared(original) => Ok(original),
+            original => Err(Self { original }),
+        }
+    }
+
     /// Retain the exact failure of an empty vector reservation after its layout was checked.
     ///
     /// The caller must have established a representable array layout before invoking
@@ -192,6 +213,13 @@ impl TryFrom<SharedFromChargeError> for AllocatorRefusal {
         }
     }
 }
+impl From<crate::shared::ReservationError> for AllocatorRefusal {
+    fn from(original: crate::shared::ReservationError) -> Self {
+        Self {
+            original: Original::RawShared(original),
+        }
+    }
+}
 impl fmt::Display for AllocatorRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.original {
@@ -199,6 +227,7 @@ impl fmt::Display for AllocatorRefusal {
             Original::Shared(error) => error.fmt(f),
             Original::BufferFromCharge(error) => error.fmt(f),
             Original::SharedFromCharge(error) => error.fmt(f),
+            Original::RawShared(error) => error.fmt(f),
             Original::VecReserve { original, layout } => {
                 write!(f, "failed to reserve {} bytes: {original}", layout.size())
             }
@@ -212,6 +241,7 @@ impl Error for AllocatorRefusal {
             Original::Shared(error) => error,
             Original::BufferFromCharge(error) => error,
             Original::SharedFromCharge(error) => error,
+            Original::RawShared(error) => error,
             Original::VecReserve { original, .. } => original,
         })
     }
@@ -221,6 +251,43 @@ mod tests {
     use super::*;
     use crate::{AllocationBudget, AllocationRefusal, ChargedBuffer, ChargedShared};
     use std::alloc::Layout;
+
+    #[test]
+    fn actual_generic_shared_refusal_keeps_original_layout_source_and_retry_charge() {
+        use crate::{
+            shared::Reserved,
+            test_support::{refusing_allocation, without_allocations},
+        };
+        let pool = AllocationBudget::new(4096);
+        let layout = Reserved::<u64, crate::AllocationCharge>::layout();
+        let charge = pool.try_reserve(layout).unwrap().try_split(layout).unwrap();
+        let (charge, original) =
+            refusing_allocation(layout, || Reserved::<u64, _>::try_new(charge)).unwrap_err();
+        let expected = original;
+        let owner = without_allocations(|| AllocatorRefusal::from(original));
+        assert_eq!(owner.raw_shared_error(), Some(&expected));
+        assert!(
+            owner
+                .source()
+                .unwrap()
+                .is::<crate::shared::ReservationError>()
+        );
+        assert_eq!(
+            owner
+                .source()
+                .unwrap()
+                .downcast_ref::<crate::shared::ReservationError>(),
+            Some(&expected)
+        );
+        assert_eq!(pool.reserved_bytes(), layout.size());
+        let owner = owner.into_buffer_error().unwrap_err();
+        assert_eq!(owner.into_raw_shared_error().unwrap(), expected);
+        let shell = Reserved::<u64, _>::try_new(charge).unwrap();
+        let value = without_allocations(|| shell.initialize(7));
+        assert_eq!(*value, 7);
+        drop(value);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
     #[test]
     fn pool_exhaustion_retains_the_actual_original_release_owner() {
         let budget = AllocationBudget::new(8);

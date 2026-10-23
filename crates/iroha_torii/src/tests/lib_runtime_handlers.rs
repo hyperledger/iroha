@@ -16,5 +16,6 @@ pub(crate) mod tests_runtime_handlers {
     include!("lib_runtime_handlers/validator_committee.rs");
     include!("lib_runtime_handlers/current_transaction_admission.rs");
     include!("lib_runtime_handlers/iso_payment_outcome.rs");
+    include!("lib_runtime_handlers/signed_attachment_refusal.rs");
     include!("lib_runtime_handlers/iso_payment_outcome_past_fetch_budget.rs");
 }

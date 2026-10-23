@@ -433,6 +433,11 @@ impl Root {
         let api_token = listener_credential()?;
         let selected_chain = chain.clone();
         let selected_key = genesis_key(index);
+        let selected_staking = iroha_test_network::genesis_support::staking_policy(
+            fee_asset(),
+            account(&selected_key),
+            account(&selected_key),
+        );
         let network = NetworkBuilder::new()
             .with_api_token(api_token.clone())
             .with_peers(4)
@@ -443,10 +448,21 @@ impl Root {
             .with_block_cadence(Duration::from_millis(CADENCE_MS))
             .with_peer_startup_timeout(Duration::from_secs(20 * 60))
             .with_genesis_block(move |_, entries| {
-                let builder = GenesisBuilder::new_without_executor(selected_chain.clone(), ".")
-                    .with_block_cadence_ms(NonZeroU64::new(CADENCE_MS).unwrap())
-                    .set_topology(entries)
-                    .with_sumeragi_context_parameters(context.clone());
+                let builder = GenesisBuilder::new_without_executor(
+                    selected_chain.clone(),
+                    ".",
+                    iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                        iroha_crypto::Algorithm::Ed25519,
+                        iroha_crypto::Algorithm::Secp256k1,
+                        iroha_crypto::Algorithm::BlsNormal,
+                    ])
+                    .expect("explicit fixture account and validator controller policy"),
+                )
+                .with_staking_policy(selected_staking.clone())
+                .expect("explicit fixture staking policy")
+                .with_block_cadence_ms(NonZeroU64::new(CADENCE_MS).unwrap())
+                .set_topology(entries)
+                .with_sumeragi_context_parameters(context.clone());
                 let builder = parameters
                     .clone()
                     .into_iter()

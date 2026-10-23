@@ -249,7 +249,11 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
         state.network_id_ref(),
         Duration::from_millis(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &time,
     )
     .unwrap();
@@ -359,7 +363,11 @@ fn current_native_fifo_survives_unrelated_global_application_on_consensus_stack(
             state.network_id_ref(),
             Duration::from_millis(10),
             TransactionParameters::default(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time,
         )
         .unwrap();
@@ -524,7 +532,11 @@ fn governed_lane_commitment_keeps_original_input_and_required_approval_refusals(
             state.network_id_ref(),
             Duration::ZERO,
             TransactionParameters::default(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit current admission fixture policy"),
             Duration::ZERO,
         )
         .expect("original Network signature and closed carrier pass admission")
@@ -673,7 +685,11 @@ fn native_lane_candidates_preserve_complete_sealed_reveal_and_pending_identity()
         state.network_id_ref(),
         Duration::from_millis(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("explicit current admission fixture policy"),
         time.now(),
     )
     .unwrap();

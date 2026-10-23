@@ -1,7 +1,7 @@
 //! Shared curve identifier registry for account controllers and address payloads.
 use iroha_crypto::Algorithm;
 use thiserror::Error;
-/// Stable identifier assigned to a supported signing curve.
+/// Stable identifier assigned to a canonical signing algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CurveId(u8);
 impl CurveId {
@@ -10,10 +10,8 @@ impl CurveId {
     /// Identifier for secp256k1 controllers.
     pub const SECP256K1: Self = Self(4);
     /// Identifier for BLS12-381 (normal) controllers.
-    #[cfg(feature = "bls")]
     pub const BLS_NORMAL: Self = Self(3);
     /// Identifier for BLS12-381 (small) controllers.
-    #[cfg(feature = "bls")]
     pub const BLS_SMALL: Self = Self(5);
     /// Identifier for ML‑DSA controllers (Dilithium).
     pub const MLDSA: Self = Self(2);
@@ -29,35 +27,22 @@ impl CurveId {
     pub const GOST_512_B: Self = Self(14);
     /// Identifier for SM2 controllers.
     pub const SM2: Self = Self(15);
-    /// Convert an [`Algorithm`] into the published curve identifier.
+    /// Convert every canonical algorithm into its published curve identifier.
     ///
-    /// # Errors
-    ///
-    /// Returns [`CurveRegistryError::UnsupportedAlgorithm`] when the algorithm
-    /// is not assigned a `CurveId` in the registry.
-    #[allow(unreachable_patterns)]
-    pub fn try_from_algorithm(algorithm: Algorithm) -> Result<Self, CurveRegistryError> {
+    /// This identity mapping never depends on local implementation availability.
+    pub const fn from_algorithm(algorithm: Algorithm) -> Self {
         match algorithm {
-            Algorithm::Ed25519 => Ok(Self::ED25519),
-            Algorithm::Secp256k1 => Ok(Self::SECP256K1),
-            #[cfg(feature = "bls")]
-            Algorithm::BlsNormal => Ok(Self::BLS_NORMAL),
-            #[cfg(feature = "bls")]
-            Algorithm::BlsSmall => Ok(Self::BLS_SMALL),
-            Algorithm::MlDsa => Ok(Self::MLDSA),
-            #[cfg(feature = "gost")]
-            Algorithm::Gost3410_2012_256ParamSetA => Ok(Self::GOST_256_A),
-            #[cfg(feature = "gost")]
-            Algorithm::Gost3410_2012_256ParamSetB => Ok(Self::GOST_256_B),
-            #[cfg(feature = "gost")]
-            Algorithm::Gost3410_2012_256ParamSetC => Ok(Self::GOST_256_C),
-            #[cfg(feature = "gost")]
-            Algorithm::Gost3410_2012_512ParamSetA => Ok(Self::GOST_512_A),
-            #[cfg(feature = "gost")]
-            Algorithm::Gost3410_2012_512ParamSetB => Ok(Self::GOST_512_B),
-            #[cfg(feature = "sm")]
-            Algorithm::Sm2 => Ok(Self::SM2),
-            _ => Err(CurveRegistryError::UnsupportedAlgorithm(algorithm)),
+            Algorithm::Ed25519 => Self::ED25519,
+            Algorithm::Secp256k1 => Self::SECP256K1,
+            Algorithm::BlsNormal => Self::BLS_NORMAL,
+            Algorithm::BlsSmall => Self::BLS_SMALL,
+            Algorithm::MlDsa => Self::MLDSA,
+            Algorithm::Gost3410_2012_256ParamSetA => Self::GOST_256_A,
+            Algorithm::Gost3410_2012_256ParamSetB => Self::GOST_256_B,
+            Algorithm::Gost3410_2012_256ParamSetC => Self::GOST_256_C,
+            Algorithm::Gost3410_2012_512ParamSetA => Self::GOST_512_A,
+            Algorithm::Gost3410_2012_512ParamSetB => Self::GOST_512_B,
+            Algorithm::Sm2 => Self::SM2,
         }
     }
     /// Export the identifier as its canonical byte.
@@ -69,22 +54,22 @@ impl CurveId {
         match self.0 {
             1 => Algorithm::Ed25519,
             4 => Algorithm::Secp256k1,
-            #[cfg(feature = "bls")]
+
             3 => Algorithm::BlsNormal,
-            #[cfg(feature = "bls")]
+
             5 => Algorithm::BlsSmall,
             2 => Algorithm::MlDsa,
-            #[cfg(feature = "gost")]
+
             10 => Algorithm::Gost3410_2012_256ParamSetA,
-            #[cfg(feature = "gost")]
+
             11 => Algorithm::Gost3410_2012_256ParamSetB,
-            #[cfg(feature = "gost")]
+
             12 => Algorithm::Gost3410_2012_256ParamSetC,
-            #[cfg(feature = "gost")]
+
             13 => Algorithm::Gost3410_2012_512ParamSetA,
-            #[cfg(feature = "gost")]
+
             14 => Algorithm::Gost3410_2012_512ParamSetB,
-            #[cfg(feature = "sm")]
+
             15 => Algorithm::Sm2,
             other => unreachable!("unsupported curve id {other}"),
         }
@@ -96,22 +81,22 @@ impl TryFrom<u8> for CurveId {
         match value {
             1 => Ok(Self::ED25519),
             4 => Ok(Self::SECP256K1),
-            #[cfg(feature = "bls")]
+
             3 => Ok(Self::BLS_NORMAL),
-            #[cfg(feature = "bls")]
+
             5 => Ok(Self::BLS_SMALL),
             2 => Ok(Self::MLDSA),
-            #[cfg(feature = "gost")]
+
             10 => Ok(Self::GOST_256_A),
-            #[cfg(feature = "gost")]
+
             11 => Ok(Self::GOST_256_B),
-            #[cfg(feature = "gost")]
+
             12 => Ok(Self::GOST_256_C),
-            #[cfg(feature = "gost")]
+
             13 => Ok(Self::GOST_512_A),
-            #[cfg(feature = "gost")]
+
             14 => Ok(Self::GOST_512_B),
-            #[cfg(feature = "sm")]
+
             15 => Ok(Self::SM2),
             other => Err(CurveRegistryError::UnknownCurveId(other)),
         }
@@ -125,22 +110,32 @@ impl From<CurveId> for u8 {
 /// Error raised when a curve identifier lookup fails.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum CurveRegistryError {
-    /// The supplied signing algorithm is not assigned a curve identifier.
-    #[error("unsupported curve algorithm: {0}")]
-    UnsupportedAlgorithm(Algorithm),
     /// An unknown identifier was decoded from canonical bytes.
     #[error("unknown curve identifier: {0}")]
     UnknownCurveId(u8),
 }
-#[cfg(all(test, feature = "bls"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
+    fn every_canonical_algorithm_has_one_feature_independent_curve() {
+        let published = [1, 4, 3, 5, 2, 10, 11, 12, 13, 14, 15];
+        assert_eq!(Algorithm::ALL.len(), published.len());
+        for (&algorithm, expected) in Algorithm::ALL.iter().zip(published) {
+            let curve = CurveId::from_algorithm(algorithm);
+            assert_eq!(curve.as_u8(), expected);
+            assert_eq!(CurveId::try_from(expected).unwrap(), curve);
+            assert_eq!(curve.algorithm(), algorithm);
+        }
+        for byte in 0..=u8::MAX {
+            assert_eq!(CurveId::try_from(byte).is_ok(), published.contains(&byte));
+        }
+    }
+
+    #[test]
     fn bls_curve_ids_round_trip() {
-        let normal = CurveId::try_from_algorithm(Algorithm::BlsNormal)
-            .expect("BLS normal should map to a curve id");
-        let small = CurveId::try_from_algorithm(Algorithm::BlsSmall)
-            .expect("BLS small should map to a curve id");
+        let normal = CurveId::from_algorithm(Algorithm::BlsNormal);
+        let small = CurveId::from_algorithm(Algorithm::BlsSmall);
         assert_eq!(normal, CurveId::BLS_NORMAL);
         assert_eq!(small, CurveId::BLS_SMALL);
         assert_eq!(CurveId::try_from(u8::from(normal)).unwrap(), normal);

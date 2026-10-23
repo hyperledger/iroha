@@ -21,6 +21,48 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+@pytest.mark.parametrize("sdk", tuple(MODULE._CATALOG_CONSUMER_FILES))
+def test_native_catalog_identity_requires_full_kat_and_current_width(
+    monkeypatch: pytest.MonkeyPatch, sdk: str
+) -> None:
+    original_read = MODULE._read
+    assert MODULE._native_catalog_identity(ROOT, sdk)
+    rust = "crates/iroha_crypto/src/privacy.rs"
+    model = "crates/iroha_data_model/src/privacy.rs"
+    mutations = [
+        (rust, "0x5b, 0xcf, 0x36, 0x6f", "0x5a, 0xcf, 0x36, 0x6f"),
+        (rust, "PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1: [u8; 32]", "PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1: [u8; 48]"),
+        (model, "PrivacyExact12CatalogCommitmentV1([u8; 32]);", "PrivacyExact12CatalogCommitmentV1([u8; 48]);"),
+    ]
+    paths = MODULE._CATALOG_CONSUMER_FILES[sdk]
+    if sdk in ("javascript-napi", "python-pyo3"):
+        mutations.append((paths[0], MODULE._NATIVE_CATALOG_HEX, "00" + MODULE._NATIVE_CATALOG_HEX[2:]))
+    elif sdk == "jvm-android":
+        mutations.extend([
+            (paths[0], "0x5b, 0xcf.toByte(), 0x36", "0x5a, 0xcf.toByte(), 0x36"),
+            (paths[1], "CATALOG_COMMITMENT_BYTES = 32", "CATALOG_COMMITMENT_BYTES = 48"),
+        ])
+    elif sdk == "swift":
+        mutations.extend((path, "0x5b, 0xcf, 0x36", "0x5a, 0xcf, 0x36") for path in paths)
+        mutations.extend((paths[0], f'maximum: 32,\n            label: "{label}"',
+                          f'maximum: 48,\n            label: "{label}"')
+                         for label in ("release catalog commitment", "security claim catalog commitment"))
+    else:
+        mutations.append((paths[0], MODULE._NATIVE_CATALOG_HEX.upper(), "00" + MODULE._NATIVE_CATALOG_HEX[2:].upper()))
+    for relative, needle, replacement in mutations:
+        original = original_read(ROOT, relative)
+        assert needle in original
+        with monkeypatch.context() as context:
+            context.setattr(MODULE, "_read", lambda root, path: original.replace(needle, replacement)
+                            if path == relative else original_read(root, path))
+            assert MODULE._native_catalog_identity(ROOT, sdk) is False
+
+
+@pytest.mark.parametrize("sdk", tuple(MODULE._CATALOG_CONSUMER_FILES))
+def test_native_catalog_identity_refuses_missing_owner(tmp_path: Path, sdk: str) -> None:
+    assert MODULE._native_catalog_identity(tmp_path, sdk) is False
+
+
 def _minimal_safe_tree(tmp_path: Path) -> Path:
     exports = "\n".join(
         f'#[unsafe(no_mangle)] pub extern "C" fn {name}() {{}}'

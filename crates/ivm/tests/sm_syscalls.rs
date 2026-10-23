@@ -1,3 +1,4 @@
+//! Mandatory V1 ShangMi syscall results, validation, metering and host parity.
 use hex::decode;
 use iroha_crypto::{Sm2PrivateKey, Sm2PublicKey, Sm2Signature, Sm3Digest};
 use ivm::{
@@ -26,9 +27,6 @@ fn make_tlv(kind: PointerType, payload: &[u8]) -> Vec<u8> {
 fn make_blob_tlv(payload: &[u8]) -> Vec<u8> {
     make_tlv(PointerType::Blob, payload)
 }
-fn core_host_with_sm(enable: bool) -> CoreHost {
-    CoreHost::new().with_sm_enabled(enable)
-}
 fn wsv_host(caller: AccountId) -> WsvHost {
     WsvHost::new_with_subject(MockWorldStateView::new(), caller)
 }
@@ -39,7 +37,7 @@ fn syscall_sm3_hash_returns_digest_blob() {
     let expected = Sm3Digest::hash(message);
     let tlv = make_blob_tlv(message);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     vm.memory
         .preload_input(0, &tlv)
         .expect("preload input blob");
@@ -72,7 +70,7 @@ where
     use ivm::IVM;
     let tlv = make_blob_tlv(message);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     vm.set_host(host);
     vm.memory
         .preload_input(0, &tlv)
@@ -102,7 +100,7 @@ where
 fn core_host_sm3_hash_returns_digest_blob() {
     let message = b"corehost-sm3";
     let expected = Sm3Digest::hash(message);
-    let payload = run_sm3_with_host(core_host_with_sm(true), message);
+    let payload = run_sm3_with_host(CoreHost::new(), message);
     assert_eq!(payload.as_slice(), expected.as_bytes());
 }
 #[test]
@@ -110,12 +108,12 @@ fn mock_wsv_sm3_hash_returns_digest_blob() {
     let message = b"mockwsv-sm3";
     let expected = Sm3Digest::hash(message);
     let caller: AccountId = test_caller_account();
-    let host = wsv_host(caller).with_sm_enabled(true);
+    let host = wsv_host(caller);
     let payload = run_sm3_with_host(host, message);
     assert_eq!(payload.as_slice(), expected.as_bytes());
 }
 #[test]
-fn wsv_host_sm2_verify_succeeds_when_enabled() {
+fn wsv_host_sm2_verify_succeeds_by_default() {
     use ivm::IVM;
     let secret = [0x35u8; 32];
     let private = Sm2PrivateKey::new(Sm2PublicKey::DEFAULT_DISTID, secret).expect("construct key");
@@ -123,7 +121,7 @@ fn wsv_host_sm2_verify_succeeds_when_enabled() {
     let message = b"wsv-sm2-enabled";
     let signature = private.sign(message).to_bytes();
     let caller: AccountId = test_caller_account();
-    let host = wsv_host(caller).with_sm_enabled(true);
+    let host = wsv_host(caller);
     let mut vm = IVM::new(10_000);
     vm.set_host(host);
     let mut offset = 0u64;
@@ -149,13 +147,13 @@ fn wsv_host_sm2_verify_succeeds_when_enabled() {
     assert_eq!(
         vm.register(10),
         1,
-        "SM2 verification should succeed when enabled"
+        "SM2 verification should succeed on every host"
     );
 }
 #[test]
-fn default_host_sm3_hash_requires_enable_flag() {
+fn default_host_sm3_hash_available_by_default() {
     use ivm::IVM;
-    let message = b"ivm-sm3-disabled";
+    let message = b"ivm-sm3-default";
     let tlv = make_blob_tlv(message);
     let mut vm = IVM::new(10_000);
     vm.set_host(ivm::host::DefaultHost::new());
@@ -173,18 +171,18 @@ fn default_host_sm3_hash_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("SM3 syscall should be gated when SM support is disabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM3 is available on every new host");
+    let result = vm.memory.validate_tlv(vm.register(10)).expect("SM3 result");
+    assert_eq!(result.type_id, PointerType::Blob);
+    assert_eq!(result.payload, Sm3Digest::hash(message).as_bytes());
 }
 #[test]
-fn core_host_sm3_hash_requires_enable_flag() {
+fn core_host_sm3_hash_available_by_default() {
     use ivm::IVM;
-    let message = b"corehost-sm3-disabled";
+    let message = b"corehost-sm3-default";
     let tlv = make_blob_tlv(message);
     let mut vm = IVM::new(10_000);
-    vm.set_host(core_host_with_sm(false));
+    vm.set_host(CoreHost::new());
     vm.memory
         .preload_input(0, &tlv)
         .expect("preload input blob");
@@ -199,15 +197,15 @@ fn core_host_sm3_hash_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("CoreHost should gate SM syscalls unless enabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM3 is available on every new host");
+    let result = vm.memory.validate_tlv(vm.register(10)).expect("SM3 result");
+    assert_eq!(result.type_id, PointerType::Blob);
+    assert_eq!(result.payload, Sm3Digest::hash(message).as_bytes());
 }
 #[test]
-fn wsv_host_sm3_hash_requires_enable_flag() {
+fn wsv_host_sm3_hash_available_by_default() {
     use ivm::IVM;
-    let message = b"wsv-sm3-disabled";
+    let message = b"wsv-sm3-default";
     let tlv = make_blob_tlv(message);
     let caller: AccountId = test_caller_account();
     let host = wsv_host(caller);
@@ -227,10 +225,10 @@ fn wsv_host_sm3_hash_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("WsvHost should gate SM syscalls unless enabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM3 is available on every new host");
+    let result = vm.memory.validate_tlv(vm.register(10)).expect("SM3 result");
+    assert_eq!(result.type_id, PointerType::Blob);
+    assert_eq!(result.payload, Sm3Digest::hash(message).as_bytes());
 }
 fn preload_tlv(vm: &mut ivm::IVM, offset: &mut u64, kind: PointerType, payload: &[u8]) -> u64 {
     let tlv = make_tlv(kind, payload);
@@ -253,7 +251,7 @@ fn syscall_sm2_verify_success() {
     let message = b"ivm-sm2";
     let signature = private.sign(message);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let sig_bytes = signature.to_bytes();
@@ -290,7 +288,7 @@ fn syscall_sm2_verify_charges_input_bytes() {
     let signature = private.sign(message);
     let signature_bytes = signature.to_bytes();
     let public_key_bytes = public.to_sec1_bytes(false);
-    let mut host = DefaultHost::new().with_sm_enabled(true);
+    let mut host = DefaultHost::new();
     let mut vm = IVM::new(10_000);
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
@@ -338,7 +336,7 @@ fn syscall_sm2_verify_accepts_custom_distid() {
     let message = b"ivm-sm2-distid";
     let signature = private.sign(message);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, signature.to_bytes().as_ref());
@@ -375,7 +373,7 @@ fn syscall_sm2_verify_fails_for_bad_signature() {
     let mut sig_bytes = private.sign(message).to_bytes();
     sig_bytes[0] ^= 0xFF;
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, sig_bytes.as_ref());
@@ -408,7 +406,7 @@ fn syscall_sm2_verify_returns_zero_for_truncated_signature() {
     let mut sig = private.sign(message).to_bytes().to_vec();
     sig.truncate(Sm2Signature::LENGTH - 1);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, &sig);
@@ -443,7 +441,7 @@ fn syscall_sm2_verify_returns_zero_for_all_zero_signature() {
     let message = b"ivm-sm2-zero-sig";
     let sig = [0u8; Sm2Signature::LENGTH];
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, &sig);
@@ -480,7 +478,7 @@ fn syscall_sm2_verify_returns_zero_for_invalid_public_key() {
     // mutate the affine point so it cannot be decoded
     public_bytes[0] ^= 0xFF;
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, signature.as_ref());
@@ -515,7 +513,7 @@ fn syscall_sm2_verify_rejects_mismatched_distid() {
     let message = b"ivm-sm2-mismatched-distid";
     let signature = private.sign(message).to_bytes();
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, signature.as_ref());
@@ -554,7 +552,7 @@ fn syscall_sm2_verify_supports_empty_distid_blob() {
     let message = b"ivm-sm2-empty-distid";
     let signature = private.sign(message).to_bytes();
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, signature.as_ref());
@@ -586,12 +584,12 @@ fn syscall_sm2_verify_supports_empty_distid_blob() {
     );
 }
 #[test]
-fn syscall_sm2_verify_requires_enable_flag() {
+fn syscall_sm2_verify_available_by_default() {
     use ivm::IVM;
     let secret = [0x33u8; 32];
     let private = Sm2PrivateKey::new(Sm2PublicKey::DEFAULT_DISTID, secret).expect("construct key");
     let public = private.public_key();
-    let message = b"ivm-sm2-disabled";
+    let message = b"ivm-sm2-default";
     let signature = private.sign(message).to_bytes();
     let mut vm = IVM::new(10_000);
     vm.set_host(ivm::host::DefaultHost::new());
@@ -614,10 +612,8 @@ fn syscall_sm2_verify_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("SM2 verification should be gated when SM support is disabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM2 is available on every new host");
+    assert_eq!(vm.register(10), 1, "valid SM2 relation");
 }
 #[test]
 fn syscall_sm2_verify_errors_on_non_blob_inputs() {
@@ -626,7 +622,7 @@ fn syscall_sm2_verify_errors_on_non_blob_inputs() {
     let private = Sm2PrivateKey::new(Sm2PublicKey::DEFAULT_DISTID, secret).expect("construct key");
     let signature = private.sign(b"ivm-sm2-nonblob").to_bytes();
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_tlv(
         &mut vm,
@@ -672,7 +668,7 @@ fn syscall_sm2_verify_errors_on_non_utf8_distid() {
     let signature = private.sign(message).to_bytes();
     let invalid_utf8 = [0xFF, 0xFE, 0xFD];
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_msg = preload_blob(&mut vm, &mut offset, message);
     let p_sig = preload_blob(&mut vm, &mut offset, signature.as_ref());
@@ -710,7 +706,7 @@ fn syscall_sm4_gcm_seal_matches_vector() {
     let expected_cipher = decode("6468017fde4979a107326ee77d8a265c").expect("hex cipher");
     let expected_tag = decode("cadf422b1af7ec6df46004dc8d3ba855").expect("hex tag");
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -758,7 +754,7 @@ fn syscall_sm4_gcm_open_returns_plaintext() {
     let mut cipher_tag = cipher.clone();
     cipher_tag.extend_from_slice(&tag);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -800,7 +796,7 @@ fn syscall_sm4_gcm_open_rejects_bad_tag() {
     let mut cipher_tag = cipher.clone();
     cipher_tag.extend_from_slice(&tag);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -833,7 +829,7 @@ fn syscall_sm4_ccm_seal_matches_vector() {
     let expected_cipher = decode("a9550cebab5f227d9590e8979caafd1f").expect("hex cipher");
     let expected_tag = decode("03a1f305").expect("hex tag");
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -882,7 +878,7 @@ fn syscall_sm4_ccm_open_returns_plaintext() {
     let mut cipher_tag = cipher.clone();
     cipher_tag.extend_from_slice(&tag);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -925,7 +921,7 @@ fn syscall_sm4_ccm_open_rejects_bad_tag() {
     let mut cipher_tag = cipher.clone();
     cipher_tag.extend_from_slice(&tag);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -956,7 +952,7 @@ fn syscall_sm4_ccm_seal_rejects_wide_tag_length_without_truncation() {
     let nonce = [0x88u8; 7];
     let plaintext = [0x99u8; 8];
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -991,7 +987,7 @@ fn syscall_sm4_ccm_open_rejects_wide_tag_length_without_truncation() {
     let mut cipher_tag = cipher;
     cipher_tag.extend_from_slice(&tag);
     let mut vm = IVM::new(10_000);
-    vm.set_host(ivm::host::DefaultHost::new().with_sm_enabled(true));
+    vm.set_host(ivm::host::DefaultHost::new());
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
     let p_nonce = preload_blob(&mut vm, &mut offset, &nonce);
@@ -1015,7 +1011,7 @@ fn syscall_sm4_ccm_open_rejects_wide_tag_length_without_truncation() {
     assert_eq!(vm.register(10), 0);
 }
 #[test]
-fn syscall_sm4_gcm_seal_requires_enable_flag() {
+fn syscall_sm4_gcm_seal_available_by_default() {
     use ivm::IVM;
     let key = [0u8; 16];
     let nonce = [0u8; 12];
@@ -1040,18 +1036,22 @@ fn syscall_sm4_gcm_seal_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("SM4 GCM seal should be gated when SM support is disabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM4 is available on every new host");
+    let (mut expected, tag) = iroha_crypto::Sm4Key::new(key)
+        .encrypt_gcm(&nonce, &[], &plaintext)
+        .expect("reference encryption");
+    expected.extend_from_slice(&tag);
+    let result = vm.memory.validate_tlv(vm.register(10)).expect("SM4 result");
+    assert_eq!(result.type_id, PointerType::Blob);
+    assert_eq!(result.payload, expected);
 }
 #[test]
-fn wsv_host_sm2_verify_requires_enable_flag() {
+fn wsv_host_sm2_verify_available_by_default() {
     use ivm::IVM;
     let secret = [0x55u8; 32];
     let private = Sm2PrivateKey::new(Sm2PublicKey::DEFAULT_DISTID, secret).expect("construct key");
     let public = private.public_key();
-    let message = b"ivm-sm2-wsvhost-disabled";
+    let message = b"ivm-sm2-wsvhost-default";
     let signature = private.sign(message).to_bytes();
     let caller: AccountId = test_caller_account();
     let host = wsv_host(caller);
@@ -1076,13 +1076,11 @@ fn wsv_host_sm2_verify_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("WsvHost should gate SM2 verification unless SM is enabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM2 is available on every new host");
+    assert_eq!(vm.register(10), 1, "valid SM2 relation");
 }
 #[test]
-fn wsv_host_sm4_gcm_seal_matches_vector_when_enabled() {
+fn wsv_host_sm4_gcm_seal_matches_vector_by_default() {
     use ivm::IVM;
     let key = decode("0123456789abcdeffedcba9876543210").expect("hex key");
     let nonce = decode("00001234567800000000abcd").expect("hex nonce");
@@ -1091,7 +1089,7 @@ fn wsv_host_sm4_gcm_seal_matches_vector_when_enabled() {
     let expected_cipher = decode("6468017fde4979a107326ee77d8a265c").expect("hex cipher");
     let expected_tag = decode("cadf422b1af7ec6df46004dc8d3ba855").expect("hex tag");
     let caller: AccountId = test_caller_account();
-    let host = wsv_host(caller).with_sm_enabled(true);
+    let host = wsv_host(caller);
     let mut vm = IVM::new(10_000);
     vm.set_host(host);
     let mut offset = 0u64;
@@ -1117,7 +1115,7 @@ fn wsv_host_sm4_gcm_seal_matches_vector_when_enabled() {
     let out_ptr = vm.register(10);
     assert_ne!(
         out_ptr, 0,
-        "SM4 GCM seal should produce output when enabled"
+        "SM4 GCM seal should produce output on every host"
     );
     let tlv_out = vm
         .memory
@@ -1133,14 +1131,14 @@ fn wsv_host_sm4_gcm_seal_matches_vector_when_enabled() {
     assert_eq!(&payload[expected_cipher.len()..], expected_tag.as_slice());
 }
 #[test]
-fn wsv_host_sm4_gcm_seal_returns_byte_counted_gas_when_enabled() {
+fn wsv_host_sm4_gcm_seal_returns_byte_counted_gas_by_default() {
     use ivm::{IVM, host::IVMHost};
     let key = [0x11u8; 16];
     let nonce = [0x22u8; 12];
     let aad = b"aad";
     let plaintext = b"plaintext";
     let caller: AccountId = test_caller_account();
-    let mut host = wsv_host(caller).with_sm_enabled(true);
+    let mut host = wsv_host(caller);
     let mut vm = IVM::new(10_000);
     let mut offset = 0u64;
     let p_key = preload_blob(&mut vm, &mut offset, &key);
@@ -1161,7 +1159,7 @@ fn wsv_host_sm4_gcm_seal_returns_byte_counted_gas_when_enabled() {
     assert_eq!(out.payload.len(), plaintext.len() + 16);
 }
 #[test]
-fn wsv_host_sm4_gcm_seal_requires_enable_flag() {
+fn wsv_host_sm4_gcm_seal_available_by_default() {
     use ivm::IVM;
     let key = [0x11u8; 16];
     let nonce = [0x22u8; 12];
@@ -1188,13 +1186,17 @@ fn wsv_host_sm4_gcm_seal_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("WsvHost should gate SM4 GCM sealing unless SM is enabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM4 is available on every new host");
+    let (mut expected, tag) = iroha_crypto::Sm4Key::new(key)
+        .encrypt_gcm(&nonce, &[], &plaintext)
+        .expect("reference encryption");
+    expected.extend_from_slice(&tag);
+    let result = vm.memory.validate_tlv(vm.register(10)).expect("SM4 result");
+    assert_eq!(result.type_id, PointerType::Blob);
+    assert_eq!(result.payload, expected);
 }
 #[test]
-fn default_host_sm4_ccm_seal_requires_enable_flag() {
+fn default_host_sm4_ccm_seal_available_by_default() {
     use ivm::IVM;
     let key = [0x77u8; 16];
     let nonce = [0x88u8; 7];
@@ -1220,8 +1222,201 @@ fn default_host_sm4_ccm_seal_requires_enable_flag() {
     program.extend_from_slice(&halt.to_le_bytes());
     let program = assemble(&program);
     vm.load_program(&program).expect("load program");
-    let err = vm
-        .run()
-        .expect_err("SM4 CCM seal should be gated when SM support is disabled");
-    assert!(matches!(err, VMError::PermissionDenied));
+    vm.run().expect("SM4 is available on every new host");
+    let (mut expected, tag) = iroha_crypto::Sm4Key::new(key)
+        .encrypt_ccm(&nonce, &[], &plaintext, 16)
+        .expect("reference encryption");
+    expected.extend_from_slice(&tag);
+    let result = vm.memory.validate_tlv(vm.register(10)).expect("SM4 result");
+    assert_eq!(result.type_id, PointerType::Blob);
+    assert_eq!(result.payload, expected);
+}
+
+#[test]
+fn mandatory_sm_results_and_gas_match_across_default_hosts() {
+    use iroha_crypto::Sm4Key;
+    use ivm::host::{DefaultHost, IVMHost};
+    let message = b"mandatory-sm-host-parity";
+    let private = Sm2PrivateKey::new(Sm2PublicKey::DEFAULT_DISTID, [0x43; 32]).expect("SM2 key");
+    let signature = private.sign(message).to_bytes();
+    let public = private.public_key().to_sec1_bytes(false);
+    let key_bytes = [0x27; 16];
+    let nonce = [0x35; 12];
+    let aad = b"bound-aad";
+    let key = Sm4Key::new(key_bytes);
+    let (mut gcm, tag) = key
+        .encrypt_gcm(&nonce, aad, message)
+        .expect("GCM reference");
+    gcm.extend_from_slice(&tag);
+    let (mut ccm, tag) = key
+        .encrypt_ccm(&nonce, aad, message, 16)
+        .expect("CCM reference");
+    ccm.extend_from_slice(&tag);
+    let cases = [
+        (
+            ivm::syscalls::SYSCALL_SM3_HASH,
+            vec![message.as_slice()],
+            Some(Sm3Digest::hash(message).as_bytes().to_vec()),
+        ),
+        (
+            ivm::syscalls::SYSCALL_SM2_VERIFY,
+            vec![message.as_slice(), signature.as_ref(), public.as_slice()],
+            None,
+        ),
+        (
+            ivm::syscalls::SYSCALL_SM4_GCM_SEAL,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                message.as_slice(),
+            ],
+            Some(gcm.clone()),
+        ),
+        (
+            ivm::syscalls::SYSCALL_SM4_GCM_OPEN,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                gcm.as_slice(),
+            ],
+            Some(message.to_vec()),
+        ),
+        (
+            ivm::syscalls::SYSCALL_SM4_CCM_SEAL,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                message.as_slice(),
+            ],
+            Some(ccm.clone()),
+        ),
+        (
+            ivm::syscalls::SYSCALL_SM4_CCM_OPEN,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                ccm.as_slice(),
+            ],
+            Some(message.to_vec()),
+        ),
+    ];
+    let hosts: Vec<Box<dyn IVMHost>> = vec![
+        Box::new(DefaultHost::new()),
+        Box::new(CoreHost::new()),
+        Box::new(wsv_host(test_caller_account())),
+    ];
+    let mut prior = None;
+    for mut host in hosts {
+        let mut outcomes = Vec::new();
+        for (number, inputs, expected) in &cases {
+            let mut vm = ivm::IVM::new(1_000_000);
+            let mut offset = 0;
+            for (index, payload) in inputs.iter().enumerate() {
+                let pointer = preload_blob(&mut vm, &mut offset, payload);
+                vm.set_register(10 + index, pointer);
+            }
+            vm.set_register(14, 16);
+            let quote = host.prepare_syscall(*number, &vm).expect("mandatory quote");
+            let actual = host
+                .syscall(*number, &mut vm)
+                .expect("mandatory SM execution");
+            assert_eq!(quote, actual, "quote matches execution {number}");
+            let output = if let Some(expected) = expected {
+                let result = vm
+                    .memory
+                    .validate_tlv(vm.register(10))
+                    .expect("output blob");
+                assert_eq!(result.type_id, PointerType::Blob);
+                assert_eq!(
+                    result.payload,
+                    expected.as_slice(),
+                    "exact SM result {number}"
+                );
+                result.payload.to_vec()
+            } else {
+                assert_eq!(vm.register(10), 1, "valid SM2 relation");
+                vec![1]
+            };
+            outcomes.push((quote, output));
+        }
+        for (number, mut invalid) in [
+            (ivm::syscalls::SYSCALL_SM4_GCM_OPEN, gcm.clone()),
+            (ivm::syscalls::SYSCALL_SM4_CCM_OPEN, ccm.clone()),
+        ] {
+            *invalid.last_mut().expect("tag") ^= 1;
+            let mut vm = ivm::IVM::new(1_000_000);
+            let mut offset = 0;
+            for (index, payload) in [
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                invalid.as_slice(),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let pointer = preload_blob(&mut vm, &mut offset, payload);
+                vm.set_register(10 + index, pointer);
+            }
+            vm.set_register(14, 16);
+            let quote = host
+                .prepare_syscall(number, &vm)
+                .expect("tag failure quote");
+            let actual = host
+                .syscall(number, &mut vm)
+                .expect("completed invalid tag");
+            assert_eq!(quote, actual);
+            assert_eq!(vm.register(10), 0, "invalid tag never publishes plaintext");
+            outcomes.push((quote, vec![0]));
+        }
+        if let Some(expected) = prior.as_ref() {
+            assert_eq!(
+                &outcomes, expected,
+                "same V1 SM results and gas on every host"
+            );
+        }
+        prior = Some(outcomes);
+    }
+}
+
+#[test]
+fn omitted_sm2_distid_ignores_process_key_generation_default() {
+    const CHILD: &str = "IROHA_IVM_SM_DISTID_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // The key-generation default is process-global; isolate its mutation from
+        // every other test rather than relying on test execution order.
+        let module = module_path!().split_once("::").map(|(_, rest)| rest);
+        let name = match module {
+            Some(module) => {
+                format!("{module}::omitted_sm2_distid_ignores_process_key_generation_default")
+            }
+            None => "omitted_sm2_distid_ignores_process_key_generation_default".to_owned(),
+        };
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args(["--exact", &name, "--test-threads=1", "--nocapture"])
+            .env(CHILD, "1")
+            .output()
+            .expect("isolated process-default test");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("1 passed; 0 failed"),
+            "exact child test must execute: {stdout}"
+        );
+        return;
+    }
+    Sm2PublicKey::set_default_distid("node-local-key-generation-default")
+        .expect("valid local generation preference");
+    assert_ne!(Sm2PublicKey::default_distid(), Sm2PublicKey::DEFAULT_DISTID);
+    // This executes positive SM2 and positive/negative AEAD results, quotes and effects
+    // across all three hosts while the process default is deliberately different.
+    mandatory_sm_results_and_gas_match_across_default_hosts();
 }

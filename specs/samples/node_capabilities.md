@@ -35,7 +35,7 @@ Notes
 - `data_model_version` is the data model compatibility version. The current
   wire contract is version `4`; SDKs should reject submissions when the node
   advertises a different value.
-- `crypto.curves.allowed_curve_ids` enumerates the [`address_curve_registry`](../references/address_curve_registry.md) identifiers configured in `iroha_config.crypto.curves.allowed_curve_ids`. Use this advert to decide whether ML‑DSA/GOST/SM controllers are usable on the target cluster.
+- `crypto.curves.allowed_curve_ids` enumerates the [`address_curve_registry`](../references/address_curve_registry.md) identifiers derived from the exact committed `crypto_admission_policy_v1` allowed algorithms. Use this advert to decide whether ML‑DSA/GOST/SM controllers are usable on the target cluster.
 
 See also
 - `GET /v1/runtime/metrics` for a compact JSON summary of runtime metrics (ABI version and upgrade lifecycle counters).

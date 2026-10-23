@@ -2188,3 +2188,18 @@ fn assert_zk_x509_certificate_policy_transitions() {
         Err(PrivacyZkX509TransitionValidationErrorV1::RevocationContentsChanged)
     );
 }
+
+#[test]
+fn borrowed_pgc_proof_validation_and_digest_are_the_owned_owner_without_copy() {
+    for bytes in [vec![], vec![0; 32], vec![1], vec![1, 2, 3]] {
+        let owned = PrivacyPgcBootstrapProofBytesV1::new(bytes.clone());
+        assert_eq!(
+            PrivacyPgcBootstrapProofBytesV1::validate_bytes(&bytes),
+            owned.validate()
+        );
+        assert_eq!(
+            PrivacyPgcBootstrapProofBytesV1::digest_bytes(&bytes),
+            owned.digest()
+        );
+    }
+}

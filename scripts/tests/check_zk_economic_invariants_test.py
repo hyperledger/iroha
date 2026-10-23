@@ -878,5 +878,58 @@ class Readers(Base):
         self.assertEqual(C.line_of("a\nb\nc", 4), 3)
 
 
+class OriginalInvocationEconomics(Base):
+    """The economic matrix follows the original signed invocation and its consumer."""
+
+    ID = "privacy::BootstrapPrivacyPgcAccountsV1"
+    NATIVE = "crates/iroha_core/src/executor/attachment_custody/pgc_bootstrap.rs"
+
+    def pgc_operation(self) -> dict:
+        return next(item for item in document(C.OPERATIONS)["operations"] if item["id"] == self.ID)
+
+    def test_effect_handler_is_the_checked_execution_entry(self) -> None:
+        checker = C.Checker(MATRIX, C.readers.Tree())
+        operation = self.pgc_operation()
+        self.assertEqual(checker.operation_handler(operation), operation["invocation"]["entry"])
+        self.assertEqual(effect(MATRIX, "anonymous_pgc.bootstrap")["handler"], operation["invocation"]["entry"])
+        self.assertIsNone(checker.operation_handler({"id": "absent"}))
+        ordinary = next(item for item in document(C.OPERATIONS)["operations"] if item.get("handler") and not item.get("invocation"))
+        self.assertEqual(checker.operation_handler(ordinary), ordinary["handler"])
+        self.assert_clean(checker.errors)
+
+    def test_matrix_cannot_point_back_to_the_detached_refusal(self) -> None:
+        matrix = edited(lambda m: effect(m, "anonymous_pgc.bootstrap").update(handler=self.pgc_operation()["handler"]))
+        self.assert_fails(run("check_effects", matrix), "effect anonymous_pgc.bootstrap: handler differs")
+
+    def test_economic_check_also_rejects_a_detached_success(self) -> None:
+        old = 'Err(invalid_privacy_parameter(\n            "PGC bootstrap requires its original signed invocation context",\n        ))'
+        self.assert_fails(run("check_effects", overrides=replaced(HANDLERS, old, "Ok(())")),
+                          "detached handler must retain its exact unconditional refusal")
+
+    def test_native_verified_supply_and_table_checks_are_anchored(self) -> None:
+        for old in ("verified.total_supply() != bootstrap.total_supply",
+                    "verified.account_count() != bootstrap.accounts.len()",
+                    "verified.bootstrap_table_digest() != native.bootstrap_table_digest()",
+                    "return Err(BootstrapError::VerifiedValuesMismatch);"):
+            with self.subTest(old=old):
+                self.assert_fails(run("check_effects", overrides=replaced(self.NATIVE, old, "false")),
+                                  "effect anonymous_pgc.bootstrap: invariant 0 (fixed_public_supply)")
+
+    def test_transparent_asset_movement_cannot_hide_in_native_consumer(self) -> None:
+        overrides = inserted_after(self.NATIVE, "let verified = verify_bootstrap_encoded(&native, proof)?;",
+                                   "\n        withdraw_numeric_asset();")
+        self.assert_fails(run("check_effects", overrides=overrides),
+                          "the invariant no longer holds by absence")
+
+    def test_value_tripwire_reads_the_actual_execution_entry(self) -> None:
+        checker = C.Checker(MATRIX, C.readers.Tree())
+        operation = self.pgc_operation()
+        self.assertIn("total_supply", checker.value_tokens(operation))
+        detached = copy.deepcopy(operation)
+        detached.pop("invocation")
+        self.assertNotIn("total_supply", checker.value_tokens(detached))
+        self.assert_clean(checker.errors)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -419,9 +419,10 @@ pub(super) const RNS_NATIVE_QPCS_CLAIMED_SOURCE_BINDING_HASH_BYTES_V1: usize =
         + RNS_NATIVE_QPCS_CLAIMED_NUMERIC_TAIL_BYTES_V1;
 
 /// Exact work of the sole claimed-source numeric frame, checked at hashing.
+/// The catalog is 32 bytes; proof commitments remain 48 bytes.
 #[cfg(test)]
 pub(super) const RNS_NATIVE_QPCS_CLAIMED_SOURCE_BINDING_HASH_WORK_V1: RnsNativeProofHashWorkV1 =
-    match RnsNativeProofHashWorkV1::from_word_count(874) {
+    match RnsNativeProofHashWorkV1::from_word_count(872) {
         Ok(work) => work,
         Err(_) => panic!("fixed claimed-source hash frame must fit"),
     };

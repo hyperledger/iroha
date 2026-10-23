@@ -128,3 +128,60 @@ fn signed_global_genesis_keeps_original_amx_coordinator_authority() {
         .expect("certified Begin retains the transaction");
     assert_eq!(entry.begun_at, 2);
 }
+
+#[test]
+fn signed_global_genesis_archives_original_intent_before_first_native_tip() {
+    let mut config = TestChainConfig::new(World::new(), 1_000);
+    let (instructions, tx) = coordinator_instructions(
+        config.genesis_time_ms,
+        config.genesis_block_cadence_ms.get(),
+    );
+    config.genesis_instructions = instructions;
+    let chain = CertifiedTestChain::start(config).unwrap();
+    let view = chain.state().view();
+    assert_eq!(view.height(), 1);
+    assert_eq!(chain.kura().blocks_count(), 1);
+    assert_eq!(view.world().sumeragi_amx().dataspaces.len(), 2);
+    assert!(view.world().sumeragi_amx().transaction(&tx).is_some());
+
+    // The real signed genesis produced a complete immutable AMX source, before
+    // the first native execution tip became visible. The source remains only a
+    // projection: exact carrier/root checks are required by every consumer.
+    let carrier = view.native_execution_tip().unwrap().iroha_hash();
+    let archive = crate::query::native_context_archive::NativeContextArchive::open(
+        chain.kura(),
+        chain.state().ivm_execution_budget(),
+        chain.kura().native_context_archive_max_bytes(),
+    )
+    .unwrap();
+    let mut read = archive.prepared_intent_read_job(1, carrier);
+    let bytes = loop {
+        if let Some(bytes) = read.poll().unwrap() {
+            break bytes;
+        }
+    };
+    let projection =
+        crate::query::native_context_archive::prepared_intents::IntentProjection::decode(
+            bytes.as_slice(),
+        )
+        .unwrap();
+    assert_eq!(projection.record_count(), 1);
+    let offset = projection.first_offset(bytes.as_slice()).unwrap();
+    let (row, end) = projection
+        .row(bytes.as_slice(), 0, offset)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        row.kind().unwrap(),
+        iroha_data_model::sumeragi_amx::AmxRecordKind::Begin
+    );
+    assert_eq!(row.tx, tx);
+    assert_eq!(row.begin_height, Some(1));
+    assert!(projection.row(bytes.as_slice(), 1, end).unwrap().is_none());
+    assert!(projection.matches_root(bytes.as_slice(), &view, 1, carrier));
+    assert!(!projection.matches_root(bytes.as_slice(), &view, 2, carrier));
+    let foreign = iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+        b"foreign genesis carrier",
+    ));
+    assert!(!projection.matches_root(bytes.as_slice(), &view, 1, foreign));
+}

@@ -640,7 +640,8 @@ fn heap_tie_real_nested_count_work_remains_finitely_bounded() {
                 result,
                 Err(Error::Io(error))
                 if error.kind() == std::io::ErrorKind::Other
-                    && error.to_string() == "Norito encoded length exceeds admitted count allowance"
+                    && error.get_ref().is_none()
+                    && error.raw_os_error().is_none()
             ));
         }
         assert_eq!(

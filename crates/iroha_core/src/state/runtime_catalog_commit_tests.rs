@@ -253,7 +253,8 @@ fn runtime_catalog_final_overlay_rejects_unstaged_changed_and_removed_parameter(
             .world
             .parameters
             .get_mut()
-            .remove_custom_parameter(&NexusRuntimeCatalogV1::parameter_id());
+            .remove_custom_parameter(&NexusRuntimeCatalogV1::parameter_id())
+            .expect("optional fixture parameter removal");
         assert!(
             validate_runtime_catalog_block_overlay(
                 transaction.world.parameters.get_before_block(),
@@ -417,7 +418,8 @@ fn runtime_catalog_final_overlay_rejects_removal_and_unchanged_malformed_state()
         block
             .parameters
             .get_mut()
-            .remove_custom_parameter(&NexusRuntimeCatalogV1::parameter_id());
+            .remove_custom_parameter(&NexusRuntimeCatalogV1::parameter_id())
+            .expect("optional fixture parameter removal");
         let removed_parameters = block.parameters.get().clone();
         let original_parameters = block.parameters.get_before_block().clone();
         let error = validate_runtime_catalog_block_overlay(

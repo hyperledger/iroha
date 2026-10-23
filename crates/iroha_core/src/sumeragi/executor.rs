@@ -38,7 +38,9 @@ pub(crate) enum CommitTelemetryOrigin {
 }
 impl NativeExecutionAuthorization {
     /// The startup module can transfer only its own original signed-genesis execution.
-    pub(super) fn from_genesis(original: super::startup::GenesisExecutionAuthorization) -> Self {
+    pub(super) fn from_genesis(
+        original: super::startup::GenesisExecutionAuthorization<'_, '_>,
+    ) -> Self {
         let (state, tip, telemetry_origin) = original.into_parts();
         Self {
             state,

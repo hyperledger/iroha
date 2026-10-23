@@ -17,6 +17,7 @@ use iroha_data_model::{
     confidential::ConfidentialStatus,
     isi::error::{InstructionExecutionError, InvalidParameterError},
     prelude::*,
+    transaction::signed_attachments::SignedAttachmentErrorV1,
     zk::BackendTag,
 };
 use iroha_test_samples::ALICE_ID;
@@ -136,10 +137,10 @@ fn build_vk_record(
     record.gas_schedule_id = Some("native_pipa_r_default".into());
     record
 }
-fn signed_empty_tx_with_attachments(
+fn try_signed_empty_tx_with_attachments(
     network_id: NetworkId,
     attachments: Vec<iroha_data_model::proof::ProofAttachment>,
-) -> SignedTransaction {
+) -> Result<SignedTransaction, SignedAttachmentErrorV1> {
     TransactionBuilder::new(
         network_id,
         ALICE_ID.clone(),
@@ -149,8 +150,13 @@ fn signed_empty_tx_with_attachments(
         Vec::<InstructionBox>::new().into(),
     ))
     .with_proof_attachments(attachments)
-    .expect("valid proof carriers")
-    .sign(iroha_test_samples::ALICE_KEYPAIR.private_key())
+    .map(|builder| builder.sign(iroha_test_samples::ALICE_KEYPAIR.private_key()))
+}
+fn signed_empty_tx_with_attachments(
+    network_id: NetworkId,
+    attachments: Vec<iroha_data_model::proof::ProofAttachment>,
+) -> SignedTransaction {
+    try_signed_empty_tx_with_attachments(network_id, attachments).expect("valid proof carriers")
 }
 fn bounded_proof_attachments(
     attachments: Vec<iroha_data_model::proof::ProofAttachment>,
@@ -443,46 +449,31 @@ fn preverify_rejects_missing_vk_reference() {
     assert!(matches!(err, ValidationFail::NotPermitted(msg) if msg.contains("verifying key")));
 }
 #[test]
-fn preverify_rejects_proof_backend_mismatch_before_lookup() {
+fn signed_carrier_rejects_proof_backend_mismatch_before_lookup() {
     let world = test_world::world_with_test_accounts();
     let state = certified_state(world);
-    let header = iroha_data_model::block::BlockHeader::new(
-        nonzero!(2_u64),
-        state.view().latest_block_hash(),
-        None,
-        1,
-        0,
-    );
-    let mut block = state.block(header);
 
     let attachment = iroha_data_model::proof::ProofAttachment::new_ref(
         "pipa-r/pasta".into(),
         iroha_data_model::proof::ProofBox::new("stark/fri".into(), vec![1, 2, 3]),
         iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "vk_mismatch"),
     );
-    let tx = signed_empty_tx_with_attachments(
+    let error = try_signed_empty_tx_with_attachments(
         *state.network_id_ref(),
         bounded_proof_attachments(vec![attachment]),
-    );
-    let mut stx = block.transaction();
-    let err = Executor::preverify_attachments(&mut stx, &tx)
-        .expect_err("proof backend mismatch should be rejected before registry lookup");
-    assert!(
-        matches!(err, ValidationFail::NotPermitted(msg) if msg == "malformed proof attachment: proof.backend must match attachment backend")
-    );
+    )
+    .expect_err("malformed carrier must fail before signing and registry lookup");
+    assert!(matches!(
+        error,
+        SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, reason }
+            if reason == "proof.backend must match attachment backend"
+    ));
 }
+
 #[test]
-fn preverify_rejects_vk_ref_backend_mismatch_before_lookup() {
+fn signed_carrier_rejects_vk_ref_backend_mismatch_before_lookup() {
     let world = test_world::world_with_test_accounts();
     let state = certified_state(world);
-    let header = iroha_data_model::block::BlockHeader::new(
-        nonzero!(2_u64),
-        state.view().latest_block_hash(),
-        None,
-        1,
-        0,
-    );
-    let mut block = state.block(header);
 
     let fixture = bound_native_fixture();
     let attachment = iroha_data_model::proof::ProofAttachment::new_ref(
@@ -490,17 +481,18 @@ fn preverify_rejects_vk_ref_backend_mismatch_before_lookup() {
         fixture.proof_box("pipa-r/pasta"),
         iroha_data_model::proof::VerifyingKeyId::new("stark/fri", "vk_mismatch"),
     );
-    let tx = signed_empty_tx_with_attachments(
+    let error = try_signed_empty_tx_with_attachments(
         *state.network_id_ref(),
         bounded_proof_attachments(vec![attachment]),
-    );
-    let mut stx = block.transaction();
-    let err = Executor::preverify_attachments(&mut stx, &tx)
-        .expect_err("vk_ref backend mismatch should be rejected before registry lookup");
-    assert!(
-        matches!(err, ValidationFail::NotPermitted(msg) if msg == "malformed proof attachment: vk_ref.backend must match attachment backend")
-    );
+    )
+    .expect_err("malformed carrier must fail before signing and registry lookup");
+    assert!(matches!(
+        error,
+        SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, reason }
+            if reason == "vk_ref.backend must match attachment backend"
+    ));
 }
+
 #[test]
 fn preverify_rejects_protocol_names_as_backend_labels_before_lookup() {
     for (idx, backend) in UNSUPPORTED_PROTOCOL_ATTACHMENT_BACKENDS
@@ -566,24 +558,34 @@ fn preverify_rejects_production_claim_backend_labels_before_lookup() {
                 format!("vk_production_claim_attachment_{idx}"),
             ),
         );
-        let tx = signed_empty_tx_with_attachments(
+        let carrier = try_signed_empty_tx_with_attachments(
             *state.network_id_ref(),
             bounded_proof_attachments(vec![attachment]),
         );
+        if !iroha_data_model::proof::verifying_key_id_field_is_portable(backend) {
+            // Nonportable labels never acquire a signed carrier. The typed
+            // construction refusal is earlier than any registry/preverify read.
+            assert!(
+                matches!(
+                    &carrier,
+                    Err(SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, reason })
+                        if reason == "vk_ref must use portable registry syntax"
+                ),
+                "unexpected carrier result for {backend}: {carrier:?}"
+            );
+            continue;
+        }
+        let tx = carrier.expect("portable production-claim label is a structural carrier");
         let mut stx = block.transaction();
         let err = Executor::preverify_attachments(&mut stx, &tx)
             .expect_err("production-claim attachment backend must fail before registry lookup");
-        let expected = if iroha_data_model::proof::verifying_key_id_field_is_portable(backend) {
-            "readiness-claim proof backends"
-        } else {
-            "malformed proof attachment: vk_ref must use portable registry syntax"
-        };
         assert!(
-            matches!(&err, ValidationFail::NotPermitted(msg) if msg.contains(expected)),
+            matches!(&err, ValidationFail::NotPermitted(msg) if msg.contains("readiness-claim proof backends")),
             "unexpected preverify error for {backend}: {err:?}"
         );
     }
 }
+
 #[test]
 fn preverify_rejects_commitment_only_missing_vk_reference() {
     let world = test_world::world_with_test_accounts();
@@ -905,7 +907,7 @@ fn verifyproof_rejects_duplicate_proof_record() {
     assert!(format!("{err:?}").contains("Repetition"));
 }
 #[test]
-fn preverify_rejects_empty_proof_as_malformed() {
+fn signed_carrier_rejects_empty_proof_before_preverify() {
     let world = test_world::world_with_test_accounts();
     let state = certified_state(world);
     let header = iroha_data_model::block::BlockHeader::new(
@@ -918,7 +920,6 @@ fn preverify_rejects_empty_proof_as_malformed() {
     let mut block = state.block(header);
     let exec = Executor::default();
     let authority = ALICE_ID.clone();
-    let private_key = iroha_test_samples::ALICE_KEYPAIR.private_key().clone();
     let vk_id = iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "vk_empty_proof");
     let fixture = bound_native_fixture();
     let vk_box = fixture
@@ -942,22 +943,15 @@ fn preverify_rejects_empty_proof_as_malformed() {
             iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), vec![]),
             vk_id,
         )]);
-    let tx: SignedTransaction = TransactionBuilder::new(
-        *state.network_id_ref(),
-        authority.clone(),
-        iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
-    )
-    .with_executable(Executable::Instructions(
-        Vec::<InstructionBox>::new().into(),
-    ))
-    .with_proof_attachments(attachments)
-    .expect("valid proof carriers")
-    .sign(&private_key);
-    let mut stx = block.transaction();
-    let err = Executor::preverify_attachments(&mut stx, &tx)
-        .expect_err("empty proof should be rejected as malformed");
-    assert!(matches!(err, ValidationFail::NotPermitted(msg) if msg.contains("malformed proof")));
+    let error = try_signed_empty_tx_with_attachments(*state.network_id_ref(), attachments)
+        .expect_err("empty proof must be refused before signing and preverification");
+    assert!(matches!(
+        error,
+        SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, reason }
+            if reason == "proof.bytes must be non-empty"
+    ));
 }
+
 #[test]
 fn preverify_rejects_proof_too_big() {
     let world = test_world::world_with_test_accounts();

@@ -12,7 +12,7 @@ use fastpq_isi::{
     GoldilocksDigest384FrameV1, GoldilocksDigest384LastFieldStreamV1, GoldilocksDigestDomainV1,
 };
 #[cfg(test)]
-use iroha_crypto::privacy::PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1;
+use iroha_crypto::privacy::PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1;
 
 #[cfg(test)]
 use super::rns_native_qpcs_initial::canonical_parameter_digest_v1;
@@ -290,7 +290,7 @@ pub(super) struct RnsNativeProofHashPositionV1 {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct RnsNativeProofHashContextV1 {
     parameter_digest: [u8; 32],
-    catalog: [u8; GOLDILOCKS_DIGEST384_BYTES_V1],
+    catalog: [u8; 32],
 }
 
 #[cfg(test)]
@@ -306,9 +306,7 @@ impl RnsNativeProofHashContextV1 {
     fn reconstruct() -> Result<Self, RnsNativeProofHashErrorV1> {
         let parameter_digest =
             canonical_parameter_digest_v1().map_err(|_| RnsNativeProofHashErrorV1::Profile)?;
-        let catalog = GoldilocksDigest384V1::new(PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1)
-            .ok_or(RnsNativeProofHashErrorV1::Profile)?
-            .to_le_bytes();
+        let catalog = PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1;
         Ok(Self {
             parameter_digest,
             catalog,
@@ -451,12 +449,7 @@ mod tests {
         .unwrap();
         assert_eq!(actual, RnsNativeProofDigestV1::from_shared(expected));
         assert_eq!(decode_proof_digest_v1(&actual.to_le_bytes()), Ok(actual));
-        assert_eq!(
-            context.catalog,
-            GoldilocksDigest384V1::new(PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1)
-                .unwrap()
-                .to_le_bytes()
-        );
+        assert_eq!(context.catalog, PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1);
     }
 
     #[test]

@@ -95,8 +95,8 @@ pub mod fastpq;
 /// Fraud detection and risk scoring data types.
 pub mod fraud;
 pub mod sccp;
-// Certificate-bearing Parliament data must remain available to the always-on
-// validation-fee registry without enabling governance instructions or events.
+// Parliament certificates, validation-fee registry types, governance instructions
+// and events are part of the canonical protocol model in every build.
 /// Application-independent game session records and signed gameplay messages.
 pub mod game;
 pub mod game_resources;
@@ -119,6 +119,8 @@ mod json_key_codec;
 
 /// Native bond-servicing kernel records.
 pub mod bond;
+/// Canonical committed ordinary signing and controller algorithm policy.
+pub mod crypto_admission_policy;
 pub mod fee_evidence;
 mod json_object_key;
 /// Jurisdiction Data Guardian attestations and committee types.

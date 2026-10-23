@@ -86,7 +86,7 @@ impl KeyExchangeScheme for X25519Sha256 {
     }
     fn decode_public_key(bytes: &[u8]) -> Result<Self::PublicKey, ParseError> {
         if bytes.len() != Self::PUBLIC_KEY_SIZE {
-            return Err(ParseError(format!(
+            return Err(ParseError::Invalid(format!(
                 "expected {} bytes, got {}",
                 Self::PUBLIC_KEY_SIZE,
                 bytes.len()
@@ -96,7 +96,7 @@ impl KeyExchangeScheme for X25519Sha256 {
         array.copy_from_slice(bytes);
         let public_key = PublicKey::from(array);
         if super::is_x25519_low_order_public_key(&public_key) {
-            return Err(ParseError("x25519 public key is low-order".into()));
+            return Err(ParseError::Invalid("x25519 public key is low-order".into()));
         }
         Ok(public_key)
     }

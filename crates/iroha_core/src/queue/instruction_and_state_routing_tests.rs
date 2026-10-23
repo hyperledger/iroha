@@ -64,23 +64,24 @@ fn accepted_tx_with(
     instructions: Vec<InstructionBox>,
     metadata: Metadata,
 ) -> AcceptedTransaction<'static> {
-    accepted_tx_with_attachments(
+    let signed = signed_tx_with_attachments(
         account_id,
         key_pair,
         time_source,
         instructions,
         metadata,
         None,
-    )
+    );
+    try_accept_signed_queue_tx(signed, time_source).expect("Failed to accept Transaction.")
 }
-fn accepted_tx_with_attachments(
+fn signed_tx_with_attachments(
     account_id: AccountId,
     key_pair: &KeyPair,
     time_source: &TimeSource,
     instructions: Vec<InstructionBox>,
     metadata: Metadata,
     attachments: Option<Vec<ProofAttachment>>,
-) -> AcceptedTransaction<'static> {
+) -> SignedTransaction {
     let network_id = queue_test_network_id();
     let mut builder = TransactionBuilder::new_with_time_source(
         network_id,
@@ -95,7 +96,13 @@ fn accepted_tx_with_attachments(
             .with_proof_attachments(att)
             .expect("valid proof carriers");
     }
-    let tx = builder.sign(key_pair.private_key());
+    builder.sign(key_pair.private_key())
+}
+fn try_accept_signed_queue_tx(
+    tx: SignedTransaction,
+    time_source: &TimeSource,
+) -> Result<AcceptedTransaction<'static>, crate::tx::AcceptTransactionFail> {
+    let network_id = queue_test_network_id();
     let default_limits = TransactionParameters::default();
     let tx_limits = TransactionParameters::with_max_signatures(
         nonzero!(16_u64),
@@ -105,16 +112,18 @@ fn accepted_tx_with_attachments(
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
     AcceptedTransaction::accept_with_time_source(
         tx,
         &network_id,
         Duration::from_millis(10),
         tx_limits,
-        &crypto_cfg,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         time_source,
     )
-    .expect("Failed to accept Transaction.")
 }
 #[cfg(feature = "telemetry")]
 fn accepted_ivm_tx_by(
@@ -149,13 +158,16 @@ fn accepted_ivm_tx_by(
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
     AcceptedTransaction::accept_with_time_source(
         tx,
         &network_id,
         Duration::from_millis(10),
         tx_limits,
-        &crypto_cfg,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         time_source,
     )
     .expect("Failed to accept IVM transaction.")

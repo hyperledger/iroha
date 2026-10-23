@@ -248,7 +248,7 @@ pub fn settle_inbound(
             false,
         );
     }
-    let changed = match recipients::classify_recipient(state_transaction, &payload.recipient.bytes)
+    let changed = match recipients::classify_recipient(state_transaction, &payload.recipient.bytes)?
     {
         SccpRecipientClassV1::Creditable {
             account,
@@ -695,7 +695,7 @@ pub(super) fn refund(
     let target = if escrow::is_escrow(world, &record.sender) {
         None
     } else {
-        match recipients::classify_account(state_transaction, record.sender.clone()) {
+        match recipients::classify_account(state_transaction, record.sender.clone())? {
             SccpRecipientClassV1::Creditable {
                 account,
                 registered,

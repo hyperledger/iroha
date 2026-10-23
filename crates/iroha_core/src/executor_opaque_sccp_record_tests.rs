@@ -161,7 +161,7 @@ fn top_level_signed_record_executes() {
             let mut tx = block.transaction_for_fastpq_testing(call);
             bind_scope(&mut tx);
             Executor::Initial
-                .execute_transaction(&mut tx, authority, signed, &mut IvmCache::new())
+                .execute_transaction(&mut tx, authority, &signed, &mut IvmCache::new())
                 .map_err(crate::execution_attempt::expect_completed_rejection)
                 .expect("a signed RecordSccpMessage records");
             assert_eq!(outbound_sender(&*tx.world, 0), Some(authority.clone()));
@@ -186,7 +186,7 @@ fn signed_trigger_registration_cannot_carry_a_record() {
         let mut tx = block.transaction_for_fastpq_testing(call);
         bind_scope(&mut tx);
         let error = Executor::Initial
-            .execute_transaction(&mut tx, authority, signed, &mut IvmCache::new())
+            .execute_transaction(&mut tx, authority, &signed, &mut IvmCache::new())
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("a user trigger may not derive RecordSccpMessage");
         assert!(
@@ -243,7 +243,7 @@ fn raw_ivm_trigger_registration_cannot_carry_a_record() {
             let result = Executor::Initial.execute_transaction(
                 &mut tx,
                 authority,
-                signed,
+                &signed,
                 &mut IvmCache::new(),
             );
             assert!(
@@ -331,7 +331,7 @@ fn supplied_proved_replay_cannot_derive_a_record() {
                 &mut tx,
                 authority,
                 &signed,
-                instructions,
+                &instructions,
                 Some(replay),
                 None,
                 None,
@@ -341,6 +341,7 @@ fn supplied_proved_replay_cannot_derive_a_record() {
                 None,
                 None,
                 true,
+                None,
             )
             .expect_err("a supplied replay must not manufacture a signed record");
         assert_signed_only_rejection(&error);

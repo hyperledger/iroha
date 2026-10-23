@@ -18,7 +18,7 @@ enum EnvelopeFailure {
 
 impl PublicKeyEnvelopeError {
     pub(crate) fn into_parse_error(self) -> ParseError {
-        ParseError(match self.0 {
+        ParseError::Invalid(match self.0 {
             EnvelopeFailure::MissingAlgorithm => "missing public key algorithm tag".to_owned(),
             EnvelopeFailure::InvalidAlgorithm(tag) => {
                 format!("invalid public key algorithm tag {tag}")

@@ -584,7 +584,7 @@ fn fixed_sizes_and_post_authentication_local_resource_ledger_are_exact_v2() {
     assert_eq!(POST_AUTHENTICATION_NUMERIC_VALIDATION_WORK_UNITS_V2, 22_000);
     assert_eq!(JOINT_BINDING_FIXED_BYTES_V2, 755);
     assert_eq!(POST_AUTHENTICATION_JOINT_BINDING_HASH_BYTES_V2, 824);
-    assert_eq!(POST_AUTHENTICATION_LOCAL_WORK_UNITS_V2, 1_293_090);
+    assert_eq!(POST_AUTHENTICATION_LOCAL_WORK_UNITS_V2, 1_282_944);
     assert_eq!(
         RNS_NATIVE_NUMERIC_OPENING_HANDOFF_POST_AUTHENTICATION_LOCAL_RESOURCE_LEDGER_V2
             .post_authentication_retained_public_evaluation_bytes,
@@ -964,11 +964,11 @@ fn numeric_handoff_frame_uses_exact_native_widths_and_real_primitive_work() {
         )
         .expect("frame");
     let work = RnsNativeProofHashWorkV1::from_frame(&frame).expect("work");
-    assert_eq!(frame.word_count(), 250);
-    assert_eq!(work.lane_permutations, 750);
-    assert_eq!(work.poseidon_rounds, 48_750);
-    assert_eq!(work.field_multiplications, 681_750);
-    assert_eq!(work.field_additions, 586_500);
+    assert_eq!(frame.word_count(), 248);
+    assert_eq!(work.lane_permutations, 744);
+    assert_eq!(work.poseidon_rounds, 48_360);
+    assert_eq!(work.field_multiplications, 676_296);
+    assert_eq!(work.field_additions, 581_808);
     assert_eq!(work, POST_AUTHENTICATION_JOINT_BINDING_WORK_V2);
     let root = hash_joint_binding_v2(parameter, &refs).expect("current frame");
     assert_eq!(root, ProofDigestV1::from_shared(frame.hash()));

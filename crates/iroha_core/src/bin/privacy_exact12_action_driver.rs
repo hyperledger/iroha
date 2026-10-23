@@ -731,11 +731,13 @@ fn build_response(request: BuildActionRequestV1) -> Result<BuildActionResponseV1
             .transaction
         }
         ANONYMOUS_PGC_OPERATION => {
+            // The non-shipping driver selects both complete contexts explicitly;
+            // only the payment is returned by this operation.
             build_privacy_release_anonymous_pgc_network_action_v1(
+                context.clone(),
                 context,
                 asset_definition_id,
                 pool_id,
-                0,
                 *fixture_seed,
                 &private_key,
             )

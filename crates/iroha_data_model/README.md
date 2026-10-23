@@ -28,8 +28,9 @@ and the default/HTTP model graph including its root development dependencies.
 
 Protocol JSON is always available, including with `default-features = false`.
 Custom parameters, admission and consensus policies, and retained service metadata
-use canonical Norito JSON. Optional governance, HTTP and cryptographic capability
-features remain independent of this protocol requirement.
+use canonical Norito JSON. Governance instructions, event and filter tags, and their
+complete canonical registry also ship in every build, including builds without
+default features. HTTP transport helpers remain a separate capability.
 
 ## Native bindings
 

@@ -365,7 +365,7 @@ test("Exact12 encoder authenticates every byte-complete row field", () => {
   );
 });
 
-test("Exact12 envelope requires the final marker and every catalog lane", () => {
+test("Exact12 envelope requires the final marker and every native catalog byte", () => {
   const bundle = noritoDecodePrivacyExact12FixtureBundleV1(BUNDLE_BYTES);
   const original = Buffer.from(bundle.rows[0].envelopeNorito);
   const frame = validateNoritoFrame(original);
@@ -373,10 +373,12 @@ test("Exact12 envelope requires the final marker and every catalog lane", () => 
   const marker = readCompactField(frame.payload, 0, "wire magic");
   const catalog = readCompactField(frame.payload, marker.next, "catalog commitment");
   assert.equal(marker.end - marker.payloadStart, 8);
-  assert.equal(catalog.end - catalog.payloadStart, 48);
+  assert.equal(catalog.end - catalog.payloadStart, 32);
+  assert.equal(frame.payload.subarray(catalog.payloadStart, catalog.end).toString("hex"),
+    "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0");
   for (const [field, offsets, expected] of [
     [marker, [0, 7], /wire marker/],
-    [catalog, [0, 8, 16, 24, 32, 40, 47], /catalog commitment/],
+    [catalog, Array.from({ length: 32 }, (_, index) => index), /catalog commitment/],
   ]) {
     for (const offset of offsets) {
       const mutated = cloneBundle(bundle);
@@ -386,6 +388,23 @@ test("Exact12 envelope requires the final marker and every catalog lane", () => 
       mutated.rows[0].envelopeNorito = envelope;
       assert.throws(() => noritoEncodePrivacyExact12FixtureBundleV1(mutated), expected);
     }
+  }
+  const canonicalCatalog = frame.payload.subarray(catalog.payloadStart, catalog.end);
+  for (const hostile of [
+    canonicalCatalog.subarray(0, 31), Buffer.concat([canonicalCatalog, Buffer.from([0])]),
+    Buffer.concat([canonicalCatalog, Buffer.alloc(16)]),
+    Buffer.from("e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff", "hex"),
+  ]) {
+    const payload = Buffer.concat([
+      frame.payload.subarray(0, marker.next), Buffer.from([hostile.length]), hostile,
+      frame.payload.subarray(catalog.next),
+    ]);
+    const malformed = Buffer.concat([original.subarray(0, payloadStart), payload]);
+    malformed.writeBigUInt64LE(BigInt(payload.length), 23);
+    rewriteOuterCrc(malformed);
+    const mutated = cloneBundle(bundle);
+    mutated.rows[0].envelopeNorito = malformed;
+    assert.throws(() => noritoEncodePrivacyExact12FixtureBundleV1(mutated), /catalog commitment/);
   }
   const retired = cloneBundle(bundle);
   const envelope = Buffer.concat([

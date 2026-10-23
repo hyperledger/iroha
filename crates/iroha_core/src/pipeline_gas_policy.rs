@@ -1,9 +1,11 @@
-//! One MV owner for canonical parameters and validated fee, limit, fraud and ZK projections.
+//! One MV owner for canonical parameters and validated fee, limit, fraud, ZK and crypto projections.
 //!
 //! Views and block construction read this projection from committed parameters.
 //! A block freezes its predecessor's projection; execution never refreshes it
-//! from transaction-local writes. Root fees are mandatory after genesis; other
-//! families retain protocol defaults. Malformed parameters never select local configuration.
+//! from transaction-local writes. Root fees and ordinary crypto policy must be initialized
+//! by authenticated genesis; staking also requires its explicit initialized owner. Other
+//! families retain protocol defaults. Malformed parameters
+//! never select local configuration.
 
 use std::{collections::BTreeSet, str::FromStr as _};
 
@@ -14,11 +16,12 @@ use iroha_data_model::{
         address::{AccountAddress, AccountAddressError},
     },
     asset::AssetDefinitionId,
-    block::consensus::RootFeePolicy,
+    block::consensus::{PublicLaneStakingPolicy, PublicLaneStakingPolicyError, RootFeePolicy},
     parameter::{CustomParameter, CustomParameterId, Parameters},
 };
 use iroha_data_model::{
-    fraud::FraudAdmissionPolicyV1, pipeline_validity_policy::PipelineValidityPolicyV1,
+    crypto_admission_policy::CryptoAdmissionPolicyV1, fraud::FraudAdmissionPolicyV1,
+    pipeline_validity_policy::PipelineValidityPolicyV1,
 };
 use iroha_primitives::{json::Json, numeric::Numeric};
 
@@ -52,6 +55,10 @@ pub struct StateParameters {
     fraud: FraudAdmissionPolicyV1,
     zk: iroha_data_model::zk_validity_policy::ZkValidityPolicyV1,
     root_fees: RootFeeProjection,
+    // None is the explicit uninitialized pre-genesis state, never a fallback.
+    crypto: Option<CryptoAdmissionPolicyV1>,
+    // None is explicit pre-genesis absence, never a node-local monetary default.
+    staking: Option<PublicLaneStakingPolicy>,
 }
 
 impl Default for StateParameters {
@@ -63,6 +70,8 @@ impl Default for StateParameters {
             fraud: FraudAdmissionPolicyV1::protocol_default(),
             zk: iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default(),
             root_fees: RootFeeProjection::bootstrap(),
+            crypto: None,
+            staking: None,
         }
     }
 }
@@ -105,6 +114,16 @@ impl TryFrom<Parameters> for StateParameters {
             .transpose()?
             .map(RootFeeProjection::Committed)
             .unwrap_or_else(RootFeeProjection::bootstrap);
+        let crypto = parameters
+            .custom()
+            .get(&CryptoAdmissionPolicyV1::parameter_id())
+            .map(|custom| CryptoAdmissionPolicyV1::from_payload(custom.payload()))
+            .transpose()?;
+        let staking = parameters
+            .custom()
+            .get(&PublicLaneStakingPolicy::parameter_id())
+            .map(staking_policy)
+            .transpose()?;
         Ok(Self {
             parameters,
             gas,
@@ -112,8 +131,19 @@ impl TryFrom<Parameters> for StateParameters {
             fraud,
             zk,
             root_fees,
+            crypto,
+            staking,
         })
     }
+}
+
+// TODO: wire mandatory signed-genesis/restore checks, retained-liability update validation,
+// execution consumers and original parameter resource custody before live adoption.
+fn staking_policy(custom: &CustomParameter) -> Result<PublicLaneStakingPolicy, norito::Error> {
+    PublicLaneStakingPolicy::from_custom_parameter(custom).map_err(|error| match error {
+        PublicLaneStakingPolicyError::Codec(original) => original,
+        invalid => norito::Error::Message(invalid.to_string()),
+    })
 }
 
 fn root_fee_policy(payload: &Json) -> Result<RootFeePolicy, norito::Error> {
@@ -169,6 +199,40 @@ impl StateParameters {
     /// Ordinary execution must still require `root_fees()` to be present.
     pub(crate) fn effective_root_fees(&self) -> &RootFeePolicy {
         self.root_fees.effective()
+    }
+
+    /// Borrow the policy from this exact parameters version, if genesis initialized it.
+    /// Absence is never an ordinary-admission default.
+    pub fn crypto_policy(&self) -> Option<&CryptoAdmissionPolicyV1> {
+        self.crypto.as_ref()
+    }
+
+    /// Require the explicit committed policy for ordinary admission or publication.
+    ///
+    /// # Errors
+    /// Rejects the uninitialized pre-genesis owner without inventing a default.
+    pub fn require_crypto_policy(&self) -> Result<&CryptoAdmissionPolicyV1, &'static str> {
+        self.crypto
+            .as_ref()
+            .ok_or("ordinary crypto policy has not been initialized by authenticated genesis")
+    }
+
+    /// Borrow this exact version's validated staking policy, if genesis initialized it.
+    /// No JSON decoder or node-local fallback runs on this read path.
+    pub fn staking_policy(&self) -> Option<&PublicLaneStakingPolicy> {
+        self.staking.as_ref()
+    }
+
+    /// Require the initialized monetary policy without allocating a substitute.
+    ///
+    /// # Errors
+    /// Returns the typed missing-policy error for the explicit pre-genesis owner.
+    pub fn require_staking_policy(
+        &self,
+    ) -> Result<&PublicLaneStakingPolicy, PublicLaneStakingPolicyError> {
+        self.staking
+            .as_ref()
+            .ok_or(PublicLaneStakingPolicyError::MissingParameter)
     }
 
     /// Validate and atomically update one original parameter and its derived policies.
@@ -262,6 +326,18 @@ impl StateParameters {
             validate_root_fees(&root_fees)?;
             self.parameters.set_parameter(parameter);
             self.root_fees = RootFeeProjection::Committed(root_fees);
+        } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
+            && custom.id().name().as_ref() == PublicLaneStakingPolicy::PARAMETER_ID_STR
+        {
+            let staking = staking_policy(custom)?;
+            self.parameters.set_parameter(parameter);
+            self.staking = Some(staking);
+        } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
+            && custom.id().name().as_ref() == CryptoAdmissionPolicyV1::PARAMETER_ID_STR
+        {
+            let crypto = CryptoAdmissionPolicyV1::from_payload(custom.payload())?;
+            self.parameters.set_parameter(parameter);
+            self.crypto = Some(crypto);
         } else {
             // Other parameters cannot change these projections and need no decoding.
             self.parameters.set_parameter(parameter);
@@ -275,8 +351,26 @@ impl StateParameters {
         self.parameters.sumeragi = parameters;
     }
 
-    /// Remove one custom parameter, restoring that field's deterministic default.
-    pub fn remove_custom_parameter(&mut self, id: &CustomParameterId) -> Option<CustomParameter> {
+    /// Remove an optional custom parameter, retaining mandatory initialized policy.
+    ///
+    /// # Errors
+    /// Initialized crypto and staking policies cannot be deleted or replaced with a fallback.
+    pub fn remove_custom_parameter(
+        &mut self,
+        id: &CustomParameterId,
+    ) -> Result<Option<CustomParameter>, norito::Error> {
+        if id.name().as_ref() == CryptoAdmissionPolicyV1::PARAMETER_ID_STR && self.crypto.is_some()
+        {
+            return Err(norito::Error::Message(
+                "initialized ordinary crypto policy cannot be removed".into(),
+            ));
+        }
+        if id.name().as_ref() == PublicLaneStakingPolicy::PARAMETER_ID_STR && self.staking.is_some()
+        {
+            return Err(norito::Error::Message(
+                "initialized staking monetary policy cannot be removed".into(),
+            ));
+        }
         let previous = self.parameters.custom.remove(id);
         match id.name().as_ref() {
             TECH_ACCOUNT => self.gas.tech_account_id = Gas::default().tech_account_id,
@@ -295,7 +389,7 @@ impl StateParameters {
             RootFeePolicy::PARAMETER_ID_STR => self.root_fees = RootFeeProjection::bootstrap(),
             _ => {}
         }
-        previous
+        Ok(previous)
     }
 
     /// Replace the canonical input only after its entire projection validates.
@@ -305,7 +399,18 @@ impl StateParameters {
     /// or pipeline policy cannot form a valid projection. The existing owner
     /// remains unchanged.
     pub fn replace(&mut self, parameters: Parameters) -> Result<(), norito::Error> {
-        *self = Self::try_from(parameters)?;
+        let replacement = Self::try_from(parameters)?;
+        if self.crypto.is_some() && replacement.crypto.is_none() {
+            return Err(norito::Error::Message(
+                "initialized ordinary crypto policy cannot be removed".into(),
+            ));
+        }
+        if self.staking.is_some() && replacement.staking.is_none() {
+            return Err(norito::Error::Message(
+                "initialized staking monetary policy cannot be removed".into(),
+            ));
+        }
+        *self = replacement;
         Ok(())
     }
 }
@@ -573,6 +678,177 @@ pub(crate) fn parameters_for_testing(gas: Gas) -> [iroha_data_model::parameter::
 }
 
 #[cfg(test)]
+mod staking_policy_tests;
+
+#[cfg(test)]
+mod crypto_policy_tests {
+    use super::*;
+    use iroha_crypto::Algorithm;
+    use iroha_data_model::parameter::Parameter;
+
+    fn policy(algorithms: Vec<Algorithm>) -> CryptoAdmissionPolicyV1 {
+        CryptoAdmissionPolicyV1::new(algorithms).unwrap()
+    }
+
+    #[test]
+    fn crypto_policy_is_explicit_and_initialized_owner_cannot_remove_or_replace_with_absence() {
+        let mut owner = StateParameters::default();
+        assert!(owner.crypto_policy().is_none());
+        assert!(owner.require_crypto_policy().is_err());
+        let selected = policy(vec![Algorithm::Ed25519]);
+        owner
+            .set_parameter(selected.clone().into_parameter().unwrap())
+            .unwrap();
+        let original = owner.clone();
+        assert_eq!(owner.require_crypto_policy().unwrap(), &selected);
+        assert!(
+            owner
+                .remove_custom_parameter(&CryptoAdmissionPolicyV1::parameter_id())
+                .is_err()
+        );
+        assert_eq!(owner, original);
+        assert!(owner.replace(Parameters::default()).is_err());
+        assert_eq!(owner, original);
+        let next = policy(vec![Algorithm::Secp256k1]);
+        owner
+            .set_parameter(next.clone().into_parameter().unwrap())
+            .unwrap();
+        assert_eq!(owner.require_crypto_policy().unwrap(), &next);
+        assert_eq!(original.require_crypto_policy().unwrap(), &selected);
+    }
+
+    #[test]
+    fn crypto_policy_projection_roundtrip_uses_only_original_parameters() {
+        use norito::codec::Encode as _;
+        let selected = policy(Algorithm::ALL.to_vec());
+        let mut parameters = Parameters::default();
+        parameters.set_parameter(selected.clone().into_parameter().unwrap());
+        let owner = StateParameters::try_from(parameters.clone()).unwrap();
+        assert_eq!(owner.encode(), parameters.encode());
+        let json = norito::json::to_json(&owner).unwrap();
+        assert_eq!(json, norito::json::to_json(&parameters).unwrap());
+        let restored: StateParameters = norito::json::from_str(&json).unwrap();
+        assert_eq!(restored, owner);
+        assert_eq!(restored.require_crypto_policy().unwrap(), &selected);
+    }
+
+    #[test]
+    fn crypto_policy_original_decoder_refusal_leaves_parameter_and_projection_unchanged() {
+        let selected = policy(vec![Algorithm::Ed25519]);
+        let mut owner = StateParameters::default();
+        owner
+            .set_parameter(selected.into_parameter().unwrap())
+            .unwrap();
+        let original = owner.clone();
+        let next = policy(vec![Algorithm::Secp256k1]).into_parameter().unwrap();
+        let zero = norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            0,
+            usize::MAX,
+        ));
+        let error = zero
+            .with(|| norito::core::classify_decode_attempt(|| owner.set_parameter(next.clone())))
+            .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert!(error.local_refusal().is_some());
+        assert_eq!(owner, original);
+        owner.set_parameter(next).unwrap();
+        assert!(
+            owner
+                .require_crypto_policy()
+                .unwrap()
+                .allows(Algorithm::Secp256k1)
+        );
+        assert!(
+            !owner
+                .require_crypto_policy()
+                .unwrap()
+                .allows(Algorithm::Ed25519)
+        );
+        let committed = owner.clone();
+        let malformed = Parameter::Custom(CustomParameter::new(
+            CryptoAdmissionPolicyV1::parameter_id(),
+            Json::from_str_norito(r#"{"allowed_algorithms":["ed25519","ed25519"]}"#).unwrap(),
+        ));
+        let malformed =
+            norito::core::classify_decode_attempt(|| owner.set_parameter(malformed)).unwrap_err();
+        assert!(malformed.local_refusal().is_none());
+        assert_eq!(owner, committed);
+    }
+
+    #[test]
+    fn crypto_and_fraud_share_original_parameters_without_cross_policy_overwrite() {
+        let crypto = policy(vec![Algorithm::Ed25519]);
+        let mut fraud = FraudAdmissionPolicyV1::protocol_default();
+        fraud.enabled = true;
+        fraud.missing_assessment_permitted = false;
+        let mut original = StateParameters::default();
+        original
+            .set_parameter(crypto.clone().into_parameter().unwrap())
+            .unwrap();
+        original
+            .set_parameter(Parameter::Custom(fraud.clone().into_custom_parameter()))
+            .unwrap();
+        let cell = mv::cell::Cell::new(original);
+        let retained = cell.view();
+        let next_crypto = policy(vec![Algorithm::Ed25519, Algorithm::Secp256k1]);
+        let mut next_fraud = fraud.clone();
+        next_fraud.missing_assessment_permitted = true;
+        let mut block = cell.block();
+        block
+            .set_parameter(next_crypto.clone().into_parameter().unwrap())
+            .unwrap();
+        assert_eq!(block.fraud_policy(), &fraud);
+        block
+            .set_parameter(Parameter::Custom(
+                next_fraud.clone().into_custom_parameter(),
+            ))
+            .unwrap();
+        assert_eq!(block.require_crypto_policy().unwrap(), &next_crypto);
+        block.commit();
+        let current = cell.view();
+        norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 0), || {
+            assert_eq!(retained.require_crypto_policy().unwrap(), &crypto);
+            assert_eq!(retained.fraud_policy(), &fraud);
+            assert_eq!(current.require_crypto_policy().unwrap(), &next_crypto);
+            assert_eq!(current.fraud_policy(), &next_fraud);
+        });
+        let rollback = cell.block_and_revert();
+        assert_eq!(rollback.require_crypto_policy().unwrap(), &crypto);
+        assert_eq!(rollback.fraud_policy(), &fraud);
+    }
+
+    #[test]
+    fn crypto_policy_frozen_predecessor_survives_current_update_and_rollback() {
+        let initial = policy(vec![Algorithm::Ed25519]);
+        let next = policy(vec![Algorithm::Secp256k1]);
+        let mut parameters = StateParameters::default();
+        parameters
+            .set_parameter(initial.clone().into_parameter().unwrap())
+            .unwrap();
+        let owner = mv::cell::Cell::new(parameters);
+        let predecessor = owner.view();
+        let mut block = owner.block();
+        block
+            .set_parameter(next.clone().into_parameter().unwrap())
+            .unwrap();
+        assert_eq!(predecessor.require_crypto_policy().unwrap(), &initial);
+        block.commit();
+        assert_eq!(owner.view().require_crypto_policy().unwrap(), &next);
+        assert_eq!(predecessor.require_crypto_policy().unwrap(), &initial);
+        let rollback = owner.block_and_revert();
+        assert_eq!(rollback.require_crypto_policy().unwrap(), &initial);
+        rollback.commit();
+        assert_eq!(owner.view().require_crypto_policy().unwrap(), &initial);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use iroha_data_model::parameter::Parameter;
@@ -783,7 +1059,7 @@ mod tests {
         assert!(owner.replace(malformed).is_err());
         assert_eq!(owner, committed);
         let id = parameter_ids()[0].clone();
-        assert!(owner.remove_custom_parameter(&id).is_some());
+        assert!(owner.remove_custom_parameter(&id).unwrap().is_some());
         assert_eq!(owner.gas(), &Gas::default());
         assert!(owner.custom().get(&id).is_none());
         owner.replace((*committed).clone()).unwrap();

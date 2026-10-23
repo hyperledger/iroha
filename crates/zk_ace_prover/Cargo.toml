@@ -12,5 +12,5 @@ workspace = true
 iroha_model_base = { workspace = true }
 iroha_core_privacy = { workspace = true, default-features = false, features = ["zk-stark"] }
 iroha_crypto = { workspace = true, features = ["consensus", "json", "gost", "sm"], default-features = false }
-iroha_data_model = { workspace = true, features = ["application-model", "transparent_api", "governance", "http"], default-features = false }
+iroha_data_model = { workspace = true, features = ["application-model", "transparent_api", "http"], default-features = false }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }

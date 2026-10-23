@@ -27,7 +27,6 @@ use iroha_crypto::Hash;
     norito::NoritoSchema,
     iroha_schema::IntoSchema,
     norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
 )]
 #[norito_schema(
     name = "iroha_data_model::parameter::fastpq_source::FastpqSourceLimitsV1",
@@ -180,7 +179,6 @@ impl FastpqSourceLimitsV1 {
     norito::NoritoSchema,
     iroha_schema::IntoSchema,
     norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
 )]
 #[norito_schema(
     name = "iroha_data_model::parameter::fastpq_source::FastpqMandatorySourcePolicyV1",
@@ -226,7 +224,6 @@ impl FastpqMandatorySourcePolicyV1 {
     norito::NoritoSchema,
     iroha_schema::IntoSchema,
     norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
 )]
 #[norito_schema(
     name = "iroha_data_model::parameter::fastpq_source::FastpqSourcePolicyV1",
@@ -455,3 +452,27 @@ impl core::fmt::Display for FastpqSourcePolicyV1 {
 #[cfg(test)]
 #[path = "fastpq_source/tests.rs"]
 mod tests;
+
+impl norito::json::JsonDeserialize for FastpqSourceLimitsV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        super::system::parameters_json::decode_fastpq_limits(parser)
+    }
+}
+
+impl norito::json::JsonDeserialize for FastpqMandatorySourcePolicyV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        super::system::parameters_json::decode_fastpq_mandatory(parser)
+    }
+}
+
+impl norito::json::JsonDeserialize for FastpqSourcePolicyV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        super::system::parameters_json::decode_fastpq_source(parser)
+    }
+}

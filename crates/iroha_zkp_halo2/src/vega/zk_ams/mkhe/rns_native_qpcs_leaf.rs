@@ -399,7 +399,7 @@ mod tests {
                     )
                     .unwrap()
                     .word_count(),
-                950
+                948
             );
             for index in [0, 1, length - 1] {
                 let expected = context
@@ -448,7 +448,7 @@ mod tests {
                         )
                         .unwrap()
                         .word_count(),
-                    96
+                    94
                 );
                 assert!(roots.insert(actual));
             }

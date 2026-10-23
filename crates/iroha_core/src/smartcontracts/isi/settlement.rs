@@ -995,10 +995,13 @@ impl Execute for FundFxCorridorEscrow {
             false,
         )?;
         let escrow = fx_corridor_escrow_account(stx, &policy);
-        crate::smartcontracts::isi::domain::isi::ensure_controller_capabilities(
+        crate::smartcontracts::isi::domain::isi::ensure_controller_policy(
             escrow.controller(),
-            &stx.crypto.allowed_signing,
-            &stx.crypto.allowed_curve_ids,
+            stx.crypto_admission_policy().map_err(|message| {
+                iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                    message.into(),
+                )
+            })?,
         )?;
         if stx.world.account(&escrow).is_err() {
             let account = Account::new(escrow.clone()).build(&escrow);

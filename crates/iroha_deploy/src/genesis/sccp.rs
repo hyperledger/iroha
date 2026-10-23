@@ -2,7 +2,7 @@
 
 use color_eyre::eyre::{Result, WrapErr as _, ensure, eyre};
 use iroha_data_model::{
-    block::consensus::SumeragiRootScope,
+    block::consensus::{PublicLaneStakingPolicy, SumeragiRootScope},
     isi::sccp::InitializeSccpV1,
     parameter::{
         Parameter, SumeragiParameter,
@@ -34,7 +34,8 @@ pub fn is_enabled(manifest: &RawGenesisTransaction) -> bool {
 /// registrations. The caller must bootstrap those registrations before signing.
 /// # Errors
 /// Rejects private/permissioned roots, duplicate initialization, absent `NPoS` policy,
-/// an excessive validator ceiling, a zero nonce, or inconsistent epoch bounds.
+/// an excessive validator ceiling, a zero nonce, inconsistent epoch bounds, or a signed
+/// staking policy that cannot cover the profile's liability window and slashing requirement.
 pub fn append_profile(
     manifest: RawGenesisTransaction,
     reset_nonce: [u8; 32],
@@ -52,7 +53,15 @@ pub fn append_profile(
         "SCCP genesis is already initialized"
     );
     ensure!(reset_nonce != [0; 32], "SCCP reset nonce must be nonzero");
+    let _chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+        manifest.chain_discriminant(),
+    );
     let parameters = manifest.effective_parameters()?;
+    let staking = PublicLaneStakingPolicy::from_parameters(&parameters)?;
+    ensure!(
+        staking.unbonding_delay_ms >= UNBONDING_DELAY_MS && staking.max_slash_bps == MAX_SLASH_BPS,
+        "SCCP requires the original signed staking policy to cover its liability window and maximum slash"
+    );
     let mut npos = parameters
         .custom()
         .get(&SumeragiNposParameters::parameter_id())
@@ -196,19 +205,98 @@ mod tests {
     use iroha_model_base::chain::ChainId;
 
     fn manifest(cadence: u64) -> RawGenesisTransaction {
+        let custody = iroha_config::parameters::defaults::governance::bond_escrow_account_id();
+        let mut staking = super::super::default_staking_policy(
+            SumeragiNposParameters::default().xor_asset_definition_id,
+            custody.clone(),
+            custody,
+        );
+        staking.unbonding_delay_ms = UNBONDING_DELAY_MS;
+        staking.max_slash_bps = MAX_SLASH_BPS;
+        manifest_with_policy(cadence, staking)
+    }
+
+    fn manifest_with_policy(
+        cadence: u64,
+        staking: PublicLaneStakingPolicy,
+    ) -> RawGenesisTransaction {
         let npos = SumeragiNposParameters {
             max_validators: 4,
             ..SumeragiNposParameters::default().with_epoch_seed([7; 32])
         };
-        GenesisBuilder::new_without_executor(ChainId::from("sccp-profile-test"), ".")
-            .with_sumeragi_context_parameters(
-                iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
-            )
-            .with_block_cadence_ms(NonZeroU64::new(cadence).unwrap())
-            .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
-            .build_raw()
-            .unwrap()
-            .with_consensus_mode(SumeragiConsensusMode::Npos)
+        let payload_retry_interval_ms = NonZeroU64::new(
+            cadence.max(
+                iroha_data_model::parameter::system::Parameters::default()
+                    .sumeragi()
+                    .payload_retry_interval_ms()
+                    .get(),
+            ),
+        )
+        .unwrap();
+        GenesisBuilder::new_without_executor(
+            ChainId::from("sccp-profile-test"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture account and validator controller policy"),
+        )
+        .with_staking_policy(staking)
+        .unwrap()
+        .with_sumeragi_context_parameters(
+            iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
+        )
+        .with_block_cadence_ms(NonZeroU64::new(cadence).unwrap())
+        .append_parameter(Parameter::Sumeragi(
+            SumeragiParameter::PayloadRetryIntervalMs(payload_retry_interval_ms),
+        ))
+        .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
+        .build_raw()
+        .unwrap()
+        .with_consensus_mode(SumeragiConsensusMode::Npos)
+    }
+
+    #[test]
+    fn sccp_requires_signed_liability_bounds_and_preserves_the_original_policy() {
+        use iroha_data_model::account::address::{ChainDiscriminantGuard, chain_discriminant};
+        let _caller = ChainDiscriminantGuard::enter(753);
+        let (original, policy) = {
+            let _author = ChainDiscriminantGuard::enter(369);
+            let original = manifest(1_000);
+            let policy =
+                PublicLaneStakingPolicy::from_parameters(&original.effective_parameters().unwrap())
+                    .unwrap();
+            (original, policy)
+        };
+        let parameter_id = PublicLaneStakingPolicy::parameter_id();
+        let original_parameter =
+            original.effective_parameters().unwrap().custom()[&parameter_id].clone();
+        let profiled = append_profile(original, [9; 32]).unwrap();
+        assert_eq!(chain_discriminant(), 753);
+        assert_eq!(
+            profiled.effective_parameters().unwrap().custom()[&parameter_id],
+            original_parameter,
+            "profile installation preserves the one original signed staking parameter"
+        );
+        for insufficient in [
+            PublicLaneStakingPolicy {
+                unbonding_delay_ms: UNBONDING_DELAY_MS - 1,
+                ..policy.clone()
+            },
+            PublicLaneStakingPolicy {
+                max_slash_bps: MAX_SLASH_BPS - 1,
+                ..policy
+            },
+        ] {
+            let raw = manifest_with_policy(1_000, insufficient);
+            let before = norito::json::to_json(&raw).unwrap();
+            let error = append_profile(raw.clone(), [8; 32]).unwrap_err();
+            assert!(error.to_string().contains("original signed staking policy"));
+            assert_eq!(norito::json::to_json(&raw).unwrap(), before);
+            assert_eq!(chain_discriminant(), 753);
+        }
     }
 
     #[test]
@@ -216,6 +304,7 @@ mod tests {
         for cadence in [100, 1_000, 4_000, 7_000] {
             let profile = append_profile(manifest(cadence), [1; 32]).unwrap();
             let parameters = profile.effective_parameters().unwrap();
+            assert!(parameters.sumeragi().payload_retry_interval_ms().get() >= cadence);
             let npos = SumeragiNposParameters::from_custom_parameter(
                 parameters
                     .custom()
@@ -270,14 +359,23 @@ mod tests {
     }
 
     #[test]
-    fn sccp_nonce_renewal_changes_only_the_single_initializer() {
-        let target = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target")
-            .canonicalize()
+    fn sccp_profile_refuses_payload_retry_shorter_than_signed_cadence() {
+        let invalid = manifest(7_000)
+            .into_builder()
+            .append_parameter(Parameter::Sumeragi(
+                SumeragiParameter::PayloadRetryIntervalMs(NonZeroU64::new(6_999).unwrap()),
+            ))
+            .build_raw()
             .unwrap();
+        let error = append_profile(invalid, [4; 32]).unwrap_err();
+        assert!(error.to_string().contains("BlockTimeAbovePayloadRetry"));
+    }
+
+    #[test]
+    fn sccp_nonce_renewal_changes_only_the_single_initializer() {
         let temporary = tempfile::Builder::new()
             .prefix("sccp-renew-")
-            .tempdir_in(target)
+            .tempdir()
             .unwrap();
         let history =
             iroha_fs::PrivateDirectory::open_or_create(temporary.path().join("history")).unwrap();
@@ -325,13 +423,9 @@ mod tests {
 
     #[test]
     fn sccp_reset_history_rejects_nonce_and_network_reuse_across_runs() {
-        let target = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target")
-            .canonicalize()
-            .unwrap();
         let temporary = tempfile::Builder::new()
             .prefix("sccp-reset-")
-            .tempdir_in(target)
+            .tempdir()
             .unwrap();
         let history =
             iroha_fs::PrivateDirectory::open_or_create(temporary.path().join("history")).unwrap();

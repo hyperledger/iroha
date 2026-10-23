@@ -61,6 +61,24 @@ mod model {
             value.into_genesis_hash()
         }
     }
+    impl NetworkId {
+        /// Decode the same canonical checked literal with caller-owned scratch.
+        pub(crate) fn json_decode_with<D: norito::json::scratch::ScratchDestination>(
+            parser: &mut norito::json::Parser<'_>,
+            destination: &D,
+        ) -> Result<Self, D::Error> {
+            let value = destination.string(parser)?;
+            value.as_ref().parse().map_err(|error: ParseError| {
+                norito::json::Error::WithPos {
+                    msg: error.reason(),
+                    byte: 0,
+                    line: 1,
+                    col: 1,
+                }
+                .into()
+            })
+        }
+    }
     impl core::str::FromStr for NetworkId {
         type Err = ParseError;
         fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -83,16 +101,27 @@ mod model {
                     "`NetworkId` hash body must contain exactly 64 uppercase hexadecimal digits",
                 ));
             }
-            let genesis_hash = body.parse::<HashOf<BlockHeader>>().map_err(|_| {
-                ParseError::new("`NetworkId` hash body is not a valid marked genesis hash")
-            })?;
-            let network_id = Self::from_genesis_hash(genesis_hash);
-            if network_id.to_string() != value {
+            // The literal parser verifies checksum identity. Exact width and uppercase
+            // hexadecimal exclude alternative spellings without formatting a second
+            // owned string. The marked hash constructor never changes signed bytes.
+            if value.as_bytes()[NETWORK_ID_LITERAL_BYTES - 4..]
+                .iter()
+                .any(|byte| !byte.is_ascii_digit() && !matches!(byte, b'A'..=b'F'))
+            {
                 return Err(ParseError::new(
                     "`NetworkId` must use its canonical checksummed spelling",
                 ));
             }
-            Ok(network_id)
+            let mut bytes = [0; iroha_crypto::Hash::LENGTH];
+            hex::decode_to_slice(body, &mut bytes).map_err(|_| {
+                ParseError::new("`NetworkId` hash body is not a valid marked genesis hash")
+            })?;
+            let hash = iroha_crypto::Hash::from_marked_bytes(bytes).ok_or_else(|| {
+                ParseError::new("`NetworkId` hash body is not a valid marked genesis hash")
+            })?;
+            Ok(Self::from_genesis_hash(HashOf::from_untyped_unchecked(
+                hash,
+            )))
         }
     }
     impl core::fmt::Display for NetworkId {
@@ -118,10 +147,7 @@ mod model {
         fn json_deserialize(
             parser: &mut norito::json::Parser<'_>,
         ) -> Result<Self, norito::json::Error> {
-            let value = parser.parse_string()?;
-            value
-                .parse()
-                .map_err(|error: ParseError| norito::json::Error::Message(error.reason().into()))
+            Self::json_decode_with(parser, &norito::json::scratch::OrdinaryScratch)
         }
         fn json_from_value(value: &norito::json::Value) -> Result<Self, norito::json::Error> {
             let value = value.as_str().ok_or_else(|| {

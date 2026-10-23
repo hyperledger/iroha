@@ -360,14 +360,44 @@ impl PreparedPublicKeyDecode {
         payload: &[u8],
         budget: &AllocationBudget,
     ) -> Result<ChargedPublicKey, PublicKeyDecodeAdmissionError> {
+        Self::from_material_with(algorithm, payload, budget, false)
+    }
+
+    /// Decode raw canonical key bytes directly into original-pool custody.
+    ///
+    /// Uses the same allocation-free validator and exact compact destination as
+    /// [`Self::try_from_material`]. After validation, it consumes the ordinary
+    /// decode backing charge before asking the original finite pool or allocator.
+    /// No intermediate key, serialized envelope or replacement counter is made.
+    ///
+    /// # Errors
+    /// Preserves the original canonical/logical refusal or exact physical refusal.
+    pub fn try_from_material_for_decode(
+        algorithm: super::Algorithm,
+        payload: &[u8],
+        budget: &AllocationBudget,
+    ) -> Result<ChargedPublicKey, PublicKeyDecodeAdmissionError> {
+        Self::from_material_with(algorithm, payload, budget, true)
+    }
+
+    fn from_material_with(
+        algorithm: super::Algorithm,
+        payload: &[u8],
+        budget: &AllocationBudget,
+        decode: bool,
+    ) -> Result<ChargedPublicKey, PublicKeyDecodeAdmissionError> {
         public_key_decode::validate(algorithm, payload)?;
-        let exact_bytes = payload.len().checked_add(1).ok_or_else(|| {
-            PublicKeyDecodeAdmissionError::Allocation(
-                iroha_allocation::ChargedBufferError::Admission(
-                    iroha_allocation::AllocationRefusal::DemandOverflow,
-                ),
-            )
-        })?;
+        let exact_bytes = if decode {
+            public_key_decode::reserve_compact_decode_backing(payload.len())?
+        } else {
+            payload.len().checked_add(1).ok_or_else(|| {
+                PublicKeyDecodeAdmissionError::Allocation(
+                    iroha_allocation::ChargedBufferError::Admission(
+                        iroha_allocation::AllocationRefusal::DemandOverflow,
+                    ),
+                )
+            })?
+        };
         let mut backing = ChargedBuffer::new(exact_bytes, budget)
             .map_err(PublicKeyDecodeAdmissionError::Allocation)?;
         backing.push_reserved(PublicKeyCompact::algorithm_tag(algorithm));

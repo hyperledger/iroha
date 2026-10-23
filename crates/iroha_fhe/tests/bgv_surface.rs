@@ -6,7 +6,7 @@
 //! - seeded entry points, explicit-coin entry points, secret-derived probes
 //!   and fault injection exist only behind the `bgv-test-fixtures` feature,
 //!   and no manifest of the workspace enables that feature outside the
-//!   dev-dependencies of this crate;
+//!   explicit dev-dependencies of this crate and the crypto composition tests;
 //! - the production dependencies of this crate are the four it documents, so
 //!   no policy, node or SDK crate can be reached from it;
 //! - the production path of the scheme uses no floating point and no
@@ -104,7 +104,7 @@ fn production_part(source: &str) -> &str {
 }
 
 #[test]
-fn only_this_crate_enables_the_fixture_feature_and_only_for_its_tests() {
+fn only_explicit_test_owners_enable_the_fixture_feature() {
     let root = workspace_root();
     let own = crate_root().join("Cargo.toml");
     let all = manifests(&root);
@@ -133,6 +133,13 @@ fn only_this_crate_enables_the_fixture_feature_and_only_for_its_tests() {
                 "{}",
                 manifest.display()
             );
+        } else if manifest == &root.join("crates/iroha_crypto/Cargo.toml") {
+            // The higher-level RAM-LFE composition has exactly one test-only edge.
+            let dev = table(&text, "[dev-dependencies]");
+            assert!(dev.contains("iroha_fhe = { path = \"../iroha_fhe\", default-features = false, features = [\"bgv-test-fixtures\"] }"));
+            assert_eq!(text.matches(FIXTURE_FEATURE).count(), 1);
+            assert!(!table(&text, "[dependencies]").contains(FIXTURE_FEATURE));
+            assert!(!table(&text, "[features]").contains(FIXTURE_FEATURE));
         } else {
             assert!(
                 !text.contains(FIXTURE_FEATURE),
@@ -258,4 +265,57 @@ fn the_production_path_uses_no_floating_point_and_no_u128_reconstruction() {
             );
         }
     }
+}
+
+#[test]
+fn offline_threshold_exposes_custody_metadata_without_a_production_opening_path() {
+    let source = read(&crate_root().join("src/bgv/threshold.rs"));
+    let production = production_part(&source);
+    // Review additions to the deliberately small public surface explicitly.
+    let mut functions: Vec<_> = production
+        .lines()
+        .filter_map(|line| {
+            line.trim_start()
+                .strip_prefix("pub fn ")
+                .or_else(|| line.trim_start().strip_prefix("pub const fn "))
+                .map(|rest| rest.split(['(', '<']).next().expect("function name"))
+        })
+        .collect();
+    functions.sort_unstable();
+    let mut expected = vec![
+        "new",
+        "identity",
+        "key_context",
+        "epoch",
+        "threshold",
+        "participants",
+        "validate_selection_metadata",
+        "context",
+        "instance",
+        "participant",
+        "secret_buffer_bytes",
+        "required_secret_bytes",
+        "split",
+        "context",
+        "instance",
+        "remaining",
+        "take_share",
+    ];
+    expected.sort_unstable();
+    assert_eq!(functions, expected);
+    assert!(production.contains("key: SecretKey"));
+    assert!(production.contains("words: RnsPoly"));
+    assert!(production.contains("material: Option<DealerMaterial>"));
+    assert!(!production.contains("impl Clone for SecretKeyShare"));
+    assert!(!production.contains("impl Clone for DealerKeyShares"));
+    assert!(!production.contains("#[derive(Clone)]"));
+    assert!(production.contains(
+        "#[cfg(any(test, feature = \"bgv-test-fixtures\"))]\n    pub(super) fn words_for_fixture"
+    ));
+    assert!(production.contains("&mut OsEntropy"));
+    assert!(production.contains("fixed.multiply("));
+    assert!(!production.contains("c1"));
+    let fixtures = read(&crate_root().join("src/bgv/fixtures.rs"));
+    assert!(fixtures.contains("pub fn threshold_share_words"));
+    assert!(fixtures.contains("pub fn threshold_dealer"));
 }

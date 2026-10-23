@@ -14,6 +14,31 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+/// Author fixture staking bounds using explicit typed monetary identities before genesis signing.
+///
+/// This fresh-genesis helper never reads node configuration or fills an absent runtime policy.
+#[must_use]
+pub fn staking_policy(
+    stake_asset_id: iroha_data_model::asset::AssetDefinitionId,
+    stake_escrow_account_id: AccountId,
+    slash_sink_account_id: AccountId,
+) -> iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+    use iroha_config::parameters::defaults::nexus::staking;
+    iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+        min_validator_stake: staking::min_validator_stake(),
+        max_stake_shares_per_validator: staking::MAX_STAKE_SHARES_PER_VALIDATOR,
+        max_pending_unbonds_per_share: staking::MAX_PENDING_UNBONDS_PER_SHARE,
+        unbonding_delay_ms: staking::UNBONDING_DELAY
+            .as_millis()
+            .try_into()
+            .expect("fixed author delay fits"),
+        max_slash_bps: staking::MAX_SLASH_BPS,
+        stake_asset_id,
+        stake_escrow_account_id,
+        slash_sink_account_id,
+    }
+}
+
 /// Exact placeholder accepted while a genesis hash is not yet known.
 ///
 /// The placeholder is replaced only in memory by the explicit preparation helpers
@@ -455,6 +480,12 @@ mod tests {
             .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
     }
     fn prepared_manifest(chain_id: ChainId) -> (RawGenesisTransaction, KeyPair) {
+        let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        let staking = staking_policy(
+            fees.fee_asset_id,
+            fees.fee_sink_account_id.clone(),
+            fees.fee_sink_account_id,
+        );
         let topology = (0..4)
             .map(|_| {
                 let validator = KeyPair::try_random_with_algorithm(Algorithm::BlsNormal)
@@ -465,7 +496,18 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let manifest = complete_test_builder_for_topology(
-            GenesisBuilder::new_without_executor(chain_id, "."),
+            GenesisBuilder::new_without_executor(
+                chain_id,
+                ".",
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .with_staking_policy(staking)
+            .expect("explicit fixture staking policy"),
             topology,
         )
         .build_raw()
@@ -1011,5 +1053,51 @@ revocation_store_path = "managed/soranet/revocations.norito"
         )
         .expect_err("wrong chain must fail before bundle decoding");
         assert!(error.to_string().contains("differs from expected chain"));
+    }
+}
+
+#[cfg(test)]
+mod staking_author_tests {
+    use super::*;
+    use iroha_data_model::account::address::{ChainDiscriminantGuard, chain_discriminant};
+
+    #[test]
+    fn typed_staking_author_retains_distinct_identities_across_contexts() {
+        let _caller = ChainDiscriminantGuard::enter(753);
+        let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        let sink = AccountId::new(
+            iroha_crypto::KeyPair::from_seed(vec![0x6d; 32], iroha_crypto::Algorithm::Ed25519)
+                .public_key()
+                .clone(),
+        );
+        let expected = staking_policy(
+            fees.fee_asset_id.clone(),
+            fees.fee_sink_account_id.clone(),
+            sink.clone(),
+        );
+        {
+            let _author = ChainDiscriminantGuard::enter(369);
+            let policy = staking_policy(
+                fees.fee_asset_id.clone(),
+                fees.fee_sink_account_id.clone(),
+                sink.clone(),
+            );
+            assert_eq!(policy, expected);
+            assert_eq!(
+                iroha_data_model::block::consensus::PublicLaneStakingPolicy::from_custom_parameter(
+                    &policy.into_custom_parameter().unwrap()
+                )
+                .unwrap(),
+                expected
+            );
+        }
+        assert_eq!(chain_discriminant(), 753);
+        assert_eq!(expected.stake_asset_id, fees.fee_asset_id);
+        assert_eq!(expected.stake_escrow_account_id, fees.fee_sink_account_id);
+        assert_eq!(expected.slash_sink_account_id, sink);
+        assert_ne!(
+            expected.stake_escrow_account_id,
+            expected.slash_sink_account_id
+        );
     }
 }

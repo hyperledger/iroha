@@ -82,18 +82,6 @@ impl From<StateBlockStartError<MergeLedgerCommitError>> for MergeLedgerCommitErr
     }
 }
 
-/// Fixed local categories retained by the JSON execution-root decoder.
-/// JSON exposes these categories without the binary decoder's numeric counters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum RootScopeDecodeRefusal {
-    /// The inherited decode scope refused allocation or structural work.
-    #[error("execution-root metadata decode budget refused")]
-    Budget,
-    /// The physical allocator refused the decoder's requested storage.
-    #[error("execution-root metadata allocation refused")]
-    Allocator,
-}
-
 /// Local State storage or protocol decoder refusal; never a verdict on consensus data.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum StateStorageAdmissionError {
@@ -113,8 +101,8 @@ pub enum StateStorageAdmissionError {
     #[error("local native AMX graph refusal: {0}")]
     NativeAmx(crate::sumeragi::amx::NativeAmxAdmissionError),
     /// The original execution-root metadata decoder refused before instruction authority existed.
-    #[error(transparent)]
-    RootScopeDecode(RootScopeDecodeRefusal),
+    #[error("local execution-root decoder resource refusal: {0}")]
+    RootScopeDecode(#[source] norito::core::DecodeLocalRefusal),
 }
 
 impl StateStorageAdmissionError {

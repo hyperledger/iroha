@@ -672,7 +672,15 @@ mod tests {
         let err = crate::account::AccountId::decode_json_key("alice@banka.dataspace")
             .expect_err("domain suffix literal must be rejected");
         assert!(
-            matches!(&err, norito::json::Error::Message(message) if message == "invalid I105 account identifier"),
+            matches!(
+                &err,
+                norito::json::Error::WithPos {
+                    msg: "invalid I105 account identifier",
+                    byte: 0,
+                    line: 1,
+                    col: 1,
+                }
+            ),
             "unexpected error: {err}"
         );
         assert!(!err.is_decode_resource_limit());

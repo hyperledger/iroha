@@ -410,6 +410,8 @@ pub enum SignatureVerification {
     NotPresent,
     /// The canonical data-model verifier accepted every required signature.
     Valid,
+    /// Verification could not run; the exact known algorithm and operation are retained.
+    UnsupportedImplementation(iroha_crypto::UnsupportedImplementation),
     /// Verification failed with a stable, non-secret reason code.
     Invalid {
         /// Closed failure code; raw cryptographic diagnostics are not echoed.
@@ -419,10 +421,15 @@ pub enum SignatureVerification {
 
 impl SignatureVerification {
     fn from_signed_transaction(transaction: &SignedTransaction) -> Self {
-        match transaction.verify_signature() {
+        Self::from_verification_result(transaction.verify_signature())
+    }
+
+    fn from_verification_result(result: Result<(), TransactionSignatureError>) -> Self {
+        match result {
             Ok(()) => Self::Valid,
-            Err(error) => Self::Invalid {
-                code: signature_error_code(&error),
+            Err(error) => match signature_error_code(&error) {
+                Ok(code) => Self::Invalid { code },
+                Err(original) => Self::UnsupportedImplementation(original),
             },
         }
     }
@@ -432,6 +439,11 @@ impl SignatureVerification {
         let (status, valid, failure_code) = match self {
             Self::NotPresent => ("not_present", Value::Null, Value::Null),
             Self::Valid => ("valid", Value::Bool(true), Value::Null),
+            Self::UnsupportedImplementation(_) => (
+                "unavailable",
+                Value::Null,
+                Value::String("unsupported_implementation".to_owned()),
+            ),
             Self::Invalid { code } => (
                 "invalid",
                 Value::Bool(false),
@@ -442,6 +454,16 @@ impl SignatureVerification {
         object.insert("status".into(), Value::String(status.to_owned()));
         object.insert("valid".into(), valid);
         object.insert("failure_code".into(), failure_code);
+        if let Self::UnsupportedImplementation(original) = self {
+            object.insert(
+                "algorithm".into(),
+                Value::String(original.algorithm.as_static_str().to_owned()),
+            );
+            object.insert(
+                "operation".into(),
+                Value::String(original.operation.to_string()),
+            );
+        }
         Value::Object(object)
     }
 }
@@ -631,8 +653,11 @@ const fn fee_payment_kind(intent: &FeePaymentIntent) -> &'static str {
     }
 }
 
-fn signature_error_code(error: &TransactionSignatureError) -> &'static str {
-    match error {
+fn signature_error_code(
+    error: &TransactionSignatureError,
+) -> Result<&'static str, iroha_crypto::UnsupportedImplementation> {
+    Ok(match error {
+        TransactionSignatureError::UnsupportedImplementation(original) => return Err(*original),
         TransactionSignatureError::UnsupportedMultisigAuthority => "unsupported_multisig_authority",
         TransactionSignatureError::AlgorithmNotPermitted(_) => "algorithm_not_permitted",
         TransactionSignatureError::AuthorityKeyMismatch => "authority_key_mismatch",
@@ -651,7 +676,7 @@ fn signature_error_code(error: &TransactionSignatureError) -> &'static str {
         TransactionSignatureError::InsufficientMultisigWeight { .. } => {
             "insufficient_multisig_weight"
         }
-    }
+    })
 }
 
 fn count_value(count: usize) -> Value {
@@ -921,4 +946,40 @@ mod tests {
             .expect("encode structural summary");
         assert!(!summary_json.contains(SECRET_FREE_MARKER));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn unavailable_signature_inspection_is_neither_valid_nor_invalid() {
+    let original = iroha_crypto::UnsupportedImplementation {
+        algorithm: iroha_crypto::Algorithm::MlDsa,
+        operation: iroha_crypto::CryptoOperation::VerifySignature,
+    };
+    let outcome = SignatureVerification::from_verification_result(Err(
+        TransactionSignatureError::UnsupportedImplementation(original),
+    ));
+    assert_eq!(
+        outcome,
+        SignatureVerification::UnsupportedImplementation(original)
+    );
+    let value = outcome.to_mcp_value();
+    assert_eq!(value["status"], Value::String("unavailable".into()));
+    assert_eq!(value["valid"], Value::Null);
+    assert_eq!(
+        value["failure_code"],
+        Value::String("unsupported_implementation".into())
+    );
+    assert_eq!(value["algorithm"], Value::String("ml-dsa".into()));
+    assert_eq!(
+        value["operation"],
+        Value::String(original.operation.to_string())
+    );
+    assert_eq!(
+        SignatureVerification::from_verification_result(Err(
+            TransactionSignatureError::CryptoError("bad".into())
+        )),
+        SignatureVerification::Invalid {
+            code: "cryptographic_verification_failed"
+        }
+    );
 }

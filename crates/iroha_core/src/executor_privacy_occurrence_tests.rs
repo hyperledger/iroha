@@ -310,7 +310,7 @@ seiyaku PrivacyOccurrenceGuard { permission CanInvokeContractEntrypoint;
                 .is_none()
         );
         let error = crate::executor::Executor::Initial
-            .execute_transaction(&mut transaction, &ALICE_ID, signed, &mut IvmCache::new())
+            .execute_transaction(&mut transaction, &ALICE_ID, &signed, &mut IvmCache::new())
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("the real executor must enforce missing production qualification");
         assert!(

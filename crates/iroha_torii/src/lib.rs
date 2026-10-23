@@ -9519,17 +9519,17 @@ async fn handler_accounts_capabilities(
         "v1/accounts/capabilities",
     )
     .await?;
-    let crypto = app.state.crypto();
-    let payload = AccountCapabilitiesV1::from_admission(
+    let parameters = app.state.transaction_admission_parameters();
+    let policy = parameters.require_crypto_policy().map_err(|_| {
+        Error::TransactionAdmissionDeferred(
+            ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable.into(),
+        )
+    })?;
+    let payload = AccountCapabilitiesV1::from_policy(
         *app.state.network_id_ref(),
         iroha_data_model::account::address::chain_discriminant(),
-        &crypto.allowed_signing,
-    )
-    .map_err(|message| {
-        Error::Query(iroha_data_model::ValidationFail::InternalError(
-            message.to_owned(),
-        ))
-    })?;
+        policy,
+    );
     let bytes = norito::json::to_vec(&payload).map_err(|source| Error::SerializationFailure {
         context: "account_capabilities",
         source: Box::new(source),
@@ -28853,13 +28853,7 @@ async fn admit_signed_transaction_for_ingress(
                 <SignedTransaction as iroha_version::codec::EncodeVersioned>::encode_versioned(
                     &transaction,
                 );
-            let transaction = DecodedVersionedSignedTransaction::decode_versioned(
-                &transaction_bytes,
-            )
-            .map_err(|error| Error::AppQueryValidation {
-                code: "invalid_transaction_payload",
-                message: format!("transaction payload could not be decoded: {error}"),
-            })?;
+            let transaction = decode_signed_transaction_for_ingress(&transaction_bytes)?;
             if transaction.hash() != submitted_signed_transaction_hash {
                 return Err(Error::AppServiceUnavailable {
                     code: "transaction_identity_changed",
@@ -29037,6 +29031,29 @@ async fn handler_post_transaction_entrypoint(
     .await
 }
 
+// Programmatic routes re-decode the original signed bytes under the same local
+// parser readiness rules as the public transaction extractor.
+fn decode_signed_transaction_for_ingress(
+    payload: &[u8],
+) -> Result<DecodedVersionedSignedTransaction, Error> {
+    DecodedVersionedSignedTransaction::decode_versioned(payload).map_err(|error| {
+        if let iroha_version::error::Error::NoritoCodec(original) = &error
+            && let Some(deferred) =
+                iroha_core::execution_attempt::crypto_public_key_decode_deferred(original)
+        {
+            return Error::TransactionAdmissionDeferred(deferred);
+        }
+        Error::AppQueryValidation {
+            code: "invalid_transaction_payload",
+            message: format!("transaction payload could not be decoded: {error}"),
+        }
+    })
+}
+
+#[cfg(test)]
+#[path = "tests/transaction_crypto_decode.rs"]
+mod transaction_crypto_decode_tests;
+
 fn decode_transaction_batch_payloads(
     payloads: Vec<Vec<u8>>,
 ) -> Result<Vec<DecodedVersionedSignedTransaction>, Error> {
@@ -29045,6 +29062,12 @@ fn decode_transaction_batch_payloads(
         .enumerate()
         .map(|(idx, payload)| {
             DecodedVersionedSignedTransaction::decode_versioned_owned(payload).map_err(|error| {
+                if let iroha_version::error::Error::NoritoCodec(original) = &error
+                    && let Some(deferred) =
+                        iroha_core::execution_attempt::crypto_public_key_decode_deferred(original)
+                {
+                    return Error::TransactionAdmissionDeferred(deferred);
+                }
                 Error::AppQueryValidation {
                     code: "invalid_transaction_batch_payload",
                     message: format!("transaction batch item {idx} could not be decoded: {error}"),
@@ -43115,7 +43138,9 @@ pub enum Error {
         retry_after_secs: u64,
     },
     /// Failed to accept transaction
-    AcceptTransaction(#[from] iroha_core::tx::AcceptTransactionFail),
+    AcceptTransaction(#[source] iroha_core::tx::AcceptTransactionFail),
+    /// Local readiness or resources prevented transaction admission; no acceptance or rejection was produced.
+    TransactionAdmissionDeferred(#[source] iroha_core::execution_attempt::ExecutionDeferred),
     /// Failed to get or set configuration
     Config(#[source] eyre::Report),
     /// SoraFS moderation runtime startup failed `{code}`
@@ -43240,10 +43265,54 @@ fn public_validation_fail_envelope(
     }
     ErrorEnvelope::new("query_validation_failed", validation_fail_message(fail))
 }
+impl From<iroha_core::tx::AcceptTransactionFail> for Error {
+    fn from(error: iroha_core::tx::AcceptTransactionFail) -> Self {
+        match error.into_execution_deferred() {
+            Ok(original) => Self::TransactionAdmissionDeferred(original),
+            Err(completed) => Self::AcceptTransaction(completed),
+        }
+    }
+}
+impl Error {
+    // Public callers can construct AcceptTransaction directly. Every rendering
+    // boundary still separates an unfinished local attempt from a completed verdict.
+    fn classify_transaction_admission(self) -> Self {
+        match self {
+            Self::AcceptTransaction(error) => error.into(),
+            other => other,
+        }
+    }
+    fn transaction_admission_deferred_envelope() -> ErrorEnvelope {
+        ErrorEnvelope::new(
+            "transaction_admission_deferred",
+            "Local readiness or resources prevented transaction admission. This request was not queued; retry the unchanged signed request.",
+        )
+        .with_details(ErrorDetails {
+            retry_after_seconds: Some(1),
+            ..Default::default()
+        })
+    }
+}
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let format = utils::current_response_format();
-        match self {
+        match self.classify_transaction_admission() {
+            Self::TransactionAdmissionDeferred(original) => {
+                // The exact cause reaches the HTTP boundary intact. The caller
+                // retains the signed request for retry; no pending server custody
+                // or terminal rejection is created for this unqueued attempt.
+                iroha_logger::debug!(?original, "transaction admission deferred locally");
+                let mut response = utils::respond_with_status_and_format(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Self::transaction_admission_deferred_envelope(),
+                    format,
+                );
+                response.headers_mut().insert(
+                    axum::http::header::RETRY_AFTER,
+                    HeaderValue::from_static("1"),
+                );
+                response
+            }
             Self::Query(err) => {
                 let status = Self::query_status_code(&err);
                 if status.is_server_error() {
@@ -43561,7 +43630,11 @@ use iroha_data_model::nexus::FeeSponsorProgram;
 pub(crate) use tests_runtime_handlers::mk_app_state_for_tests;
 impl Error {
     fn into_envelope(self) -> ErrorEnvelope {
-        match self {
+        match self.classify_transaction_admission() {
+            Self::TransactionAdmissionDeferred(original) => {
+                iroha_logger::debug!(?original, "transaction admission deferred locally");
+                Self::transaction_admission_deferred_envelope()
+            }
             Self::Query(err) => {
                 let status = Self::query_status_code(&err);
                 public_validation_fail_envelope(&err, status)
@@ -43707,7 +43780,17 @@ impl Error {
             AcceptTransaction(AcceptTransactionFail::AnonymousBallotUnavailable) => {
                 StatusCode::SERVICE_UNAVAILABLE
             }
+            AcceptTransaction(error)
+                if error.local_refusal().is_some()
+                    || matches!(
+                        error,
+                        AcceptTransactionFail::CryptoImplementationUnavailable(_)
+                    ) =>
+            {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             AcceptTransaction(_) => StatusCode::BAD_REQUEST,
+            TransactionAdmissionDeferred(_) => StatusCode::SERVICE_UNAVAILABLE,
             AppQueryValidation { .. } => StatusCode::BAD_REQUEST,
             #[cfg(feature = "app_api")]
             CollectionQuery(_) => StatusCode::BAD_REQUEST,

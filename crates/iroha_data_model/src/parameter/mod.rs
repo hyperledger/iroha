@@ -13,8 +13,10 @@ pub use governance_clock::GovernanceClockParametersV1;
 pub use parliament_ballot::ParliamentBallotParametersV1;
 pub use parliament_lifecycle::ParliamentLifecycleParametersV1;
 pub mod system;
-pub(crate) use custom::CustomParameters;
-pub use custom::{CustomParameter, CustomParameterId};
+pub use custom::{
+    CustomParameter, CustomParameterId, CustomParameters, CustomParametersAdmissionError,
+    CustomParametersJsonAdmissionError,
+};
 pub use system::{
     BlockParameter, BlockParameters, Parameter, Parameters, SmartContractParameter,
     SmartContractParameters, SumeragiParameter, SumeragiParameters, TransactionParameter,

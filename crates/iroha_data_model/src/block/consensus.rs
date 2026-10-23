@@ -22,12 +22,20 @@ use iroha_primitives::numeric::{Numeric, Quantity};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, DecodeAll, Encode};
 use std::{string::String, vec::Vec};
+mod context_json;
 /// Canonical genesis/handshake fingerprint projection.
 pub mod fingerprint;
 mod root_scope;
 pub use root_scope::SumeragiRootScope;
 mod root_fees;
-pub use root_fees::{RootFeePolicy, RootFeePolicyError};
+pub use root_fees::{RootFeeExemptions, RootFeePolicy, RootFeePolicyError};
+mod monetary_json;
+pub use monetary_json::{
+    AdmittedPublicLaneStakingPolicy, AdmittedRootFeePolicy, MonetaryJsonAdmissionError,
+    PublicLaneStakingPolicyCustody, RootFeePolicyCustody,
+};
+mod staking_policy;
+pub use staking_policy::{PublicLaneStakingPolicy, PublicLaneStakingPolicyError};
 /// Height alias for consensus.
 pub type Height = u64;
 /// View/round number alias.
@@ -135,18 +143,7 @@ pub struct ValidatorPower {
 /// The value is embedded in the signed consensus-genesis parameters. Live
 /// startup must reject a genesis which omits it; it must never reconstruct
 /// these fields from a node's mutable runtime configuration.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Decode, Encode, IntoSchema, DeriveJsonSerialize)]
 #[norito(deny_unknown_fields)]
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::block::consensus::SumeragiGenesisContextParameters")]

@@ -91,7 +91,11 @@ fn assert_cap_rejected(chain: &CertifiedTestChain, transaction: &SignedTransacti
     let (_, time) = TimeSource::new_mock(transaction.creation_time() + Duration::from_millis(1));
     let view = chain.state().view();
     let limits = view.world().parameters().transaction();
-    let crypto = iroha_config::parameters::actual::Crypto::default();
+    let crypto = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+        iroha_crypto::Algorithm::Ed25519,
+        iroha_crypto::Algorithm::Secp256k1,
+    ])
+    .expect("explicit payload fixture policy");
     let admission = AcceptedTransaction::accept_with_time_source(
         transaction.clone(),
         &chain.network_id(),
@@ -195,7 +199,11 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
             &chain.network_id(),
             Duration::from_secs(1),
             view.world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time,
         )
         .expect("within the transaction cap");
@@ -257,7 +265,11 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
             &chain.network_id(),
             Duration::from_secs(1),
             chain.state().view().world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit current admission fixture policy"),
             &time,
         )
         .expect("each input is below the committed cap");
@@ -385,7 +397,11 @@ fn proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time() 
             &chain.network_id(),
             Duration::from_secs(1),
             chain.state().view().world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit current admission fixture policy"),
             &time,
         )
         .unwrap();
@@ -471,7 +487,11 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
         &chain.network_id(),
         Duration::from_secs(1),
         chain.state().view().world().parameters().transaction(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("explicit current admission fixture policy"),
         &time,
     )
     .unwrap();
@@ -557,7 +577,11 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
             &chain.network_id(),
             Duration::from_secs(1),
             chain.state().view().world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time,
         )
         .expect("within the transaction cap")
@@ -704,7 +728,11 @@ fn proposer_selection_is_capped_by_the_fastpq_network_input_bound() {
             &chain.network_id(),
             Duration::from_secs(1),
             chain.state().view().world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time,
         )
         .expect("a small transaction is accepted");
@@ -772,7 +800,11 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
                 &chain.network_id(),
                 Duration::from_secs(1),
                 chain.state().view().world().parameters().transaction(),
-                &iroha_config::parameters::actual::Crypto::default(),
+                &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                ])
+                .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
                 &time,
             )
             .expect("within the transaction cap")

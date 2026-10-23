@@ -131,7 +131,7 @@ fn current_frames() -> Value {
     assert_eq!(cases.len(), rows.len(), "every capture case is unique");
     norito::json!({
         "schema": 1,
-        "governance_enabled": (cfg!(feature = "governance")),
+        "governance_enabled": true,
         "json_enabled": true,
         "records": rows,
     })

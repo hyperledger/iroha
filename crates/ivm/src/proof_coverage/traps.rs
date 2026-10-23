@@ -260,6 +260,7 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/controlled_asset_locks.rs",
         SyscallTrap: [DecodeError, GasCostOverflow, PermissionDenied, UnknownSyscall],
+        LocalDeferral: [VerificationDeferred],
     ),
     producer!(
         "crates/iroha_core/src/smartcontracts/ivm/host/controlled_waterfall.rs",

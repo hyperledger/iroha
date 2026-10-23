@@ -153,16 +153,17 @@ async fn pipeline_status_handler_returns_queued() {
         &keypair,
         "sign Torii queued-status fixture transaction",
     );
-    let params = app.state.world.view().parameters().clone();
+    let params = app.state.transaction_admission_parameters();
     let max_clock_drift = params.sumeragi().max_clock_drift();
     let tx_limits = params.transaction();
-    let crypto_cfg = app.state.crypto();
     let accepted = AcceptedTransaction::accept(
         tx.clone(),
         app.state.network_id_ref(),
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        params
+            .require_crypto_policy()
+            .expect("initialized status fixture policy"),
     )
     .expect("accepted");
     app.queue
@@ -220,16 +221,17 @@ async fn pipeline_status_handler_returns_typed_norito_when_requested() {
         &keypair,
         "sign Torii typed-status fixture transaction",
     );
-    let params = app.state.world.view().parameters().clone();
+    let params = app.state.transaction_admission_parameters();
     let max_clock_drift = params.sumeragi().max_clock_drift();
     let tx_limits = params.transaction();
-    let crypto_cfg = app.state.crypto();
     let accepted = AcceptedTransaction::accept(
         tx.clone(),
         app.state.network_id_ref(),
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        params
+            .require_crypto_policy()
+            .expect("initialized status fixture policy"),
     )
     .expect("accepted");
     app.queue

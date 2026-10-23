@@ -80,12 +80,12 @@ use super::{
     direct_rkg_ephemeral_membership::ZkAmsMkheDirectRkgEphemeralMembershipContextV1,
     manifest::ZK_AMS_MKHE_RELEASE_ROSTER_SIZE_V1,
 };
+use crate::vega::bulletproof_t256::ZK_AMS_T256_BP_GENERATOR_BASIS_DIGEST_V1;
 #[cfg(test)]
 use crate::vega::{
     MaskedRelaxedRandomSourceV1, VegaT256PointV1 as Point, VegaT256ScalarV1 as Scalar,
-    sponge::keccak256,
+    sponge::{Keccak256, keccak256},
 };
-use crate::vega::{bulletproof_t256::ZK_AMS_T256_BP_GENERATOR_BASIS_DIGEST_V1, sponge::Keccak256};
 #[cfg(test)]
 use core::convert::Infallible;
 #[cfg(test)]
@@ -2208,19 +2208,27 @@ fn persistent_identity_digest(identity: PersistentCommitmentIdentityV1) -> [u8; 
     keccak256(&frame)
 }
 fn audit_digest(audit: ExactBindingAuditV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(AUDIT_DIGEST_DOMAIN_V1);
-    hash.update(&audit.ring_degree.to_be_bytes());
-    hash.update(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        AUDIT_DIGEST_DOMAIN_V1,
+        39,
+    );
+    hash.push_field(&audit.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         audit.max_relation_witnesses,
         audit.chunks_per_witness,
         audit.max_chunk_commitments,
         audit.challenge_repetitions,
         audit.challenge_bits_per_repetition,
-    ]);
-    hash.update(&audit.witness_chunk_coefficients.to_be_bytes());
-    hash.update(&audit.joint_challenge_bits.to_be_bytes());
-    hash.update(&audit.max_challenge.to_be_bytes());
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.witness_chunk_coefficients.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.joint_challenge_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.max_challenge.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for value in [
         audit.max_witness_coefficient,
         audit.challenge_shift_bound,
@@ -2228,17 +2236,21 @@ fn audit_digest(audit: ExactBindingAuditV1) -> [u8; 32] {
         audit.response_coefficient_bound,
         audit.max_fork_integer_lift_difference,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&audit.minimum_rns_modulus.to_be_bytes());
-    hash.update(&audit.response_coordinates_per_attempt.to_be_bytes());
+    hash.push_field(&audit.minimum_rns_modulus.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.response_coordinates_per_attempt.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for value in [
         audit.outer_retry_ceiling,
         audit.outer_retry_exhaustion_bits,
         audit.integer_sampler_retry_ceiling,
         audit.integer_sampler_union_exhaustion_bits,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
     for value in [
         audit.response_payload_bytes,
@@ -2252,7 +2264,8 @@ fn audit_digest(audit: ExactBindingAuditV1) -> [u8; 32] {
         audit.chunked_scalar_vector_lower_bound_bytes,
         audit.governed_workspace_ceiling_bytes,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
     for value in [
         audit.bound_one_gates_per_chunk,
@@ -2265,10 +2278,12 @@ fn audit_digest(audit: ExactBindingAuditV1) -> [u8; 32] {
         audit.persistent_blinding_state_bytes,
         audit.persistent_bound_one_membership_core_bytes,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&[audit.secret_consumer_mask, audit.ephemeral_consumer_mask]);
-    hash.update(&[
+    hash.push_field(&[audit.secret_consumer_mask, audit.ephemeral_consumer_mask])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         audit.exact_common_box_hiding_certified.into(),
         audit.retry_timing_distribution_witness_independent.into(),
         audit.integer_sampler_unbiased.into(),
@@ -2292,10 +2307,16 @@ fn audit_digest(audit: ExactBindingAuditV1) -> [u8; 32] {
         audit.persistent_graph_wired_to_runtime.into(),
         audit.split_decryption_wide_relation_certified.into(),
         audit.release_kat_pinned.into(),
-    ]);
-    hash.update(&audit.blocker_mask.to_be_bytes());
-    hash.update(&[audit.release_available.into()]);
-    hash.finalize()
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.blocker_mask.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[audit.release_available.into()])
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 fn require_release_profile_shape(profile: &BgvProfile) -> Result<(), ZkAmsMkheErrorV1> {
     profile.validate()?;

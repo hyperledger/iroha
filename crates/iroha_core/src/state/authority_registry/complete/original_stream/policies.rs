@@ -8,9 +8,8 @@ use super::{CaptureError, Collector, SourceIdentity, bare};
 use crate::state::{
     StateBlockFields,
     authority_registry::{
-        content_policy, crypto_policy, governance_policy, nexus_policy, oracle_policy,
-        pipeline_policy, policy_borrowed::OrderError, runtime_lane_policy, settlement_policy,
-        zk_policy,
+        content_policy, governance_policy, nexus_policy, oracle_policy, pipeline_policy,
+        policy_borrowed::OrderError, runtime_lane_policy, settlement_policy, zk_policy,
     },
 };
 
@@ -52,6 +51,16 @@ pub(super) fn append(
             "committed root fee policy is missing",
         ));
     }
+    if current_parameters.crypto_policy().is_none()
+        || (fields._curr_block.height().get() > 1 && before_parameters.crypto_policy().is_none())
+    {
+        return Err(CaptureError::Changed(
+            "committed crypto admission policy is missing",
+        ));
+    }
+    // world::append streams the exact current/undo Parameters owner, including
+    // its committed crypto policy. Local implementation settings in the immutable
+    // execution snapshot are not a second canonical policy cell.
     // OriginalCut retains StatePublication's validated frozen phase. Its fields
     // cannot be mutated, rebound or replaced while this same cut is alive.
     let source = || SourceIdentity::Policy(std::ptr::from_ref(fields) as usize);
@@ -76,10 +85,6 @@ pub(super) fn append(
     immutable!(
         "state.settlement",
         settlement_policy::borrowed(&fields.settlement)
-    );
-    immutable!(
-        "state.crypto",
-        crypto_policy::BorrowedCryptoPolicy::new(&fields.crypto, output.budget()).map_err(order)?
     );
     immutable!(
         "state.content",

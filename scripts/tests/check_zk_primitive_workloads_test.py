@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -508,7 +509,7 @@ class RoleChecks(TreeFixture):
         return self.errors(checker.check_roles, spec, ROOT)
 
     def test_already_blake3_cannot_relabel_another_native_hash(self) -> None:
-        for key in ("mkhe.parameter-identity-keccak", "ram-lfe.public-commitment-blake2b"):
+        for key in ("mkhe.ceremony-identity-keccak", "ram-lfe.public-commitment-blake2b"):
             with self.subTest(role=key):
                 spec = self.mutated()
                 self.role(spec, key)["canonical_native"]["decision"] = "already-blake3"
@@ -643,19 +644,50 @@ class RoleChecks(TreeFixture):
                 data = encode(pad + raw + b"tail")
                 self.assertEqual(checker.carrier_forms(data, needles), ["bytes-base64"], (pad, encode))
 
+    def test_pinned_byte_arrays_require_every_byte_in_order(self) -> None:
+        raw = bytes.fromhex("e037f13904a0307c00db15d85cfb406b")
+        needles = checker.pinned_needles({"words": ["0x7c30a00439f137e0", "0x6b40fb5cd815db00"]})
+        literals = [f"0x{byte:02x}" for byte in raw]
+        for suffix in ("", ".toByte()"):
+            source = "[\n" + ",\n ".join(value + suffix for value in literals) + ",\n]"
+            self.assertEqual(checker.carrier_forms(source.encode(), needles), ["bytes-array"])
+        mixed = [value + (".toByte()" if byte > 127 else "") for byte, value in zip(raw, literals)]
+        self.assertEqual(checker.carrier_forms(("byteArrayOf(" + ", ".join(mixed) + ")").encode(), needles), ["bytes-array"])
+        for changed in (
+            ["-0xe0", *literals[1:]],
+            ["1 + 0xe0", *literals[1:]],
+            ["~0xe0", *literals[1:]],
+            ["other * 0xe0", *literals[1:]],
+            ["0xe1", *literals[1:]],  # altered first byte
+            [*literals[:-1], "0x6a"],  # altered final byte
+            literals[:-1],  # truncated
+            list(reversed(literals)),
+            ["0xe00", *literals[1:]],  # larger integer, not a byte
+            [*literals[:-1], "0x6b0"],
+            [*literals[:8], "0xff", *literals[8:]],  # extra interior byte
+            [*literals[:8], "0x01", *literals[9:]],  # changed interior byte
+            [*literals[:8], "0x00 + 1", *literals[9:]],
+            [*literals[:-1], "0x6b + 1"],
+            [*literals[:-1], "0x6b.toByte(1)"],
+        ):
+            with self.subTest(changed=changed):
+                self.assertNotIn("bytes-array", checker.carrier_forms(("[" + ", ".join(changed) + "]").encode(), needles))
+
     def test_a_moving_role_needs_its_transcript_seed_check(self) -> None:
+        # Kaigi still binds a proof profile; the catalog has already migrated.
+        moving_role = "kaigi.authorization-identity"
         spec = self.mutated()
-        del self.role(spec, "catalog.exact12-commitment")["canonical_native"]["transcript_seed_check"]
+        del self.role(spec, moving_role)["canonical_native"]["transcript_seed_check"]
         self.assertReported(self.role_errors(spec), "needs `transcript_seed_check`")
         spec = self.mutated()
-        self.role(spec, "catalog.exact12-commitment")["canonical_native"]["decision"] = "changes"
+        self.role(spec, moving_role)["canonical_native"]["decision"] = "changes"
         self.assertReported(self.role_errors(spec), "changes only with the proof profile")
         spec = self.mutated()
-        seed = self.role(spec, "catalog.exact12-commitment")["canonical_native"]["transcript_seed_check"]
+        seed = self.role(spec, moving_role)["canonical_native"]["transcript_seed_check"]
         seed["binds_proof_internals"] = False
         self.assertReported(self.role_errors(spec), "needs a value that binds proof internals")
         spec = self.mutated()
-        seed = self.role(spec, "catalog.exact12-commitment")["canonical_native"]["transcript_seed_check"]
+        seed = self.role(spec, moving_role)["canonical_native"]["transcript_seed_check"]
         seed["sites"][0]["symbol"] = "fn renamed_catalog_source()"
         self.assertReported(self.role_errors(spec), "transcript-seed evidence")
         spec = self.mutated()
@@ -716,7 +748,7 @@ class ProducerLedgerChecks(TreeFixture):
         production = self.spec["producer_ledger"]["production"]
         manifest = production["crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/manifest.rs"]
         entry = manifest["release_manifest_digest_v1"]
-        self.assertEqual(entry["primitives"], ["keccak"])
+        self.assertEqual(entry["primitives"], ["blake3"])
         self.assertEqual(entry["domains"], ["iroha.zk-ams.v1.mkhe.release-manifest"])
         self.assertEqual(entry["returns"], "[u8; 32]")
         self.assertEqual(entry["role"], "mkhe.release-identity-keccak")
@@ -727,6 +759,57 @@ class ProducerLedgerChecks(TreeFixture):
         active = "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/active.rs"
         self.assertNotIn(active, production)
         self.assertGreater(self.spec["producer_ledger"]["test_only_counts"][active], 0)
+
+    def test_bootle_issuer_domains_keep_typed_outputs_and_scoped_roles(self) -> None:
+        path = "crates/iroha_data_model/src/privacy/statements.rs"
+        owner = "crates/iroha_data_model/src/privacy.rs"
+        expected = {
+            "BootleLanternIssuerPolicyV1::computed_issuer_parameter_digest": (
+                "BOOTLE_LANTERN_ISSUER_PARAMETER_DIGEST_DOMAIN_V1",
+                "iroha:privacy:bootle-lantern:issuer-parameter:v1",
+                "PrivacyParameterDigestV1",
+            ),
+            "BootleLanternIssuerPolicyV1::computed_record_digest": (
+                "BOOTLE_LANTERN_ISSUER_POLICY_DIGEST_DOMAIN_V1",
+                "iroha:privacy:bootle-lantern:issuer-policy:v1",
+                "PrivacyBootleLanternIssuerPolicyDigestV1",
+            ),
+        }
+        bindings = self.spec["producer_ledger"]["included_domain_bindings"]
+        self.assertEqual(len(bindings), len(expected))
+        for name, (symbol, literal, output) in expected.items():
+            with self.subTest(producer=name):
+                self.assertIn(
+                    {"path": path, "producer": name, "owner": owner, "symbol": symbol, "literal": literal},
+                    bindings,
+                )
+                entry = self.spec["producer_ledger"]["production"][path][name]
+                self.assertEqual(entry["primitives"], ["sha2-256"])
+                self.assertEqual(entry["domains"], [literal])
+                self.assertEqual(entry["returns"], f"Result<{output}, norito::Error>")
+                self.assertEqual(entry["role"], "privacy.record-digest-sha256")
+                note = entry["role_note"]
+                for text in ("SHA-256", f"32-byte {output}", "public policy/statement binding", "H.2/F.5"):
+                    self.assertIn(text, note)
+                self.assertTrue(
+                    "do not establish an in-circuit SHA-256 constraint" in note
+                    or "not evidence of an in-circuit SHA-256 constraint" in note
+                )
+                self.assertEqual(self.derived["producers"]["production"][path][name]["domains"], [literal])
+        self.assertEqual(self.derived["producers"]["binding_errors"], [])
+
+    def test_changed_bindings_cannot_reuse_an_earlier_derivation(self) -> None:
+        spec = self.mutated()
+        spec["producer_ledger"]["included_domain_bindings"][0]["literal"] = "iroha.changed.domain"
+        self.assertReported(self.producer_errors(spec), "included-domain bindings differ")
+
+    def test_refresh_preserves_included_bindings_and_disposition_notes(self) -> None:
+        fresh = checker.refreshed(self.spec, self.derived)
+        ledger = self.spec["producer_ledger"]
+        self.assertEqual(fresh["producer_ledger"]["included_domain_bindings"], ledger["included_domain_bindings"])
+        for binding in ledger["included_domain_bindings"]:
+            path, name = binding["path"], binding["producer"]
+            self.assertEqual(fresh["producer_ledger"]["production"][path][name], ledger["production"][path][name])
 
     def test_an_unlisted_or_stale_producer_fails(self) -> None:
         path = "crates/iroha_data_model/src/privacy/statements.rs"
@@ -822,6 +905,319 @@ class ProducerLedgerChecks(TreeFixture):
             derived["test_only_counts"], {"crates/demo/src/only_tests.rs": 1, "crates/demo/src/owner.rs": 1}
         )
         self.assertEqual(derived["unreached_files"], ["crates/demo/src/orphan.rs"])
+
+
+class IncludedDomainBindings(unittest.TestCase):
+    """Small source trees exercise binding failures without the workspace scan."""
+
+    OWNER = "crates/demo/src/owner.rs"
+    PRODUCER = "crates/demo/src/owner/statement.rs"
+    SYMBOL = "DOMAIN_V1"
+    LITERAL = "iroha.demo.v1.statement"
+    CONSTANT = 'pub const DOMAIN_V1: &[u8] = b"iroha.demo.v1.statement";\n'
+    INCLUDE = 'include!("owner/statement.rs");\n'
+    FUNCTION = (
+        "pub fn statement_digest(bytes: &[u8]) -> [u8; 32] {\n"
+        "    let mut hasher = Sha256::new();\n"
+        "    hasher.update(DOMAIN_V1);\n"
+        "    hasher.update(bytes);\n"
+        "    hasher.finalize().into()\n"
+        "}\n"
+    )
+
+    def fixture(self, root: Path) -> tuple[dict, dict[str, str]]:
+        """Return one explicit include binding and its otherwise ordinary source."""
+        ledger = {
+            "detectors": {"sha2-256": r"\bSha256::"},
+            "scopes": [{"consumer": "x", "crate": "crates/demo/", "prefixes": ["crates/demo/src/"]}],
+            "included_domain_bindings": [{
+                "path": self.PRODUCER, "producer": "statement_digest", "owner": self.OWNER,
+                "symbol": self.SYMBOL, "literal": self.LITERAL,
+            }],
+        }
+        sources = {
+            "crates/demo/src/lib.rs": "mod owner;\n",
+            self.OWNER: self.CONSTANT + self.INCLUDE,
+            self.PRODUCER: self.FUNCTION,
+        }
+        self.write_sources(root, sources)
+        return ledger, sources
+
+    @staticmethod
+    def write_sources(root: Path, sources: dict[str, str]) -> None:
+        for path, text in sources.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+
+    def derive(self, root: Path, ledger: dict) -> dict:
+        return checker.ProducerLedger(ledger).derive(root, checker.tree_files(root))
+
+    def assertRejected(self, derived: dict) -> None:  # noqa: N802
+        self.assertTrue(derived["binding_errors"], derived)
+        self.assertTrue(all("included-domain binding" in error for error in derived["binding_errors"]))
+
+    def test_direct_owner_constant_enriches_only_its_bound_producer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger, sources = self.fixture(root)
+            sources[self.PRODUCER] += self.FUNCTION.replace("statement_digest", "unbound_digest")
+            self.write_sources(root, sources)
+            derived = self.derive(root, ledger)
+        self.assertEqual(derived["binding_errors"], [])
+        self.assertEqual(derived["production"][self.PRODUCER]["statement_digest"], {
+            "primitives": ["sha2-256"], "domains": [self.LITERAL], "returns": "[u8; 32]",
+        })
+        self.assertEqual(derived["production"][self.PRODUCER]["unbound_digest"]["domains"], [])
+
+    def test_explicit_owner_constant_is_not_shadowed_by_unrelated_glob_export(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger, sources = self.fixture(root)
+            sources[self.OWNER] = "pub mod exports {}\npub use exports::*;\n" + sources[self.OWNER]
+            self.write_sources(root, sources)
+            derived = self.derive(root, ledger)
+        self.assertEqual(derived["binding_errors"], [])
+        self.assertEqual(derived["production"][self.PRODUCER]["statement_digest"]["domains"], [self.LITERAL])
+
+    def test_missing_changed_or_ambiguous_constant_is_rejected(self) -> None:
+        variants = {
+            "missing": "",
+            "wrong literal": self.CONSTANT.replace(self.LITERAL, "iroha.other.domain"),
+            "comment only": "/* " + self.CONSTANT + " */\n",
+            "string only": 'const DECOY: &str = r#"' + self.CONSTANT + '"#;\n',
+            "duplicate": self.CONSTANT + self.CONSTANT,
+            "nested": "mod hidden {\n" + self.CONSTANT + "}\n",
+            "conditional": "#[cfg(feature = \"other\")]\n" + self.CONSTANT,
+            "conditional with braced attribute": '#[cfg_attr(feature = "other", doc = stringify!({ hidden }))]\n' + self.CONSTANT,
+            "macro argument": "declare!(" + self.CONSTANT + ");\n",
+            "static unsupported": self.CONSTANT.replace("const DOMAIN", "static DOMAIN"),
+            "wrong type": self.CONSTANT.replace("&[u8]", "&str").replace('b"', '"'),
+        }
+        for label, constant in variants.items():
+            with self.subTest(mutation=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                sources[self.OWNER] = constant + self.INCLUDE
+                self.write_sources(root, sources)
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_missing_conditional_nested_or_ambiguous_include_is_rejected(self) -> None:
+        variants = {
+            "missing": "",
+            "redirected": self.INCLUDE.replace("statement.rs", "other.rs"),
+            "comment only": "/* " + self.INCLUDE + " */\n",
+            "string only": 'const DECOY: &str = r#"' + self.INCLUDE + '"#;\n',
+            "duplicate": self.INCLUDE + self.INCLUDE,
+            "conditional": '#[cfg(feature = "other")]\n' + self.INCLUDE,
+            "test only": "#[cfg(test)]\n" + self.INCLUDE,
+            "conditional with braced attribute": '#[cfg_attr(feature = "other", doc = stringify!({ hidden }))]\n' + self.INCLUDE,
+            "nested": "mod hidden {\n" + self.INCLUDE + "}\n",
+            "macro argument": "declare!(" + self.INCLUDE + ");\n",
+            "traversal": self.INCLUDE.replace("owner/statement.rs", "owner/../owner/statement.rs"),
+        }
+        for label, include in variants.items():
+            with self.subTest(mutation=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                sources[self.OWNER] = self.CONSTANT + include
+                self.write_sources(root, sources)
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_second_include_owner_and_sibling_shadow_are_rejected(self) -> None:
+        for label in ("second owner", "sibling constant", "nested sibling constant", "non-Rust sibling intermediary", "explicit import", "alias import", "conditional import"):
+            with self.subTest(mutation=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                if label == "second owner":
+                    sources["crates/demo/src/lib.rs"] += "mod alternate;\n"
+                    sources["crates/demo/src/alternate.rs"] = self.INCLUDE
+                elif label == "sibling constant":
+                    sources[self.OWNER] += 'include!("owner/other.rs");\n'
+                    sources["crates/demo/src/owner/other.rs"] = self.CONSTANT
+                elif label == "nested sibling constant":
+                    sources[self.OWNER] += 'include!("owner/other.rs");\n'
+                    sources["crates/demo/src/owner/other.rs"] = 'include!("nested.rs");\n'
+                    sources["crates/demo/src/owner/nested.rs"] = self.CONSTANT
+                elif label == "non-Rust sibling intermediary":
+                    sources[self.OWNER] += 'include!("owner/other.inc");\n'
+                    sources["crates/demo/src/owner/other.inc"] = 'include!("nested.rs");\n'
+                    sources["crates/demo/src/owner/nested.rs"] = self.CONSTANT
+                elif label == "explicit import":
+                    sources[self.OWNER] += "use elsewhere::DOMAIN_V1;\n"
+                elif label == "alias import":
+                    sources[self.OWNER] += "use elsewhere::ALTERNATIVE as DOMAIN_V1;\n"
+                else:
+                    sources[self.OWNER] += '#[cfg(feature = "other")]\nuse elsewhere::DOMAIN_V1;\n'
+                self.write_sources(root, sources)
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_alternate_literal_include_owners_cannot_hide_ambiguity(self) -> None:
+        variants = (
+            'include!("owner/../owner/statement.rs");',
+            'include! { "owner/statement.rs" }',
+            'include!(r#"owner/statement.rs"#);',
+            'include! /* owner */ ( /* path */ "owner/statement.rs");',
+            'include!("/absolute/source/crates/demo/src/owner/statement.rs");',
+            r'include!("owner\x2fstatement.rs");',
+            'include!(concat!("owner/", "statement.rs"));',
+        )
+        for include in variants:
+            with self.subTest(include=include), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                sources["crates/demo/src/lib.rs"] += "mod alternate;\n"
+                sources["crates/demo/src/alternate.rs"] = include
+                self.write_sources(root, sources)
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_only_an_unshadowed_direct_producer_argument_supplies_evidence(self) -> None:
+        update = "hasher.update(DOMAIN_V1);"
+        variants = {
+            "unused": self.FUNCTION.replace(update, "hasher.update(bytes);"),
+            "comment only": self.FUNCTION.replace(update, "// " + update),
+            "string only": self.FUNCTION.replace(update, 'let _decoy = "' + update + '";'),
+            "qualified": self.FUNCTION.replace(update, "hasher.update(other::DOMAIN_V1);"),
+            "local binding": self.FUNCTION.replace(update, "let DOMAIN_V1 = bytes; " + update),
+            "parameter": self.FUNCTION.replace("bytes: &[u8]", "bytes: &[u8], DOMAIN_V1: &[u8]"),
+            "destructured binding": self.FUNCTION.replace(update, "let (DOMAIN_V1,) = (bytes,); " + update),
+            "closure binding": self.FUNCTION.replace(update, "let f = |DOMAIN_V1| { " + update + " };"),
+            "loop binding": self.FUNCTION.replace(update, "for DOMAIN_V1 in [bytes] { " + update + " }"),
+            "local import": self.FUNCTION.replace(update, "use other::DOMAIN_V1; " + update),
+            "local glob import": self.FUNCTION.replace(update, "use other::*; " + update),
+            "nested helper only": self.FUNCTION.replace(update, "fn helper() { let mut hasher = Sha256::new(); " + update + " }"),
+            "nested block": self.FUNCTION.replace(update, "if enabled() { " + update + " }"),
+            "braced macro argument": self.FUNCTION.replace(update, "defer! { " + update + " }"),
+            "parenthesized macro argument": self.FUNCTION.replace(update, "defer!(" + update + ");"),
+            "macro with preceding semicolon": self.FUNCTION.replace(update, "defer!(noop(); " + update + ");"),
+            "bracket macro with preceding semicolon": self.FUNCTION.replace(update, "defer![noop(); " + update + "];"),
+            "different argument": self.FUNCTION.replace(update, "hasher.update(domain(DOMAIN_V1));"),
+            "duplicate use": self.FUNCTION.replace(update, update + " " + update),
+        }
+        for label, function in variants.items():
+            with self.subTest(mutation=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                sources[self.PRODUCER] = function
+                self.write_sources(root, sources)
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_test_only_duplicate_or_shadowed_producer_scope_is_rejected(self) -> None:
+        variants = {
+            "test only": ("statement_digest", "#[cfg(test)]\n" + self.FUNCTION),
+            "duplicate name": ("statement_digest", self.FUNCTION + self.FUNCTION),
+            "enclosing generic": (
+                "Record::statement_digest",
+                "impl<const DOMAIN_V1: usize> Record<DOMAIN_V1> {\n" + self.FUNCTION + "}\n",
+            ),
+            "nested module": ("hidden::statement_digest", "mod hidden {\n" + self.FUNCTION + "}\n"),
+        }
+        for label, (name, function) in variants.items():
+            with self.subTest(mutation=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                ledger["included_domain_bindings"][0]["producer"] = name
+                sources[self.PRODUCER] = function
+                self.write_sources(root, sources)
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_wrong_model_binding_and_duplicate_binding_are_rejected(self) -> None:
+        mutations = (
+            ("path", "crates/demo/src/missing.rs"),
+            ("producer", "removed_digest"),
+            ("owner", "crates/demo/src/lib.rs"),
+            ("owner", self.PRODUCER),
+            ("symbol", "OTHER_DOMAIN_V1"),
+            ("literal", "iroha.other.domain"),
+            ("literal", ""),
+            ("symbol", ["DOMAIN_V1"]),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, _ = self.fixture(root)
+                ledger["included_domain_bindings"][0][field] = value
+                self.assertRejected(self.derive(root, ledger))
+        for label in ("duplicate", "extra field", "missing field", "not a record"):
+            with self.subTest(mutation=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, _ = self.fixture(root)
+                binding = ledger["included_domain_bindings"][0]
+                if label == "duplicate":
+                    ledger["included_domain_bindings"].append(dict(binding))
+                elif label == "extra field":
+                    binding["ignored"] = True
+                elif label == "missing field":
+                    del binding["owner"]
+                else:
+                    ledger["included_domain_bindings"] = ["not a binding"]
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_malformed_binding_collection_is_reported_without_an_exception(self) -> None:
+        for value in (None, "not a list", {"owner": self.OWNER}, 1):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, _ = self.fixture(root)
+                ledger["included_domain_bindings"] = value
+                self.assertRejected(self.derive(root, ledger))
+
+    def test_derived_binding_observation_does_not_alias_mutable_input(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger, _ = self.fixture(root)
+            expected = copy.deepcopy(ledger["included_domain_bindings"])
+            derived = self.derive(root, ledger)
+            self.assertEqual(derived["binding_errors"], [])
+            ledger["included_domain_bindings"][0]["owner"] = "crates/demo/src/lib.rs"
+        self.assertEqual(derived["domain_bindings"], expected)
+        ledger["production"] = copy.deepcopy(derived["production"])
+        ledger["test_only_counts"] = derived["test_only_counts"]
+        ledger["unreached_files"] = derived["unreached_files"]
+        report = checker.Report()
+        checker.check_producers({"producer_ledger": ledger, "digest_roles": []}, {"producers": derived}, report)
+        self.assertTrue(any("included-domain bindings differ" in error for error in report.errors), report.errors)
+
+    def test_binding_errors_reach_the_public_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger, sources = self.fixture(root)
+            sources[self.OWNER] = self.CONSTANT.replace(self.LITERAL, "iroha.other.domain") + self.INCLUDE
+            self.write_sources(root, sources)
+            derived = self.derive(root, ledger)
+        self.assertRejected(derived)
+        ledger["production"] = copy.deepcopy(derived["production"])
+        ledger["test_only_counts"] = derived["test_only_counts"]
+        ledger["unreached_files"] = derived["unreached_files"]
+        report = checker.Report()
+        checker.check_producers({"producer_ledger": ledger, "digest_roles": []}, {"producers": derived}, report)
+        for error in derived["binding_errors"]:
+            self.assertIn(error, report.errors)
+
+    def test_invalid_binding_cannot_print_or_partially_write_a_refresh(self) -> None:
+        for write in (False, True):
+            with self.subTest(write=write), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ledger, sources = self.fixture(root)
+                sources[self.OWNER] = self.CONSTANT.replace(self.LITERAL, "iroha.other.domain") + self.INCLUDE
+                self.write_sources(root, sources)
+                derived = {"producers": self.derive(root, ledger)}
+                with self.assertRaises(ValueError):
+                    checker.refreshed({}, derived)
+                spec_path = root / "spec.json"
+                original = b'{"retained": "do not replace on failed refresh"}\n'
+                spec_path.write_bytes(original)
+                stdout, stderr = io.StringIO(), io.StringIO()
+                args = ["--root", str(root), "--spec", "spec.json", "--refresh"]
+                if write:
+                    args.append("--write")
+                with mock.patch.object(checker, "derive", return_value=derived), \
+                        mock.patch.object(checker, "tree_files", return_value=[]), \
+                        contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    result = checker.main(args)
+                self.assertNotEqual(result, 0)
+                self.assertEqual(spec_path.read_bytes(), original)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn("included-domain binding", stderr.getvalue())
 
 
 class LexicalIndex(unittest.TestCase):
@@ -946,8 +1342,11 @@ class CandidateChecks(TreeFixture):
         del spec["canonical_native_commitment"]["consumers_that_change"][0]["coordination"]
         self.assertReported(self.candidate_errors(spec), "names what it changes with")
         listed = {entry["role"] for entry in self.spec["canonical_native_commitment"]["consumers_that_change"]}
+        migrated = {entry["role"] for entry in self.spec["canonical_native_commitment"]["already_blake3"]}
         for key in ("mkhe.parameter-identity-keccak", "mkhe.release-identity-keccak", "mkhe.source-receipt-identity-keccak"):
-            self.assertIn(key, listed)
+            self.assertIn(key, migrated)
+            self.assertNotIn(key, listed)
+        self.assertIn("mkhe.ceremony-identity-keccak", listed)
 
     def test_a_retained_family_cannot_hold_a_changing_role(self) -> None:
         spec = self.mutated()
@@ -1253,6 +1652,42 @@ class PoseidonChecks(TreeFixture):
             with contextlib.redirect_stderr(io.StringIO()) as printed:
                 self.assertEqual(poseidon.main(["--root", str(root)]), 1)
             self.assertIn("differs from the Grain/Cauchy regeneration", printed.getvalue())
+
+
+class SdkManifestPqChecks(unittest.TestCase):
+    """Artifact evidence names never exempt an actual SDK PQ dependency."""
+
+    PATH = "IrohaSwift/Package.swift"
+    EVIDENCE = (
+        'Set(evidence.keys) == Set(["producer-record.json",\n'
+        '    "pqcrypto-normalization.json", "consumer"])'
+    )
+
+    def test_exact_swift_receipt_key_is_metadata(self) -> None:
+        self.assertIsNone(checker.sdk_manifest_pq_library(self.PATH, self.EVIDENCE))
+
+    def test_actual_dependency_after_receipt_is_still_rejected(self) -> None:
+        for library in ("pqcrypto", "liboqs", "pqclean", "kyber", "dilithium", "bcpqc"):
+            with self.subTest(library=library):
+                source = self.EVIDENCE + f'\n.package(url: "https://example.org/{library}", from: "1.0.0")'
+                self.assertEqual(checker.sdk_manifest_pq_library(self.PATH, source), library)
+
+    def test_receipt_filename_used_as_dependency_is_not_exempt(self) -> None:
+        source = self.EVIDENCE + '\n.linkedLibrary("pqcrypto-normalization.json")'
+        self.assertEqual(checker.sdk_manifest_pq_library(self.PATH, source), "pqcrypto")
+
+    def test_other_keys_and_nonliteral_expressions_are_not_exempt(self) -> None:
+        for source in (
+            self.EVIDENCE.replace("pqcrypto-normalization.json", "pqcrypto.json"),
+            self.EVIDENCE.replace('"consumer"', '"liboqs"'),
+            self.EVIDENCE.replace('"consumer"', 'linkedLibrary("pqcrypto")'),
+            self.EVIDENCE.replace("evidence.keys", "dependencies.keys"),
+        ):
+            with self.subTest(source=source):
+                self.assertIsNotNone(checker.sdk_manifest_pq_library(self.PATH, source))
+
+    def test_other_manifest_formats_have_no_swift_exception(self) -> None:
+        self.assertEqual(checker.sdk_manifest_pq_library("javascript/package.json", self.EVIDENCE), "pqcrypto")
 
 
 class PostQuantumChecks(TreeFixture):
@@ -1788,7 +2223,7 @@ class SemanticProfiles(TreeFixture):
         section["role_dispositions"]["zk-ace.identity-digest384"] = {"disposition": "retained", "profiles": ["retained.x"]}
         self.assertReported(self.profile_errors(spec), "the unqualified six-lane digest is retained or frozen")
         spec = self.mutated()
-        spec["semantic_profiles"]["role_dispositions"]["catalog.exact12-commitment"].pop("replaces")
+        spec["semantic_profiles"]["role_dispositions"]["kaigi.authorization-identity"].pop("replaces")
         self.assertReported(self.profile_errors(spec), "the unqualified six-lane digest is retained or frozen")
         spec = self.mutated()
         profile = self.profile(spec, self.NATIVE)

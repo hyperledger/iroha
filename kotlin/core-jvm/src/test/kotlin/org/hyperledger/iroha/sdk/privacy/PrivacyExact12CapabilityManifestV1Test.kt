@@ -15,6 +15,35 @@ import kotlin.test.assertSame
 
 class PrivacyExact12CapabilityManifestV1Test {
     @Test
+    fun releaseAndSecurityClaimsRequireTheExactNativeCatalog() {
+        val canonical = "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0".chunked(2).map { it.toInt(16) }
+        val original = inspection(qualification = qualification())
+        assertEquals(32, canonical.size)
+        parseInspection(original)
+        val hostile = listOf(
+            canonical.dropLast(1), canonical + 0, canonical + List(16) { 0 },
+            "e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff".chunked(2).map { it.toInt(16) },
+        ) + canonical.indices.map { index ->
+            canonical.toMutableList().also { it[index] = it[index] xor 1 }
+        }
+        val needle = "\"catalog_commitment\":" + catalogCommitment()
+        for (bytes in hostile) {
+            val replacement = "\"catalog_commitment\":" + bytes.joinToString(",", "[", "]")
+            // The release is first; a separate replacement reaches only security claims.
+            assertFailsWith<IllegalArgumentException> {
+                parseInspection(original.replaceFirst(needle, replacement))
+            }
+            val first = original.indexOf(needle)
+            val second = original.indexOf(needle, first + needle.length)
+            check(first >= 0 && second > first)
+            assertFailsWith<IllegalArgumentException> {
+                parseInspection(original.substring(0, second) +
+                    original.substring(second).replaceFirst(needle, replacement))
+            }
+        }
+    }
+
+    @Test
     fun decodedArchivesNeverGrantAdmissionIncludingClaimedQualifiedRows() {
         val protocol = PrivacyProtocolIdV1.ANONYMOUS_PGC_K_OUT_OF_N_V1
         for (manifest in listOf(
@@ -417,8 +446,7 @@ class PrivacyExact12CapabilityManifestV1Test {
     }
 
     private fun catalogCommitment(): String {
-        val hex = "e037f13904a0307c00db15d85cfb406bd79772d20144a949" +
-            "def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff"
+        val hex = "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0"
         return hex.chunked(2).map { it.toInt(16) }.joinToString(",", "[", "]")
     }
 

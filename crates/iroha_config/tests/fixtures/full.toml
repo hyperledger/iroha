@@ -286,5 +286,4 @@ out_file = "./dev_telemetry.json"
 [crypto]
 enable_sm_openssl_preview = false
 default_hash = "blake2b-256"
-allowed_signing = ["ed25519", "secp256k1"]
 sm2_distid_default = "CN12345678901234"

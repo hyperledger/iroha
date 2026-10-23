@@ -1028,23 +1028,16 @@ impl StreamingHandle {
         }
         Ok(())
     }
-    /// Apply crypto configuration gating to the advertised capability mask.
-    pub fn apply_crypto_config(&mut self, crypto: &actual::Crypto) {
-        #[cfg(feature = "sm")]
+    /// Advertise the actual local verification implementation, independently of chain policy.
+    pub fn apply_crypto_capabilities(&mut self) {
+        if iroha_crypto::Algorithm::Sm2
+            .require_implementation(iroha_crypto::CryptoOperation::VerifySignature)
+            .is_ok()
         {
-            if crypto.sm_helpers_enabled() {
-                self.capabilities = self
-                    .capabilities
-                    .insert(CapabilityFlags::FEATURE_SM_TRANSACTIONS);
-            } else {
-                self.capabilities = self
-                    .capabilities
-                    .remove(CapabilityFlags::FEATURE_SM_TRANSACTIONS);
-            }
-        }
-        #[cfg(not(feature = "sm"))]
-        {
-            let _ = crypto;
+            self.capabilities = self
+                .capabilities
+                .insert(CapabilityFlags::FEATURE_SM_TRANSACTIONS);
+        } else {
             self.capabilities = self
                 .capabilities
                 .remove(CapabilityFlags::FEATURE_SM_TRANSACTIONS);

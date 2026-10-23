@@ -340,7 +340,6 @@ impl FinalizedPublicationSurface {
             execution_policy: compute_execution_policy_digest_v1(
                 &block.pipeline,
                 &block.oracle,
-                &block.crypto,
                 &block.nexus,
                 &block.lane_manifests,
                 block.lane_compliance.as_deref(),
@@ -399,6 +398,11 @@ impl StateBlock<'_> {
     pub(in crate::state) fn prepare_finalized_publication_surface(
         &mut self,
     ) -> Result<FinalizedPublicationSurface, String> {
+        self.world
+            .parameters
+            .get()
+            .require_crypto_policy()
+            .map_err(str::to_owned)?;
         if !self.world.external_event_buf.is_empty() {
             return Err("finalized publication retained undelivered external events".into());
         }
@@ -789,9 +793,42 @@ mod tests {
     }
 
     #[test]
+    fn final_publication_requires_explicit_crypto_policy_before_any_tail_effects() {
+        let state = state();
+        let original = crate::snapshot::canonical_state_snapshot_bytes(&state);
+        let mut block = state.block(header());
+        let before = crate::snapshot::canonical_staged_state_snapshot_hash(&block);
+        let error = block.prepare_finalized_publication_surface().unwrap_err();
+        assert_eq!(
+            error,
+            "ordinary crypto policy has not been initialized by authenticated genesis"
+        );
+        assert_eq!(
+            crate::snapshot::canonical_staged_state_snapshot_hash(&block),
+            before
+        );
+        drop(block);
+        assert_eq!(
+            crate::snapshot::canonical_state_snapshot_bytes(&state),
+            original
+        );
+    }
+
+    #[test]
     fn final_publication_preparation_is_idempotent_and_requires_drained_events() {
         let state = state();
         let mut block = state.block(header());
+        let selected =
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+            ])
+            .unwrap();
+        block
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(selected.into_parameter().unwrap())
+            .unwrap();
         let first = block.prepare_finalized_publication_surface().unwrap();
         first.verify(&block).unwrap();
         let repeated = block.prepare_finalized_publication_surface().unwrap();

@@ -57,13 +57,16 @@ async fn push_records_teu_using_router_assignment() {
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
     let tx = AcceptedTransaction::accept_with_time_source(
         tx,
         state.network_id_ref(),
         Duration::from_secs(60),
         tx_limits,
-        &crypto_cfg,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &time_source,
     )
     .expect("Failed to accept transaction.");

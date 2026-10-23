@@ -528,7 +528,7 @@ fn capture_values() -> Vec<Value> {
     }
     let filters: Vec<_> = cases.into_iter().map(|(_, value)| value).collect();
     family(&mut rows, "data_filter", &filters);
-    #[cfg(feature = "governance")]
+
     {
         let value = DataEventFilter::Governance(GovernanceEventFilter::new());
         check_filter(23, &value);
@@ -642,10 +642,7 @@ fn capture_values() -> Vec<Value> {
         }
     }
     family(&mut rows, "event_subscription", &subscriptions);
-    assert_eq!(
-        rows.len(),
-        98 + if cfg!(feature = "governance") { 5 } else { 0 }
-    );
+    assert_eq!(rows.len(), 103);
     rows
 }
 
@@ -661,29 +658,9 @@ fn current_identity_capture() -> Value {
 #[test]
 fn public_fresh_event_frames_match_capture() {
     let evidence = current_identity_capture();
-    let mut captured: Value =
+    let captured: Value =
         norito::json::from_json(include_str!("../fixtures/fresh_event_identity_frames.json"))
             .expect("decode immutable actual pre-declaration capture");
-    // The immutable default-feature capture includes this separate optional
-    // family. No shared root or Vec golden depends on governance being enabled.
-    if !cfg!(feature = "governance") {
-        captured
-            .as_object_mut()
-            .unwrap()
-            .get_mut("rows")
-            .unwrap()
-            .as_array_mut()
-            .unwrap()
-            .retain(|row| {
-                !row.as_object()
-                    .unwrap()
-                    .get("case")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .starts_with("data_filter_governance/")
-            });
-    }
     assert_eq!(evidence, captured);
 }
 

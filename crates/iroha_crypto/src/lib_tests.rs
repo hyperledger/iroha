@@ -986,7 +986,7 @@ mod tests {
         bad.push(0x00);
         let err = PublicKey::from_bytes(Algorithm::MlDsa, &bad).unwrap_err();
         assert!(
-            err.0.contains("invalid ML-DSA public key length"),
+            err.to_string().contains("invalid ML-DSA public key length"),
             "unexpected error: {err:?}"
         );
     }
@@ -1637,7 +1637,7 @@ mod tests {
     }
 
     #[test]
-    fn public_key_structural_envelope_covers_every_compiled_algorithm() {
+    fn public_key_structural_envelope_covers_every_canonical_algorithm() {
         fn accepted(algorithm: Algorithm, payload: Vec<u8>) {
             validate_public_key_structural_envelope(algorithm, &payload)
                 .unwrap_or_else(|error| panic!("valid {algorithm:?} envelope failed: {error}"));
@@ -1662,12 +1662,10 @@ mod tests {
         secp[0] = 0x04;
         assert!(validate_public_key_structural_envelope(Algorithm::Secp256k1, &secp).is_err());
         accepted(Algorithm::MlDsa, vec![1; ML_DSA_65_PUBLIC_KEY_BYTES]);
-        #[cfg(feature = "bls")]
         {
             accepted(Algorithm::BlsNormal, vec![1; 48]);
             accepted(Algorithm::BlsSmall, vec![1; 96]);
         }
-        #[cfg(feature = "gost")]
         {
             accepted(Algorithm::Gost3410_2012_256ParamSetA, vec![1; 64]);
             accepted(Algorithm::Gost3410_2012_256ParamSetB, vec![1; 64]);
@@ -1675,7 +1673,6 @@ mod tests {
             accepted(Algorithm::Gost3410_2012_512ParamSetA, vec![1; 128]);
             accepted(Algorithm::Gost3410_2012_512ParamSetB, vec![1; 128]);
         }
-        #[cfg(feature = "sm")]
         {
             let mut sm2 = vec![0, 3];
             sm2.extend_from_slice(b"abc");

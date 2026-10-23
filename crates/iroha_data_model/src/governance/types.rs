@@ -1692,15 +1692,15 @@ impl SortitionRequestV1 {
     ///
     /// Parliament sortition-request instruction preflight
     /// (`ParliamentLifecycleTransitionV1::validate_static`) uses this before Core
-    /// authenticates the live candidate corpus and hidden-body decision mode, so
-    /// it exists only with the `governance` instruction surface. Every other
+    /// authenticates the live candidate corpus and hidden-body decision mode.
+    /// This canonical instruction preflight is present in every build. Every other
     /// identifier, target, height, and pulse-reuse invariant remains identical to
     /// [`Self::validate`].
     ///
     /// # Errors
     /// Returns [`SortitionRequestErrorV1`] for every malformed binding other
     /// than an empty candidate snapshot.
-    #[cfg(feature = "governance")]
+
     pub(crate) fn validate_capacity_intent(
         &self,
         last_consumed_pulse_height: Option<u64>,

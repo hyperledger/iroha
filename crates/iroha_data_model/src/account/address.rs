@@ -18,10 +18,7 @@ use norito::{
 };
 use std::{
     cell::Cell,
-    sync::{
-        LazyLock,
-        atomic::{AtomicU16, Ordering},
-    },
+    sync::atomic::{AtomicU16, Ordering},
 };
 use thiserror::Error;
 #[cfg(test)]
@@ -32,6 +29,7 @@ mod canonical_multisig_tests;
 mod retained_output_tests;
 
 pub mod compliance_vectors;
+pub(super) mod decode;
 /// Obtain the currently configured chain discriminant for i105 literal encoding,
 /// honoring any thread-local override.
 #[must_use]
@@ -244,26 +242,13 @@ impl AccountAddress {
         input: &str,
         expected_discriminant: Option<u16>,
     ) -> Result<Self, AccountAddressError> {
-        if input.trim().is_empty() {
-            return Err(AccountAddressError::InvalidLength);
-        }
-        if input.trim() != input || input.starts_with("0x") || input.starts_with("0X") {
-            return Err(AccountAddressError::UnsupportedAddressFormat);
-        }
-        let address = Self::from_i105_for_discriminant(input, expected_discriminant).map_err(
-            |err| match err {
-                AccountAddressError::MissingI105Sentinel => {
-                    AccountAddressError::UnsupportedAddressFormat
-                }
-                other => other,
-            },
-        )?;
-        let expected = match expected_discriminant {
-            Some(discriminant) => discriminant,
-            None => Self::i105_discriminant(input)?,
+        let controller = decode::encoded_literal(input, expected_discriminant, &decode::Ordinary)?;
+        let class = match &controller {
+            ControllerPayload::SingleKey { .. } => AddressClass::SingleKey,
+            ControllerPayload::MultiSig(_) => AddressClass::MultiSig,
         };
-        address.ensure_canonical_i105_literal(input, expected)?;
-        Ok(address)
+        let header = AddressHeader::new(HEADER_VERSION_V1, class, HEADER_NORM_VERSION_V1)?;
+        Ok(Self { header, controller })
     }
     /// Encode the canonical byte representation that [`Self::from_canonical_bytes`] parses
     /// (the SCCP codec-3 account bytes).
@@ -502,6 +487,9 @@ fn account_address_from_json_str(literal: &str) -> Result<AccountAddress, json::
 
 pub(super) fn map_account_address_json_error(error: AccountAddressError) -> json::Error {
     match error {
+        AccountAddressError::UnsupportedImplementation(original) => {
+            json::Error::UnsupportedFeature(original.algorithm.as_static_str())
+        }
         AccountAddressError::DecodeResourceLimit => json::Error::DecodeResourceLimit,
         AccountAddressError::DecodeResource(resource) => json::Error::DecodeResource(resource),
         AccountAddressError::ScopedDecodeResource(origin) => {
@@ -669,9 +657,7 @@ impl CanonicalAccountOutput for AccountId {
                 let (algorithm, _) = public_key.try_to_bytes().map_err(|_| {
                     CanonicalEmissionError::Account(AccountAddressError::InvalidPublicKey)
                 })?;
-                let curve = CurveId::try_from_algorithm(algorithm)
-                    .map_err(AccountAddressError::from)
-                    .map_err(CanonicalEmissionError::Account)?;
+                let curve = CurveId::from_algorithm(algorithm);
                 emit_single_controller(curve, public_key, &mut emit)
             }
             AccountController::Multisig(policy) => emit_multisig_controller(
@@ -798,7 +784,7 @@ impl CanonicalMultisigMember for MultisigMember {
             .public_key()
             .try_to_bytes()
             .map_err(|_| AccountAddressError::InvalidPublicKey)?;
-        let curve = CurveId::try_from_algorithm(algorithm).map_err(AccountAddressError::from)?;
+        let curve = CurveId::from_algorithm(algorithm);
         Ok((curve, self.weight(), self.public_key()))
     }
 }
@@ -865,8 +851,7 @@ impl ControllerPayload {
                 let (algorithm, _) = key
                     .try_to_bytes()
                     .map_err(|_| AccountAddressError::InvalidPublicKey)?;
-                let curve =
-                    CurveId::try_from_algorithm(algorithm).map_err(AccountAddressError::from)?;
+                let curve = CurveId::from_algorithm(algorithm);
                 Ok((
                     AddressClass::SingleKey,
                     Self::SingleKey {
@@ -890,8 +875,7 @@ impl ControllerPayload {
                         .public_key()
                         .try_to_bytes()
                         .map_err(|_| AccountAddressError::InvalidPublicKey)?;
-                    let curve = CurveId::try_from_algorithm(algorithm)
-                        .map_err(AccountAddressError::from)?;
+                    let curve = CurveId::from_algorithm(algorithm);
                     members.push(MultisigMemberPayload {
                         curve,
                         weight: member.weight(),
@@ -925,115 +909,8 @@ impl ControllerPayload {
             }
         }
     }
-    #[allow(clippy::too_many_lines)]
     fn decode(bytes: &[u8], cursor: &mut usize) -> Result<Self, AccountAddressError> {
-        let tag = *bytes
-            .get(*cursor)
-            .ok_or(AccountAddressError::InvalidLength)?;
-        *cursor += 1;
-        match tag {
-            CONTROLLER_SINGLE_KEY_TAG => {
-                let curve_raw = *bytes
-                    .get(*cursor)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += 1;
-                let curve = CurveId::try_from(curve_raw).map_err(AccountAddressError::from)?;
-                let len = *bytes
-                    .get(*cursor)
-                    .ok_or(AccountAddressError::InvalidLength)? as usize;
-                *cursor += 1;
-                let payload = bytes
-                    .get(*cursor..*cursor + len)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += len;
-                let public_key = decode_public_key(curve.algorithm(), payload)?;
-                Ok(Self::SingleKey { curve, public_key })
-            }
-            CONTROLLER_SINGLE_KEY_EXTENDED_TAG => {
-                let curve_raw = *bytes
-                    .get(*cursor)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += 1;
-                let curve = CurveId::try_from(curve_raw).map_err(AccountAddressError::from)?;
-                let len_bytes = bytes
-                    .get(*cursor..*cursor + 2)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += 2;
-                let len = u16::from_be_bytes(len_bytes.try_into().unwrap()) as usize;
-                if u8::try_from(len).is_ok() {
-                    return Err(AccountAddressError::InvalidLength);
-                }
-                let payload = bytes
-                    .get(*cursor..*cursor + len)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += len;
-                let public_key = decode_public_key(curve.algorithm(), payload)?;
-                Ok(Self::SingleKey { curve, public_key })
-            }
-            CONTROLLER_MULTISIG_TAG => {
-                let version = *bytes
-                    .get(*cursor)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += 1;
-                let threshold_bytes = bytes
-                    .get(*cursor..*cursor + 2)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += 2;
-                let threshold = u16::from_be_bytes(threshold_bytes.try_into().unwrap());
-                let member_count_bytes = bytes
-                    .get(*cursor..*cursor + 2)
-                    .ok_or(AccountAddressError::InvalidLength)?;
-                *cursor += 2;
-                let member_count = u16::from_be_bytes(member_count_bytes.try_into().unwrap());
-                let member_count = usize::from(member_count);
-                if member_count > CONTROLLER_MULTISIG_MEMBER_MAX {
-                    return Err(AccountAddressError::MultisigMemberOverflow(member_count));
-                }
-                preflight_multisig_members(bytes, *cursor, member_count)?;
-                let mut members = allocate_multisig_members(member_count)?;
-                for _ in 0..member_count {
-                    let curve_raw = *bytes
-                        .get(*cursor)
-                        .ok_or(AccountAddressError::InvalidLength)?;
-                    *cursor += 1;
-                    let curve = CurveId::try_from(curve_raw).map_err(AccountAddressError::from)?;
-                    let weight_bytes = bytes
-                        .get(*cursor..*cursor + 2)
-                        .ok_or(AccountAddressError::InvalidLength)?;
-                    *cursor += 2;
-                    let weight = u16::from_be_bytes(weight_bytes.try_into().unwrap());
-                    let key_len_bytes = bytes
-                        .get(*cursor..*cursor + 2)
-                        .ok_or(AccountAddressError::InvalidLength)?;
-                    *cursor += 2;
-                    let key_len = u16::from_be_bytes(key_len_bytes.try_into().unwrap()) as usize;
-                    let payload = bytes
-                        .get(*cursor..*cursor + key_len)
-                        .ok_or(AccountAddressError::InvalidLength)?;
-                    *cursor += key_len;
-                    let public_key = decode_public_key(curve.algorithm(), payload)?;
-                    members.push(MultisigMemberPayload {
-                        curve,
-                        weight,
-                        public_key,
-                    });
-                }
-                MultisigPolicy::validate_canonical_members(
-                    version,
-                    threshold,
-                    members
-                        .iter()
-                        .map(|member| (&member.public_key, member.weight)),
-                )
-                .map_err(AccountAddressError::InvalidMultisigPolicy)?;
-                Ok(Self::MultiSig(MultisigPayload {
-                    version,
-                    threshold,
-                    members,
-                }))
-            }
-            other => Err(AccountAddressError::UnknownControllerTag(other)),
-        }
+        decode::controller(bytes, cursor, &decode::Ordinary).map(|(_, controller)| controller)
     }
     fn to_account_controller(&self) -> Result<AccountController, AccountAddressError> {
         match self {
@@ -1104,6 +981,12 @@ fn decode_public_key(
     algorithm: Algorithm,
     payload: &[u8],
 ) -> Result<PublicKey, AccountAddressError> {
+    // Preserve the original fixed operation cause before the generic codec
+    // adapter. This is the same unavailable-parser precedence as the shared
+    // decoder, before validation or allocation; ML-DSA geometry remains available.
+    algorithm
+        .require_implementation(iroha_crypto::CryptoOperation::ParsePublicKey)
+        .map_err(AccountAddressError::UnsupportedImplementation)?;
     PublicKey::from_bytes_for_decode(algorithm, payload)
         .map_err(AccountAddressError::from_decode_error)
 }
@@ -1167,8 +1050,8 @@ pub fn write_i105_sentinel(discriminant: u16, numeric: &mut [u8; 6]) -> &[u8] {
 /// Stable error codes surfaced by address encoders/decoders.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccountAddressErrorCode {
-    /// Unsupported signing algorithm requested.
-    UnsupportedAlgorithm,
+    /// A known signing algorithm has no local key-validation implementation.
+    UnsupportedImplementation,
     /// Key payload exceeds supported length.
     KeyPayloadTooLong,
     /// Address header version outside supported range.
@@ -1219,7 +1102,7 @@ impl AccountAddressErrorCode {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::UnsupportedAlgorithm => "ERR_UNSUPPORTED_ALGORITHM",
+            Self::UnsupportedImplementation => "ERR_UNSUPPORTED_IMPLEMENTATION",
             Self::KeyPayloadTooLong => "ERR_KEY_PAYLOAD_TOO_LONG",
             Self::InvalidHeaderVersion => "ERR_INVALID_HEADER_VERSION",
             Self::InvalidNormVersion => "ERR_INVALID_NORM_VERSION",
@@ -1248,9 +1131,9 @@ impl AccountAddressErrorCode {
 /// Errors raised during address construction or encoding.
 #[derive(Clone, Debug, Error)]
 pub enum AccountAddressError {
-    /// Requested signing algorithm is not supported by the encoder.
-    #[error("unsupported signing algorithm: {0}")]
-    UnsupportedAlgorithm(Algorithm),
+    /// A known canonical algorithm lacks a local public-key decoder.
+    #[error("{0}")]
+    UnsupportedImplementation(iroha_crypto::UnsupportedImplementation),
     /// The signing key payload exceeds the supported length.
     #[error("key payload too long: {0} bytes")]
     KeyPayloadTooLong(u16),
@@ -1332,15 +1215,12 @@ pub enum AccountAddressError {
 impl From<CurveRegistryError> for AccountAddressError {
     fn from(error: CurveRegistryError) -> Self {
         match error {
-            CurveRegistryError::UnsupportedAlgorithm(algorithm) => {
-                Self::UnsupportedAlgorithm(algorithm)
-            }
             CurveRegistryError::UnknownCurveId(curve) => Self::UnknownCurve(curve),
         }
     }
 }
 impl AccountAddressError {
-    fn from_decode_error(error: ncore::Error) -> Self {
+    pub(super) fn from_decode_error(error: ncore::Error) -> Self {
         if cfg!(all(test, sumeragi_model_mutation = "DM21"))
             && error.decode_resource_error().is_some()
         {
@@ -1374,7 +1254,9 @@ impl AccountAddressError {
     #[must_use]
     pub const fn code(&self) -> AccountAddressErrorCode {
         match self {
-            Self::UnsupportedAlgorithm(_) => AccountAddressErrorCode::UnsupportedAlgorithm,
+            Self::UnsupportedImplementation(_) => {
+                AccountAddressErrorCode::UnsupportedImplementation
+            }
             Self::KeyPayloadTooLong(_) => AccountAddressErrorCode::KeyPayloadTooLong,
             Self::InvalidHeaderVersion(_) => AccountAddressErrorCode::InvalidHeaderVersion,
             Self::InvalidNormVersion(_) => AccountAddressErrorCode::InvalidNormVersion,
@@ -1414,6 +1296,11 @@ impl fmt::Display for AccountAddress {
         f.write_str(&self.canonical_hex().map_err(|_| fmt::Error)?)
     }
 }
+/// Ordinary AccountId construction from the same original literal grammar.
+pub(super) fn parse_account_literal(input: &str) -> Result<AccountController, AccountAddressError> {
+    decode::account_literal(input, &decode::Ordinary)?.to_account_controller()
+}
+
 fn encode_i105_literal(prefix: u16, canonical: &[u8]) -> Result<String, AccountAddressError> {
     let digits = encode_base_n(canonical, I105_BASE)?;
     let checksum = i105_checksum_digits(canonical);
@@ -1439,102 +1326,10 @@ fn decode_i105_literal(
     input: &str,
     expected_discriminant: Option<u16>,
 ) -> Result<(u16, Vec<u8>), AccountAddressError> {
-    match decode_i105_literal_with_embedded_discriminant(input) {
-        Ok((found, canonical)) => {
-            if let Some(expected) = expected_discriminant
-                && found != expected
-            {
-                return Err(AccountAddressError::UnexpectedNetworkPrefix { expected, found });
-            }
-            Ok((found, canonical))
-        }
-        Err(error) => {
-            // Format diagnostics may inspect the expected payload; a resource
-            // refusal is terminal and must retain its original observer.
-            if error.is_decode_resource_limit()
-                && !cfg!(all(test, sumeragi_model_mutation = "DM24"))
-            {
-                return Err(error);
-            }
-            let Some(expected) = expected_discriminant else {
-                return Err(error);
-            };
-            let sentinel = i105_sentinel_for_discriminant(expected);
-            let Some(payload) = input.strip_prefix(sentinel.as_str()) else {
-                return Err(error);
-            };
-            match decode_i105_payload(payload) {
-                Err(exact_error) => Err(exact_error),
-                Ok(_) => Err(error),
-            }
-        }
-    }
+    decode::decode_i105_literal(input, expected_discriminant, &decode::Ordinary)
+        .map(|(discriminant, work)| (discriminant, work.values))
 }
-fn decode_i105_literal_with_embedded_discriminant(
-    input: &str,
-) -> Result<(u16, Vec<u8>), AccountAddressError> {
-    for (discriminant, sentinel) in [
-        (CHAIN_DISCRIMINANT_SORA, I105_SENTINEL_SORA),
-        (CHAIN_DISCRIMINANT_TEST, I105_SENTINEL_TEST),
-        (CHAIN_DISCRIMINANT_DEV, I105_SENTINEL_DEV),
-    ] {
-        if let Some(payload) = input.strip_prefix(sentinel) {
-            return decode_i105_payload(payload).map(|canonical| (discriminant, canonical));
-        }
-    }
-    let Some(rest) = input.strip_prefix(I105_SENTINEL_FALLBACK_PREFIX) else {
-        return Err(AccountAddressError::MissingI105Sentinel);
-    };
-    let mut decoded = None;
-    let mut first_err = None;
-    let mut structural_err = None;
-    for sentinel_len in 1..=5 {
-        let Some((candidate, payload)) = numeric_i105_sentinel_candidate(rest, sentinel_len) else {
-            continue;
-        };
-        match decode_i105_payload(payload) {
-            Ok(canonical) => {
-                let address = match AccountAddress::from_canonical_bytes(&canonical) {
-                    Ok(address) => address,
-                    Err(err) => {
-                        if err.is_decode_resource_limit()
-                            && !cfg!(all(test, sumeragi_model_mutation = "DM23"))
-                        {
-                            return Err(err);
-                        }
-                        structural_err.get_or_insert(err);
-                        continue;
-                    }
-                };
-                if let Err(err) = address.ensure_canonical_i105_literal(input, candidate) {
-                    if err.is_decode_resource_limit()
-                        && !cfg!(all(test, sumeragi_model_mutation = "DM23"))
-                    {
-                        return Err(err);
-                    }
-                    structural_err.get_or_insert(err);
-                    continue;
-                }
-                if decoded.replace((candidate, canonical)).is_some() {
-                    return Err(AccountAddressError::UnsupportedAddressFormat);
-                }
-            }
-            Err(err) => {
-                if err.is_decode_resource_limit()
-                    && !cfg!(all(test, sumeragi_model_mutation = "DM23"))
-                {
-                    return Err(err);
-                }
-                first_err.get_or_insert(err);
-            }
-        }
-    }
-    decoded.ok_or_else(|| {
-        structural_err
-            .or(first_err)
-            .unwrap_or(AccountAddressError::MissingI105Sentinel)
-    })
-}
+
 fn numeric_i105_sentinel_candidate(rest: &str, len: usize) -> Option<(u16, &str)> {
     let mut end = 0;
     for (index, ch) in rest.char_indices().take(len) {
@@ -1547,199 +1342,19 @@ fn numeric_i105_sentinel_candidate(rest: &str, len: usize) -> Option<(u16, &str)
         return None;
     }
     let discriminant = rest[..end].parse::<u16>().ok()?;
-    let sentinel = i105_sentinel_for_discriminant(discriminant);
+    let mut numeric = [0; 6];
+    let sentinel = core::str::from_utf8(write_i105_sentinel(discriminant, &mut numeric)).ok()?;
     if sentinel.strip_prefix(I105_SENTINEL_FALLBACK_PREFIX)? != &rest[..end] {
         return None;
     }
     Some((discriminant, &rest[end..]))
 }
 fn encode_base_n(bytes: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressError> {
-    if !(2..=256).contains(&base) {
-        return Err(AccountAddressError::InvalidI105Base);
-    }
-    if bytes.is_empty() {
-        return Ok(vec![0]);
-    }
-    let leading_zeros = bytes.iter().take_while(|&&b| b == 0).count();
-    let significant = &bytes[leading_zeros..];
-    if significant.is_empty() {
-        let mut digits = Vec::new();
-        reserve_address_vec(&mut digits, leading_zeros)?;
-        digits.resize(leading_zeros, 0);
-        return Ok(digits);
-    }
-
-    let maximum_limbs = significant.len().div_ceil(8);
-    let mut limbs = Vec::<u64>::new();
-    reserve_address_vec(&mut limbs, maximum_limbs)?;
-    let first = significant.len() % 8;
-    let mut cursor = 0_usize;
-    while cursor < significant.len() {
-        let width = if cursor == 0 && first != 0 { first } else { 8 };
-        let mut limb = 0_u64;
-        for &byte in &significant[cursor..cursor + width] {
-            limb = (limb << 8) | u64::from(byte);
-        }
-        limbs.push(limb);
-        cursor += width;
-    }
-
-    let base = u64::from(base);
-    let mut group_radix = base;
-    let mut group_width = 1_usize;
-    while let Some(next) = group_radix.checked_mul(base) {
-        group_radix = next;
-        group_width += 1;
-    }
-    let maximum_digits = bytes
-        .len()
-        .checked_mul(8)
-        .and_then(|bits| bits.checked_add(5))
-        .map(|bits| bits / 6)
-        .and_then(|digits| digits.checked_add(leading_zeros))
-        .ok_or(AccountAddressError::DecodeResourceLimit)?;
-    let mut digits = Vec::new();
-    reserve_address_vec(&mut digits, maximum_digits)?;
-    while !limbs.is_empty() {
-        let mut remainder = 0_u128;
-        for limb in &mut limbs {
-            let value = (remainder << 64) | u128::from(*limb);
-            *limb = u64::try_from(value / u128::from(group_radix))
-                .expect("division by a non-zero u64 radix leaves one u64 quotient limb");
-            remainder = value % u128::from(group_radix);
-        }
-        let first_nonzero = limbs
-            .iter()
-            .position(|&limb| limb != 0)
-            .unwrap_or(limbs.len());
-        if first_nonzero != 0 {
-            limbs.drain(..first_nonzero);
-        }
-        let emitted_width = if limbs.is_empty() {
-            let mut value = remainder;
-            let mut width = 1;
-            while value >= u128::from(base) {
-                value /= u128::from(base);
-                width += 1;
-            }
-            width
-        } else {
-            group_width
-        };
-        for _ in 0..emitted_width {
-            digits.push(
-                u8::try_from(remainder % u128::from(base))
-                    .expect("radix remainder digit fits in u8"),
-            );
-            remainder /= u128::from(base);
-        }
-    }
-    digits.extend(std::iter::repeat_n(0, leading_zeros));
-    digits.reverse();
-    Ok(digits)
+    decode::encode_base_n(bytes, base, &decode::RetainedOutput).map(|work| work.values)
 }
+#[cfg(test)]
 fn decode_base_n(digits: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressError> {
-    if !(2..=256).contains(&base) {
-        return Err(AccountAddressError::InvalidI105Base);
-    }
-    if digits.is_empty() {
-        return Err(AccountAddressError::InvalidLength);
-    }
-    validate_base_n_digits(digits, base)?;
-    let leading_zeros = digits.iter().take_while(|&&d| d == 0).count();
-    let significant = &digits[leading_zeros..];
-    if significant.is_empty() {
-        let mut bytes = Vec::new();
-        reserve_address_vec(&mut bytes, leading_zeros)?;
-        bytes.resize(leading_zeros, 0);
-        return Ok(bytes);
-    }
-
-    // Consume several source digits per big-integer pass. The former repeated
-    // division walked almost the complete digit vector once per output byte,
-    // making malformed long I105 literals quadratic with a large constant.
-    // Base-105 admits nine digits in one u64 limb, reducing the same exact
-    // conversion to grouped u128 multiply-add operations.
-    let base = u64::from(base);
-    let mut group_digits = 1_usize;
-    let mut group_radix = base;
-    while let Some(next) = group_radix.checked_mul(base) {
-        group_radix = next;
-        group_digits += 1;
-    }
-    let bits_per_digit =
-        usize::try_from(u64::BITS - (base - 1).leading_zeros()).expect("u64 bit width fits usize");
-    let maximum_limbs = significant
-        .len()
-        .checked_mul(bits_per_digit)
-        .and_then(|bits| bits.checked_add(63))
-        .map(|bits| bits / 64)
-        .ok_or(AccountAddressError::DecodeResourceLimit)?;
-    let mut limbs = Vec::<u64>::new();
-    reserve_address_vec(&mut limbs, maximum_limbs)?;
-
-    let first_group = significant.len() % group_digits;
-    let mut cursor = 0_usize;
-    while cursor < significant.len() {
-        let width = if cursor == 0 && first_group != 0 {
-            first_group
-        } else {
-            group_digits
-        };
-        let end = cursor + width;
-        let mut chunk = 0_u64;
-        let mut multiplier = 1_u64;
-        for &digit in &significant[cursor..end] {
-            chunk = chunk
-                .checked_mul(base)
-                .and_then(|value| value.checked_add(u64::from(digit)))
-                .ok_or(AccountAddressError::DecodeResourceLimit)?;
-            multiplier = multiplier
-                .checked_mul(base)
-                .ok_or(AccountAddressError::DecodeResourceLimit)?;
-        }
-        if limbs.is_empty() {
-            limbs.push(chunk);
-        } else {
-            let mut carry = u128::from(chunk);
-            for limb in &mut limbs {
-                let product = u128::from(*limb) * u128::from(multiplier) + carry;
-                *limb = u64::try_from(product & u128::from(u64::MAX))
-                    .expect("masked base-N product limb fits in u64");
-                carry = product >> 64;
-            }
-            if carry != 0 {
-                limbs.push(u64::try_from(carry).expect("u64 radix leaves at most one carry limb"));
-            }
-        }
-        cursor = end;
-    }
-
-    let most_significant = *limbs
-        .last()
-        .expect("a non-zero leading source digit creates one limb");
-    let significant_bytes = limbs
-        .len()
-        .checked_mul(8)
-        .and_then(|bytes| {
-            bytes.checked_sub(usize::try_from(most_significant.leading_zeros() / 8).ok()?)
-        })
-        .ok_or(AccountAddressError::DecodeResourceLimit)?;
-    let output_bytes = leading_zeros
-        .checked_add(significant_bytes)
-        .ok_or(AccountAddressError::DecodeResourceLimit)?;
-    let mut bytes = Vec::new();
-    reserve_address_vec(&mut bytes, output_bytes)?;
-    bytes.resize(leading_zeros, 0);
-    let top = most_significant.to_be_bytes();
-    let top_start =
-        usize::try_from(most_significant.leading_zeros() / 8).expect("u32 byte count fits usize");
-    bytes.extend_from_slice(&top[top_start..]);
-    for limb in limbs[..limbs.len() - 1].iter().rev() {
-        bytes.extend_from_slice(&limb.to_be_bytes());
-    }
-    debug_assert_eq!(bytes.len(), output_bytes);
-    Ok(bytes)
+    decode::decode_base_n(digits, base, &decode::Ordinary).map(|work| work.values)
 }
 fn validate_base_n_digits(digits: &[u8], base: u32) -> Result<(), AccountAddressError> {
     for &digit in digits {
@@ -1835,37 +1450,16 @@ fn expand_hrp(hrp: &str) -> Vec<u8> {
     out.extend(hrp.bytes().map(|byte| byte & 0x1f));
     out
 }
+#[cfg(test)]
 fn decode_i105_payload(payload: &str) -> Result<Vec<u8>, AccountAddressError> {
-    let digits = i105_payload_digits(payload)?;
-    if digits.len() <= I105_CHECKSUM_LEN {
-        return Err(AccountAddressError::I105TooShort);
-    }
-    let split_at = digits.len() - I105_CHECKSUM_LEN;
-    let canonical = decode_base_n(&digits[..split_at], I105_BASE)?;
-    let expected = i105_checksum_digits(&canonical);
-    if digits[split_at..] != expected {
-        return Err(AccountAddressError::ChecksumMismatch);
-    }
-    Ok(canonical)
+    decode::decode_i105_payload(payload, &decode::Ordinary).map(|work| work.values)
 }
-fn i105_payload_digits(payload: &str) -> Result<Vec<u8>, AccountAddressError> {
-    let digit_count = payload.chars().count();
-    let mut digits = Vec::new();
-    reserve_address_vec(&mut digits, digit_count)?;
-    for ch in payload.chars() {
-        let mut symbol = [0_u8; 4];
-        let encoded = ch.encode_utf8(&mut symbol);
-        let Some(digit) = lookup_i105_digit(encoded) else {
-            return Err(AccountAddressError::InvalidI105Char(ch));
-        };
-        digits.push(digit);
-    }
-    Ok(digits)
-}
+
 fn lookup_i105_digit(symbol: &str) -> Option<u8> {
-    I105_DIGIT_TABLE
+    I105_SYMBOLS
         .iter()
-        .find_map(|(candidate, value)| (*candidate == symbol).then_some(*value))
+        .position(|candidate| *candidate == symbol)
+        .and_then(|index| u8::try_from(index).ok())
 }
 fn i105_digit_symbol(digit: u8) -> Result<&'static str, AccountAddressError> {
     i105_symbol(digit).ok_or(AccountAddressError::InvalidI105Digit(digit))
@@ -1905,18 +1499,114 @@ const fn i105_symbols() -> [&'static str; I105_BASE_U8 as usize] {
 /// The I105 digit alphabet in digit order: Base58 followed by the half-width Iroha poem kana.
 #[doc(hidden)]
 pub const I105_SYMBOLS: [&str; I105_BASE_U8 as usize] = i105_symbols();
-static I105_DIGIT_TABLE: LazyLock<Vec<(&'static str, u8)>> = LazyLock::new(|| {
-    let mut table = Vec::with_capacity(usize::from(I105_BASE_U8));
-    for (index, symbol) in I105_SYMBOLS.iter().enumerate() {
-        table.push((
-            *symbol,
-            u8::try_from(index).expect("I105 alphabet length fits within u8"),
-        ));
-    }
-    table
-});
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canonical_gost_account_and_address_json_preserve_actual_parser_outcome() {
+        let algorithm = Algorithm::Gost3410_2012_256ParamSetA;
+        let mut canonical = vec![0x02, 0x00, CurveId::from_algorithm(algorithm).as_u8(), 0x40];
+        canonical.extend(
+            hex::decode(
+                include_str!("../../../../fixtures/account/gost256a_public_key.hex").trim(),
+            )
+            .unwrap(),
+        );
+        let literal = encode_i105_literal(chain_discriminant(), &canonical).unwrap();
+        let address_literal = format!("0x{}", hex::encode(&canonical));
+        let account = AccountId::parse_encoded(&literal);
+        let account_json = [
+            json::from_str::<AccountId>(&json::to_string(&literal).unwrap()),
+            <AccountId as json::JsonDeserialize>::json_from_value(&json::Value::String(
+                literal.clone(),
+            )),
+            <AccountId as json::JsonObjectKeyOwned>::from_json_key_text(&literal),
+        ];
+        let address_json = [literal.as_str(), address_literal.as_str()].map(|value| {
+            [
+                json::from_str::<AccountAddress>(&json::to_string(value).unwrap()),
+                <AccountAddress as json::JsonDeserialize>::json_from_value(&json::Value::String(
+                    value.to_owned(),
+                )),
+                <AccountAddress as json::JsonObjectKeyOwned>::from_json_key_text(value),
+            ]
+        });
+        // Cargo can enable a dependency's parser without this crate's named feature.
+        // Exercise the actual outcome instead of inferring it from cfg!(feature = "gost").
+        match algorithm.require_implementation(iroha_crypto::CryptoOperation::ParsePublicKey) {
+            Ok(()) => {
+                let account =
+                    account.expect("available GOST parser accepts the original valid fixture");
+                let address = AccountAddress::from_canonical_bytes(&canonical).unwrap();
+                assert_eq!(address.canonical_bytes().unwrap(), canonical);
+                assert_eq!(AccountAddress::from_account_id(&account).unwrap(), address);
+                for decoded in account_json {
+                    assert_eq!(decoded.unwrap(), account);
+                }
+                for decoded in address_json.into_iter().flatten() {
+                    assert_eq!(decoded.unwrap(), address);
+                }
+            }
+            Err(original) => {
+                assert!(matches!(account,
+                    Err(super::super::AccountIdParseError::Address(AccountAddressError::UnsupportedImplementation(cause))) if cause == original));
+                let assert_original = |error: json::Error| {
+                    assert!(
+                        matches!(error, json::Error::UnsupportedFeature(name) if name == algorithm.as_static_str())
+                    );
+                };
+                for decoded in account_json {
+                    assert_original(decoded.unwrap_err());
+                }
+                for decoded in address_json.into_iter().flatten() {
+                    assert_original(decoded.unwrap_err());
+                }
+            }
+        }
+        canonical[2] = u8::MAX;
+        let unknown = encode_i105_literal(chain_discriminant(), &canonical).unwrap();
+        assert!(matches!(
+            json::from_str::<AccountId>(&json::to_string(&unknown).unwrap()),
+            Err(json::Error::WithPos {
+                msg: "invalid I105 account identifier",
+                byte: 0,
+                line: 1,
+                col: 1,
+            })
+        ));
+        assert!(matches!(
+            json::from_str::<AccountAddress>(&json::to_string(&unknown).unwrap()),
+            Err(json::Error::Message(_))
+        ));
+    }
+
+    #[test]
+    fn known_unavailable_key_decoder_is_not_an_unknown_curve_or_invalid_key() {
+        for &algorithm in Algorithm::ALL {
+            let curve = CurveId::from_algorithm(algorithm);
+            assert_eq!(
+                CurveId::try_from(curve.as_u8()).unwrap().algorithm(),
+                algorithm
+            );
+            if algorithm
+                .require_implementation(iroha_crypto::CryptoOperation::ParsePublicKey)
+                .is_ok()
+            {
+                continue;
+            }
+            let error = decode_public_key(algorithm, &[1; 48]).unwrap_err();
+            assert!(
+                matches!(&error, AccountAddressError::UnsupportedImplementation(original)
+                    if *original == algorithm.require_implementation(iroha_crypto::CryptoOperation::ParsePublicKey).unwrap_err())
+            );
+            assert_eq!(
+                error.code(),
+                AccountAddressErrorCode::UnsupportedImplementation
+            );
+            assert!(!error.is_decode_resource_limit());
+        }
+    }
+
     use super::*;
     use hex;
     use iroha_crypto::{Algorithm, KeyPair, PublicKey};
@@ -3166,9 +2856,14 @@ mod tests {
             }};
         }
         assert_code!(
-            AccountAddressError::UnsupportedAlgorithm(Algorithm::Secp256k1),
-            UnsupportedAlgorithm,
-            "ERR_UNSUPPORTED_ALGORITHM"
+            AccountAddressError::UnsupportedImplementation(
+                iroha_crypto::UnsupportedImplementation {
+                    algorithm: Algorithm::BlsNormal,
+                    operation: iroha_crypto::CryptoOperation::ParsePublicKey,
+                }
+            ),
+            UnsupportedImplementation,
+            "ERR_UNSUPPORTED_IMPLEMENTATION"
         );
         assert_code!(
             AccountAddressError::KeyPayloadTooLong(1024),
@@ -3467,7 +3162,7 @@ mod tests {
         let (refusal, requests) = crate::amx_prepare_streaming_allocations::measured(|| {
             original.with(|| norito::with_decode_limits_scope(limits, || {
                 classify_decode_attempt(|| {
-                    let error = decode().expect_err("original zero quota must refuse controller admission");
+                    let error = decode().expect_err("original zero quota must refuse the first payload allocation");
                     let AccountAddressError::ScopedDecodeResource(origin) = &error else {
                         panic!("public I105 parsing must retain the original scoped refusal: {error:?}");
                     };
@@ -3487,7 +3182,7 @@ mod tests {
             limit: 0,
         } = resource
         else {
-            panic!("the genuine first controller request must refuse the zero inner quota");
+            panic!("the genuine first payload request must refuse the zero inner quota");
         };
         assert!(attempted > 0);
         // Existing admission debits the original outer layer before the narrower
@@ -3501,25 +3196,16 @@ mod tests {
         (resource, requests)
     }
 
-    fn first_i105_controller_charge(expected: &AccountAddress) -> usize {
-        let canonical = expected.canonical_bytes().unwrap();
-        let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
-        let error = norito::with_decode_limits_scope(zero, || {
-            AccountAddress::from_canonical_bytes(&canonical)
-        })
-        .unwrap_err();
-        let AccountAddressError::DecodeResource(
-            norito::core::DecodeResourceError::TotalAllocationExceeded {
-                attempted,
-                limit: 0,
-            },
-        ) = error
-        else {
-            panic!(
-                "independent canonical controller admission must report its first actual request"
-            );
-        };
-        usize::try_from(attempted).unwrap()
+    fn first_i105_payload_charge(literal: &str) -> usize {
+        let rest = literal.strip_prefix(I105_SENTINEL_FALLBACK_PREFIX).unwrap();
+        let (discriminant, payload) = numeric_i105_sentinel_candidate(rest, 1).unwrap();
+        assert_eq!(discriminant, 1);
+        // The first original decoder request holds one u8 per I105 symbol,
+        // including the six checksum symbols. Derive it from source geometry,
+        // independently of the observed refusal or later controller backing.
+        std::alloc::Layout::array::<u8>(payload.chars().count())
+            .unwrap()
+            .size()
     }
 
     fn numeric_candidate_refusal_fixture() -> (AccountAddress, String) {
@@ -3556,7 +3242,7 @@ mod tests {
         assert_eq!(decoded.unwrap(), expected);
         let demand = usage.total_allocated_bytes();
         assert!(demand > 0);
-        let first_charge = first_i105_controller_charge(&expected);
+        let first_charge = first_i105_payload_charge(&literal);
         let original_limit = first_charge
             .checked_mul(2)
             .unwrap()
@@ -3567,9 +3253,9 @@ mod tests {
         );
         let original = DecodeBudgetContext::try_new_owned(limits(original_limit), &pool).unwrap();
         let baseline = pool.reserved_bytes();
-        // The reference stops at the first genuine candidate's admitted controller
-        // refusal, using the same canonical kernels and original observer. It includes
-        // the required numeric-sentinel formatting and all pre-refusal payload buffers.
+        // The reference stops at the first genuine candidate's digit-buffer
+        // refusal, using the same canonical kernels and original observer. No
+        // controller or later numeric-prefix candidate may allocate after it.
         let (expected_resource, expected_requests) =
             observed_i105_terminal_refusal(&original, || {
                 let rest = literal.strip_prefix(I105_SENTINEL_FALLBACK_PREFIX).unwrap();
@@ -3628,7 +3314,7 @@ mod tests {
         assert_eq!(decoded.unwrap(), expected);
         let demand = usage.total_allocated_bytes();
         assert!(demand > 0);
-        let first_charge = first_i105_controller_charge(&expected);
+        let first_charge = first_i105_payload_charge(&literal);
         let original_limit = first_charge
             .checked_mul(2)
             .unwrap()

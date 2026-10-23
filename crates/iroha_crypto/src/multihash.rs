@@ -106,11 +106,11 @@ pub fn decode_public_key_str(s: &str) -> Result<(Algorithm, Vec<u8>), ParseError
     if let Some((alg_str, rest)) = s.split_once(':') {
         let algorithm = alg_str
             .parse::<Algorithm>()
-            .map_err(|_| ParseError(format!("Unknown algorithm prefix: {alg_str}")))?;
+            .map_err(|_| ParseError::Invalid(format!("Unknown algorithm prefix: {alg_str}")))?;
         let bytes = decode_multihash_hex_bytes(rest)?;
         let (alg_from_mh, payload) = decode_public_key(&bytes)?;
         if alg_from_mh != algorithm {
-            return Err(ParseError(
+            return Err(ParseError::Invalid(
                 "Algorithm prefix does not match multihash".to_string(),
             ));
         }
@@ -210,11 +210,11 @@ pub fn decode_private_key_str(s: &str) -> Result<(Algorithm, Vec<u8>), ParseErro
     if let Some((alg_str, rest)) = s.split_once(':') {
         let algorithm = alg_str
             .parse::<Algorithm>()
-            .map_err(|_| ParseError(format!("Unknown algorithm prefix: {alg_str}")))?;
+            .map_err(|_| ParseError::Invalid(format!("Unknown algorithm prefix: {alg_str}")))?;
         let bytes = decode_private_multihash_hex_bytes(rest)?;
         let (alg_from_mh, payload) = decode_private_key(bytes.as_slice())?;
         if alg_from_mh != algorithm {
-            return Err(ParseError(
+            return Err(ParseError::Invalid(
                 "Algorithm prefix does not match multihash".to_string(),
             ));
         }
@@ -229,7 +229,9 @@ fn decode_multihash_hex_bytes(s: &str) -> Result<Vec<u8>, ParseError> {
     let (digest_function, payload) = decode_multihash(&bytes)?;
     let canonical = format_multihash_hex(digest_function, payload);
     if s != canonical {
-        return Err(ParseError("Non-canonical multihash hex".to_string()));
+        return Err(ParseError::Invalid(
+            "Non-canonical multihash hex".to_string(),
+        ));
     }
     Ok(bytes)
 }
@@ -238,7 +240,9 @@ fn decode_private_multihash_hex_bytes(s: &str) -> Result<Zeroizing<Vec<u8>>, Par
     let (digest_function, payload) = decode_multihash(bytes.as_slice())?;
     let canonical = Zeroizing::new(format_multihash_hex(digest_function, payload));
     if s != canonical.as_str() {
-        return Err(ParseError("Non-canonical multihash hex".to_string()));
+        return Err(ParseError::Invalid(
+            "Non-canonical multihash hex".to_string(),
+        ));
     }
     Ok(bytes)
 }
@@ -252,71 +256,48 @@ mod digest_function_public {
     const SECP_256_K1: DigestFunction = 0xe7;
     // Provisional multicodec for ML‑DSA (Dilithium3) public keys; align with upstream when assigned.
     const ML_DSA_DILITHIUM3_PK: DigestFunction = 0xee;
-    #[cfg(feature = "gost")]
     // Provisional multicodec assignments for TC26 parameter sets; replace with canonical codes once allocated.
     const GOST_3410_2012_256_A: DigestFunction = 0x1200;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_256_B: DigestFunction = 0x1201;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_256_C: DigestFunction = 0x1202;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_512_A: DigestFunction = 0x1203;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_512_B: DigestFunction = 0x1204;
-    #[cfg(feature = "bls")]
     const BLS12_381_G1: DigestFunction = 0xea;
-    #[cfg(feature = "bls")]
     const BLS12_381_G2: DigestFunction = 0xeb;
-    #[cfg(feature = "sm")]
     // Provisional multicodec assignment; replace once canonical code is allocated.
     const SM2_PUB: DigestFunction = 0x1306;
     pub fn decode_option(digest_function: DigestFunction) -> Option<Algorithm> {
         Some(match digest_function {
             ED_25519 => Algorithm::Ed25519,
             SECP_256_K1 => Algorithm::Secp256k1,
-            #[cfg(feature = "bls")]
             BLS12_381_G1 => Algorithm::BlsNormal,
-            #[cfg(feature = "bls")]
             BLS12_381_G2 => Algorithm::BlsSmall,
             ML_DSA_DILITHIUM3_PK => Algorithm::MlDsa,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_256_A => Algorithm::Gost3410_2012_256ParamSetA,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_256_B => Algorithm::Gost3410_2012_256ParamSetB,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_256_C => Algorithm::Gost3410_2012_256ParamSetC,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_512_A => Algorithm::Gost3410_2012_512ParamSetA,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_512_B => Algorithm::Gost3410_2012_512ParamSetB,
-            #[cfg(feature = "sm")]
             SM2_PUB => Algorithm::Sm2,
             _ => return None,
         })
     }
     pub fn decode(digest_function: DigestFunction) -> Result<Algorithm, ParseError> {
-        decode_option(digest_function).ok_or_else(|| ParseError(String::from("No such algorithm")))
+        decode_option(digest_function)
+            .ok_or_else(|| ParseError::Invalid(String::from("No such algorithm")))
     }
     pub fn encode(algorithm: Algorithm) -> u64 {
         match algorithm {
             Algorithm::Ed25519 => ED_25519,
             Algorithm::Secp256k1 => SECP_256_K1,
             Algorithm::MlDsa => ML_DSA_DILITHIUM3_PK,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_256ParamSetA => GOST_3410_2012_256_A,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_256ParamSetB => GOST_3410_2012_256_B,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_256ParamSetC => GOST_3410_2012_256_C,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_512ParamSetA => GOST_3410_2012_512_A,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_512ParamSetB => GOST_3410_2012_512_B,
-            #[cfg(feature = "bls")]
             Algorithm::BlsNormal => BLS12_381_G1,
-            #[cfg(feature = "bls")]
             Algorithm::BlsSmall => BLS12_381_G2,
-            #[cfg(feature = "sm")]
             Algorithm::Sm2 => SM2_PUB,
         }
     }
@@ -328,46 +309,30 @@ mod digest_function_private {
     const SECP_256_K1: DigestFunction = 0x1301;
     // Provisional multicodec for ML‑DSA (Dilithium3) private keys; align with upstream when assigned.
     const ML_DSA_DILITHIUM3_SK: DigestFunction = 0x130b;
-    #[cfg(feature = "gost")]
     // Provisional multicodec assignments for TC26 private keys.
     const GOST_3410_2012_256_A: DigestFunction = 0x130c;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_256_B: DigestFunction = 0x130d;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_256_C: DigestFunction = 0x130e;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_512_A: DigestFunction = 0x130f;
-    #[cfg(feature = "gost")]
     const GOST_3410_2012_512_B: DigestFunction = 0x1310;
-    #[cfg(feature = "bls")]
     const BLS12_381_G1: DigestFunction = 0x1309;
-    #[cfg(feature = "bls")]
     const BLS12_381_G2: DigestFunction = 0x130a;
-    #[cfg(feature = "sm")]
     // Provisional multicodec assignment; replace once canonical code is allocated.
     const SM2_PRIV: DigestFunction = 0x1311;
     pub fn decode(digest_function: DigestFunction) -> Result<Algorithm, ParseError> {
         let algorithm = match digest_function {
             ED_25519 => Algorithm::Ed25519,
             SECP_256_K1 => Algorithm::Secp256k1,
-            #[cfg(feature = "bls")]
             BLS12_381_G1 => Algorithm::BlsNormal,
-            #[cfg(feature = "bls")]
             BLS12_381_G2 => Algorithm::BlsSmall,
             ML_DSA_DILITHIUM3_SK => Algorithm::MlDsa,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_256_A => Algorithm::Gost3410_2012_256ParamSetA,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_256_B => Algorithm::Gost3410_2012_256ParamSetB,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_256_C => Algorithm::Gost3410_2012_256ParamSetC,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_512_A => Algorithm::Gost3410_2012_512ParamSetA,
-            #[cfg(feature = "gost")]
             GOST_3410_2012_512_B => Algorithm::Gost3410_2012_512ParamSetB,
-            #[cfg(feature = "sm")]
             SM2_PRIV => Algorithm::Sm2,
-            _ => return Err(ParseError(String::from("No such algorithm"))),
+            _ => return Err(ParseError::Invalid(String::from("No such algorithm"))),
         };
         Ok(algorithm)
     }
@@ -376,21 +341,13 @@ mod digest_function_private {
             Algorithm::Ed25519 => ED_25519,
             Algorithm::Secp256k1 => SECP_256_K1,
             Algorithm::MlDsa => ML_DSA_DILITHIUM3_SK,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_256ParamSetA => GOST_3410_2012_256_A,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_256ParamSetB => GOST_3410_2012_256_B,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_256ParamSetC => GOST_3410_2012_256_C,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_512ParamSetA => GOST_3410_2012_512_A,
-            #[cfg(feature = "gost")]
             Algorithm::Gost3410_2012_512ParamSetB => GOST_3410_2012_512_B,
-            #[cfg(feature = "bls")]
             Algorithm::BlsNormal => BLS12_381_G1,
-            #[cfg(feature = "bls")]
             Algorithm::BlsSmall => BLS12_381_G2,
-            #[cfg(feature = "sm")]
             Algorithm::Sm2 => SM2_PRIV,
         }
     }
@@ -401,27 +358,29 @@ fn decode_multihash(bytes: &[u8]) -> Result<(DigestFunction, &[u8]), ParseError>
         .iter()
         .enumerate()
         .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-        .ok_or_else(|| ParseError(String::from("Failed to find end of function code varint")))?
+        .ok_or_else(|| {
+            ParseError::Invalid(String::from("Failed to find end of function code varint"))
+        })?
         .0;
     let (fn_varint, rest) = bytes.split_at(idx_fn_end + 1);
     let digest_function: u64 = varint::VarUint::new(fn_varint)
-        .map_err(|err| ParseError(err.to_string()))?
+        .map_err(|err| ParseError::Invalid(err.to_string()))?
         .try_into()
-        .map_err(|err: varint::ConvertError| ParseError(err.to_string()))?;
+        .map_err(|err: varint::ConvertError| ParseError::Invalid(err.to_string()))?;
     // Parse varint-encoded digest length
     let idx_len_end = rest
         .iter()
         .enumerate()
         .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
-        .ok_or_else(|| ParseError(String::from("Digest size not found")))?
+        .ok_or_else(|| ParseError::Invalid(String::from("Digest size not found")))?
         .0;
     let (len_varint, payload) = rest.split_at(idx_len_end + 1);
     let digest_size: u64 = varint::VarUint::new(len_varint)
-        .map_err(|err| ParseError(err.to_string()))?
+        .map_err(|err| ParseError::Invalid(err.to_string()))?
         .try_into()
-        .map_err(|err: varint::ConvertError| ParseError(err.to_string()))?;
+        .map_err(|err: varint::ConvertError| ParseError::Invalid(err.to_string()))?;
     if payload.len() as u64 != digest_size {
-        return Err(ParseError(String::from(
+        return Err(ParseError::Invalid(String::from(
             "Digest size not equal to actual length",
         )));
     }
@@ -429,6 +388,26 @@ fn decode_multihash(bytes: &[u8]) -> Result<(DigestFunction, &[u8]), ParseError>
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_canonical_multihash_identities_round_trip_without_backend_selection() {
+        let bytes = [0x53; 32];
+        for &algorithm in Algorithm::ALL {
+            let public = encode_public_key_prefixed(algorithm, &bytes);
+            assert_eq!(
+                decode_public_key_str(&public).unwrap(),
+                (algorithm, bytes.to_vec())
+            );
+            let bare = public.split_once(':').unwrap().1;
+            let decoded = decode_public_key_str_borrowed(bare).unwrap();
+            assert_eq!(decoded.algorithm, algorithm);
+            let private = encode_private_key_prefixed(algorithm, &bytes);
+            assert_eq!(
+                decode_private_key_str(&private).unwrap(),
+                (algorithm, bytes.to_vec())
+            );
+        }
+    }
+
     use super::*;
     use crate::hex_decode;
     #[cfg(feature = "sm")]

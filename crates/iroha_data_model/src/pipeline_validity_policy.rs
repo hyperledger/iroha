@@ -21,9 +21,12 @@ use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize,
+    DeriveJsonSerialize,
     parameter::custom::{CustomParameter, CustomParameterId},
 };
+
+mod json_decode;
+pub use json_decode::PipelinePolicyJsonAdmissionError;
 
 /// Largest value of a policy field that counts in-memory items.
 ///
@@ -58,11 +61,38 @@ macro_rules! pipeline_policy {
             Decode,
             IntoSchema,
             DeriveJsonSerialize,
-            DeriveJsonDeserialize,
         )]
         #[norito(deny_unknown_fields)]
         pub struct PipelineValidityPolicyV1 {
             $( $(#[$field_meta])* pub $field: $type, )+
+        }
+
+        impl norito::json::JsonDeserialize for PipelineValidityPolicyV1 {
+            fn json_deserialize(parser: &mut norito::json::Parser<'_>) -> Result<Self, norito::json::Error> {
+                decode_record(parser, &json_decode::Ordinary)
+            }
+        }
+
+        fn decode_record<D: json_decode::Destination>(parser: &mut norito::json::Parser<'_>, destination: &D) -> Result<PipelineValidityPolicyV1, D::Error> {
+            $(let mut $field = None;)+
+            let mut object = norito::json::MapVisitor::new(parser)?;
+            while let Some(key) = destination.key(&mut object)? {
+                match json_decode::key_text(&key) {
+                    $(stringify!($field) => {
+                        if $field.is_some() {
+                            return Err(json_decode::invalid(concat!("duplicate pipeline policy field: ", stringify!($field))).into());
+                        }
+                        $field = Some(object.parse_value_with_parser_typed(|parser| {
+                            <$type as norito::json::JsonDeserialize>::json_deserialize(parser).map_err(D::Error::from)
+                        })?);
+                    },)+
+                    _ => return Err(json_decode::invalid("unknown pipeline policy field").into()),
+                }
+            }
+            object.finish()?;
+            Ok(PipelineValidityPolicyV1 {
+                $($field: $field.ok_or_else(|| json_decode::invalid(concat!("missing pipeline policy field: ", stringify!($field))))?,)+
+            })
         }
 
         impl PipelineValidityPolicyV1 {

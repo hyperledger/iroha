@@ -322,11 +322,11 @@ fn write_account_i105_json(
                 .borrowed_parts()
                 .map_err(|_| norito::json::BoundedJsonError::Unsupported)?;
             if let Ok(length) = u8::try_from(payload.len()) {
-                canonical.extend(&[0, musubi_curve_id(algorithm)?, length])?;
+                canonical.extend(&[0, musubi_curve_id(algorithm), length])?;
             } else {
                 let length = u16::try_from(payload.len())
                     .map_err(|_| norito::json::BoundedJsonError::Unsupported)?;
-                canonical.extend(&[2, musubi_curve_id(algorithm)?])?;
+                canonical.extend(&[2, musubi_curve_id(algorithm)])?;
                 canonical.extend(&length.to_be_bytes())?;
             }
             canonical.extend(payload)?;
@@ -344,7 +344,7 @@ fn write_account_i105_json(
                     .map_err(|_| norito::json::BoundedJsonError::Unsupported)?;
                 let length = u16::try_from(payload.len())
                     .map_err(|_| norito::json::BoundedJsonError::Unsupported)?;
-                canonical.push(musubi_curve_id(algorithm)?)?;
+                canonical.push(musubi_curve_id(algorithm))?;
                 canonical.extend(&member.weight().to_be_bytes())?;
                 canonical.extend(&length.to_be_bytes())?;
                 canonical.extend(payload)?;
@@ -426,12 +426,8 @@ pub(super) mod account_i105_json {
     }
 }
 
-fn musubi_curve_id(
-    algorithm: iroha_crypto::Algorithm,
-) -> Result<u8, norito::json::BoundedJsonError> {
-    crate::account::curve::CurveId::try_from_algorithm(algorithm)
-        .map(crate::account::curve::CurveId::as_u8)
-        .map_err(|_| norito::json::BoundedJsonError::Unsupported)
+fn musubi_curve_id(algorithm: iroha_crypto::Algorithm) -> u8 {
+    crate::account::curve::CurveId::from_algorithm(algorithm).as_u8()
 }
 
 // Borrowing is an implementation detail of the existing preimage identity;

@@ -29,6 +29,15 @@ pub fn ensure_genesis_topology_is_generation_zero(
 }
 
 #[cfg(test)]
+pub(crate) use generate::resolve_staking_policy as resolve_test_staking_policy;
+
+#[cfg(test)]
+/// Explicit ordinary policy for fixtures that do not select a public liability profile.
+pub(crate) fn test_staking_policy() -> iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+    generate::resolve_staking_policy(None, false).expect("explicit Kagami fixture staking policy")
+}
+
+#[cfg(test)]
 fn complete_test_genesis_builder(
     builder: iroha_genesis::GenesisBuilder,
 ) -> iroha_genesis::GenesisBuilder {
@@ -92,7 +101,15 @@ mod authority_tests {
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("generation-zero-topology"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .set_topology_for_test(test_topology(0x30, 4))
         .build_raw()
         .expect("complete generation-zero manifest");
@@ -101,7 +118,15 @@ mod authority_tests {
         let short = GenesisBuilder::new_without_executor(
             ChainId::from("generation-zero-short-topology"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .set_topology_for_test(test_topology(0x30, 3))
         .build_raw()
         .expect("complete short manifest");
@@ -120,7 +145,15 @@ mod authority_tests {
             let manifest = GenesisBuilder::new_without_executor(
                 ChainId::from("initial-beacon-window"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy")
             .append_parameter(Parameter::Custom(npos_parameters.into_custom_parameter()))
             .append_parameter(Parameter::Sumeragi(
                 iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(

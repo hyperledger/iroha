@@ -1,7 +1,11 @@
 import Foundation
 
 public enum AccountAddressError: Error, Equatable {
-    case unsupportedAlgorithm(String)
+    case unknownAlgorithm(String)
+    /// Known identity whose native operation is unavailable; fields are never parsed from text.
+    case unsupportedImplementation(algorithm: String, operation: String)
+    /// Local native decoder capacity refusal; this category does not transport its resource owner.
+    case decodeResourceLimit
     case keyPayloadTooLong(Int)
     case invalidHeaderVersion(UInt8)
     case invalidNormVersion(UInt8)
@@ -31,8 +35,12 @@ public enum AccountAddressError: Error, Equatable {
     /// Stable Norito error code (`ERR_*`) that mirrors the Rust data model.
     public var code: String {
         switch self {
-        case .unsupportedAlgorithm:
-            return "ERR_UNSUPPORTED_ALGORITHM"
+        case .unknownAlgorithm:
+            return "ERR_UNKNOWN_ALGORITHM"
+        case .unsupportedImplementation:
+            return "ERR_UNSUPPORTED_IMPLEMENTATION"
+        case .decodeResourceLimit:
+            return "ERR_DECODE_RESOURCE_LIMIT"
         case .keyPayloadTooLong:
             return "ERR_KEY_PAYLOAD_TOO_LONG"
         case .invalidHeaderVersion:
@@ -282,7 +290,7 @@ public struct AccountAddress {
     func singleControllerInfo() -> ControllerInfo? {
         switch controller {
         case .singleKey(let curve, let publicKey):
-            guard let algorithm = curve.signingAlgorithm else { return nil }
+            let algorithm = curve.signingAlgorithm
             return ControllerInfo(algorithm: algorithm, publicKey: publicKey)
         case .multiSig:
             return nil
@@ -337,21 +345,14 @@ private extension CurveId {
         switch self {
         case .ed25519:
             return "ed25519"
-        #if IROHASWIFT_ENABLE_SECP256K1
         case .secp256k1:
             return "secp256k1"
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
         case .mldsa:
             return "ml-dsa"
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
         case .blsNormal:
             return "bls_normal"
         case .blsSmall:
             return "bls_small"
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
         case .gost256A:
             return "gost3410-2012-256-paramset-a"
         case .gost256B:
@@ -362,33 +363,23 @@ private extension CurveId {
             return "gost3410-2012-512-paramset-a"
         case .gost512B:
             return "gost3410-2012-512-paramset-b"
-        #endif
-        #if IROHASWIFT_ENABLE_SM
         case .sm2:
             return "sm2"
-        #endif
         }
     }
 
-    var signingAlgorithm: SigningAlgorithm? {
+    var signingAlgorithm: SigningAlgorithm {
         switch self {
         case .ed25519:
             return .ed25519
-        #if IROHASWIFT_ENABLE_SECP256K1
         case .secp256k1:
             return .secp256k1
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
         case .mldsa:
             return .mlDsa
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
         case .blsNormal:
             return .blsNormal
         case .blsSmall:
             return .blsSmall
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
         case .gost256A:
             return .gost2012_256A
         case .gost256B:
@@ -399,11 +390,8 @@ private extension CurveId {
             return .gost2012_512A
         case .gost512B:
             return .gost2012_512B
-        #endif
-        #if IROHASWIFT_ENABLE_SM
         case .sm2:
             return .sm2
-        #endif
         }
     }
 }
@@ -442,7 +430,6 @@ private enum ControllerPayload {
     }
 
     private static func canonicalPublicKeyPayload(publicKey: Data, curve: CurveId, distid: String?) throws -> Data {
-        #if IROHASWIFT_ENABLE_SM
         if curve == .sm2 {
             guard publicKey.count == Sm2Keypair.publicKeyLength else {
                 throw AccountAddressError.invalidPublicKey
@@ -460,8 +447,7 @@ private enum ControllerPayload {
             try validatePublicKey(curve: curve, publicKey: payload)
             return payload
         }
-        #endif
-        if let expected = curve.expectedPublicKeyLength, publicKey.count != expected {
+        if publicKey.count != curve.expectedPublicKeyLength {
             throw AccountAddressError.invalidPublicKey
         }
         try validatePublicKey(curve: curve, publicKey: publicKey)
@@ -633,9 +619,10 @@ private enum ControllerPayload {
             }
             let key = Data(bytes[cursor..<end])
             cursor = end
-            guard weight > 0, let algorithm = curve.signingAlgorithm else {
+            guard weight > 0 else {
                 throw AccountAddressError.invalidMultisigPolicy("InvalidMember")
             }
+            let algorithm = curve.signingAlgorithm
             var sortKey = Data(algorithm.wireName.utf8)
             sortKey.append(0); sortKey.append(key)
             guard previousSortKey.map({ $0.lexicographicallyPrecedes(sortKey) }) ?? true else {
@@ -737,51 +724,33 @@ private func cborAppendBytes(into buffer: inout Data, bytes: Data) {
     buffer.append(bytes)
 }
 
-/// Supported curve identifiers mirroring the registry in `specs/account_structure.md`.
-/// Additional cases compile only when the corresponding feature flag is enabled so preview
-/// curves fail closed by default.
+/// Canonical curve identities exist independently of native implementation features.
+/// Complete key admission still belongs to the authenticated Rust bridge.
 private enum CurveId: UInt8 {
     case ed25519 = 1
-    #if IROHASWIFT_ENABLE_SECP256K1
     case secp256k1 = 4
-    #endif
-    #if IROHASWIFT_ENABLE_MLDSA
     case mldsa = 2
-    #endif
-    #if IROHASWIFT_ENABLE_BLS
     case blsNormal = 3
     case blsSmall = 5
-    #endif
-    #if IROHASWIFT_ENABLE_GOST
     case gost256A = 10
     case gost256B = 11
     case gost256C = 12
     case gost512A = 13
     case gost512B = 14
-    #endif
-    #if IROHASWIFT_ENABLE_SM
     case sm2 = 15
-    #endif
 
     static func decode(rawValue: UInt8) throws -> CurveId {
         switch rawValue {
         case CurveId.ed25519.rawValue:
             return .ed25519
-        #if IROHASWIFT_ENABLE_SECP256K1
         case CurveId.secp256k1.rawValue:
             return .secp256k1
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
         case CurveId.mldsa.rawValue:
             return .mldsa
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
         case CurveId.blsNormal.rawValue:
             return .blsNormal
         case CurveId.blsSmall.rawValue:
             return .blsSmall
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
         case CurveId.gost256A.rawValue:
             return .gost256A
         case CurveId.gost256B.rawValue:
@@ -792,96 +761,48 @@ private enum CurveId: UInt8 {
             return .gost512A
         case CurveId.gost512B.rawValue:
             return .gost512B
-        #endif
-        #if IROHASWIFT_ENABLE_SM
         case CurveId.sm2.rawValue:
             return .sm2
-        #endif
         default:
             throw AccountAddressError.unknownCurve(rawValue)
         }
     }
 
     static func from(algorithm: String) throws -> CurveId {
-        guard !algorithm.isEmpty, algorithm.utf8.allSatisfy({ byte in
-            (byte >= 0x30 && byte <= 0x39)
-                || (byte >= 0x41 && byte <= 0x5A)
-                || (byte >= 0x61 && byte <= 0x7A)
-                || byte == 0x2D
-                || byte == 0x5F
-        }) else {
-            throw AccountAddressError.unsupportedAlgorithm(algorithm)
-        }
-        let normalized = algorithm.lowercased()
-        switch normalized {
-        case "ed25519", "ed":
-            return .ed25519
-        #if IROHASWIFT_ENABLE_SECP256K1
-        case "secp256k1", "secp":
-            return .secp256k1
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
-        case "ml-dsa", "mldsa", "ml_dsa",
-             "mldsa65", "ml-dsa-65", "ml_dsa_65", "ml_dsa-65":
-            return .mldsa
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
-        case "bls_normal", "bls-normal", "blsnormal", "bls12-381-g1":
-            return .blsNormal
-        case "bls_small", "bls-small", "blssmall", "bls12-381-g2":
-            return .blsSmall
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
-        case "gost256a", "gost-256-a", "gost3410-2012-256-paramset-a":
-            return .gost256A
-        case "gost256b", "gost-256-b", "gost3410-2012-256-paramset-b":
-            return .gost256B
-        case "gost256c", "gost-256-c", "gost3410-2012-256-paramset-c":
-            return .gost256C
-        case "gost512a", "gost-512-a", "gost3410-2012-512-paramset-a":
-            return .gost512A
-        case "gost512b", "gost-512-b", "gost3410-2012-512-paramset-b":
-            return .gost512B
-        #endif
-        #if IROHASWIFT_ENABLE_SM
-        case "sm2", "sm-2":
-            return .sm2
-        #endif
-        default:
-            throw AccountAddressError.unsupportedAlgorithm(algorithm)
+        switch algorithm {
+        case "ed25519": return .ed25519
+        case "secp256k1": return .secp256k1
+        case "ml-dsa": return .mldsa
+        case "bls_normal": return .blsNormal
+        case "bls_small": return .blsSmall
+        case "gost3410-2012-256-paramset-a": return .gost256A
+        case "gost3410-2012-256-paramset-b": return .gost256B
+        case "gost3410-2012-256-paramset-c": return .gost256C
+        case "gost3410-2012-512-paramset-a": return .gost512A
+        case "gost3410-2012-512-paramset-b": return .gost512B
+        case "sm2": return .sm2
+        default: throw AccountAddressError.unknownAlgorithm(algorithm)
         }
     }
 
-    var expectedPublicKeyLength: Int? {
+    var expectedPublicKeyLength: Int {
         switch self {
         case .ed25519:
             return 32
-        #if IROHASWIFT_ENABLE_SECP256K1
         case .secp256k1:
             return 33
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
         case .mldsa:
             return 1_952
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
         case .blsNormal:
             return 48
         case .blsSmall:
             return 96
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
         case .gost256A, .gost256B, .gost256C:
             return 64
         case .gost512A, .gost512B:
             return 128
-        #endif
-        #if IROHASWIFT_ENABLE_SM
         case .sm2:
             return 65
-        #endif
-        default:
-            return nil
         }
     }
 }
@@ -1201,9 +1122,12 @@ extension AccountAddressError {
     static func fromBridgePayload(_ payload: BridgePayload) -> AccountAddressError? {
         let fields = payload.fields
         switch payload.code {
-        case "ERR_UNSUPPORTED_ALGORITHM":
-            if let algorithm = fields["algorithm"] as? String {
-                return AccountAddressError.unsupportedAlgorithm(algorithm)
+        case "ERR_DECODE_RESOURCE_LIMIT":
+            return .decodeResourceLimit
+        case "ERR_UNSUPPORTED_IMPLEMENTATION":
+            if let algorithm = fields["algorithm"] as? String,
+               let operation = fields["operation"] as? String {
+                return AccountAddressError.unsupportedImplementation(algorithm: algorithm, operation: operation)
             }
         case "ERR_KEY_PAYLOAD_TOO_LONG":
             if let length = intField("length", fields: fields) {
@@ -1453,38 +1377,28 @@ extension AccountAddress {
         switch curve {
         case .ed25519:
             isValid = Ed25519PublicKeyAdmission.isValidPublicKey(publicKey)
-        #if IROHASWIFT_ENABLE_SECP256K1
         case .secp256k1:
             isValid = publicKey.count == 33
                 && (publicKey.first == 0x02 || publicKey.first == 0x03)
                 && publicKey.dropFirst().contains(where: { $0 != 0 })
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
         case .mldsa:
             // Iroha's `ml-dsa` algorithm is the protocol-fixed ML-DSA-65 suite.
             isValid = publicKey.count == 1_952
                 && publicKey.contains(where: { $0 != 0 })
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
         case .blsNormal:
             isValid = publicKey.count == 48
                 && publicKey.contains(where: { $0 != 0 })
         case .blsSmall:
             isValid = publicKey.count == 96
                 && publicKey.contains(where: { $0 != 0 })
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
         case .gost256A, .gost256B, .gost256C:
             isValid = publicKey.count == 64
                 && publicKey.contains(where: { $0 != 0 })
         case .gost512A, .gost512B:
             isValid = publicKey.count == 128
                 && publicKey.contains(where: { $0 != 0 })
-        #endif
-        #if IROHASWIFT_ENABLE_SM
         case .sm2:
             isValid = isCanonicalSm2PublicKeyEnvelope(publicKey)
-        #endif
         }
         guard isValid else {
             throw CanonicalNoritoDecodingError.invalidField(
@@ -1492,8 +1406,6 @@ extension AccountAddress {
             )
         }
     }
-
-    #if IROHASWIFT_ENABLE_SM
     private static func isCanonicalSm2PublicKeyEnvelope(_ payload: Data) -> Bool {
         guard payload.count >= 2 + Sm2Keypair.publicKeyLength else {
             return false
@@ -1513,17 +1425,12 @@ extension AccountAddress {
         return sec1.first == 0x04
             && sec1.dropFirst().contains(where: { $0 != 0 })
     }
-    #endif
 
     private static func compactNoritoMultisigMemberSortKey(
         curve: CurveId,
         publicKey: Data
     ) throws -> Data {
-        guard let algorithm = curve.signingAlgorithm else {
-            throw CanonicalNoritoDecodingError.invalidField(
-                "compact AccountId multisig member algorithm is unsupported"
-            )
-        }
+        let algorithm = curve.signingAlgorithm
         var key = Data(algorithm.wireName.utf8)
         key.append(0)
         key.append(publicKey)
@@ -1664,21 +1571,14 @@ extension AccountAddress {
         switch curve {
         case .ed25519:
             return .ed25519
-        #if IROHASWIFT_ENABLE_SECP256K1
         case .secp256k1:
             return .secp256k1
-        #endif
-        #if IROHASWIFT_ENABLE_MLDSA
         case .mldsa:
             return .mlDsa
-        #endif
-        #if IROHASWIFT_ENABLE_BLS
         case .blsNormal:
             return .blsNormal
         case .blsSmall:
             return .blsSmall
-        #endif
-        #if IROHASWIFT_ENABLE_GOST
         case .gost256A:
             return .gost2012_256A
         case .gost256B:
@@ -1689,11 +1589,8 @@ extension AccountAddress {
             return .gost2012_512A
         case .gost512B:
             return .gost2012_512B
-        #endif
-        #if IROHASWIFT_ENABLE_SM
         case .sm2:
             return .sm2
-        #endif
         }
     }
 }
@@ -1705,7 +1602,6 @@ public enum MultisigBuilderError: Error, LocalizedError {
     case noMembers
     case memberOverflow(Int)
     case invalidPolicy(String)
-    case unsupportedAlgorithm(SigningAlgorithm)
 
     public var errorDescription: String? {
         switch self {
@@ -1717,8 +1613,6 @@ public enum MultisigBuilderError: Error, LocalizedError {
             return "Multisig member count \(count) exceeds the supported maximum."
         case let .invalidPolicy(reason):
             return "Invalid multisig policy: \(reason)."
-        case let .unsupportedAlgorithm(algorithm):
-            return "Algorithm \(algorithm) is not available in this build."
         }
     }
 }
@@ -1809,7 +1703,7 @@ public final class MultisigPolicyBuilder {
             guard previousSortKey != sortKey else { throw MultisigBuilderError.invalidPolicy("duplicate member") }
             previousSortKey = sortKey
             totalWeight += UInt64(descriptor.weight)
-            let curve = try curveId(for: descriptor.algorithm)
+            let curve = curveId(for: descriptor.algorithm)
             try ControllerPayload.validatePublicKey(
                 curve: curve,
                 publicKey: descriptor.publicKey
@@ -1836,70 +1730,30 @@ public final class MultisigPolicyBuilder {
                               digestBlake2b256: digest)
     }
 
-    private func curveId(for algorithm: SigningAlgorithm) throws -> CurveId {
+    private func curveId(for algorithm: SigningAlgorithm) -> CurveId {
         switch algorithm {
         case .ed25519:
             return .ed25519
         case .mlDsa:
-            #if IROHASWIFT_ENABLE_MLDSA
             return .mldsa
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .blsNormal:
-            #if IROHASWIFT_ENABLE_BLS
             return .blsNormal
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .blsSmall:
-            #if IROHASWIFT_ENABLE_BLS
             return .blsSmall
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .gost2012_256A:
-            #if IROHASWIFT_ENABLE_GOST
             return .gost256A
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .gost2012_256B:
-            #if IROHASWIFT_ENABLE_GOST
             return .gost256B
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .gost2012_256C:
-            #if IROHASWIFT_ENABLE_GOST
             return .gost256C
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .gost2012_512A:
-            #if IROHASWIFT_ENABLE_GOST
             return .gost512A
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .gost2012_512B:
-            #if IROHASWIFT_ENABLE_GOST
             return .gost512B
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .sm2:
-            #if IROHASWIFT_ENABLE_SM
             return .sm2
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         case .secp256k1:
-            #if IROHASWIFT_ENABLE_SECP256K1
             return .secp256k1
-            #else
-            throw MultisigBuilderError.unsupportedAlgorithm(algorithm)
-            #endif
         }
     }
 }

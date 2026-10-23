@@ -22,7 +22,6 @@ function capabilities(networkId, networkPrefix = 369) {
     network_id: networkId.toString(),
     network_prefix: networkPrefix,
     allowed_signing: ["ed25519"],
-    default_signing: "ed25519",
   };
 }
 

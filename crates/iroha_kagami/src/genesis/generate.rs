@@ -16,7 +16,8 @@ use iroha_data_model::hijiri::HijiriParametersV1;
 use iroha_data_model::{
     account::address::ChainDiscriminantGuard,
     asset::AssetDefinitionAlias,
-    block::consensus::SumeragiGenesisContextParameters,
+    block::consensus::{PublicLaneStakingPolicy, RootFeePolicy, SumeragiGenesisContextParameters},
+    crypto_admission_policy::CryptoAdmissionPolicyV1,
     parameter::{
         Parameter,
         system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameters},
@@ -24,15 +25,15 @@ use iroha_data_model::{
     prelude::*,
     sumeragi_lanes::SumeragiLanePolicy,
 };
-use iroha_deploy::genesis::{ConsensusPolicy, generate_default, validate_consensus_mode};
+use iroha_deploy::genesis::{
+    ConsensusPolicy, default_staking_policy, generate_default, validate_consensus_mode,
+};
 #[cfg(test)]
 use iroha_executor_data_model::permission::{
     parameter::{CanSetHijiriParameters, CanSetParameters},
     query::CanReadAllLedgerData,
 };
-use iroha_genesis::{
-    GenesisBuilder, ManifestCrypto, RawGenesisTransaction, validate_genesis_manifest_json,
-};
+use iroha_genesis::{GenesisBuilder, RawGenesisTransaction, validate_genesis_manifest_json};
 use iroha_model_base::chain::ChainId;
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::metadata::Metadata;
@@ -47,6 +48,10 @@ use std::{
 };
 
 const LANE_POLICY_MAX_BYTES: u64 = 1024 * 1024;
+
+#[cfg(test)]
+#[path = "generate/staking_author_tests.rs"]
+mod staking_author_tests;
 
 /// Load and validate a Sumeragi lane policy (`specs/sumeragi_lanes.md`) from a JSON file: its
 /// structure, pinned lane parameters and every fixed member's proof of possession.
@@ -123,78 +128,20 @@ pub struct Args {
     /// genesis. If omitted, the chain has lane 0 only until governance sets a policy.
     #[clap(long, value_name = "PATH")]
     lane_policy: Option<PathBuf>,
-    /// Override cryptography snapshot fields in the generated manifest.
+    /// Author the required canonical signing/controller admission policy.
     #[clap(flatten)]
     crypto: CryptoArgs,
 }
-#[derive(ClapArgs, Debug, Clone, Default)]
+#[derive(ClapArgs, Debug, Clone)]
 struct CryptoArgs {
-    /// Toggle the OpenSSL-backed SM preview helpers in the generated manifest.
-    #[clap(long, value_name = "BOOL")]
-    sm_openssl_preview: Option<bool>,
-    /// Override the default hash advertised in the manifest.
-    #[clap(long, value_name = "HASH")]
-    default_hash: Option<String>,
-    /// Replace the allowed signing algorithms (repeat flag to supply multiple values).
-    #[clap(long = "allowed-signing", value_name = "ALGO", value_enum)]
-    allowed_signing: Vec<AlgorithmArg>,
-    /// Override the fallback SM2 distinguishing identifier.
-    #[clap(long, value_name = "DISTID")]
-    sm2_distid_default: Option<String>,
-    /// Override the allowed curve identifiers (repeat flag to supply multiple values).
-    #[clap(long = "allowed-curve-id", value_name = "CURVE_ID")]
-    allowed_curve_ids: Vec<u8>,
+    /// Explicit ordinary signing/controller algorithms in ascending canonical tag order.
+    /// Repeat this flag for every selected member; duplicates and omissions are not filled in.
+    #[clap(long = "allowed-signing", value_name = "ALGO", required = true)]
+    allowed_signing: Vec<Algorithm>,
 }
 impl CryptoArgs {
-    fn into_manifest_crypto(self) -> color_eyre::Result<ManifestCrypto> {
-        let mut crypto = ManifestCrypto::default();
-        if !self.allowed_signing.is_empty() {
-            crypto.allowed_signing = self
-                .allowed_signing
-                .into_iter()
-                .map(Algorithm::from)
-                .collect();
-        }
-        if let Some(flag) = self.sm_openssl_preview {
-            crypto.sm_openssl_preview = flag;
-        }
-        if let Some(hash) = self.default_hash {
-            crypto.default_hash = hash;
-        }
-        if let Some(distid) = self.sm2_distid_default {
-            crypto.sm2_distid_default = distid;
-        }
-        if !self.allowed_curve_ids.is_empty() {
-            crypto.allowed_curve_ids = self.allowed_curve_ids;
-        }
-        crypto.allowed_signing.sort();
-        crypto.allowed_signing.dedup();
-        if !crypto
-            .allowed_signing
-            .iter()
-            .any(|algo| matches!(algo, Algorithm::Ed25519))
-        {
-            crypto.allowed_signing.insert(0, Algorithm::Ed25519);
-        }
-        crypto.validate()?;
-        Ok(crypto)
-    }
-}
-#[derive(ValueEnum, Clone, Debug)]
-enum AlgorithmArg {
-    Ed25519,
-    Secp256k1,
-    #[cfg(feature = "sm")]
-    Sm2,
-}
-impl From<AlgorithmArg> for Algorithm {
-    fn from(value: AlgorithmArg) -> Self {
-        match value {
-            AlgorithmArg::Ed25519 => Algorithm::Ed25519,
-            AlgorithmArg::Secp256k1 => Algorithm::Secp256k1,
-            #[cfg(feature = "sm")]
-            AlgorithmArg::Sm2 => Algorithm::Sm2,
-        }
+    fn into_crypto_admission_policy(self) -> color_eyre::Result<CryptoAdmissionPolicyV1> {
+        Ok(CryptoAdmissionPolicyV1::new(self.allowed_signing)?)
     }
 }
 #[derive(Subcommand, Debug, Clone, Copy, Default)]
@@ -347,6 +294,7 @@ fn build_genesis_for_mode(
     consensus_mode: SumeragiConsensusMode,
     profile_defaults: Option<&ProfileDefaults>,
     resolved_vrf_seed: Option<[u8; 32]>,
+    staking_policy: PublicLaneStakingPolicy,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     let genesis = match mode {
         Mode::Default => generate_default(
@@ -356,6 +304,7 @@ fn build_genesis_for_mode(
             consensus_mode,
             profile_defaults,
             resolved_vrf_seed,
+            staking_policy,
         ),
         Mode::Synthetic {
             domains,
@@ -371,44 +320,54 @@ fn build_genesis_for_mode(
             asset_definitions_per_domain,
             profile_defaults,
             resolved_vrf_seed,
+            staking_policy,
         ),
     }?;
-    apply_npos_crypto_overrides(genesis, consensus_mode)
+    validate_npos_crypto_policy(genesis, consensus_mode)
 }
-fn apply_npos_crypto_overrides(
+/// Resolve the producer's asset and liability bounds before the first manifest build.
+pub(crate) fn resolve_staking_policy(
+    public_xor_asset_definition_id: Option<&AssetDefinitionId>,
+    sccp: bool,
+) -> color_eyre::Result<PublicLaneStakingPolicy> {
+    let asset = match public_xor_asset_definition_id {
+        Some(asset) => asset.clone(),
+        None => iroha_config::parameters::defaults::nexus::fees::fee_asset_id().parse()?,
+    };
+    let custody = iroha_config::parameters::defaults::governance::bond_escrow_account_id();
+    let mut policy = default_staking_policy(asset, custody.clone(), custody);
+    if sccp {
+        policy.unbonding_delay_ms = iroha_deploy::genesis::sccp::UNBONDING_DELAY_MS;
+        policy.max_slash_bps = iroha_deploy::genesis::sccp::MAX_SLASH_BPS;
+    }
+    Ok(policy)
+}
+fn validate_npos_crypto_policy(
     genesis: RawGenesisTransaction,
     consensus_mode: SumeragiConsensusMode,
 ) -> color_eyre::Result<RawGenesisTransaction> {
-    let npos_bootstrap = matches!(consensus_mode, SumeragiConsensusMode::Npos);
-    if !npos_bootstrap {
-        return Ok(genesis);
-    }
-    let mut crypto = genesis.crypto().clone();
-    if !crypto
-        .allowed_signing
-        .iter()
-        .any(|algo| matches!(algo, Algorithm::BlsNormal))
+    if matches!(consensus_mode, SumeragiConsensusMode::Npos)
+        && !genesis
+            .crypto_admission_policy()
+            .allows(Algorithm::BlsNormal)
     {
-        crypto.allowed_signing.push(Algorithm::BlsNormal);
+        return Err(color_eyre::eyre::eyre!(
+            "the NPoS genesis account controllers require explicitly allowing bls_normal"
+        ));
     }
-    crypto.allowed_signing.sort();
-    crypto.allowed_signing.dedup();
-    crypto.allowed_curve_ids = crypto
-        .allowed_signing
-        .iter()
-        .filter_map(|algo| {
-            iroha_data_model::account::curve::CurveId::try_from_algorithm(*algo).ok()
-        })
-        .map(iroha_data_model::account::curve::CurveId::as_u8)
-        .collect();
-    crypto.allowed_curve_ids.sort_unstable();
-    crypto.allowed_curve_ids.dedup();
-    genesis.into_builder().with_crypto(crypto).build_raw()
+    Ok(genesis)
 }
 fn append_public_xor_binding(
     genesis: RawGenesisTransaction,
     asset_definition_id: &AssetDefinitionId,
 ) -> color_eyre::Result<RawGenesisTransaction> {
+    let parameters = genesis.effective_parameters()?;
+    let staking_policy = PublicLaneStakingPolicy::from_parameters(&parameters)?;
+    if staking_policy.stake_asset_id != *asset_definition_id {
+        return Err(color_eyre::eyre::eyre!(
+            "public XOR must match the staking asset authored before genesis generation"
+        ));
+    }
     let public_xor_domain = DomainId::parse_fully_qualified(PUBLIC_XOR_DOMAIN)?;
     let public_xor_alias: AssetDefinitionAlias = PUBLIC_XOR_ALIAS.parse()?;
     let mut has_domain = false;
@@ -461,18 +420,26 @@ fn append_public_xor_binding(
             alias_bound = true;
         }
     }
-    let parameters = genesis.effective_parameters()?;
-    let mut npos = parameters
+    let npos = parameters
         .custom()
         .get(&SumeragiNposParameters::parameter_id())
         .map(SumeragiNposParameters::from_custom_parameter)
         .transpose()?
         .flatten()
         .ok_or_else(|| color_eyre::eyre::eyre!("public XOR requires the signed NPoS snapshot"))?;
-    npos.xor_asset_definition_id = asset_definition_id.clone();
-    let mut builder = genesis
-        .into_builder()
-        .append_parameter(Parameter::Custom(npos.into_custom_parameter()));
+    if npos.xor_asset_definition_id != *asset_definition_id {
+        return Err(color_eyre::eyre::eyre!(
+            "public XOR must match the NPoS asset authored before genesis generation"
+        ));
+    }
+    let fees = RootFeePolicy::from_parameters(&parameters)?
+        .ok_or_else(|| color_eyre::eyre::eyre!("public XOR requires the signed root fee policy"))?;
+    if fees.fee_asset_id != *asset_definition_id {
+        return Err(color_eyre::eyre::eyre!(
+            "public XOR must match the fee asset authored before genesis generation"
+        ));
+    }
+    let mut builder = genesis.into_builder();
     if has_domain && has_asset_definition && alias_bound {
         return builder.build_raw()?.with_consensus_meta();
     }
@@ -591,7 +558,7 @@ impl<T: Write> RunArgs<T> for Args {
             SumeragiConsensusMode::Permissioned,
             SumeragiConsensusMode::from,
         );
-        let crypto = crypto.into_manifest_crypto()?;
+        let crypto = crypto.into_crypto_admission_policy()?;
         let resolved = resolve_profile_settings(
             profile,
             chain_id.as_ref(),
@@ -613,12 +580,21 @@ impl<T: Write> RunArgs<T> for Args {
             _ => ConsensusPolicy::Any,
         };
         validate_consensus_mode(consensus_mode, consensus_policy)?;
+        let chain_discriminant = profile_defaults
+            .as_ref()
+            .and_then(|defaults| defaults.chain_discriminant)
+            .or_else(|| known_chain_discriminant_for_chain_id(summary_chain.as_str()))
+            .unwrap_or_else(iroha_data_model::account::address::chain_discriminant);
+        let _chain_discriminant = ChainDiscriminantGuard::enter(chain_discriminant);
+        let staking_policy = resolve_staking_policy(
+            public_xor_asset_definition_id.as_ref(),
+            sccp_reset_history.is_some(),
+        )?;
         let builder = match executor {
-            Some(path) => GenesisBuilder::new(chain, path, ivm_dir),
-            None => GenesisBuilder::new_without_executor(chain, ivm_dir),
+            Some(path) => GenesisBuilder::new(chain, path, ivm_dir, crypto),
+            None => GenesisBuilder::new_without_executor(chain, ivm_dir, crypto),
         }
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .with_crypto(crypto);
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended());
         let mut genesis = build_genesis_for_mode(
             mode,
             builder,
@@ -627,6 +603,7 @@ impl<T: Write> RunArgs<T> for Args {
             consensus_mode,
             profile_defaults.as_ref(),
             resolved_vrf_seed,
+            staking_policy,
         )?;
         if let Some(asset_definition_id) = public_xor_asset_definition_id.as_ref() {
             genesis = append_public_xor_binding(genesis, asset_definition_id)?;
@@ -638,13 +615,7 @@ impl<T: Write> RunArgs<T> for Args {
             let nonce = iroha_deploy::genesis::sccp::fresh_reset_nonce(&history)?;
             genesis = iroha_deploy::genesis::sccp::append_profile(genesis, nonce)?;
         }
-        let chain_discriminant = profile_defaults
-            .as_ref()
-            .and_then(|defaults| defaults.chain_discriminant)
-            .or_else(|| known_chain_discriminant_for_chain_id(summary_chain.as_str()))
-            .unwrap_or_else(iroha_data_model::account::address::chain_discriminant);
         let genesis = genesis.with_chain_discriminant(chain_discriminant);
-        let _chain_discriminant = ChainDiscriminantGuard::enter(chain_discriminant);
         let mut json = norito::json::to_json_pretty(&genesis)?;
         json.push('\n');
         validate_genesis_manifest_json(json.as_bytes())
@@ -682,7 +653,15 @@ mod consensus_manifest_tests {
             let manifest = GenesisBuilder::new_without_executor(
                 ChainId::from("canonical-xor-generation"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
+            .with_staking_policy(resolve_staking_policy(Some(&xor), false).unwrap())
+            .expect("explicit fixture staking policy")
             .append_parameter(Parameter::Custom(
                 SumeragiNposParameters {
                     xor_asset_definition_id: xor.clone(),
@@ -883,6 +862,12 @@ mod consensus_manifest_tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("synthetic-meta"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
             .complete_for_test(),
             SAMPLE_GENESIS_ACCOUNT_KEYPAIR.public_key(),
@@ -893,6 +878,7 @@ mod consensus_manifest_tests {
             0,
             None,
             Some([7; 32]),
+            crate::genesis::test_staking_policy(),
         )
         .expect("generate synthetic NPoS genesis");
         assert_eq!(manifest.consensus_mode(), SumeragiConsensusMode::Npos);
@@ -907,13 +893,23 @@ mod consensus_manifest_tests {
         let defaults = profile_defaults(GenesisProfile::Iroha3Dev);
         let seed = [9; 32];
         let manifest = generate_default(
-            GenesisBuilder::new_without_executor(defaults.chain_id.clone(), PathBuf::from("."))
-                .complete_for_test(),
+            GenesisBuilder::new_without_executor(
+                defaults.chain_id.clone(),
+                PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .complete_for_test(),
             SAMPLE_GENESIS_ACCOUNT_KEYPAIR.public_key(),
             None,
             SumeragiConsensusMode::Npos,
             Some(&defaults),
             Some(seed),
+            crate::genesis::test_staking_policy(),
         )
         .expect("generate profiled NPoS genesis");
         let parameters = manifest
@@ -943,6 +939,12 @@ mod consensus_manifest_tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("summary-default-cadence"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
             .complete_for_test(),
             SAMPLE_GENESIS_ACCOUNT_KEYPAIR.public_key(),
@@ -950,6 +952,7 @@ mod consensus_manifest_tests {
             SumeragiConsensusMode::Permissioned,
             None,
             None,
+            crate::genesis::test_staking_policy(),
         )
         .expect("generate unprofiled permissioned genesis");
         let signed_cadence = manifest
@@ -992,6 +995,12 @@ mod consensus_manifest_tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("missing-npos-seed"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
             .complete_for_test(),
             SAMPLE_GENESIS_ACCOUNT_KEYPAIR.public_key(),
@@ -999,6 +1008,7 @@ mod consensus_manifest_tests {
             SumeragiConsensusMode::Npos,
             None,
             None,
+            crate::genesis::test_staking_policy(),
         )
         .expect_err("NPoS genesis without a seed must fail closed");
         assert!(error.to_string().contains("VRF seed"));
@@ -1036,13 +1046,23 @@ mod consensus_manifest_tests {
         let loaded = load_lane_policy(&path).expect("a valid policy loads");
         assert_eq!(loaded, policy);
         let manifest = generate_default(
-            GenesisBuilder::new_without_executor(ChainId::from("lanes"), PathBuf::from("."))
-                .complete_for_test(),
+            GenesisBuilder::new_without_executor(
+                ChainId::from("lanes"),
+                PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .complete_for_test(),
             iroha_test_samples::ALICE_KEYPAIR.public_key(),
             None,
             SumeragiConsensusMode::Permissioned,
             None,
             None,
+            crate::genesis::test_staking_policy(),
         )
         .expect("generate genesis");
         let manifest = append_lane_policy(manifest, loaded).expect("append the policy");
@@ -1067,6 +1087,12 @@ mod consensus_manifest_tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("authority-is-alice"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
             .complete_for_test(),
             iroha_test_samples::ALICE_KEYPAIR.public_key(),
@@ -1074,6 +1100,7 @@ mod consensus_manifest_tests {
             SumeragiConsensusMode::Permissioned,
             None,
             None,
+            crate::genesis::test_staking_policy(),
         )
         .expect("generate genesis with Alice as the genesis authority");
         assert!(
@@ -1102,6 +1129,12 @@ mod consensus_manifest_tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("default-global-reader"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
             .complete_for_test(),
             SAMPLE_GENESIS_ACCOUNT_KEYPAIR.public_key(),
@@ -1109,6 +1142,7 @@ mod consensus_manifest_tests {
             SumeragiConsensusMode::Permissioned,
             None,
             None,
+            crate::genesis::test_staking_policy(),
         )
         .expect("generate default genesis");
         assert!(
@@ -1273,6 +1307,7 @@ fn generate_synthetic(
     asset_definitions_per_domain: u64,
     profile_defaults: Option<&ProfileDefaults>,
     profile_vrf_seed: Option<[u8; 32]>,
+    staking_policy: PublicLaneStakingPolicy,
 ) -> color_eyre::Result<RawGenesisTransaction> {
     // Synthetic genesis extends the default one with additional transactions
     // describing synthetic domains and assets.
@@ -1283,6 +1318,7 @@ fn generate_synthetic(
         consensus_mode,
         profile_defaults,
         profile_vrf_seed,
+        staking_policy,
     )?;
     let mut builder = default_genesis.into_builder().next_transaction();
     for domain in 0..domains {
@@ -1318,4 +1354,91 @@ fn generate_synthetic(
     }
     let manifest = builder.build_raw()?.with_consensus_mode(consensus_mode);
     manifest.with_consensus_meta()
+}
+
+#[cfg(test)]
+mod explicit_crypto_policy_tests {
+    use super::*;
+
+    #[test]
+    fn npos_requires_explicit_bls_membership_without_rewriting_policy() {
+        let source = |members| {
+            GenesisBuilder::new_without_executor(
+                ChainId::from("explicit-npos-policy"),
+                ".",
+                CryptoAdmissionPolicyV1::new(members).expect("canonical authored list"),
+            )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy")
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+            .build_raw()
+            .expect("explicit source")
+        };
+        let absent = source(vec![Algorithm::Ed25519]);
+        assert!(validate_npos_crypto_policy(absent.clone(), SumeragiConsensusMode::Npos).is_err());
+        let permissioned =
+            validate_npos_crypto_policy(absent.clone(), SumeragiConsensusMode::Permissioned)
+                .unwrap();
+        assert_eq!(
+            permissioned.crypto_admission_policy(),
+            absent.crypto_admission_policy()
+        );
+        let present = source(vec![Algorithm::BlsNormal]);
+        let validated =
+            validate_npos_crypto_policy(present.clone(), SumeragiConsensusMode::Npos).unwrap();
+        assert_eq!(
+            validated.crypto_admission_policy(),
+            present.crypto_admission_policy()
+        );
+        assert!(
+            !validated
+                .crypto_admission_policy()
+                .allows(Algorithm::Ed25519)
+        );
+    }
+
+    #[test]
+    fn generator_requires_explicit_policy_and_never_fills_in_control_algorithms() {
+        let key = iroha_crypto::KeyPair::from_seed(vec![0x75; 32], Algorithm::Ed25519);
+        let key_text = key.public_key().to_string();
+        let base = [
+            "generate",
+            "--ivm-dir",
+            ".",
+            "--genesis-public-key",
+            key_text.as_str(),
+        ];
+        assert!(Args::try_parse_from(base).is_err());
+        let mut args = base.to_vec();
+        args.extend(["--allowed-signing", "secp256k1"]);
+        let parsed = Args::try_parse_from(args).expect("explicit canonical algorithm option");
+        let policy = parsed
+            .crypto
+            .into_crypto_admission_policy()
+            .expect("explicit singleton policy");
+        assert_eq!(policy.allowed_algorithms(), &[Algorithm::Secp256k1]);
+        assert!(!policy.allows(Algorithm::Ed25519));
+        assert!(!policy.allows(Algorithm::BlsNormal));
+    }
+
+    #[test]
+    fn generator_rejects_empty_duplicate_or_reversed_lists_without_normalizing() {
+        for allowed_signing in [
+            vec![],
+            vec![Algorithm::Ed25519, Algorithm::Ed25519],
+            vec![Algorithm::Secp256k1, Algorithm::Ed25519],
+        ] {
+            assert!(
+                CryptoArgs { allowed_signing }
+                    .into_crypto_admission_policy()
+                    .is_err()
+            );
+        }
+        let policy = CryptoArgs {
+            allowed_signing: Algorithm::ALL.to_vec(),
+        }
+        .into_crypto_admission_policy()
+        .expect("canonical registry independent of local backend");
+        assert_eq!(policy.allowed_algorithms(), Algorithm::ALL);
+    }
 }

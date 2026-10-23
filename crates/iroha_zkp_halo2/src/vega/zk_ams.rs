@@ -246,6 +246,12 @@ pub use mkhe::{
     ZkAmsMkheRnsNativeTerminalBoundTranscriptV1, ZkAmsMkheRnsNativeTerminalBridgeV1,
     ZkAmsMkheRnsNativeTranscriptV1,
 };
+pub use mkhe::{
+    ZkAmsMkheCksNoiseInputV1, ZkAmsMkheFailureAllocationV1, ZkAmsMkheNoiseAccountingV1,
+    ZkAmsMkheNoiseAdmissionV1, ZkAmsMkheNoiseConstructionV1, ZkAmsMkheNoiseFeasibilityV1,
+    ZkAmsMkhePhaseNoiseBoundsV1, ZkAmsMkheSmudgePurposeV1, ZkAmsMkheSmudgeQueriesV1,
+    ZkAmsMkheTerminalFeasibilityV1, zk_ams_mkhe_noise_feasibility_v1,
+};
 #[cfg(test)]
 pub use mkhe::{
     ZkAmsMkheCollectiveCiphertextV1, ZkAmsMkheCollectiveLevelOneV1, ZkAmsMkheCollectivePublicKeyV1,
@@ -684,9 +690,7 @@ fn compiled_profile_digest_unchecked_v1() -> [u8; 32] {
     let shape = canonical_shape().expect("released ZK-AMS shape must synthesize");
     let dimensions =
         MaskedRelaxedDimensionsV1::from_shape(&shape).expect("released dimensions must be valid");
-    keccak256(
-        &profile_frame(&shape, dimensions).expect("released profile frame is fixed and bounded"),
-    )
+    profile_digest(&shape, dimensions).expect("released profile is fixed and bounded")
 }
 /// Return the digest of every independently derived T256 commitment generator,
 /// including the hiding generator.
@@ -1092,49 +1096,60 @@ fn context_frame(
     push_frame(&mut frame, 12, &compiled_profile_digest_unchecked_v1())?;
     Ok(frame)
 }
-fn profile_frame(
+fn profile_digest(
     shape: &Shape,
     dimensions: MaskedRelaxedDimensionsV1,
-) -> Result<Vec<u8>, ZkAmsAdmissionRelationErrorV1> {
-    let mut frame = Vec::with_capacity(512);
-    for (tag, value) in [
-        (0, PROFILE_DESCRIPTOR_V1),
-        (1, SOURCE_PROFILE_V1),
-        (2, COMPOSITION_DOMAIN_V1),
-        (3, COMMITMENT_KEY_LABEL_V1),
-        (4, PHC_HASH_DOMAIN_V1),
-        (5, REGISTRY_TRANSITION_DOMAIN_V1),
+) -> Result<[u8; 32], ZkAmsAdmissionRelationErrorV1> {
+    let mut identity = mkhe::native_outer_identity_v1(
+        mkhe::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.compiled-profile",
+        19,
+    );
+    for value in [
+        PROFILE_DESCRIPTOR_V1,
+        SOURCE_PROFILE_V1,
+        COMPOSITION_DOMAIN_V1,
+        COMMITMENT_KEY_LABEL_V1,
+        PHC_HASH_DOMAIN_V1,
+        REGISTRY_TRANSITION_DOMAIN_V1,
     ] {
-        push_frame(&mut frame, tag, value)?;
+        identity
+            .push_field(value)
+            .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?;
     }
-    for (tag, value) in [
-        (6, PROOF_VERSION_V1 as u64),
-        (7, ZK_AMS_PHC_CANONICAL_PAYLOAD_BYTES_V1 as u64),
-        (8, shape.variable_count() as u64),
-        (9, shape.constraint_count() as u64),
-        (10, shape.public_input_count() as u64),
-        (11, dimensions.witness_commitment_points as u64),
-        (12, dimensions.error_commitment_points as u64),
-        (13, dimensions.outer_sumcheck_rounds as u64),
-        (14, dimensions.inner_sumcheck_rounds as u64),
-        (15, MAX_MASKED_RELAXED_STRICT_INSTANCES_V1 as u64),
-        (16, MAX_ZK_AMS_ADMISSION_RELATION_PROOF_BYTES_V1 as u64),
+    for value in [
+        PROOF_VERSION_V1 as u64,
+        ZK_AMS_PHC_CANONICAL_PAYLOAD_BYTES_V1 as u64,
+        shape.variable_count() as u64,
+        shape.constraint_count() as u64,
+        shape.public_input_count() as u64,
+        dimensions.witness_commitment_points as u64,
+        dimensions.error_commitment_points as u64,
+        dimensions.outer_sumcheck_rounds as u64,
+        dimensions.inner_sumcheck_rounds as u64,
+        MAX_MASKED_RELAXED_STRICT_INSTANCES_V1 as u64,
+        MAX_ZK_AMS_ADMISSION_RELATION_PROOF_BYTES_V1 as u64,
     ] {
-        push_frame(&mut frame, tag, &value.to_be_bytes())?;
+        identity
+            .push_field(&value.to_be_bytes())
+            .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?;
     }
-    push_frame(
-        &mut frame,
-        17,
-        &zk_ams_mkhe_manifest_digest_v1()
-            .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?,
-    )?;
-    push_frame(
-        &mut frame,
-        18,
-        &zk_ams_mkhe_readiness_digest_v1()
-            .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?,
-    )?;
-    Ok(frame)
+    identity
+        .push_field(
+            &zk_ams_mkhe_manifest_digest_v1()
+                .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?,
+        )
+        .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?;
+    identity
+        .push_field(
+            &zk_ams_mkhe_readiness_digest_v1()
+                .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?,
+        )
+        .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?;
+    Ok(*identity
+        .finish()
+        .map_err(|_| ZkAmsAdmissionRelationErrorV1::InvalidCompiledProfile)?
+        .as_bytes())
 }
 fn push_frame(
     output: &mut Vec<u8>,

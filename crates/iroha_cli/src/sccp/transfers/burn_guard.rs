@@ -2,7 +2,8 @@
 
 use super::*;
 use iroha::data_model::{
-    account::{AccountId, controller::AccountController, curve::CurveId},
+    account::{AccountId, controller::AccountController},
+    crypto_admission_policy::CryptoAdmissionPolicyV1,
     sccp::{light_client::SccpLightClientV1, registry::SccpRouteRevisionV1},
 };
 use iroha_crypto::Algorithm;
@@ -68,25 +69,41 @@ fn require_controller(recipient: &[u8], capabilities: &norito::json::Value) -> R
     let crypto = capabilities
         .get("crypto")
         .ok_or_else(|| eyre!("missing crypto admission"))?;
-    let algorithms = crypto
+    let algorithm_values = crypto
         .get("sm")
         .and_then(|sm| sm.get("allowed_signing"))
         .and_then(norito::json::Value::as_array)
-        .ok_or_else(|| eyre!("missing signing admission"))?
+        .ok_or_else(|| eyre!("missing signing admission"))?;
+    ensure!(
+        algorithm_values.len() <= Algorithm::ALL.len(),
+        "signing admission exceeds the canonical algorithm registry"
+    );
+    let algorithms = algorithm_values
         .iter()
         .map(|value| {
-            value
+            let name = value
                 .as_str()
-                .ok_or_else(|| eyre!("malformed signing admission"))?
-                .parse::<Algorithm>()
-                .map_err(Into::into)
+                .ok_or_else(|| eyre!("malformed signing admission"))?;
+            let algorithm = name.parse::<Algorithm>()?;
+            ensure!(
+                name == algorithm.as_static_str(),
+                "signing admission is not the canonical algorithm name"
+            );
+            Ok(algorithm)
         })
         .collect::<Result<Vec<_>>>()?;
-    let curves = crypto
+    let policy = CryptoAdmissionPolicyV1::new(algorithms)?;
+    let curve_values = crypto
         .get("curves")
         .and_then(|curves| curves.get("allowed_curve_ids"))
         .and_then(norito::json::Value::as_array)
-        .ok_or_else(|| eyre!("missing curve admission"))?
+        .ok_or_else(|| eyre!("missing curve admission"))?;
+    // Curves describe this same policy; they are never a second admission authority.
+    ensure!(
+        curve_values.len() == policy.allowed_algorithms().len(),
+        "curve admission is not the committed algorithm policy projection"
+    );
+    let curves = curve_values
         .iter()
         .map(|value| {
             value
@@ -95,20 +112,17 @@ fn require_controller(recipient: &[u8], capabilities: &norito::json::Value) -> R
                 .ok_or_else(|| eyre!("malformed curve admission"))
         })
         .collect::<Result<Vec<_>>>()?;
+    ensure!(
+        curves
+            .into_iter()
+            .eq(policy.allowed_curves().map(|curve| curve.as_u8())),
+        "curve admission is not the committed algorithm policy projection"
+    );
     let check = |key: &iroha_crypto::PublicKey| -> Result<()> {
         let algorithm = key.try_algorithm()?;
-        // Match ordinary account admission, including its consensus BLS exception.
-        if matches!(algorithm, Algorithm::BlsNormal | Algorithm::BlsSmall) {
-            return Ok(());
-        }
         ensure!(
-            algorithms.contains(&algorithm),
+            policy.allows(algorithm),
             "recipient signing algorithm is not admitted"
-        );
-        let curve = CurveId::try_from_algorithm(algorithm)?;
-        ensure!(
-            curves.contains(&curve.as_u8()),
-            "recipient curve is not admitted"
         );
         Ok(())
     };

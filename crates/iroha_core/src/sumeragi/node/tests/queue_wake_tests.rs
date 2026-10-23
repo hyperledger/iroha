@@ -43,7 +43,11 @@ fn accepted_log(chain: &Chain, state: &State, message: &str) -> AcceptedTransact
         &network,
         Duration::from_secs(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("original accepted native input")
 }

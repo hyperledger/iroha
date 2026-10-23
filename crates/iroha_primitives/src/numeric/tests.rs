@@ -2373,3 +2373,47 @@ fn small_combination_engages_only_when_every_intermediate_fits_i128() {
         .is_none()
     );
 }
+
+#[test]
+fn admitted_numeric_copy_preserves_signed_canonical_limbs_and_scale() {
+    for source in [
+        Numeric::zero(),
+        Numeric::one(),
+        Numeric::new(-12345, 3),
+        Numeric::new(1, MAX_DECIMAL_SCALE),
+        Numeric::new(signed_maximum(), 0),
+        Numeric::new(
+            signed_maximum().checked_neg().expect("representable negative maximum"),
+            MAX_DECIMAL_SCALE,
+        ),
+    ] {
+        let layout = source.admission_clone_layout().unwrap();
+        assert_eq!(layout, source.mantissa().admission_clone_layout().unwrap());
+        let copied = source.try_clone_for_admission().unwrap();
+        assert_eq!(copied, source);
+        assert_eq!(copied.scale(), source.scale());
+        assert_eq!(copied.encode(), source.encode());
+        assert_eq!(copied.admission_clone_layout().unwrap(), layout);
+    }
+    assert_eq!(Numeric::zero().admission_clone_layout().unwrap().size(), 0);
+}
+
+#[test]
+fn admitted_quantity_copy_uses_the_same_exact_numeric_backing() {
+    for source in [
+        Quantity::zero(),
+        Quantity::one(),
+        "340282366920938463463.25".parse().unwrap(),
+    ] {
+        assert_eq!(
+            source.admission_clone_layout().unwrap(),
+            source.as_numeric().admission_clone_layout().unwrap()
+        );
+        let copied = source.try_clone_for_admission().unwrap();
+        assert_eq!(copied, source);
+        assert_eq!(
+            copied.as_numeric(),
+            &source.as_numeric().try_clone_for_admission().unwrap()
+        );
+    }
+}

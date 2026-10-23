@@ -9,6 +9,7 @@ const MAX_ENTRIES: usize = 4_096;
 const MAX_LABEL_BYTES: usize = 4_096;
 const MAX_ASSIGNMENTS_BYTES: usize = 4 * 1_024 * 1_024;
 
+// `include_governance` selects a diagnostic hash subset only; ALL is always the full registry.
 fn assignment_rows(entries: &[BuiltInWireId], include_governance: bool) -> Value {
     assert!(!entries.is_empty() && entries.len() <= MAX_ENTRIES);
     let mut labels = BTreeSet::new();
@@ -59,10 +60,7 @@ fn assignment_rows(entries: &[BuiltInWireId], include_governance: bool) -> Value
 fn print_native_wire_id_capture_v1() {
     let document = json::object([
         ("schema", Value::from(1_u64)),
-        (
-            "governance_enabled",
-            Value::Bool(cfg!(feature = "governance")),
-        ),
+        ("governance_enabled", Value::Bool(true)),
         ("all", assignment_rows(ALL, true)),
         ("without_governance", assignment_rows(ALL, false)),
     ])

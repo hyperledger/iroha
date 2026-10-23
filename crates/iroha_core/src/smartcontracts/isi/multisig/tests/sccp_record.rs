@@ -198,7 +198,7 @@ fn signed_transactions_record_through_multisig_end_to_end() {
                     .execute_transaction(
                         &mut tx,
                         authority,
-                        signed,
+                        &signed,
                         &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                     )
                     .map_err(crate::execution_attempt::expect_completed_rejection)

@@ -248,7 +248,8 @@ async fn lane_compliance_policy_blocks_transactions() {
         err.err,
         Error::LanePrivacyProofRejected { .. } | Error::LaneComplianceDenied { .. }
     ));
-    // Attach a valid privacy proof to satisfy the policy.
+    // A valid Merkle witness satisfies the privacy policy, but its advisory
+    // transaction-proof carrier has no authoritative execution consumer.
     let proof_attachment = ProofAttachment {
         backend: Ident::from_str("halo2/ipa").expect("ident"),
         proof: ProofBox {
@@ -267,7 +268,7 @@ async fn lane_compliance_policy_blocks_transactions() {
         }),
     };
     let attachments = vec![proof_attachment];
-    let confidential_tx = accepted_tx_with_attachments(
+    let confidential_tx = signed_tx_with_attachments(
         confidential_id.clone(),
         &confidential_keypair,
         &time_source,
@@ -275,9 +276,56 @@ async fn lane_compliance_policy_blocks_transactions() {
         Metadata::default(),
         Some(attachments.clone()),
     );
-    queue
-        .push(confidential_tx, state.view())
-        .expect("manifest-backed privacy proof should pass despite an empty local cache");
+    confidential_tx
+        .validate_signed_attachments_v1()
+        .expect("canonical signed carrier and statement bindings");
+    confidential_tx
+        .verify_signature()
+        .expect("genuine signature");
+    let original_wire = confidential_tx.encode_wire_v1().unwrap();
+    assert!(matches!(
+        try_accept_signed_queue_tx(confidential_tx.clone(), &time_source),
+        Err(crate::tx::AcceptTransactionFail::SignedAttachments(
+            iroha_data_model::transaction::signed_attachments::SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+        ))
+    ));
+    assert_eq!(confidential_tx.encode_wire_v1().unwrap(), original_wire);
+
+    // Exercise the real manifest snapshot, privacy verifier and compliance
+    // engine directly. This is policy-component evidence, not queue admission
+    // of the unsupported carrier and not an unchecked AcceptedTransaction.
+    let privacy_proofs = confidential_tx
+        .lane_privacy_proofs_v1()
+        .expect("read the original signed privacy witness");
+    let (snapshot, _, _) = queue
+        .lane_manifest_admission_snapshot(
+            LaneId::SINGLE,
+            DataSpaceId::UNIVERSAL,
+            &BTreeSet::from([LaneId::SINGLE]),
+        )
+        .expect("actual current manifest cut");
+    let registry = Arc::new(LanePrivacyRegistry::from_manifest_registry(&snapshot));
+    let verified = verify_lane_privacy_proofs(&registry, LaneId::SINGLE, &privacy_proofs)
+        .expect("manifest-backed privacy proof passes despite an empty local cache");
+    assert_eq!(verified, BTreeSet::from([LaneCommitmentId::new(9)]));
+    assert!(matches!(
+        verify_lane_privacy_proofs(
+            &queue.lane_privacy_registry(),
+            LaneId::SINGLE,
+            &privacy_proofs,
+        ),
+        Err(crate::interlane::LanePrivacyRegistryError::LaneMissing { lane_id })
+            if lane_id == LaneId::SINGLE
+    ));
+    let engine = queue.lane_compliance.read().clone().expect("policy engine");
+    let mut context =
+        LaneComplianceContext::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL, &confidential_id);
+    context.lane_privacy_registry = Some(registry);
+    context.verified_privacy_commitments = &verified;
+    assert!(matches!(
+        engine.evaluate(&context),
+        LaneComplianceEvaluation::Allowed(_)
+    ));
 
     let mut revoked_status = manifests.status(LaneId::SINGLE).unwrap().clone();
     revoked_status.privacy_commitments = vec![LanePrivacyCommitment::merkle(
@@ -296,20 +344,62 @@ async fn lane_compliance_policy_blocks_transactions() {
         "revoked_privacy_test".parse().expect("metadata key"),
         iroha_primitives::json::Json::new(true),
     );
-    let unregistered_proof = accepted_tx_with_attachments(
-        confidential_id,
+    let unregistered_proof = signed_tx_with_attachments(
+        confidential_id.clone(),
         &confidential_keypair,
         &time_source,
         vec![sample_unregister_instruction()],
         revoked_metadata,
         Some(attachments),
     );
-    let err = queue
-        .push(unregistered_proof, state.view())
-        .expect_err("a forged local cache cannot authorize a revoked manifest commitment");
-    assert!(
-        matches!(&err.err, Error::LanePrivacyProofRejected { .. }),
-        "the old commitment must fail against the new manifest despite the stale cache: {:?}",
-        err.err
+    let revoked_wire = unregistered_proof.encode_wire_v1().unwrap();
+    assert!(matches!(
+        try_accept_signed_queue_tx(unregistered_proof.clone(), &time_source),
+        Err(crate::tx::AcceptTransactionFail::SignedAttachments(
+            iroha_data_model::transaction::signed_attachments::SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+        ))
+    ));
+    let privacy_proofs = unregistered_proof
+        .lane_privacy_proofs_v1()
+        .expect("same canonical witness under the re-signed metadata");
+    let (snapshot, _, _) = queue
+        .lane_manifest_admission_snapshot(
+            LaneId::SINGLE,
+            DataSpaceId::UNIVERSAL,
+            &BTreeSet::from([LaneId::SINGLE]),
+        )
+        .expect("actual manifest cut after revocation");
+    let registry = Arc::new(LanePrivacyRegistry::from_manifest_registry(&snapshot));
+    assert_eq!(
+        verify_lane_privacy_proofs(&registry, LaneId::SINGLE, &privacy_proofs),
+        Err(
+            crate::interlane::LanePrivacyRegistryError::UnknownCommitment {
+                lane_id: LaneId::SINGLE,
+                commitment_id: LaneCommitmentId::new(9),
+            }
+        ),
+        "the old commitment must fail against the new manifest despite the stale cache"
     );
+    assert_eq!(
+        verify_lane_privacy_proofs(
+            &queue.lane_privacy_registry(),
+            LaneId::SINGLE,
+            &privacy_proofs,
+        )
+        .expect("the forged stale cache still contains the revoked commitment"),
+        BTreeSet::from([LaneCommitmentId::new(9)])
+    );
+    let no_verified_commitments = BTreeSet::new();
+    let mut context =
+        LaneComplianceContext::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL, &confidential_id);
+    context.lane_privacy_registry = Some(registry);
+    context.verified_privacy_commitments = &no_verified_commitments;
+    assert!(matches!(
+        engine.evaluate(&context),
+        LaneComplianceEvaluation::Denied(_)
+    ));
+    assert_eq!(unregistered_proof.encode_wire_v1().unwrap(), revoked_wire);
+    unregistered_proof
+        .verify_signature()
+        .expect("original revoked carrier remains unchanged");
 }

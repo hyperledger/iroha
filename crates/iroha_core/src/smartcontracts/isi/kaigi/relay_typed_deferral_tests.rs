@@ -40,15 +40,44 @@ fn header() -> iroha_data_model::block::BlockHeader {
 }
 
 fn state(domain: &DomainId, host: &AccountId) -> State {
+    let world = World::with(
+        [Domain::new(domain.clone()).build(&ALICE_ID)],
+        [Account::new(host.clone()).build(&ALICE_ID)],
+        std::iter::empty::<AssetDefinition>(),
+    );
+    // Relay setup registers ordinary accounts before the refusal under test.
+    // This explicit component policy grants no authenticated genesis authority.
+    let mut parameters = world.parameters.block();
+    parameters
+        .set_parameter(
+            crate::sumeragi::test_chain::crypto_fixture_policy()
+                .into_parameter()
+                .expect("canonical relay fixture crypto policy"),
+        )
+        .expect("install the relay fixture's original crypto policy");
+    parameters.commit();
     State::new(
-        World::with(
-            [Domain::new(domain.clone()).build(&ALICE_ID)],
-            [Account::new(host.clone()).build(&ALICE_ID)],
-            std::iter::empty::<AssetDefinition>(),
-        ),
+        world,
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     )
+}
+
+#[test]
+fn relay_component_fixture_owns_crypto_without_committed_genesis() {
+    let (record, host, _) = super::tests::new_record(KaigiPrivacyMode::Transparent);
+    let state = state(&record.id.domain_id, &host);
+    assert_eq!(state.committed_height(), 0);
+    assert_eq!(state.kura().blocks_count(), 0);
+    assert_eq!(
+        state
+            .view()
+            .world()
+            .parameters()
+            .require_crypto_policy()
+            .unwrap(),
+        &crate::sumeragi::test_chain::crypto_fixture_policy(),
+    );
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

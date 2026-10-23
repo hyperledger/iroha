@@ -2760,6 +2760,7 @@ fn localnet_genesis_signing_rejects_incomplete_duplicate_and_invalid_pop_rosters
         &public,
         SumeragiConsensusMode::Permissioned,
         "roster-refusal",
+        false,
     )
     .unwrap();
     let incomplete = append_peer_pop(raw.clone(), &peers[..3]).unwrap();

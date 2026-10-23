@@ -101,8 +101,9 @@ def test_envelope_requires_final_marker_and_exact_catalog_commitment() -> None:
     row = bundle.rows[0]
     original = _fields(_frame_payload(row.envelope_norito, 8), 13)
     assert original[0] == b"IRHZK1\xa5\x5a"
-    assert len(original[1]) == 48
-    for index, offsets, match in ((0, (0, 7), "wire marker"), (1, (0, 8, 16, 24, 32, 40, 47), "catalog commitment")):
+    assert original[1] == bytes.fromhex("5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0")
+    assert len(original[1]) == 32
+    for index, offsets, match in ((0, (0, 7), "wire marker"), (1, range(32), "catalog commitment")):
         for offset in offsets:
             fields = list(original)
             changed = bytearray(fields[index])
@@ -110,6 +111,14 @@ def test_envelope_requires_final_marker_and_exact_catalog_commitment() -> None:
             fields[index] = bytes(changed)
             envelope = _frame(_encode_fields(fields), ENVELOPE_SCHEMA, 8)
             _assert_row_rejected(bundle, 0, replace(row, envelope_norito=envelope), match)
+    for hostile in (
+        original[1][:-1], original[1] + b"\x00", original[1] + bytes(16),
+        bytes.fromhex("e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff"),
+    ):
+        fields = list(original)
+        fields[1] = hostile
+        envelope = _frame(_encode_fields(fields), ENVELOPE_SCHEMA, 8)
+        _assert_row_rejected(bundle, 0, replace(row, envelope_norito=envelope), "catalog commitment")
     retired = _frame(_encode_fields(original[2:]), ENVELOPE_SCHEMA, 8)
     _assert_row_rejected(bundle, 0, replace(row, envelope_norito=retired))
 

@@ -262,9 +262,9 @@ fn authenticate_trigger_fixture(component: State) -> State {
         .get()
         .parameters()
         .filter(|parameter| !matches!(parameter, Parameter::Sumeragi(_) | Parameter::Custom(_)))
-        .collect();
+        .collect::<Vec<_>>();
     let mut config = TestChainConfig::new(component.world, 0);
-    config.genesis_parameters = genesis_parameters;
+    config.genesis_parameters.extend(genesis_parameters);
     config.chain_id = component.chain_id;
     config.pipeline = component.pipeline;
     config.governance = Some(component.gov);

@@ -113,6 +113,7 @@ func irohaPeerWalletStructuralPayloadV1(kind: IrohaPeerWireKindV1, payload: Data
 /// Filler is outside the signed Request so transport tests can vary each message's size.
 func irohaPeerWalletExchangeEnvelopeV1(
     kind: IrohaPeerWireKindV1, payload: Data,
+    lineageProof: Data = Data(), receipt: Data = Data(),
     schemeID: Data = irohaPeerWalletStructuralSchemeV1,
     requestBodyByte: UInt8 = 0x29, requestSignatureByte: UInt8 = 0x36
 ) -> Data {
@@ -131,7 +132,8 @@ func irohaPeerWalletExchangeEnvelopeV1(
     case .request:
         fields = [body, payload, Data(), Data(), signature]
     case .payment:
-        fields = irohaPeerWalletPaymentFieldsV1(body: bodyFields, signature: signature, proof: payload)
+        fields = irohaPeerWalletPaymentFieldsV1(body: bodyFields, signature: signature,
+            proof: payload, lineageProof: lineageProof, receipt: receipt)
     case .credited:
         fields = [version, schemeID, payload]
     default:
@@ -149,8 +151,15 @@ func irohaPeerWalletExchangeEnvelopeV1(
 ) -> Data {
     var count = 0
     for _ in 0..<16 {
-        let frame = irohaPeerWalletExchangeEnvelopeV1(
-            kind: kind, payload: Data(repeating: 0xa5, count: count))
+        // A maximum Payment fills both proof roles only to their caps. Its remaining
+        // transport-size filler is an opaque, unadmitted receipt, not an oversized proof.
+        let filler = Data(repeating: 0xa5, count: count)
+        let frame = kind == .payment
+            ? irohaPeerWalletExchangeEnvelopeV1(kind: kind,
+                payload: Data(repeating: 0xa5, count: KagemushaWalletWireV1.paymentSigmaProofCapBytes),
+                lineageProof: Data(repeating: 0xa5, count: KagemushaWalletWireV1.paymentOmegaProofCapBytes),
+                receipt: filler)
+            : irohaPeerWalletExchangeEnvelopeV1(kind: kind, payload: filler)
         if frame.count == frameBytes { return frame }
         count += frameBytes - frame.count
         precondition(count >= 0, "exchange envelope cannot fit requested size")
@@ -171,7 +180,10 @@ func irohaPeerWalletExchangeMessageV1(
 }
 
 /// Structural Payment DATA with each signed Request field in its sole canonical owner.
-func irohaPeerWalletPaymentFieldsV1(body: [Data], signature: Data, proof: Data) -> [Data] {
+func irohaPeerWalletPaymentFieldsV1(
+    body: [Data], signature: Data, proof: Data,
+    lineageProof: Data = Data(), receipt: Data = Data()
+) -> [Data] {
     precondition(body.count == 17)
     func record(_ fields: [Data]) -> Data {
         Data(fields.flatMap { irohaPeerWalletField(Array($0)) })
@@ -184,13 +196,13 @@ func irohaPeerWalletPaymentFieldsV1(body: [Data], signature: Data, proof: Data) 
     func byteVector(_ value: Data) -> Data {
         withUnsafeBytes(of: UInt64(value.count).littleEndian) { Data($0) } + value
     }
-    let lineage = record([record(omega), byteVector(Data())])
+    let lineage = record([record(omega), byteVector(lineageProof)])
     let effect = [Data(), body[5], body[7], body[9], body[11], Data(), Data(), Data()]
     var statement = Array(repeating: Data(), count: 14)
     statement[0] = body[0]
     statement[1] = body[1]
     statement[4] = body[2]
     statement[13] = Data([3, 0, 0, 0]) + record(effect)
-    let send = record([body[0], record(statement), Data([1, 0, 0, 0]) + record([lineage]), record([byteVector(proof)]), Data()])
+    let send = record([body[0], record(statement), Data([1, 0, 0, 0]) + record([lineage]), record([byteVector(proof)]), receipt])
     return [body[0], record(unique), send]
 }

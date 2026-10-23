@@ -449,7 +449,9 @@ fn actual_failed_execution_fee_authority_is_once_only_and_bound_to_its_source_co
             &state.network_id,
             parameters.sumeragi().max_clock_drift(),
             parameters.transaction(),
-            &block.crypto,
+            block
+                .crypto_admission_policy()
+                .expect("original block fixture policy"),
             source.header().creation_time(),
             false,
         )

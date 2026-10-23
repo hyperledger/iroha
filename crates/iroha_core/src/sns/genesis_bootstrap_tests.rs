@@ -32,14 +32,32 @@ fn genesis(scope: SumeragiRootScope, parameters: Vec<Parameter>) -> SignedBlock 
     let validators = crate::sumeragi::test_chain::fixture_validators();
     let mut context = SumeragiGenesisContextParameters::recommended();
     context.root_scope = scope;
-    let builder = GenesisBuilder::new_without_executor("sns-private-bootstrap".into(), ".")
-        .set_topology(
-            validators
-                .into_iter()
-                .map(|(peer, pop)| GenesisTopologyEntry::new(peer, pop))
-                .collect(),
-        )
-        .with_sumeragi_context_parameters(context);
+    let builder = GenesisBuilder::new_without_executor(
+        "sns-private-bootstrap".into(),
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::sumeragi::test_chain::staking_fixture_policy(
+        match scope {
+            SumeragiRootScope::Dataspace { .. } => policy().fee_asset_id,
+            SumeragiRootScope::Global => {
+                iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id
+            }
+        },
+    ))
+    .expect("explicit fixture staking author")
+    .set_topology(
+        validators
+            .into_iter()
+            .map(|(peer, pop)| GenesisTopologyEntry::new(peer, pop))
+            .collect(),
+    )
+    .with_sumeragi_context_parameters(context);
     let builder = parameters
         .into_iter()
         .fold(builder, GenesisBuilder::append_parameter);

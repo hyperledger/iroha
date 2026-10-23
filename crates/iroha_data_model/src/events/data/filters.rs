@@ -91,7 +91,7 @@ mod model {
         #[codec(index = 22)]
         Bridge(BridgeEventFilter),
         /// Matches governance lifecycle events
-        #[cfg(feature = "governance")]
+
         #[codec(index = 23)]
         Governance(GovernanceEventFilter),
         /// Native race events, optionally restricted to one race identifier.
@@ -345,7 +345,7 @@ mod model {
         /// Matches only events from this set.
         pub(super) event_set: super::escrow::EscrowEventSet,
     }
-    #[cfg(feature = "governance")]
+
     /// An event filter for [`super::governance::GovernanceEvent`] values.
     ///
     /// Scope selectors are intersected. Because proposal and referendum event
@@ -641,7 +641,7 @@ impl_json_via_norito_bytes!(
     ExecutorEventFilter,
     EscrowEventFilter,
 );
-#[cfg(feature = "governance")]
+
 impl_json_via_norito_bytes!(GovernanceEventFilter);
 impl PeerEventFilter {
     /// Creates a new [`PeerEventFilter`] accepting all [`PeerEvent`]s.
@@ -1840,7 +1840,7 @@ impl super::EventFilter for BridgeEventFilter {
         self.matches_event(event)
     }
 }
-#[cfg(feature = "governance")]
+
 impl GovernanceEventFilter {
     /// Creates a new [`GovernanceEventFilter`] accepting all governance events.
     pub fn new() -> Self {
@@ -1873,7 +1873,7 @@ impl GovernanceEventFilter {
         self
     }
 }
-#[cfg(feature = "governance")]
+
 impl Default for GovernanceEventFilter {
     fn default() -> Self {
         Self::new()
@@ -1945,7 +1945,7 @@ impl DataEventFilter {
             | Self::Oracle(_)
             | Self::Social(_)
             | Self::Bridge(_) => {}
-            #[cfg(feature = "governance")]
+
             Self::Governance(_) => {}
         }
         updated
@@ -2054,7 +2054,7 @@ impl EventFilter for DataEventFilter {
             (DataEventFilter::Bridge(filter), DataEvent::Bridge(bridge_event)) => {
                 filter.matches_event(bridge_event)
             }
-            #[cfg(feature = "governance")]
+
             (DataEventFilter::Governance(filter), DataEvent::Governance(governance_event)) => {
                 governance_matches(filter, governance_event)
             }
@@ -2062,7 +2062,7 @@ impl EventFilter for DataEventFilter {
         }
     }
 }
-#[cfg(all(feature = "transparent_api", feature = "governance"))]
+#[cfg(feature = "transparent_api")]
 fn governance_matches(
     filter: &GovernanceEventFilter,
     event: &super::governance::GovernanceEvent,
@@ -2109,7 +2109,7 @@ fn governance_matches(
     }
 }
 pub mod prelude {
-    #[cfg(feature = "governance")]
+
     pub use super::model::GovernanceEventFilter;
     pub use super::model::{
         AccountEventFilter, AssetDefinitionEventFilter, AssetEventFilter, ConfigurationEventFilter,
@@ -2186,7 +2186,6 @@ mod tests {
         assert_eq!(escrow.buyer_matcher, Some(new));
     }
 
-    #[cfg(feature = "governance")]
     #[test]
     fn governance_scopes_match_only_their_id_bearing_event_family() {
         use crate::events::data::governance::{

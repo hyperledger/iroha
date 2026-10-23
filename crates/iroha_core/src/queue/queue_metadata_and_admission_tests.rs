@@ -49,7 +49,12 @@ fn queue_reuses_gossip_payload_without_side_cache() {
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
+    let admission_policy =
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("explicit stateless queue fixture policy");
     let tx = AcceptedTransaction::accept_gossip_entrypoint_with_payload_and_prepared_metadata(
         entrypoint,
         Arc::clone(&payload),
@@ -57,7 +62,7 @@ fn queue_reuses_gossip_payload_without_side_cache() {
         &queue_test_network_id(),
         Duration::from_millis(10),
         tx_limits,
-        &crypto_cfg,
+        &admission_policy,
         None,
         false,
     )

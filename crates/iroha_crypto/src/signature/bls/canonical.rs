@@ -36,7 +36,7 @@ impl Failure {
             Self::PublicKeyAlgorithm => "BLS validation requires a BLS algorithm",
             // Preserve the decoder's actual typed reason, including any future
             // new reason, instead of reclassifying it from input flags/length.
-            Self::PublicKeyDecode(error) => return ParseError(error.to_string()),
+            Self::PublicKeyDecode(error) => return ParseError::Invalid(error.to_string()),
             Self::PublicKeyZero => "BLS public key material must not be all zero",
             Self::PublicKeyInvalid => "the input buffer contained invalid data",
             Self::PublicKeyNonCanonical => "non-canonical BLS public key encoding",
@@ -46,7 +46,7 @@ impl Failure {
             Self::SignatureNonCanonical => "non-canonical BLS signature encoding",
             Self::SignatureIdentity => "BLS signature is identity",
         };
-        ParseError(message.to_owned())
+        ParseError::Invalid(message.to_owned())
     }
 }
 

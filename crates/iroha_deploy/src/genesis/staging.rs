@@ -768,36 +768,32 @@ pub fn staged_default_account_literal(
         .to_i105_for_discriminant(target_discriminant)
         .map_err(|error| eyre!("re-encode built-in {label} for staged genesis: {error}"))
 }
-/// Resolve staging policy from the explicit manifest fees and canonical public asset binding.
+/// Project staging inputs from the manifest's explicit fees, staking policy, and asset binding.
 ///
 /// # Errors
-/// Returns an error for missing or invalid fees, an inconsistent committed XOR asset,
-/// or a built-in account that cannot be re-encoded for the manifest.
+/// Returns an error for missing or invalid monetary policies or an inconsistent committed XOR asset.
 pub fn staged_default_nexus(
     genesis: &RawGenesisTransaction,
 ) -> Result<actual::Nexus, color_eyre::eyre::Error> {
-    let discriminant = genesis.chain_discriminant();
+    let _chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+        genesis.chain_discriminant(),
+    );
+    let parameters = genesis.effective_parameters()?;
+    let staking =
+        iroha_data_model::block::consensus::PublicLaneStakingPolicy::from_parameters(&parameters)?;
     let mut nexus = actual::Nexus::default();
-    if super::sccp::is_enabled(genesis) {
-        nexus.staking.unbonding_delay =
-            std::time::Duration::from_millis(super::sccp::UNBONDING_DELAY_MS);
-        nexus.staking.max_slash_bps = super::sccp::MAX_SLASH_BPS;
-    }
-    nexus.staking.stake_escrow_account_id = staged_default_account_literal(
-        &nexus.staking.stake_escrow_account_id,
-        discriminant,
-        "nexus.staking.stake_escrow_account_id",
-    )?;
-    nexus.staking.slash_sink_account_id = staged_default_account_literal(
-        &nexus.staking.slash_sink_account_id,
-        discriminant,
-        "nexus.staking.slash_sink_account_id",
-    )?;
-    // The manifest is the authoring input; runtime fee authority is the executed parameter.
-    let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(
-        &genesis.effective_parameters()?,
-    )?
-    .ok_or_else(|| eyre!("staged genesis requires an explicit root fee policy"))?;
+    // This projection only supports staging consumers. Native execution obtains monetary
+    // authority from the original signed parameter, never this node-local structure.
+    nexus.staking.min_validator_stake = staking.min_validator_stake;
+    nexus.staking.max_stake_shares_per_validator = staking.max_stake_shares_per_validator;
+    nexus.staking.max_pending_unbonds_per_share = staking.max_pending_unbonds_per_share;
+    nexus.staking.unbonding_delay = std::time::Duration::from_millis(staking.unbonding_delay_ms);
+    nexus.staking.max_slash_bps = staking.max_slash_bps;
+    nexus.staking.stake_asset_id = staking.stake_asset_id.to_string();
+    nexus.staking.stake_escrow_account_id = staking.stake_escrow_account_id.to_string();
+    nexus.staking.slash_sink_account_id = staking.slash_sink_account_id.to_string();
+    let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(&parameters)?
+        .ok_or_else(|| eyre!("staged genesis requires an explicit root fee policy"))?;
     fees.validate_for_scope(&genesis.sumeragi_context_parameters().root_scope)?;
     nexus.fees = fees;
     if genesis.consensus_mode() == SumeragiConsensusMode::Npos
@@ -811,7 +807,11 @@ pub fn staged_default_nexus(
                 "signed root fee asset must equal the committed canonical XOR definition `{xor_asset}`"
             ));
         }
-        nexus.staking.stake_asset_id = xor_asset.to_string();
+        if staking.stake_asset_id != xor_asset {
+            return Err(eyre!(
+                "signed staking asset must equal the committed canonical XOR definition `{xor_asset}`"
+            ));
+        }
     }
     Ok(nexus)
 }
@@ -929,6 +929,86 @@ fn install_staged_nexus_policies(
 
 #[cfg(test)]
 mod tests {
+    fn fixture_staking_policy() -> iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+        let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        super::super::default_staking_policy(
+            fees.fee_asset_id,
+            fees.fee_sink_account_id.clone(),
+            fees.fee_sink_account_id,
+        )
+    }
+
+    #[test]
+    fn staging_preserves_every_authored_staking_field_and_restores_foreign_context() {
+        use iroha_data_model::account::address::{ChainDiscriminantGuard, chain_discriminant};
+        let _caller = ChainDiscriminantGuard::enter(753);
+        let (raw, expected, expected_escrow, expected_sink) = {
+            let _author = ChainDiscriminantGuard::enter(369);
+            let mut policy = fixture_staking_policy();
+            policy.min_validator_stake = 19_u64.into();
+            policy.max_stake_shares_per_validator = std::num::NonZeroU32::new(7).unwrap();
+            policy.max_pending_unbonds_per_share = std::num::NonZeroU32::new(3).unwrap();
+            policy.unbonding_delay_ms = 43_210;
+            policy.max_slash_bps = 1_234;
+            policy.stake_asset_id = AssetDefinitionId::derive_from_components(
+                iroha_model_base::domain::DomainId::parse_fully_qualified("stake.example").unwrap(),
+                "bond".parse().unwrap(),
+            );
+            policy.stake_escrow_account_id = AccountId::new(
+                KeyPair::from_seed(vec![0x68; 32], Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            );
+            policy.slash_sink_account_id = AccountId::new(
+                KeyPair::from_seed(vec![0x69; 32], Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            );
+            let raw = GenesisBuilder::new_without_executor(
+                ChainId::from("foreign-staking-projection"),
+                ".",
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    Algorithm::Ed25519,
+                    Algorithm::BlsNormal,
+                ])
+                .unwrap(),
+            )
+            .with_staking_policy(policy.clone())
+            .unwrap()
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+            .set_topology(default_test_topology())
+            .build_raw()
+            .unwrap();
+            let escrow = policy.stake_escrow_account_id.to_string();
+            let sink = policy.slash_sink_account_id.to_string();
+            (raw, policy, escrow, sink)
+        };
+        let original = norito::json::to_json(&raw).unwrap();
+        let projected = staged_default_nexus(&raw).unwrap().staking;
+        assert_eq!(chain_discriminant(), 753);
+        assert_eq!(norito::json::to_json(&raw).unwrap(), original);
+        assert_eq!(projected.min_validator_stake, expected.min_validator_stake);
+        assert_eq!(
+            projected.max_stake_shares_per_validator,
+            expected.max_stake_shares_per_validator
+        );
+        assert_eq!(
+            projected.max_pending_unbonds_per_share,
+            expected.max_pending_unbonds_per_share
+        );
+        assert_eq!(
+            projected.unbonding_delay.as_millis(),
+            u128::from(expected.unbonding_delay_ms)
+        );
+        assert_eq!(projected.max_slash_bps, expected.max_slash_bps);
+        assert_eq!(
+            projected.stake_asset_id,
+            expected.stake_asset_id.to_string()
+        );
+        assert_eq!(projected.stake_escrow_account_id, expected_escrow);
+        assert_eq!(projected.slash_sink_account_id, expected_sink);
+    }
+
     use super::*;
     use iroha_crypto::{Algorithm, bls_normal_pop_prove};
     use iroha_data_model::block::consensus::SumeragiGenesisContextParameters;
@@ -960,16 +1040,26 @@ mod tests {
         fees.fee_sink_account_id = AccountId::new(sink_key.public_key().clone());
         let npos = SumeragiNposParameters::default();
         fees.fee_asset_id = npos.xor_asset_definition_id.clone();
-        let raw = GenesisBuilder::new_without_executor(ChainId::from("explicit-staging-fees"), ".")
-            .set_topology(default_test_topology())
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
-            .append_parameter(Parameter::Custom(
-                fees.clone().into_custom_parameter().unwrap(),
-            ))
-            .build_raw()
-            .unwrap()
-            .with_consensus_mode(SumeragiConsensusMode::Npos);
+        let raw = GenesisBuilder::new_without_executor(
+            ChainId::from("explicit-staging-fees"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .unwrap(),
+        )
+        .with_staking_policy(fixture_staking_policy())
+        .unwrap()
+        .set_topology(default_test_topology())
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
+        .append_parameter(Parameter::Custom(
+            fees.clone().into_custom_parameter().unwrap(),
+        ))
+        .build_raw()
+        .unwrap()
+        .with_consensus_mode(SumeragiConsensusMode::Npos);
         assert_eq!(staged_default_nexus(&raw).unwrap().fees, fees);
         assert_eq!(
             RootFeePolicy::from_parameters(&raw.effective_parameters().unwrap()).unwrap(),
@@ -996,14 +1086,25 @@ mod tests {
     fn configured_genesis_world_retains_original_state_pool_across_pipeline_installation() {
         let key = KeyPair::try_from_seed(vec![0x6D; 32], Algorithm::Ed25519)
             .expect("deterministic staging authority");
-        let raw = GenesisBuilder::new_without_executor(ChainId::from("genesis-original-pool"), ".")
-            .set_topology(default_test_topology())
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .build_raw()
-            .unwrap()
-            .with_consensus_mode(SumeragiConsensusMode::Permissioned)
-            .with_consensus_meta()
-            .unwrap();
+        let raw = GenesisBuilder::new_without_executor(
+            ChainId::from("genesis-original-pool"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(fixture_staking_policy())
+        .unwrap()
+        .set_topology(default_test_topology())
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .build_raw()
+        .unwrap()
+        .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+        .with_consensus_meta()
+        .unwrap();
         let provisional = build_signed_genesis(
             raw.clone(),
             &key,
@@ -1054,15 +1155,25 @@ mod tests {
         let genesis_key_pair = KeyPair::try_from_seed(vec![0x6E; 32], Algorithm::Ed25519)
             .expect("derive deterministic default staging key");
         let topology = default_test_topology();
-        let raw =
-            GenesisBuilder::new_without_executor(ChainId::from("default-genesis-staging"), ".")
-                .set_topology(topology.clone())
-                .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-                .build_raw()
-                .expect("complete generic four-validator genesis")
-                .with_consensus_mode(SumeragiConsensusMode::Permissioned)
-                .with_consensus_meta()
-                .expect("valid fixture consensus parameters");
+        let raw = GenesisBuilder::new_without_executor(
+            ChainId::from("default-genesis-staging"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(fixture_staking_policy())
+        .unwrap()
+        .set_topology(topology.clone())
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .build_raw()
+        .expect("complete generic four-validator genesis")
+        .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+        .with_consensus_meta()
+        .expect("valid fixture consensus parameters");
         let (bound_manifest, signed) = bind_and_sign_staged_sumeragi_context(
             raw,
             &genesis_key_pair,
@@ -1156,18 +1267,26 @@ mod tests {
                 missing_assessment_permitted: false,
                 ..FraudAdmissionPolicyV1::protocol_default()
             };
-            let raw =
-                GenesisBuilder::new_without_executor(ChainId::from("fraud-genesis-staging"), ".")
-                    .set_topology(default_test_topology())
-                    .with_sumeragi_context_parameters(
-                        SumeragiGenesisContextParameters::recommended(),
-                    )
-                    .append_parameter(Parameter::Custom(policy.into_custom_parameter()))
-                    .build_raw()
-                    .unwrap()
-                    .with_consensus_mode(SumeragiConsensusMode::Permissioned)
-                    .with_consensus_meta()
-                    .unwrap();
+            let raw = GenesisBuilder::new_without_executor(
+                ChainId::from("fraud-genesis-staging"),
+                ".",
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit fixture account and validator controller policy"),
+            )
+            .with_staking_policy(fixture_staking_policy())
+            .unwrap()
+            .set_topology(default_test_topology())
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+            .append_parameter(Parameter::Custom(policy.into_custom_parameter()))
+            .build_raw()
+            .unwrap()
+            .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+            .with_consensus_meta()
+            .unwrap();
             let (manifest, signed) = bind_and_sign_staged_sumeragi_context(
                 raw,
                 &key,

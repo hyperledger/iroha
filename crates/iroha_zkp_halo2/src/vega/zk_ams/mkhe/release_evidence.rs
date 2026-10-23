@@ -7,7 +7,6 @@
 //! gates remain fail-closed.
 
 use super::{BgvProfile, MKHE_VERSION_V1, ZkAmsMkheErrorV1};
-use crate::vega::sponge::Keccak256;
 
 use super::resource::ZkAmsMkheResourceCertificateV1;
 
@@ -486,33 +485,55 @@ pub(super) fn frozen_release_kat_evidence_v1(
 }
 
 fn wire_evidence_digest_v1(evidence: ZkAmsMkheWireEvidenceV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.wire-validation-evidence");
-    hash.update(&[evidence.version]);
-    hash.update(&evidence.profile_digest);
-    hash.update(&evidence.required_codec_count.to_be_bytes());
-    hash.update(&evidence.covered_codec_count.to_be_bytes());
-    hash.update(&evidence.canonical_case_count.to_be_bytes());
-    hash.update(&evidence.adversarial_case_count.to_be_bytes());
-    hash.update(&evidence.max_observed_artifact_bytes.to_be_bytes());
-    hash.update(&evidence.canonical_fixture_digest);
-    hash.update(&evidence.adversarial_fixture_digest);
-    hash.update(&evidence.validator_binary_digest);
-    hash.finalize()
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.wire-validation-evidence",
+        10,
+    );
+    hash.push_field(&[evidence.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.required_codec_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.covered_codec_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.canonical_case_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.adversarial_case_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.max_observed_artifact_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.canonical_fixture_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.adversarial_fixture_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.validator_binary_digest)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 fn resource_evidence_digest_v1(evidence: ZkAmsMkheResourceEvidenceV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.measured-resource-evidence");
-    hash.update(&[evidence.version]);
-    hash.update(&evidence.profile_digest);
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.measured-resource-evidence",
+        11,
+    );
+    hash.push_field(&[evidence.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.profile_digest)
+        .expect("fixed bounded MKHE identity field");
     for value in [
         evidence.max_contribution_proof_bytes,
         evidence.evaluated_key_transport_bytes,
         evidence.phase23_work_units,
         evidence.peak_resident_bytes,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
     for digest in [
         evidence.proof_size_artifact_digest,
@@ -521,26 +542,47 @@ fn resource_evidence_digest_v1(evidence: ZkAmsMkheResourceEvidenceV1) -> [u8; 32
         evidence.peak_memory_trace_digest,
         evidence.validator_binary_digest,
     ] {
-        hash.update(&digest);
+        hash.push_field(&digest)
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.finalize()
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 fn release_kat_evidence_digest_v1(evidence: ZkAmsMkheReleaseKatEvidenceV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.release-kat-evidence");
-    hash.update(&[evidence.version]);
-    hash.update(&evidence.profile_digest);
-    hash.update(&evidence.positive_case_count.to_be_bytes());
-    hash.update(&evidence.adversarial_case_count.to_be_bytes());
-    hash.update(&evidence.rejected_adversarial_case_count.to_be_bytes());
-    hash.update(&evidence.max_proof_bytes.to_be_bytes());
-    hash.update(&evidence.input_fixture_digest);
-    hash.update(&evidence.expected_output_digest);
-    hash.update(&evidence.observed_output_digest);
-    hash.update(&evidence.transcript_digest);
-    hash.update(&evidence.validator_binary_digest);
-    hash.finalize()
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.release-kat-evidence",
+        11,
+    );
+    hash.push_field(&[evidence.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.positive_case_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.adversarial_case_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.rejected_adversarial_case_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.max_proof_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.input_fixture_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.expected_output_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.observed_output_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.transcript_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.validator_binary_digest)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 #[cfg(test)]

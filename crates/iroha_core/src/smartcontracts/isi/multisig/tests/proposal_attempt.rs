@@ -120,7 +120,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     .execute_transaction(
                         &mut tx,
                         authority,
-                        signed_payload.clone(),
+                        &signed_payload,
                         &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                     )
                     .expect_err("the signed hash cannot authorize a substituted retained body");
@@ -250,7 +250,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                 .execute_transaction(
                     &mut tx,
                     authority,
-                    signed_payload,
+                    &signed_payload,
                     &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                 )
                 .unwrap();
@@ -596,7 +596,7 @@ fn terminal_decode_retry(expired: bool) {
                     Executor::Initial.execute_transaction(
                         &mut tx,
                         authority,
-                        signed_payload.clone(),
+                        &signed_payload,
                         &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                     )
                 })
@@ -638,7 +638,7 @@ fn terminal_decode_retry(expired: bool) {
                 .execute_transaction(
                     &mut tx,
                     authority,
-                    signed_payload,
+                    &signed_payload,
                     &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                 )
                 .unwrap();

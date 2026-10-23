@@ -326,9 +326,17 @@ target/debug/kagami genesis generate \
   --profile iroha3-dev \
   --ivm-dir ./ivm_libs \
   --genesis-public-key ed25519:... \
+  --allowed-signing ed25519 --allowed-signing secp256k1 --allowed-signing bls_normal \
   --consensus-mode permissioned \
   default
 ```
+
+`crypto_admission_policy` is required in each raw manifest. Its `allowed_algorithms`
+list is nonempty and follows canonical tag order without duplicates. The repeated
+`--allowed-signing` values select that exact list; the producer does not fill in
+algorithms from its local backend or genesis root key. Normalization signs one
+`crypto_admission_policy_v1` parameter and rejects any second assignment in source
+instructions. Curve membership is derived from the selected algorithms.
 
 Sign with topology and PoPs:
 
@@ -339,7 +347,7 @@ alias binding, global balance minting, ownership transfer and subsequent univers
 service bootstrap continue in the next global input. Routing authenticates that
 input against the original World before installing the asset alias. Normalization preserves authored
 boundaries and refuses sources above the 11-input FASTPQ bootstrap limit. Generated
-crypto and confidential parameters share one global metadata input. Structured
+the canonical crypto admission policy and confidential parameters share one global input. Structured
 parameter, topology, and IVM trigger batches cannot be partitioned.
 
 ```bash

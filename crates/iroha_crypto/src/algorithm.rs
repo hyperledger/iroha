@@ -1,3 +1,5 @@
+//! Canonical signing identities and wire geometry are independent of local backends.
+
 use crate::error::NoSuchAlgorithm;
 use core::{fmt, str::FromStr};
 use iroha_schema::{IntoSchema, TypeId};
@@ -12,28 +14,28 @@ pub const ED_25519: &str = "ed25519";
 pub const SECP_256_K1: &str = "secp256k1";
 /// String algorithm representation
 pub const ML_DSA: &str = "ml-dsa";
-#[cfg(feature = "gost")]
+
 /// String algorithm representation
 pub const GOST_34_10_2012_256_A: &str = "gost3410-2012-256-paramset-a";
-#[cfg(feature = "gost")]
+
 /// String algorithm representation
 pub const GOST_34_10_2012_256_B: &str = "gost3410-2012-256-paramset-b";
-#[cfg(feature = "gost")]
+
 /// String algorithm representation
 pub const GOST_34_10_2012_256_C: &str = "gost3410-2012-256-paramset-c";
-#[cfg(feature = "gost")]
+
 /// String algorithm representation
 pub const GOST_34_10_2012_512_A: &str = "gost3410-2012-512-paramset-a";
-#[cfg(feature = "gost")]
+
 /// String algorithm representation
 pub const GOST_34_10_2012_512_B: &str = "gost3410-2012-512-paramset-b";
-#[cfg(feature = "bls")]
+
 /// String algorithm representation
 pub const BLS_NORMAL: &str = "bls_normal";
-#[cfg(feature = "bls")]
+
 /// String algorithm representation
 pub const BLS_SMALL: &str = "bls_small";
-#[cfg(feature = "sm")]
+
 /// String algorithm representation
 pub const SM2: &str = "sm2";
 /// Algorithm for hashing & signing
@@ -63,78 +65,82 @@ pub enum Algorithm {
     Ed25519 = 0,
     /// ECDSA over secp256k1
     Secp256k1 = 1,
-    #[cfg(feature = "bls")]
+
     /// BLS12-381 (normal) scheme
     BlsNormal = 2,
-    #[cfg(feature = "bls")]
+
     /// BLS12-381 (small) scheme
     BlsSmall = 3,
     /// ML‑DSA (Dilithium) post-quantum signature scheme
     MlDsa = 4,
-    #[cfg(feature = "gost")]
+
     /// GOST R 34.10-2012 with the `CryptoPro` 256-bit parameter set A (RFC 4357).
     Gost3410_2012_256ParamSetA = 5,
-    #[cfg(feature = "gost")]
+
     /// GOST R 34.10-2012 with the `CryptoPro` 256-bit parameter set B (RFC 4357).
     Gost3410_2012_256ParamSetB = 6,
-    #[cfg(feature = "gost")]
+
     /// GOST R 34.10-2012 with the `CryptoPro` 256-bit parameter set C (RFC 4357).
     Gost3410_2012_256ParamSetC = 7,
-    #[cfg(feature = "gost")]
+
     /// GOST R 34.10-2012 512-bit curve, TC26 param set A
     Gost3410_2012_512ParamSetA = 8,
-    #[cfg(feature = "gost")]
+
     /// GOST R 34.10-2012 512-bit curve, TC26 param set B
     Gost3410_2012_512ParamSetB = 9,
-    #[cfg(feature = "sm")]
+
     /// SM2 signature scheme (GM/T 0003-2012)
     Sm2 = 10,
 }
 impl Algorithm {
+    /// Every canonical first-release algorithm, ordered by its published wire tag.
+    ///
+    /// This identity registry is independent of compiled implementations.
+    pub const ALL: &'static [Self] = &[
+        Self::Ed25519,
+        Self::Secp256k1,
+        Self::BlsNormal,
+        Self::BlsSmall,
+        Self::MlDsa,
+        Self::Gost3410_2012_256ParamSetA,
+        Self::Gost3410_2012_256ParamSetB,
+        Self::Gost3410_2012_256ParamSetC,
+        Self::Gost3410_2012_512ParamSetA,
+        Self::Gost3410_2012_512ParamSetB,
+        Self::Sm2,
+    ];
+
     /// Maps the algorithm to its static string representation
     pub const fn as_static_str(self) -> &'static str {
         match self {
             Self::Ed25519 => ED_25519,
             Self::Secp256k1 => SECP_256_K1,
             Self::MlDsa => ML_DSA,
-            #[cfg(feature = "gost")]
             Self::Gost3410_2012_256ParamSetA => GOST_34_10_2012_256_A,
-            #[cfg(feature = "gost")]
             Self::Gost3410_2012_256ParamSetB => GOST_34_10_2012_256_B,
-            #[cfg(feature = "gost")]
             Self::Gost3410_2012_256ParamSetC => GOST_34_10_2012_256_C,
-            #[cfg(feature = "gost")]
             Self::Gost3410_2012_512ParamSetA => GOST_34_10_2012_512_A,
-            #[cfg(feature = "gost")]
             Self::Gost3410_2012_512ParamSetB => GOST_34_10_2012_512_B,
-            #[cfg(feature = "bls")]
             Self::BlsNormal => BLS_NORMAL,
-            #[cfg(feature = "bls")]
             Self::BlsSmall => BLS_SMALL,
-            #[cfg(feature = "sm")]
             Self::Sm2 => SM2,
         }
     }
     /// Exact byte length of a canonical detached signature payload.
     ///
-    /// Keeping this geometry with the feature-dependent enum prevents downstream crates from
-    /// matching variants whose presence can change through Cargo feature unification.
+    /// This canonical geometry is independent of compiled verification implementations.
     pub const fn signature_payload_len(self) -> usize {
         match self {
-            Self::Ed25519 | Self::Secp256k1 => 64,
-            Self::MlDsa => 3_309,
-            #[cfg(feature = "gost")]
-            Self::Gost3410_2012_256ParamSetA
+            Self::Ed25519
+            | Self::Secp256k1
+            | Self::Gost3410_2012_256ParamSetA
             | Self::Gost3410_2012_256ParamSetB
-            | Self::Gost3410_2012_256ParamSetC => 64,
-            #[cfg(feature = "gost")]
+            | Self::Gost3410_2012_256ParamSetC
+            | Self::Sm2 => 64,
+            Self::MlDsa => 3_309,
             Self::Gost3410_2012_512ParamSetA | Self::Gost3410_2012_512ParamSetB => 128,
-            #[cfg(feature = "bls")]
             Self::BlsNormal => 96,
-            #[cfg(feature = "bls")]
             Self::BlsSmall => 48,
-            #[cfg(feature = "sm")]
-            Self::Sm2 => 64,
         }
     }
 }
@@ -150,21 +156,21 @@ impl FromStr for Algorithm {
             ED_25519 => Ok(Algorithm::Ed25519),
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
             ML_DSA => Ok(Algorithm::MlDsa),
-            #[cfg(feature = "gost")]
+
             GOST_34_10_2012_256_A => Ok(Algorithm::Gost3410_2012_256ParamSetA),
-            #[cfg(feature = "gost")]
+
             GOST_34_10_2012_256_B => Ok(Algorithm::Gost3410_2012_256ParamSetB),
-            #[cfg(feature = "gost")]
+
             GOST_34_10_2012_256_C => Ok(Algorithm::Gost3410_2012_256ParamSetC),
-            #[cfg(feature = "gost")]
+
             GOST_34_10_2012_512_A => Ok(Algorithm::Gost3410_2012_512ParamSetA),
-            #[cfg(feature = "gost")]
+
             GOST_34_10_2012_512_B => Ok(Algorithm::Gost3410_2012_512ParamSetB),
-            #[cfg(feature = "bls")]
+
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
-            #[cfg(feature = "bls")]
+
             BLS_SMALL => Ok(Algorithm::BlsSmall),
-            #[cfg(feature = "sm")]
+
             SM2 => Ok(Algorithm::Sm2),
             _ => Err(NoSuchAlgorithm),
         }
@@ -177,21 +183,21 @@ impl TryFrom<u8> for Algorithm {
             0 => Ok(Algorithm::Ed25519),
             1 => Ok(Algorithm::Secp256k1),
             4 => Ok(Algorithm::MlDsa),
-            #[cfg(feature = "gost")]
+
             5 => Ok(Algorithm::Gost3410_2012_256ParamSetA),
-            #[cfg(feature = "gost")]
+
             6 => Ok(Algorithm::Gost3410_2012_256ParamSetB),
-            #[cfg(feature = "gost")]
+
             7 => Ok(Algorithm::Gost3410_2012_256ParamSetC),
-            #[cfg(feature = "gost")]
+
             8 => Ok(Algorithm::Gost3410_2012_512ParamSetA),
-            #[cfg(feature = "gost")]
+
             9 => Ok(Algorithm::Gost3410_2012_512ParamSetB),
-            #[cfg(feature = "bls")]
+
             2 => Ok(Algorithm::BlsNormal),
-            #[cfg(feature = "bls")]
+
             3 => Ok(Algorithm::BlsSmall),
-            #[cfg(feature = "sm")]
+
             10 => Ok(Algorithm::Sm2),
             _ => Err(()),
         }
@@ -215,13 +221,13 @@ impl IntoSchema for Algorithm {
         };
         push_variant("Ed25519", Algorithm::Ed25519 as u32);
         push_variant("Secp256k1", Algorithm::Secp256k1 as u32);
-        #[cfg(feature = "bls")]
+
         {
             push_variant("BlsNormal", Algorithm::BlsNormal as u32);
             push_variant("BlsSmall", Algorithm::BlsSmall as u32);
         }
         push_variant("MlDsa", Algorithm::MlDsa as u32);
-        #[cfg(feature = "gost")]
+
         {
             push_variant(
                 "Gost3410_2012_256ParamSetA",
@@ -244,7 +250,7 @@ impl IntoSchema for Algorithm {
                 Algorithm::Gost3410_2012_512ParamSetB as u32,
             );
         }
-        #[cfg(feature = "sm")]
+
         push_variant("Sm2", Algorithm::Sm2 as u32);
         map.insert::<Self>(iroha_schema::Metadata::Enum(iroha_schema::EnumMeta {
             variants,
@@ -282,12 +288,60 @@ impl NoritoJsonDeserialize for Algorithm {
 mod tests {
     use super::*;
     #[test]
+    fn every_wire_identity_schema_and_json_name_is_feature_independent() {
+        let published = [
+            "ed25519",
+            "secp256k1",
+            "bls_normal",
+            "bls_small",
+            "ml-dsa",
+            "gost3410-2012-256-paramset-a",
+            "gost3410-2012-256-paramset-b",
+            "gost3410-2012-256-paramset-c",
+            "gost3410-2012-512-paramset-a",
+            "gost3410-2012-512-paramset-b",
+            "sm2",
+        ];
+        assert_eq!(Algorithm::ALL.len(), published.len());
+        for (tag, (&algorithm, name)) in Algorithm::ALL.iter().zip(published).enumerate() {
+            assert_eq!(algorithm as usize, tag);
+            assert_eq!(
+                Algorithm::try_from(u8::try_from(tag).unwrap()),
+                Ok(algorithm)
+            );
+            assert_eq!(algorithm.as_static_str(), name);
+            assert_eq!(name.parse::<Algorithm>().unwrap(), algorithm);
+            let bytes = norito::encode_canonical(&algorithm).unwrap();
+            assert_eq!(
+                norito::decode_canonical::<Algorithm>(&bytes).unwrap(),
+                algorithm
+            );
+            let json = json::to_json(&algorithm).unwrap();
+            assert_eq!(json, format!("\"{name}\""));
+            assert_eq!(json::from_str::<Algorithm>(&json).unwrap(), algorithm);
+        }
+        for tag in 11..=u8::MAX {
+            assert_eq!(Algorithm::try_from(tag), Err(()));
+        }
+        let mut map = iroha_schema::MetaMap::new();
+        Algorithm::update_schema_map(&mut map);
+        let Some(iroha_schema::Metadata::Enum(schema)) = map.get::<Algorithm>() else {
+            panic!("canonical enum schema")
+        };
+        assert_eq!(schema.variants.len(), 11);
+        for (tag, variant) in schema.variants.iter().enumerate() {
+            assert_eq!(variant.discriminant as usize, tag);
+            assert_eq!(variant.tag, format!("{:?}", Algorithm::ALL[tag]));
+            assert!(variant.ty.is_none());
+        }
+    }
+    #[test]
     fn conversions_are_consistent() {
         let mut cases = Vec::new();
         cases.push((Algorithm::Ed25519, ED_25519, 0u8));
         cases.push((Algorithm::Secp256k1, SECP_256_K1, 1u8));
         cases.push((Algorithm::MlDsa, ML_DSA, 4u8));
-        #[cfg(feature = "gost")]
+
         cases.extend_from_slice(&[
             (
                 Algorithm::Gost3410_2012_256ParamSetA,
@@ -315,7 +369,7 @@ mod tests {
                 9u8,
             ),
         ]);
-        #[cfg(feature = "bls")]
+
         cases.extend_from_slice(&[
             (Algorithm::BlsNormal, BLS_NORMAL, 2u8),
             (Algorithm::BlsSmall, BLS_SMALL, 3u8),
@@ -332,7 +386,7 @@ mod tests {
         assert_eq!(Algorithm::Ed25519.signature_payload_len(), 64);
         assert_eq!(Algorithm::Secp256k1.signature_payload_len(), 64);
         assert_eq!(Algorithm::MlDsa.signature_payload_len(), 3_309);
-        #[cfg(feature = "gost")]
+
         {
             assert_eq!(
                 Algorithm::Gost3410_2012_256ParamSetA.signature_payload_len(),
@@ -355,12 +409,12 @@ mod tests {
                 128
             );
         }
-        #[cfg(feature = "bls")]
+
         {
             assert_eq!(Algorithm::BlsNormal.signature_payload_len(), 96);
             assert_eq!(Algorithm::BlsSmall.signature_payload_len(), 48);
         }
-        #[cfg(feature = "sm")]
+
         {
             assert_eq!(Algorithm::Sm2.signature_payload_len(), 64);
         }

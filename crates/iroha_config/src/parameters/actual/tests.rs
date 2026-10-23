@@ -513,7 +513,6 @@ mod tests {
         execution_policy_digest_v1(
             &config.pipeline,
             &config.oracle,
-            &config.crypto,
             &config.fraud_monitoring,
             &config.gov,
             &config.content,
@@ -522,6 +521,18 @@ mod tests {
             [0x22; 32],
         )
     }
+    #[test]
+    fn local_crypto_generation_and_backend_choices_cannot_change_execution_policy_digest() {
+        let baseline = super::sora_profile_tests::minimal_root();
+        let expected = execution_policy_hash(&baseline);
+        let mut changed = baseline.clone();
+        changed.crypto.default_hash = "sm3-256".to_owned();
+        changed.crypto.sm2_distid_default = "another local generation DistID".to_owned();
+        changed.crypto.enable_sm_openssl_preview = !changed.crypto.enable_sm_openssl_preview;
+        changed.crypto.sm_intrinsics = SmIntrinsicsPolicy::ForceDisable;
+        assert_eq!(execution_policy_hash(&changed), expected);
+    }
+
     #[test]
     fn execution_policy_digest_binds_every_process_local_decision_family() {
         let baseline = super::sora_profile_tests::minimal_root();
@@ -536,9 +547,6 @@ mod tests {
         let mut changed = baseline.clone();
         changed.pipeline.overlay_max_bytes = changed.pipeline.overlay_max_bytes.saturating_add(1);
         assert_changed("pipeline validity policy", changed);
-        let mut changed = baseline.clone();
-        changed.crypto.default_hash.push_str("-different");
-        assert_changed("cryptographic admission policy", changed);
         let mut changed = baseline.clone();
         changed.oracle.history_depth =
             NonZeroUsize::new(changed.oracle.history_depth.get().saturating_add(1))
@@ -614,7 +622,6 @@ mod tests {
                 execution_policy_digest_v1(
                     &fixed.pipeline,
                     &fixed.oracle,
-                    &fixed.crypto,
                     &fixed.fraud_monitoring,
                     &fixed.gov,
                     &fixed.content,

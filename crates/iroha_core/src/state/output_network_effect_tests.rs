@@ -372,12 +372,7 @@ fn actual_root_effects_cannot_apply_after_owner_reuse_or_context_substitution() 
             block.transaction_for_fastpq_testing(Hash::from(signed.hash_as_entrypoint()));
         bind_root(&mut transaction, signed);
         Executor::Initial
-            .execute_transaction(
-                &mut transaction,
-                &ALICE_ID,
-                signed.clone(),
-                &mut IvmCache::new(),
-            )
+            .execute_transaction(&mut transaction, &ALICE_ID, signed, &mut IvmCache::new())
             .unwrap();
         assert!(
             transaction
@@ -397,7 +392,7 @@ fn actual_root_effects_cannot_apply_after_owner_reuse_or_context_substitution() 
             0 => {}
             1 => assert!(
                 transaction
-                    .admit_authored_execution_effects(&[write()])
+                    .admit_authored_execution_effects([write()].iter())
                     .is_err()
             ),
             2 => transaction.current_entrypoint_index = Some(1),
@@ -466,7 +461,7 @@ fn unwinding_before_root_close_cannot_publish_already_staged_effects() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         transaction.begin_execution_effect_budget(signed).unwrap();
         transaction
-            .admit_authored_execution_effects(&[write()])
+            .admit_authored_execution_effects([write()].iter())
             .unwrap();
         write().execute(&ALICE_ID, &mut transaction).unwrap();
         panic!("crash cut after staging an instruction before root close");

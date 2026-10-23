@@ -271,8 +271,6 @@ impl MultisigPolicy {
             let (algorithm, payload) = key
                 .try_to_bytes()
                 .map_err(|_| MultisigPolicyError::MalformedPublicKey)?;
-            CurveId::try_from_algorithm(algorithm)
-                .map_err(|_| MultisigPolicyError::UnsupportedCurve(algorithm))?;
             let current = (algorithm.as_static_str(), payload);
             if let Some(previous) = previous {
                 match previous.cmp(&current) {
@@ -385,8 +383,7 @@ impl MultisigPolicy {
                 .public_key()
                 .try_to_bytes()
                 .map_err(|_| MultisigPolicyError::MalformedPublicKey)?;
-            let curve_id = CurveId::try_from_algorithm(algorithm)
-                .expect("multisig members validate curve support at construction");
+            let curve_id = CurveId::from_algorithm(algorithm);
             cbor_write_unsigned(&mut buffer, u64::from(curve_id.as_u8()));
             cbor_write_unsigned(&mut buffer, u64::from(CTAP2_MEMBER_KEY_WEIGHT));
             cbor_write_unsigned(&mut buffer, u64::from(member.weight()));
@@ -455,7 +452,7 @@ impl MultisigMember {
     ///
     /// # Errors
     ///
-    /// Rejects zero weight, malformed keys and unsupported signing curves.
+    /// Rejects zero weight and malformed keys.
     pub fn new(public_key: PublicKey, weight: u16) -> Result<Self, MultisigPolicyError> {
         Self::validate_components(&public_key, weight)?;
         Ok(Self { public_key, weight })
@@ -467,7 +464,7 @@ impl MultisigMember {
     /// keeping the same original compact backing and allocation charge.
     ///
     /// # Errors
-    /// Rejects zero weight, malformed keys and unsupported signing curves.
+    /// Rejects zero weight and malformed keys.
     pub(crate) fn validate_components(
         public_key: &PublicKey,
         weight: u16,
@@ -475,11 +472,9 @@ impl MultisigMember {
         if weight == 0 {
             return Err(MultisigPolicyError::MemberWeightZero);
         }
-        let algorithm = public_key
+        public_key
             .try_algorithm()
             .map_err(|_| MultisigPolicyError::MalformedPublicKey)?;
-        CurveId::try_from_algorithm(algorithm)
-            .map_err(|_| MultisigPolicyError::UnsupportedCurve(algorithm))?;
         Ok(())
     }
     fn zeroize_for_confidential_discard(&mut self) {
@@ -545,9 +540,6 @@ pub enum MultisigPolicyError {
     /// Member weight must be positive.
     #[error("multisig member weight must be at least 1")]
     MemberWeightZero,
-    /// Multisig member uses an unsupported signing curve.
-    #[error("multisig member uses unsupported curve: {0}")]
-    UnsupportedCurve(Algorithm),
     /// Multisig member public key is malformed.
     #[error("multisig member public key is malformed")]
     MalformedPublicKey,

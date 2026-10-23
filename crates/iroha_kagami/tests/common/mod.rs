@@ -71,6 +71,18 @@ pub fn minimal_manifest_with_topology(
     );
     let mut root = norito::json::Map::new();
     root.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
+    root.insert(
         "chain".to_string(),
         norito::json::Value::String(chain.to_owned()),
     );

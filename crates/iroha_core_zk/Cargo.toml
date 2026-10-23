@@ -64,7 +64,7 @@ iroha_pasta = { path = "../iroha_pasta", default-features = false }
 iroha_fs = { workspace = true }
 iroha_primitives = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
-iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "governance", "http"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "http"] }
 iroha_sumeragi = { workspace = true }
 iroha_version = { workspace = true }
 iroha_crypto = { workspace = true, default-features = false, features = ["consensus", "pqc"] }

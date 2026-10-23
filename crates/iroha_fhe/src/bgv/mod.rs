@@ -95,6 +95,7 @@ mod cipher;
 pub mod coins;
 pub mod cost;
 mod encoding;
+mod encryption_witness;
 mod eval;
 mod fault;
 #[cfg(any(test, feature = "bgv-test-fixtures"))]
@@ -104,6 +105,7 @@ pub mod noise;
 pub mod plan;
 mod poly;
 mod profile;
+pub mod threshold;
 
 pub use cipher::{Ciphertext, Plaintext, PlaintextBound};
 pub use coins::{COIN_SEED_BYTES, ERROR_BOUND, ERROR_ETA};

@@ -10,10 +10,9 @@ use super::{
     RnsPolynomial, bytes_mod_u64, checked_coefficient_work, manifest::RELEASE_MODULI_V1,
     t256_centered_residue_with_modulus_residue,
 };
-use crate::vega::{
-    VEGA_T256_SCALAR_MODULUS_BE_V1, VegaT256ScalarV1 as Scalar,
-    sponge::{Keccak256, keccak256, shake256},
-};
+#[cfg(test)]
+use crate::vega::sponge::{Keccak256, keccak256};
+use crate::vega::{VEGA_T256_SCALAR_MODULUS_BE_V1, VegaT256ScalarV1 as Scalar, sponge::shake256};
 #[cfg(test)]
 use core::fmt;
 const PACKING_VERSION_V1: u8 = 1;
@@ -38,8 +37,8 @@ const RELEASE_PACKING_CERTIFICATE_DOMAIN_V1: &[u8] =
 // Changing the schedule/profile identity must not relabel those observations.
 // This pin establishes identity only; it is not independent release evidence.
 const RELEASE_PACKING_EVIDENCE_PROFILE_DIGEST_V1: [u8; 32] = [
-    0xbf, 0xdc, 0x09, 0xd7, 0x9c, 0xa7, 0x11, 0xcd, 0x02, 0xaa, 0x1a, 0x79, 0xbf, 0xf5, 0x5d, 0x6c,
-    0x1b, 0xea, 0x4e, 0xb5, 0x87, 0x1c, 0x58, 0xb4, 0x12, 0xcd, 0x40, 0x3f, 0x89, 0x8b, 0x08, 0x2c,
+    0xa6, 0x4a, 0xd0, 0x4a, 0x95, 0x70, 0xbd, 0xa6, 0x1c, 0x0f, 0xd3, 0x63, 0x46, 0x39, 0x2a, 0x3d,
+    0xfa, 0xf1, 0x22, 0x4b, 0x1e, 0x3a, 0x0b, 0x9d, 0x82, 0x20, 0xf7, 0x45, 0xe4, 0xbc, 0x8e, 0xcc,
 ];
 /// Maximum number of logical values admitted by one governed packed vector.
 pub const ZK_AMS_T256_MAX_LOGICAL_VALUES_V1: u32 = 1_048_576;
@@ -47,28 +46,28 @@ pub const ZK_AMS_T256_MAX_LOGICAL_VALUES_V1: u32 = 1_048_576;
 pub const ZK_AMS_T256_GALOIS_KEY_COUNT_V1: usize = 31;
 /// Pinned digest of the exact ordered binary Galois-key schedule.
 pub const ZK_AMS_T256_GALOIS_KEY_SCHEDULE_DIGEST_V1: [u8; 32] = [
-    0xf3, 0xf8, 0x37, 0xaf, 0x4c, 0xc2, 0xdc, 0xf2, 0x66, 0x27, 0xcd, 0x43, 0xe9, 0x1e, 0xee, 0x73,
-    0xf5, 0x19, 0xce, 0x1c, 0xe8, 0x3d, 0x24, 0x3c, 0xa4, 0xf2, 0x50, 0xc3, 0xa5, 0xca, 0x70, 0xc5,
+    0x14, 0x4c, 0x6d, 0x54, 0xf0, 0x63, 0xb8, 0x48, 0x8c, 0xe6, 0x96, 0xef, 0xc8, 0x3d, 0x79, 0x46,
+    0x91, 0xfb, 0xac, 0x4b, 0x22, 0xca, 0x68, 0x5d, 0xdc, 0xfa, 0xa3, 0x3a, 0x80, 0xe8, 0x52, 0x9d,
 ];
 /// Pinned digest of the exact release-degree sparse-cosine packing input.
 pub const ZK_AMS_T256_RELEASE_PACKED_INPUT_KAT_DIGEST_V1: [u8; 32] = [
-    0x26, 0xc7, 0x40, 0xb6, 0x68, 0x06, 0x1a, 0xb4, 0xda, 0xfc, 0x65, 0xff, 0xe0, 0xf4, 0xa0, 0x96,
-    0x14, 0xe6, 0x29, 0xbf, 0x5b, 0x05, 0xfa, 0x60, 0xc8, 0xdc, 0x80, 0x09, 0x77, 0x7c, 0x8c, 0xf2,
+    0x1f, 0xe3, 0xf5, 0xd9, 0x7d, 0xdc, 0x3d, 0xad, 0x31, 0x1a, 0xda, 0xcc, 0x80, 0xf5, 0xd4, 0x4d,
+    0xa6, 0x1f, 0x65, 0xf7, 0xa6, 0xec, 0xb9, 0x72, 0x5e, 0x9a, 0x0f, 0xba, 0xb3, 0x53, 0xde, 0x52,
 ];
 /// Pinned digest of the coefficient-domain release rotation KAT output.
 pub const ZK_AMS_T256_RELEASE_PACKED_OUTPUT_KAT_DIGEST_V1: [u8; 32] = [
-    0xcc, 0x6a, 0x1e, 0x65, 0x3c, 0xdd, 0x52, 0x2b, 0x82, 0x79, 0x66, 0xdb, 0x19, 0x96, 0xe7, 0xf9,
-    0xa5, 0xb0, 0x6c, 0x8e, 0xf2, 0xa8, 0x2b, 0x7f, 0xb1, 0x71, 0xde, 0x8b, 0xa2, 0xf7, 0x73, 0x56,
+    0xa4, 0xb1, 0xcb, 0xcb, 0x1d, 0x66, 0x85, 0xb3, 0x4e, 0x6e, 0xac, 0x96, 0x93, 0xb1, 0xae, 0x65,
+    0x1a, 0xe0, 0x72, 0x6d, 0x70, 0xfa, 0xc2, 0xa1, 0x8c, 0x01, 0x9e, 0x52, 0x5a, 0xd6, 0x20, 0x79,
 ];
 /// Pinned digest of every transformed release-RNS limb in the packing KAT.
 pub const ZK_AMS_T256_RELEASE_TRANSFORMED_RNS_KAT_DIGEST_V1: [u8; 32] = [
-    0x9f, 0x82, 0x60, 0x77, 0xc1, 0xc9, 0xfd, 0xca, 0xc8, 0x53, 0xc6, 0xbe, 0x17, 0x71, 0xfa, 0x75,
-    0xc7, 0x29, 0x7c, 0xb8, 0x08, 0x53, 0xfb, 0xe5, 0xf6, 0xa1, 0x03, 0x3b, 0x36, 0x6b, 0x70, 0xf2,
+    0x25, 0xc5, 0xca, 0xaf, 0x78, 0xf0, 0x3e, 0x77, 0xcf, 0xef, 0x23, 0xe6, 0xaf, 0x99, 0x5f, 0x41,
+    0x27, 0x2f, 0x21, 0x38, 0xf1, 0x0a, 0x75, 0x7a, 0x21, 0x07, 0xad, 0x6d, 0x7a, 0x1b, 0x62, 0x3f,
 ];
 /// Pinned certificate digest for the exact release-degree packing/rotation KAT.
 pub const ZK_AMS_T256_RELEASE_ROTATION_CERTIFICATE_KAT_DIGEST_V1: [u8; 32] = [
-    0xc4, 0xda, 0x74, 0xb2, 0xac, 0x76, 0x99, 0x87, 0x01, 0x7b, 0x7a, 0x8f, 0x14, 0x34, 0x89, 0x85,
-    0xe5, 0xd4, 0x14, 0x5a, 0xf1, 0x7b, 0x1a, 0x4c, 0xcb, 0x70, 0x9f, 0x8e, 0x0a, 0x00, 0xe8, 0xc0,
+    0x4b, 0x59, 0x00, 0x5c, 0x59, 0xaa, 0x68, 0x9f, 0x70, 0xd5, 0xb3, 0xc3, 0xc0, 0x29, 0xe8, 0x9a,
+    0x67, 0x82, 0x42, 0xed, 0xec, 0x17, 0x4e, 0xe7, 0x7e, 0x3a, 0x7e, 0xbc, 0xe8, 0x39, 0x2d, 0x46,
 ];
 /// Pinned digest of the exact adversarial packing/rotation rejection catalogue.
 pub const ZK_AMS_T256_RELEASE_PACKING_NEGATIVE_KAT_DIGEST_V1: [u8; 32] = [
@@ -1615,36 +1614,62 @@ fn packed_subfield_relation_digest(
     {
         return Err(ZkAmsMkheErrorV1::InvalidProfile);
     }
-    let mut frame = Vec::with_capacity(PACKED_SUBFIELD_DOMAIN_V1.len() + 160);
-    frame.extend_from_slice(PACKED_SUBFIELD_DOMAIN_V1);
-    frame.push(PACKING_VERSION_V1);
-    frame.extend_from_slice(&profile_digest);
-    frame.extend_from_slice(&VEGA_T256_SCALAR_MODULUS_BE_V1);
-    frame.extend_from_slice(
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        PACKED_SUBFIELD_DOMAIN_V1,
+        7,
+    );
+    hash.push_field(&[PACKING_VERSION_V1])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&VEGA_T256_SCALAR_MODULUS_BE_V1)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(
         &u32::try_from(ZK_AMS_MKHE_RELEASE_RING_DEGREE_V1)
             .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
             .to_be_bytes(),
-    );
-    frame.extend_from_slice(&exponent.to_be_bytes());
-    frame.extend_from_slice(&root_digest);
-    frame.extend_from_slice(PACKED_SUBFIELD_RELATION_V1);
-    Ok(keccak256(&frame))
+    )
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&exponent.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&root_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(PACKED_SUBFIELD_RELATION_V1)
+        .expect("fixed bounded MKHE identity field");
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 fn packing_layout_digest(layout: ZkAmsT256PackingLayoutV1) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
-    let mut frame = Vec::with_capacity(128);
-    frame.extend_from_slice(PACKING_LAYOUT_DOMAIN_V1);
-    frame.push(layout.version);
-    frame.extend_from_slice(&layout.profile_digest);
-    frame.extend_from_slice(&layout.logical_value_count.to_be_bytes());
-    frame.extend_from_slice(&layout.slots_per_chunk.to_be_bytes());
-    frame.extend_from_slice(&layout.chunk_count.to_be_bytes());
-    frame.extend_from_slice(&layout.final_chunk_used_slots.to_be_bytes());
-    frame.extend_from_slice(
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        PACKING_LAYOUT_DOMAIN_V1,
+        7,
+    );
+    hash.push_field(&[layout.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&layout.profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&layout.logical_value_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&layout.slots_per_chunk.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&layout.chunk_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&layout.final_chunk_used_slots.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(
         &u32::try_from(SLOT_GALOIS_GENERATOR_V1)
             .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
             .to_be_bytes(),
-    );
-    Ok(keccak256(&frame))
+    )
+    .expect("fixed bounded MKHE identity field");
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 #[cfg(test)]
 fn packed_plaintext_digest(
@@ -1723,24 +1748,39 @@ fn galois_key_schedule_digest(
     if schedule.entries.len() != ZK_AMS_T256_GALOIS_KEY_COUNT_V1 {
         return Err(ZkAmsMkheErrorV1::InvalidKeyMaterial);
     }
-    let mut hash = Keccak256::new();
-    hash.update(GALOIS_KEY_SCHEDULE_DOMAIN_V1);
-    hash.update(&[schedule.version]);
-    hash.update(&schedule.profile_digest);
-    hash.update(&schedule.ring_degree.to_be_bytes());
-    hash.update(&schedule.slot_count.to_be_bytes());
-    hash.update(&schedule.generator.to_be_bytes());
-    hash.update(
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        GALOIS_KEY_SCHEDULE_DOMAIN_V1,
+        6 + 3 * schedule.entries.len(),
+    );
+    hash.push_field(&[schedule.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&schedule.profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&schedule.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&schedule.slot_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&schedule.generator.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(
         &u32::try_from(schedule.entries.len())
             .map_err(|_| ZkAmsMkheErrorV1::ResourceCeilingExceeded)?
             .to_be_bytes(),
-    );
+    )
+    .expect("fixed bounded MKHE identity field");
     for entry in &schedule.entries {
-        hash.update(&[entry.direction.tag()]);
-        hash.update(&entry.steps.to_be_bytes());
-        hash.update(&entry.exponent.to_be_bytes());
+        hash.push_field(&[entry.direction.tag()])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&entry.steps.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&entry.exponent.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    Ok(hash.finalize())
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 fn validate_rotation(
     layout: ZkAmsT256PackingLayoutV1,
@@ -1766,18 +1806,33 @@ fn validate_rotation(
 }
 fn rotation_digest(rotation: ZkAmsT256RotationV1) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
     let schedule_digest = zk_ams_t256_galois_key_schedule_v1()?.digest;
-    let mut frame = Vec::with_capacity(192);
-    frame.extend_from_slice(ROTATION_DOMAIN_V1);
-    frame.push(rotation.version);
-    frame.extend_from_slice(&rotation.profile_digest);
-    frame.extend_from_slice(&rotation.layout_digest);
-    frame.extend_from_slice(&rotation.chunk_index.to_be_bytes());
-    frame.extend_from_slice(&rotation.used_slots.to_be_bytes());
-    frame.extend_from_slice(&rotation.steps.to_be_bytes());
-    frame.push(rotation.direction.tag());
-    frame.extend_from_slice(&rotation.exponent.to_be_bytes());
-    frame.extend_from_slice(&schedule_digest);
-    Ok(keccak256(&frame))
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        ROTATION_DOMAIN_V1,
+        9,
+    );
+    hash.push_field(&[rotation.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&rotation.profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&rotation.layout_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&rotation.chunk_index.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&rotation.used_slots.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&rotation.steps.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[rotation.direction.tag()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&rotation.exponent.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&schedule_digest)
+        .expect("fixed bounded MKHE identity field");
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 #[cfg(test)]
 fn reject_partial_chunk_rotation(rotation: ZkAmsT256RotationV1) -> Result<(), ZkAmsMkheErrorV1> {
@@ -1885,29 +1940,54 @@ fn rotation_certificate_digest(certificate: ZkAmsT256RotationCertificateV1) -> [
 fn release_packing_certificate_digest(
     certificate: ZkAmsT256ReleasePackingCertificateV1,
 ) -> [u8; 32] {
-    let mut frame = Vec::with_capacity(RELEASE_PACKING_CERTIFICATE_DOMAIN_V1.len() + 360);
-    frame.extend_from_slice(RELEASE_PACKING_CERTIFICATE_DOMAIN_V1);
-    frame.push(certificate.version);
-    frame.extend_from_slice(&certificate.profile_digest);
-    frame.extend_from_slice(&certificate.ring_degree.to_be_bytes());
-    frame.extend_from_slice(&certificate.slot_count.to_be_bytes());
-    frame.extend_from_slice(&certificate.layout_digest);
-    frame.extend_from_slice(&certificate.root_digest);
-    frame.extend_from_slice(&certificate.subfield_conjugation_exponent.to_be_bytes());
-    frame.extend_from_slice(&certificate.subfield_relation_digest);
-    frame.extend_from_slice(&certificate.rotation_digest);
-    frame.push(certificate.galois_key_count);
-    frame.extend_from_slice(&certificate.galois_key_schedule_digest);
-    frame.extend_from_slice(&certificate.packed_input_kat_digest);
-    frame.extend_from_slice(&certificate.packed_output_kat_digest);
-    frame.extend_from_slice(&certificate.transformed_rns_kat_digest);
-    frame.extend_from_slice(&certificate.rotation_certificate_kat_digest);
-    frame.extend_from_slice(&certificate.negative_case_count.to_be_bytes());
-    frame.extend_from_slice(&certificate.negative_kat_digest);
-    keccak256(&frame)
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        RELEASE_PACKING_CERTIFICATE_DOMAIN_V1,
+        17,
+    );
+    hash.push_field(&[certificate.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.slot_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.layout_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.root_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.subfield_conjugation_exponent.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.subfield_relation_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.rotation_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[certificate.galois_key_count])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.galois_key_schedule_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.packed_input_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.packed_output_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.transformed_rns_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.rotation_certificate_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.negative_case_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.negative_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 // Keep the immutable evidence identity separate from candidate profile construction.
 // In particular, regenerating a Galois schedule is not a packing KAT execution.
+// Full-degree packing and rotation KATs must execute for these exact native
+// identities; a regenerated schedule alone is insufficient release evidence.
 fn release_packing_evidence_profile_digest_v1(
     profile: &BgvProfile,
 ) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
@@ -1997,18 +2077,29 @@ fn release_root_identity_digest(
     root: T256Fp2,
     exponent: &[u8; 64],
 ) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
-    let mut frame = Vec::with_capacity(RELEASE_ROOT_IDENTITY_DOMAIN_V1.len() + 128);
-    frame.extend_from_slice(RELEASE_ROOT_IDENTITY_DOMAIN_V1);
-    frame.extend_from_slice(&VEGA_T256_SCALAR_MODULUS_BE_V1);
-    frame.extend_from_slice(
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        RELEASE_ROOT_IDENTITY_DOMAIN_V1,
+        5,
+    );
+    hash.push_field(&VEGA_T256_SCALAR_MODULUS_BE_V1)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(
         &u32::try_from(ZK_AMS_MKHE_RELEASE_RING_DEGREE_V1)
             .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
             .to_be_bytes(),
-    );
-    frame.extend_from_slice(exponent);
-    frame.extend_from_slice(&root.c0.to_be_bytes());
-    frame.extend_from_slice(&root.c1.to_be_bytes());
-    Ok(keccak256(&frame))
+    )
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(exponent)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&root.c0.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&root.c1.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 fn release_root_exponent_be_v1() -> Result<[u8; 64], ZkAmsMkheErrorV1> {
     let mut modulus = [0_u64; 4];

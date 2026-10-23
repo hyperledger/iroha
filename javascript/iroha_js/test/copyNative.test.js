@@ -21,7 +21,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   probeNativeBindingExports,
@@ -31,7 +31,7 @@ import {
   REQUIRED_NATIVE_EXPORTS,
   REQUIRED_NATIVE_EXPORT_RESULTS,
 } from "../scripts/copy-native.mjs";
-import { verifyNativeBinding } from "../src/native.js";
+import { getNativeBinding, verifyNativeBinding } from "../src/native.js";
 
 const PLATFORM = "linux";
 const ARCH = "x64";
@@ -1734,19 +1734,23 @@ test("native publication rejects dirty or stale source provenance", async (t) =>
 test(
   "required-export probe loads a real addon through the recovery-compatible private suffix",
   (t) => {
-    const nativePath = path.resolve("native", NATIVE_FILENAME);
+    // Authenticate the selected original artifact through the canonical loader.
+    const binding = getNativeBinding();
+    assert.equal(typeof binding.noritoEncodeInstruction, "function");
+    const nativePath = process.env.IROHA_JS_NATIVE_DIR
+      ? path.resolve(process.env.IROHA_JS_NATIVE_DIR, NATIVE_FILENAME)
+      : fileURLToPath(new URL(`../native/${NATIVE_FILENAME}`, import.meta.url));
     assert.equal(
       existsSync(nativePath),
       true,
-      `native addon is required at ${nativePath}; run \`npm run build:native\``,
+      `the selected authenticated native addon must exist at ${nativePath}`,
     );
     const root = mkdtempSync(path.join(os.tmpdir(), "iroha-js-native-dlopen-probe-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const staged = path.join(root, `${NATIVE_FILENAME}.next`);
     copyFileSync(nativePath, staged);
-    // This test isolates the loader path from the release export contract so a
-    // locally cached addon from an older compatible build cannot make the
-    // focused unit suite ambient-state dependent.
+    // Authentication above binds the current artifact. This probe separately
+    // exercises dlopen through the publication-recovery private suffix.
     assert.doesNotThrow(() =>
       probeNativeBindingExports(staged, ["noritoEncodeInstruction"]),
     );

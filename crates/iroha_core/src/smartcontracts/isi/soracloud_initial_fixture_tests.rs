@@ -149,6 +149,20 @@ fn state_with_soracloud_permission_on_chain(
     chain_id: iroha_model_base::chain::ChainId,
 ) -> Result<State, eyre::Report> {
     let world = World::with([], [], []);
+    // This component fixture selects its original ordinary policy before any registration.
+    // It still has no authenticated root; Initial-executor tests apply signed genesis below.
+    {
+        let mut seed = world.block();
+        seed.parameters.set_parameter(
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])?
+            .into_parameter()?,
+        )?;
+        seed.commit();
+    }
     let query_handle = LiveQueryStore::start_test();
     let state = State::new_with_chain(world, kura.clone(), query_handle, chain_id);
     let block_header = ValidBlock::new_dummy(&checked_keypair().into_parts().1)
@@ -177,22 +191,70 @@ fn state_with_soracloud_permission_on_chain(
     state_block.commit_world_overlay_for_testing()?;
     Ok(state)
 }
+// Retire business-row constructor and overlay frames before signed genesis validation.
+// This seed owns no crypto policy or Soracloud permission; genesis supplies both.
+#[inline(never)]
+fn initial_soracloud_business_world(
+    kura: &Arc<Kura>,
+    chain_id: &iroha_model_base::chain::ChainId,
+) -> Result<World, eyre::Report> {
+    let wonderland = DomainId::try_new("wonderland", "universal")?;
+    let world = World::with(
+        [Domain::new(wonderland.clone()).build(&SAMPLE_GENESIS_ACCOUNT_ID)],
+        [Account::new(ALICE_ID.clone()).build(&SAMPLE_GENESIS_ACCOUNT_ID)],
+        [],
+    );
+    let seed_state = State::new_with_chain(
+        world,
+        kura.clone(),
+        LiveQueryStore::start_test(),
+        chain_id.clone(),
+    );
+    {
+        let header = ValidBlock::new_dummy(&checked_keypair().into_parts().1)
+            .as_ref()
+            .header();
+        let mut block = seed_state.block(header);
+        let mut transaction = block.transaction();
+        seed_domain_name_lease_tx(&mut transaction, &SAMPLE_GENESIS_ACCOUNT_ID, &wonderland);
+        insert_active_public_lane_validator(&mut transaction, ALICE_ID.clone(), 1_000);
+        assert!(transaction.world.parameters().crypto_policy().is_none());
+        assert!(require_soracloud_permission(&ALICE_ID, &transaction).is_err());
+        transaction.apply();
+        block.commit_world_overlay_for_testing()?;
+    }
+    Ok(seed_state.world)
+}
+
 // Ordinary Initial-executor scenarios require an original authenticated genesis root.
-// The component fixture still owns the same seeded permissions and validator rows; its World
-// enters the canonical chain constructor before any ordinary execution or proof admission.
-fn state_with_initial_soracloud_permission(kura: &Arc<Kura>) -> Result<State, eyre::Report> {
+// Start from policy-free business fixture rows. Signed genesis owns both the initial crypto
+// policy and the Soracloud permission; the separate component fixture remains unauthenticated.
+fn state_with_initial_soracloud_permission(kura: &Arc<Kura>) -> Result<Arc<State>, eyre::Report> {
     use crate::sumeragi::{
         startup,
         test_chain::{CertifiedTestChain, TestChainConfig},
     };
-    let component = state_with_soracloud_permission(kura)?;
-    let mut config = TestChainConfig::new(component.world, 0);
-    config.chain_id = component.chain_id;
+    let chain_id = iroha_model_base::chain::ChainId::from("00000000-0000-0000-0000-000000000000");
+    let world = initial_soracloud_business_world(kura, &chain_id)?;
+    let mut config = TestChainConfig::new(world, 0);
+    config.chain_id = chain_id;
+    config.genesis_instructions.push(
+        Grant::account_permission(
+            Permission::new(CAN_MANAGE_SORACLOUD_PERMISSION.into(), Json::new(())),
+            ALICE_ID.clone(),
+        )
+        .into(),
+    );
     let genesis_account = AccountId::new(config.genesis_key.public_key().clone());
     let mode = config.consensus_mode;
     let prepared = CertifiedTestChain::prepare(config).map_err(|failure| failure.error)?;
-    let state = Arc::try_unwrap(prepared.state)
-        .unwrap_or_else(|_| panic!("unpublished SoraCloud State is unique"));
+    // Retain the original allocation through validation and the caller's execution.
+    let state = prepared.state;
+    assert_eq!(
+        Arc::strong_count(&state),
+        1,
+        "unpublished SoraCloud State is unique",
+    );
     startup::apply_genesis(
         &state,
         prepared.genesis.block().clone(),
@@ -223,6 +285,7 @@ fn initial_soracloud_fixture_owns_original_genesis_and_preserves_exact_permissio
         .latest_block_hash()
         .expect("committed original genesis");
     assert_eq!(state.network_id_ref().into_genesis_hash(), parent);
+    assert!(state.view().world().parameters().crypto_policy().is_some());
     let header = initial_soracloud_header(&state, 2);
     assert_eq!(header.prev_block_hash(), Some(parent));
     let mut block = state.block(header);
@@ -255,6 +318,32 @@ fn initial_soracloud_fixture_owns_original_genesis_and_preserves_exact_permissio
     drop(block);
     let component = state_with_soracloud_permission(&kura)?;
     let mut block = component.block(initial_soracloud_header(&component, 2));
+    let mut transaction = block.transaction();
+    require_soracloud_permission(&ALICE_ID, &transaction)?;
+    assert!(crate::executor::root_scope::execution_root_scope(&mut transaction).is_err());
+    Ok(())
+}
+
+#[test]
+fn soracloud_component_fixture_owns_explicit_policy_before_permission_seeding()
+-> Result<(), eyre::Report> {
+    let kura = Kura::blank_kura_for_testing();
+    let state = state_with_soracloud_permission(&kura)?;
+    let view = state.view();
+    assert_eq!(
+        view.world()
+            .parameters()
+            .require_crypto_policy()
+            .expect("component fixture owns an explicit policy")
+            .allowed_algorithms(),
+        &[
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ],
+    );
+    drop(view);
+    let mut block = state.block(initial_soracloud_header(&state, 2));
     let mut transaction = block.transaction();
     require_soracloud_permission(&ALICE_ID, &transaction)?;
     assert!(crate::executor::root_scope::execution_root_scope(&mut transaction).is_err());

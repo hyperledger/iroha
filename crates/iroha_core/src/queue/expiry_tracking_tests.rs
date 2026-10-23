@@ -250,13 +250,16 @@ async fn custom_expired_transaction_is_rejected() {
     let tx = tx.sign(alice_keypair.private_key());
     let signed_tx_hash = tx.hash();
     let tx = {
-        let crypto_cfg = state.crypto();
         AcceptedTransaction::accept_with_time_source(
             tx,
             state.network_id_ref(),
             max_clock_drift,
             tx_limits,
-            &crypto_cfg,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time_source,
         )
         .expect("Failed to accept Transaction.")

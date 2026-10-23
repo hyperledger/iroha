@@ -487,8 +487,31 @@ fn validate_typed_signature_payload(
     public_key: &PublicKey,
 ) -> Result<(), iroha_crypto::Error> {
     match public_key.try_algorithm() {
-        Ok(Algorithm::Ed25519) => iroha_crypto::ed25519_parse_signature(payload).map(|_| ()),
-        Ok(Algorithm::MlDsa) => iroha_crypto::mldsa65_parse_signature(payload).map(|_| ()),
+        Ok(Algorithm::Ed25519) => iroha_crypto::ed25519_validate_signature_encoding(payload)
+            .map_err(iroha_crypto::SignatureEncodingError::into_error),
+        Ok(Algorithm::MlDsa) => iroha_crypto::mldsa65_validate_signature_encoding(payload)
+            .map_err(iroha_crypto::SignatureEncodingError::into_error),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod borrowed_signature_validation_tests {
+    use super::*;
+
+    #[test]
+    fn trust_shape_validation_borrows_preexisting_signature_under_zero_copy_budget() {
+        let pair =
+            iroha_crypto::KeyPair::try_from_seed(vec![0x71; 32], Algorithm::Ed25519).unwrap();
+        let signature =
+            iroha_crypto::Signature::try_new(pair.private_key(), b"trust shape").unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        norito::with_decode_limits_scope(limits, || {
+            validate_typed_signature_payload(signature.payload(), pair.public_key()).unwrap();
+            assert_eq!(
+                validate_typed_signature_payload(&[1; 63], pair.public_key()),
+                Err(iroha_crypto::Error::BadSignature)
+            );
+        });
     }
 }

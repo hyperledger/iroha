@@ -678,7 +678,7 @@ fn cut_authority(selector: &GenesisDataspaceSelectorV1) -> Cut {
 fn parameters_with(custom: impl IntoIterator<Item = CustomParameter>) -> Parameters {
     let mut parameters = Parameters::default();
     for custom in custom {
-        parameters.custom.insert(custom.id().clone(), custom);
+        parameters.custom.insert(custom);
     }
     parameters
 }

@@ -1204,11 +1204,20 @@ async fn current_native_ingress_revalidates_expiry_and_current_signing_policy() 
         error,
         Error::AcceptTransaction(AcceptTransactionFail::TransactionExpired { .. })
     ));
-    let mut crypto = app.state.crypto().as_ref().clone();
-    crypto
-        .allowed_signing
-        .retain(|algorithm| *algorithm != Algorithm::Ed25519);
-    app.state.set_crypto(crypto);
+    let policy = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+        Algorithm::Secp256k1,
+    ])
+    .expect("explicit committed policy excludes this Ed25519 signer");
+    let mut parameters = app.state.world.parameters.block();
+    parameters
+        .get_mut()
+        .set_parameter(
+            policy
+                .into_parameter()
+                .expect("canonical replacement policy"),
+        )
+        .expect("replace original committed policy");
+    parameters.commit();
     let error = post_signed_transaction_for_test(app.clone(), HeaderMap::new(), &transaction)
         .await
         .expect_err("pending identity cannot bypass the current signing policy");

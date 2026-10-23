@@ -627,6 +627,16 @@ fn citizen_client_config_signs_from_the_key_file_and_the_published_identity() {
 }
 
 fn generated_genesis(instructions: Vec<InstructionBox>) -> iroha_genesis::RawGenesisTransaction {
+    let _author = ChainDiscriminantGuard::enter(TAIRA_CHAIN_DISCRIMINANT);
+    let asset = AssetDefinitionId::parse_address_literal(CANONICAL_XOR).unwrap();
+    let custody =
+        iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_sink_account_id;
+    let staking =
+        iroha_deploy::genesis::default_staking_policy(asset.clone(), custody.clone(), custody);
+    let npos = SumeragiNposParameters {
+        xor_asset_definition_id: asset,
+        ..Default::default()
+    };
     let topology = (110_u8..114)
         .map(|seed| {
             let validator = KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).unwrap();
@@ -636,13 +646,21 @@ fn generated_genesis(instructions: Vec<InstructionBox>) -> iroha_genesis::RawGen
             )
         })
         .collect();
-    let mut builder =
-        iroha_genesis::GenesisBuilder::new_without_executor(TAIRA_CHAIN_ID.into(), ".")
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .append_parameter(Parameter::Custom(
-                SumeragiNposParameters::default().into_custom_parameter(),
-            ))
-            .set_topology(topology);
+    let mut builder = iroha_genesis::GenesisBuilder::new_without_executor(
+        TAIRA_CHAIN_ID.into(),
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(staking)
+    .expect("explicit fixture staking policy")
+    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+    .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
+    .set_topology(topology);
     for instruction in instructions {
         builder = builder.append_instruction(instruction);
     }
@@ -1062,4 +1080,37 @@ fn resign_identity_requires_one_canonical_line() {
     assert!(next.contains("--expected-hash-out genesis.expected_hash"));
     assert!(next.contains("--nexus-context-output nexus-amx-context.v1.bin"));
     assert!(!next.contains(".next"));
+}
+
+#[test]
+fn generated_genesis_authors_taira_monetary_policy_before_build_and_restores_context() {
+    use iroha_data_model::block::consensus::{PublicLaneStakingPolicy, RootFeePolicy};
+    let _caller = ChainDiscriminantGuard::enter(753);
+    let manifest = generated_genesis(Vec::new());
+    assert_eq!(
+        iroha_data_model::account::address::chain_discriminant(),
+        753
+    );
+    assert_eq!(manifest.chain_discriminant(), TAIRA_CHAIN_DISCRIMINANT);
+    let _author = ChainDiscriminantGuard::enter(manifest.chain_discriminant());
+    let expected = AssetDefinitionId::parse_address_literal(CANONICAL_XOR).unwrap();
+    let parameters = manifest.effective_parameters().unwrap();
+    let staking = PublicLaneStakingPolicy::from_parameters(&parameters).unwrap();
+    let npos = SumeragiNposParameters::from_custom_parameter(
+        parameters
+            .custom()
+            .get(&SumeragiNposParameters::parameter_id())
+            .unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let fees = RootFeePolicy::from_parameters(&parameters)
+        .unwrap()
+        .unwrap();
+    assert_eq!(staking.stake_asset_id, expected);
+    assert_eq!(npos.xor_asset_definition_id, expected);
+    assert_eq!(fees.fee_asset_id, expected);
+    manifest
+        .validate_mode_specific_consensus_parameters()
+        .unwrap();
 }

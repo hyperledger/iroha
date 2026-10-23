@@ -7,7 +7,6 @@
 //! release profile.  Consequently an input object, a copied estimate, or a
 //! caller-supplied result cannot close the manifest security gate.
 use super::{BgvProfile, ZkAmsMkheErrorV1, modulus_product_bit_len};
-use crate::vega::sponge::Keccak256;
 const LATTICE_ESTIMATOR_COMMIT_V1: [u8; 20] = [
     0x3e, 0x48, 0xef, 0x42, 0x1e, 0xc2, 0x56, 0xaf, 0xdd, 0xb3, 0xe7, 0xd2, 0x24, 0x9a, 0x77, 0xea,
     0xb6, 0xe9, 0xba, 0x12,
@@ -17,9 +16,9 @@ const SAGE_BINDER_ENVIRONMENT_COMMIT_V1: [u8; 20] = [
     0x33, 0x71, 0x70, 0xb6,
 ];
 const FROZEN_SECURITY_PARAMETERS_DIGEST_V1: [u8; 32] =
-    decode_hex_32(b"f07b2ba5586a2929ae04110b19a7c73583a2241c9f32b5b1567b1e5fcea27df7");
+    decode_hex_32(b"6647854418ea19d581808f9d0f362dd8b7de4feb6f592a477583292e2c276e72");
 const FROZEN_CANDIDATE_INPUT_DIGEST_V1: [u8; 32] =
-    decode_hex_32(b"644feb3447a9906662466219364e2e079e71747109759b3f8d8b3d44b9c1a360");
+    decode_hex_32(b"8070af3c33fd60e92ff387ea6679b362215eb0c50be0b91b6beec42b2e6d58c4");
 const SAGE_DMG_SHA256_V1: [u8; 32] =
     decode_hex_32(b"84f78143db3fb7c251f6eea906c6efb7793d26e96a3fbdb2104c1f9bb4b1827e");
 const ESTIMATOR_RUNNER_SHA256_V1: [u8; 32] =
@@ -29,7 +28,7 @@ const ESTIMATOR_TRANSCRIPT_SHA256_V1: [u8; 32] =
 const SECURITY_GUIDELINE_SHA256_V1: [u8; 32] =
     decode_hex_32(b"9c48bdef18f6e459d1d50bd5f250c89c740f87c9b9fbd98d1cd59f0d5c25d32e");
 const SECURITY_CERTIFICATE_DIGEST_V1: [u8; 32] =
-    decode_hex_32(b"c4ee05ced738f441a25cd66b5d870d25e105757e3ed9871d8b7696ba80181d72");
+    decode_hex_32(b"74327a84b64f341bc1b6ee80233f4082598f9dd2f7c48353b69f6e2f5ecf3f75");
 const SAGE_VERSION_MAJOR_V1: u16 = 10;
 const SAGE_VERSION_MINOR_V1: u16 = 9;
 const FROZEN_MINIMUM_SECURITY_BITS_V1: u16 = 172;
@@ -369,20 +368,38 @@ pub(super) fn derive_security_candidate_v1(
 pub(super) fn security_candidate_input_digest_v1(
     candidate: ZkAmsMkheSecurityCandidateV1,
 ) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.security-candidate-input");
-    hash.update(&candidate.security_parameters_digest);
-    hash.update(&candidate.ring_degree.to_be_bytes());
-    hash.update(&candidate.ciphertext_modulus_bits.to_be_bytes());
-    hash.update(&candidate.max_samples_per_secret_epoch.to_be_bytes());
-    hash.update(&[candidate.secret_variance_numerator]);
-    hash.update(&[candidate.secret_variance_denominator]);
-    hash.update(&[candidate.error_centered_binomial_eta]);
-    hash.update(&candidate.target_security_bits.to_be_bytes());
-    hash.update(&candidate.lattice_estimator_commit);
-    hash.update(&candidate.sage_environment_commit);
-    hash.finalize()
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.security-candidate-input",
+        10,
+    );
+    hash.push_field(&candidate.security_parameters_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&candidate.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&candidate.ciphertext_modulus_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&candidate.max_samples_per_secret_epoch.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[candidate.secret_variance_numerator])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[candidate.secret_variance_denominator])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[candidate.error_centered_binomial_eta])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&candidate.target_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&candidate.lattice_estimator_commit)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&candidate.sage_environment_commit)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
+// Native identity pins bind the exact 38-limb input and genuine Sage 10.9
+// estimator transcript. They do not certify the separate native40 replacement.
 pub(super) fn frozen_security_certificate_v1(
     candidate: ZkAmsMkheSecurityCandidateV1,
 ) -> Result<ZkAmsMkheSecurityCertificateV1, ZkAmsMkheErrorV1> {
@@ -390,37 +407,61 @@ pub(super) fn frozen_security_certificate_v1(
     Ok(FROZEN_SECURITY_CERTIFICATE_V1)
 }
 fn security_certificate_digest_v1(certificate: &ZkAmsMkheSecurityCertificateV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.security-certificate");
-    hash.update(&[certificate.version]);
-    hash.update(&certificate.security_parameters_digest);
-    hash.update(&certificate.candidate_input_digest);
-    hash.update(&certificate.lattice_estimator_commit);
-    hash.update(&certificate.sage_environment_commit);
-    hash.update(&certificate.sage_version_major.to_be_bytes());
-    hash.update(&certificate.sage_version_minor.to_be_bytes());
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.security-certificate",
+        47,
+    );
+    hash.push_field(&[certificate.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.security_parameters_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.candidate_input_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.lattice_estimator_commit)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.sage_environment_commit)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.sage_version_major.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.sage_version_minor.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for value in [certificate.sage_machine, certificate.sage_distribution] {
-        hash.update(&(value.len() as u16).to_be_bytes());
-        hash.update(value.as_bytes());
+        hash.push_field(value.as_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&certificate.sage_dmg_sha256);
-    hash.update(&certificate.estimator_runner_sha256);
-    hash.update(&certificate.estimator_transcript_sha256);
-    hash.update(&(certificate.security_guideline_identity.len() as u16).to_be_bytes());
-    hash.update(certificate.security_guideline_identity.as_bytes());
-    hash.update(&certificate.security_guideline_sha256);
-    hash.update(&[certificate.attacks.len() as u8]);
+    hash.push_field(&certificate.sage_dmg_sha256)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.estimator_runner_sha256)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.estimator_transcript_sha256)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(certificate.security_guideline_identity.as_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.security_guideline_sha256)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[certificate.attacks.len() as u8])
+        .expect("fixed bounded MKHE identity field");
     for record in &certificate.attacks {
-        hash.update(&[record.suite as u8]);
-        hash.update(&[record.attack as u8]);
-        hash.update(&(record.rop_log2.len() as u16).to_be_bytes());
-        hash.update(record.rop_log2.as_bytes());
-        hash.update(&record.rop_log2_floor.to_be_bytes());
-        hash.update(&record.result_repr_sha256);
+        hash.push_field(&[record.suite as u8])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[record.attack as u8])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(record.rop_log2.as_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&record.rop_log2_floor.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&record.result_repr_sha256)
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&certificate.minimum_security_bits.to_be_bytes());
-    hash.update(&certificate.target_security_bits.to_be_bytes());
-    hash.finalize()
+    hash.push_field(&certificate.minimum_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.target_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 #[cfg(test)]
 mod tests {
@@ -668,9 +709,11 @@ mod tests {
             .expect("certificate digest")
             .1;
         for digest in [candidate, certificate] {
-            assert!(digest.contains("let mut hash = Keccak256::new();"));
-            assert!(digest.contains("hash.update("));
-            assert!(digest.contains("hash.finalize()"));
+            assert!(digest.contains("let mut hash = super::native_outer_identity_v1("));
+            assert!(digest.contains("hash.push_field("));
+            assert!(digest.contains(".finish()"));
+            assert!(digest.contains("exact MKHE outer identity field count"));
+            assert!(!digest.contains("Keccak256"));
             assert!(!digest.contains("Vec::"));
             assert!(!digest.contains("with_capacity"));
             assert!(!digest.contains("keccak256("));

@@ -1,6 +1,7 @@
 //! Gossiper actor responsible for transaction gossiping.
 #[cfg(all(feature = "bench", feature = "iroha-core-tests"))]
 pub mod benchmark;
+use crate::execution_attempt::ExecutionDeferred;
 use crate::retained_gossip::RetainedGossip;
 use crate::{
     IrohaNetwork, NetworkMessage,
@@ -336,19 +337,11 @@ impl TransactionGossiper {
     /// # Errors
     /// Rejects a zero period or a runtime that cannot hand off blocking work.
     pub fn start(
-        mut self,
+        self,
         shutdown_signal: ShutdownSignal,
     ) -> Result<(TransactionGossiperHandle, Child), TransactionGossiperStartError> {
         let (message_sender, message_receiver) = mpsc::channel(1);
-        let child = worker::start(
-            self.gossip_period,
-            message_receiver,
-            shutdown_signal,
-            move |work| match work {
-                worker::Work::Tick => self.gossip_transactions(),
-                worker::Work::Incoming(message) => self.handle_retained_gossip(message),
-            },
-        )?;
+        let child = worker::start(self.gossip_period, message_receiver, shutdown_signal, self)?;
         Ok((
             TransactionGossiperHandle {
                 message_sender: Some(message_sender),
@@ -1373,20 +1366,18 @@ impl TransactionGossiper {
         }
         false
     }
-    /// Consume the original authenticated transport envelope through current signed admission.
-    ///
-    /// A message still shared elsewhere is copied shallowly: its items keep their exact
-    /// frames, and admission decodes each one it needs into an owned entrypoint.
-    fn handle_retained_gossip(&self, message: RetainedGossip<Arc<TransactionGossip>>) {
-        message.with_payload(|gossip| {
-            let owned = Arc::try_unwrap(gossip).unwrap_or_else(|shared| (*shared).clone());
-            self.handle_transaction_gossip_owned(owned);
-        });
+    /// Borrow the authenticated original while its worker retains transport credit for retry.
+    fn handle_retained_gossip(
+        &self,
+        message: &RetainedGossip<Arc<TransactionGossip>>,
+    ) -> Result<(), ExecutionDeferred> {
+        self.admit_transaction_gossip(message.payload())
     }
-    /// One physical attempt using the same production receive path.
+    /// One completed physical attempt using the production receive path.
     #[cfg(test)]
     fn handle_transaction_gossip(&self, gossip: Arc<TransactionGossip>) {
-        self.handle_retained_gossip(RetainedGossip::synthetic_for_test(gossip));
+        self.handle_retained_gossip(&RetainedGossip::synthetic_for_test(gossip))
+            .expect("fixture gossip attempt must complete");
     }
     fn reject_oversized_incoming_batch(
         &self,
@@ -1418,15 +1409,17 @@ impl TransactionGossiper {
         true
     }
     #[allow(clippy::too_many_lines)]
-    fn handle_transaction_gossip_owned(
+    fn admit_transaction_gossip(
         &self,
-        TransactionGossip {
+        gossip: &TransactionGossip,
+    ) -> Result<(), ExecutionDeferred> {
+        let TransactionGossip {
             txs,
             routes,
             plans,
             plane,
-        }: TransactionGossip,
-    ) {
+        } = gossip;
+        let plane = *plane;
         struct MaterializedGossipCandidate {
             entrypoint: TransactionEntrypoint,
             payload: Arc<Vec<u8>>,
@@ -1441,7 +1434,7 @@ impl TransactionGossiper {
         iroha_logger::debug!(size = txs.len(), "received transaction gossip batch");
         let batch_txs = txs.len();
         if self.reject_oversized_incoming_batch(plane, batch_txs) {
-            return;
+            return Ok(());
         }
         if routes.is_empty() {
             iroha_logger::warn!("dropping transaction gossip without routing metadata");
@@ -1455,7 +1448,7 @@ impl TransactionGossiper {
                 batch_txs,
                 0,
             );
-            return;
+            return Ok(());
         }
         if routes.len() > txs.len() || plans.len() > txs.len() {
             let reason = match (routes.len() > txs.len(), plans.len() > txs.len()) {
@@ -1483,7 +1476,7 @@ impl TransactionGossiper {
                 batch_txs,
                 0,
             );
-            return;
+            return Ok(());
         }
         if routes.len() != txs.len() {
             iroha_logger::warn!(
@@ -1503,12 +1496,12 @@ impl TransactionGossiper {
         let lane_catalog = nexus.lane_catalog.clone();
         let dataspace_catalog = nexus.dataspace_catalog.clone();
         let lane_config = nexus.lane_config.clone();
-        let (max_clock_drift, tx_limits) = {
-            let world_view = self.state.world_view();
-            let params = &world_view.parameters;
-            (params.sumeragi().max_clock_drift(), params.transaction())
-        };
-        let crypto_cfg = self.state.crypto();
+        let parameters = self.state.transaction_admission_parameters();
+        let crypto_policy = parameters.require_crypto_policy().map_err(|_| {
+            ExecutionDeferred::from(ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable)
+        })?;
+        let max_clock_drift = parameters.sumeragi().max_clock_drift();
+        let tx_limits = parameters.transaction();
         let mut batch_seen_hashes = BTreeSet::<EntrypointHash>::new();
         let mut batch_seen_frames = BTreeSet::<Hash>::new();
         let state = self.state.as_ref();
@@ -1517,7 +1510,7 @@ impl TransactionGossiper {
         let stateless_cache_cap = self.state.installed_pipeline().stateless_cache_cap;
         let active_lane_ids = active_gossip_lane_ids(state, &nexus);
         let mut materialized = Vec::with_capacity(batch_txs);
-        for (idx, tx) in txs.into_iter().enumerate() {
+        for (idx, tx) in txs.iter().enumerate() {
             let Some(route) = routes.get(idx).copied() else {
                 iroha_logger::warn!("route metadata missing for transaction gossip entry");
                 self.record_drop_metric(
@@ -1704,9 +1697,22 @@ impl TransactionGossiper {
                 crate::status::inc_gossip_duplicate_known_skipped();
                 continue;
             }
-            let (entrypoint, payload) = match tx.into_entrypoint_with_payload() {
+            // Capture the actual lazy frame read while its observer is alive. The
+            // original frame and transport owner remain in the worker on refusal.
+            let (entrypoint, payload) = match ncore::classify_decode_attempt(|| {
+                tx.clone().into_entrypoint_with_payload()
+            }) {
                 Ok(decoded) => decoded,
-                Err(err) => {
+                Err(attempt) => {
+                    let err = match attempt.into_local_refusal() {
+                        Ok(original) => return Err(original.into()),
+                        Err(completed) => completed.into_error(),
+                    };
+                    if let Some(original) =
+                        crate::execution_attempt::crypto_public_key_decode_deferred(&err)
+                    {
+                        return Err(original);
+                    }
                     iroha_logger::warn!(
                         %frame_digest,
                         ?err,
@@ -1725,6 +1731,7 @@ impl TransactionGossiper {
                     continue;
                 }
             };
+
             let entrypoint_hash = entrypoint.hash();
             if !batch_seen_hashes.insert(entrypoint_hash) {
                 crate::status::inc_gossip_duplicate_known_skipped();
@@ -1760,7 +1767,7 @@ impl TransactionGossiper {
                 *self.state.network_id_ref(),
                 u64::try_from(max_clock_drift.as_millis()).unwrap_or(u64::MAX),
                 tx_limits,
-                crypto_cfg.allowed_signing.clone(),
+                crypto_policy,
             );
             let cache_now_ms = TimeSource::new_system().get_unix_time().as_millis();
             let mut cache = state.stateless_validation_cache().lock();
@@ -1892,7 +1899,7 @@ impl TransactionGossiper {
                     self.state.network_id_ref(),
                     max_clock_drift,
                     tx_limits,
-                    crypto_cfg.as_ref(),
+                    crypto_policy,
                     candidate.prepared.as_ref(),
                     candidate.ed25519_prechecked,
                 )
@@ -1903,6 +1910,9 @@ impl TransactionGossiper {
                     let local_plan = {
                         match self.queue.route_plan_for_gossip_with_state(&tx, state) {
                             Ok(plan) => plan,
+                            Err(crate::queue::RoutingResolveError::Deferred(original)) => {
+                                return Err(original);
+                            }
                             Err(err) => {
                                 iroha_logger::warn!(
                                     %entrypoint_hash,
@@ -1965,6 +1975,8 @@ impl TransactionGossiper {
                         );
                         continue;
                     }
+                    // Acceptance already retains the original canonical frame in `tx`.
+                    // Queue admission moves that same owner through its routing checks.
                     let push_result = self
                         .queue
                         .push_with_lane_with_state_and_routing_plan(tx, state, local_plan);
@@ -2033,11 +2045,17 @@ impl TransactionGossiper {
                                 0,
                             );
                         }
+                        Err(crate::queue::Failure {
+                            err: crate::queue::Error::Deferred(original),
+                            ..
+                        }) => {
+                            // The failed Accepted copy is retired, but this exact
+                            // canonical frame, routing metadata and transport credit
+                            // remain the pending worker job until retry or shutdown.
+                            return Err(original);
+                        }
                         Err(crate::queue::Failure { tx, err }) => {
-                            if matches!(
-                                err,
-                                crate::queue::Error::Full | crate::queue::Error::Deferred(_)
-                            ) {
+                            if matches!(err, crate::queue::Error::Full) {
                                 iroha_logger::debug!(
                                     tx = %tx.hash_as_entrypoint(),
                                     "queue rejected gossiped transaction due to backpressure"
@@ -2055,9 +2073,24 @@ impl TransactionGossiper {
                 Err(AcceptTransactionFail::AnonymousBallotUnavailable) => {
                     iroha_logger::debug!("anonymous ballot verification is locally unavailable");
                 }
-                Err(err) => iroha_logger::error!(%err, "Transaction rejected"),
+                Err(err) => match err.into_execution_deferred() {
+                    Ok(original) => return Err(original),
+                    Err(completed) => iroha_logger::error!(%completed, "Transaction rejected"),
+                },
             }
         }
+        Ok(())
+    }
+}
+impl worker::Handler for TransactionGossiper {
+    fn tick(&mut self) {
+        self.gossip_transactions();
+    }
+    fn incoming(
+        &mut self,
+        message: &RetainedGossip<Arc<TransactionGossip>>,
+    ) -> Result<(), ExecutionDeferred> {
+        self.handle_retained_gossip(message)
     }
 }
 fn validate_route(
@@ -2823,6 +2856,17 @@ mod tests {
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
             ))
             .expect("valid fixture parameters");
+        parameters
+            .set_parameter(
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    Algorithm::Ed25519,
+                    Algorithm::Secp256k1,
+                ])
+                .expect("explicit two-algorithm gossip fixture policy")
+                .into_parameter()
+                .unwrap(),
+            )
+            .unwrap();
         parameters.commit();
         world
     }
@@ -4436,6 +4480,91 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
         assert_eq!(gossiper.queue.queued_len(), 1);
     }
     #[test]
+    fn gossip_before_initial_policy_retains_original_source_then_retries_without_rejection() {
+        let gossiper = closed_test_gossiper(NonZeroU32::new(1).unwrap());
+        // Explicit pre-initialization component fixture, not a permitted production removal.
+        let mut parameters = gossiper.state.world.parameters.block();
+        let original_parameters = parameters.get().clone();
+        assert!(original_parameters.root_fees().is_some());
+        *parameters.get_mut() = crate::state::StateParameters::default();
+        parameters.commit();
+        let (signed, _) = build_transaction("policy readiness original source");
+        let hash = signed.hash_as_entrypoint();
+        let message = RetainedGossip::synthetic_for_test(Arc::new(TransactionGossip {
+            txs: vec![signed.into()],
+            routes: vec![GossipRoute {
+                lane_id: LaneId::SINGLE,
+                dataspace_id: DataSpaceId::UNIVERSAL,
+            }],
+            plans: vec![default_plan()],
+            plane: GossipPlane::Public,
+        }));
+        let payload = message.payload().txs[0].payload();
+        let original = gossiper.handle_retained_gossip(&message).unwrap_err();
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.decode_refusal().is_none());
+        assert!(original.verification_refusal().is_none());
+        assert!(original.phase().is_none());
+        assert_eq!(gossiper.queue.queued_len(), 0);
+        assert_eq!(message.payload().txs[0].hash(), Some(hash));
+        assert!(Arc::ptr_eq(&payload, &message.payload().txs[0].payload()));
+        let mut parameters = gossiper.state.world.parameters.block();
+        // Restore the same complete owner, including its committed fee policy.
+        // Restoring only crypto/metadata would leave ordinary admission uninitialized.
+        *parameters.get_mut() = original_parameters.clone();
+        parameters.commit();
+        assert_eq!(
+            gossiper.state.world.parameters.view().get(),
+            &original_parameters
+        );
+        gossiper.handle_retained_gossip(&message).unwrap();
+        assert_eq!(gossiper.queue.queued_len(), 1);
+        assert!(gossiper.queue.contains_entrypoint_hash(hash));
+        assert!(Arc::ptr_eq(&payload, &message.payload().txs[0].payload()));
+        let batch = gossiper.queue.gossip_batch_with_state(1, &gossiper.state);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].hash, hash);
+        assert!(Arc::ptr_eq(&batch[0].payload, &payload));
+    }
+
+    #[test]
+    fn admitted_peer_gossip_reuses_original_frame_for_regossip() {
+        let gossiper = closed_test_gossiper(NonZeroU32::new(1).expect("nonzero resend ticks"));
+        let (signed, _) = build_transaction("original peer frame through queue");
+        let hash = signed.hash_as_entrypoint();
+        let decoded = decode_gossip_message(&TransactionGossip {
+            txs: vec![signed.into()],
+            routes: vec![GossipRoute {
+                lane_id: LaneId::SINGLE,
+                dataspace_id: DataSpaceId::UNIVERSAL,
+            }],
+            plans: vec![default_plan()],
+            plane: GossipPlane::Public,
+        });
+        assert_eq!(decoded.txs[0].hash(), None);
+        assert!(!decoded.txs[0].is_entrypoint_materialized());
+        let payload = decoded.txs[0].payload();
+        let message = RetainedGossip::synthetic_for_test(Arc::new(decoded));
+        gossiper.handle_retained_gossip(&message).unwrap();
+        assert_eq!(gossiper.queue.queued_len(), 1);
+        assert!(gossiper.queue.contains_entrypoint_hash(hash));
+        assert!(!message.payload().txs[0].is_entrypoint_materialized());
+        assert!(Arc::ptr_eq(&payload, &message.payload().txs[0].payload()));
+        let batch = gossiper.queue.gossip_batch_with_state(1, &gossiper.state);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].hash, hash);
+        assert_eq!(batch[0].routing_plan, default_plan());
+        assert!(
+            Arc::ptr_eq(&batch[0].payload, &payload),
+            "admission and regossip must share the exact original peer frame"
+        );
+    }
+
+    #[test]
     fn gossip_ed25519_batch_precheck_accepts_all_valid_single_key_transactions() {
         let gossiper = closed_test_gossiper(NonZeroU32::new(1).expect("nonzero resend ticks"));
         let (first, _) = build_transaction("batch-valid-a");
@@ -4485,14 +4614,16 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
         let gossiper = closed_test_gossiper(NonZeroU32::new(1).expect("nonzero resend ticks"));
         assert!(gossiper.state.installed_pipeline().stateless_cache_cap > 0);
         let (valid, _) = build_transaction("signature-cache-identity");
-        let (max_clock_drift, limits) = gossiper.state.transaction_admission_limits();
+        let parameters = gossiper.state.transaction_admission_parameters();
+        let max_clock_drift = parameters.sumeragi().max_clock_drift();
+        let limits = parameters.transaction();
         let (_clock, time_source) = TimeSource::new_mock(valid.creation_time());
         let accepted = AcceptedTransaction::accept_with_time_source(
             valid.clone(),
             gossiper.state.network_id_ref(),
             max_clock_drift,
             limits,
-            &gossiper.state.crypto(),
+            parameters.require_crypto_policy().unwrap(),
             &time_source,
         )
         .expect("validate the complete original signed envelope");
@@ -4668,7 +4799,7 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
             ..Default::default()
         };
         let state = Arc::new(State::new_with_nexus_for_testing(
-            World::new(),
+            world_with_alice(),
             nexus,
             LiveQueryStore::start_test(),
         ));
@@ -4710,7 +4841,29 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
             public_seed: GossipTargetSeed::new(0xBEEF_0001, Duration::from_secs(1), now),
             restricted_seed: GossipTargetSeed::new(0xBEEF_0002, Duration::from_secs(1), now),
         };
-        let (signed, _) = build_transaction("route-mismatch");
+        let (signed, accepted) = build_transaction("route-mismatch");
+        // Establish successful admission and local routing before exercising
+        // advertised-route drift; a missing fixture policy is not that rejection.
+        let parameters = gossiper.state.transaction_admission_parameters();
+        AcceptedTransaction::validate_with_now(
+            &signed,
+            gossiper.state.network_id_ref(),
+            Duration::ZERO,
+            parameters.transaction(),
+            parameters
+                .require_crypto_policy()
+                .expect("explicit gossip fixture crypto policy"),
+            signed.creation_time(),
+        )
+        .expect("the original envelope passes stateless admission");
+        assert_eq!(
+            gossiper
+                .queue
+                .route_plan_for_gossip_with_state(&accepted, gossiper.state.as_ref())
+                .expect("the local fixture route is available")
+                .coordinator_route(),
+            RoutingDecision::new(mismatched_lane, mismatched_dataspace)
+        );
         let route = GossipRoute {
             lane_id: LaneId::SINGLE,
             dataspace_id: DataSpaceId::UNIVERSAL,

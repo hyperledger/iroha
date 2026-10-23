@@ -96,7 +96,7 @@
         "owner": "V.2",
         "summary": "No test submits an exact-limit and a one-over transaction through the HTTP handler; that case and the four-peer case belong to V.2."
       },
-      "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths."
+      "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths. The signed-carrier ceiling control establishes structural and byte-budget acceptance only; node admission still refuses its missing authoritative consuming route after those checks."
     },
     {
       "stage": "queue",
@@ -124,7 +124,7 @@
         },
         {
           "path": "crates/iroha_core/src/tx.rs",
-          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
+          "name": "ceiling_sized_carrier_passes_size_checks_but_requires_an_authoritative_route"
         }
       ],
       "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths."
@@ -470,7 +470,12 @@
         {
           "stage": "queue",
           "path": "crates/iroha_core/src/gossiper.rs",
-          "contains": "(params.sumeragi().max_clock_drift(), params.transaction())"
+          "contains": "let tx_limits = parameters.transaction();"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/gossiper.rs",
+          "contains": "AcceptedTransaction::accept_gossip_entrypoint_with_payload_and_prepared_metadata( candidate.entrypoint, Arc::clone(&candidate.payload), candidate.entrypoint_hash, self.state.network_id_ref(), max_clock_drift, tx_limits, crypto_policy, candidate.prepared.as_ref(), candidate.ed25519_prechecked, )"
         },
         {
           "stage": "follower",
@@ -547,7 +552,7 @@
         },
         {
           "path": "crates/iroha_core/src/tx.rs",
-          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
+          "name": "ceiling_sized_carrier_passes_size_checks_but_requires_an_authoritative_route"
         }
       ]
     },
@@ -3553,7 +3558,7 @@
         },
         {
           "path": "crates/iroha_core/src/tx.rs",
-          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
+          "name": "ceiling_sized_carrier_passes_size_checks_but_requires_an_authoritative_route"
         }
       ]
     },
@@ -12292,7 +12297,7 @@
         },
         {
           "path": "crates/iroha_core/src/tx.rs",
-          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
+          "name": "ceiling_sized_carrier_passes_size_checks_but_requires_an_authoritative_route"
         }
       ]
     },
@@ -13470,7 +13475,7 @@
       "function": "execution_policy_digest_v1",
       "field_form": "policy_push",
       "source": "committed",
-      "what": "The typed catalog behind the execution-policy digest committed with State, outside [zk] and [nexus]: the function hashes each field. The code is authoritative; this view records which of its fields are resource bounds of the transaction and proof path and why every other field is not. The listed bounds are the execution limits of the pipeline. Their values come from the committed custom parameter pipeline_validity_policy_v1 (iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1, applied by iroha_core::pipeline_validity_policy), set by an authorized SetParameter in genesis or later and effective from the next block, or from the protocol default when a chain commits none; the node configuration schema has no key for them. Gas fees have a separate validated committed projection in iroha_core::pipeline_gas_policy. The excluded fields of [crypto], [gov], oracle, content and the settlement router are still read from node configuration (census entries cfg.*, owner F.4). Fraud admission is the exact committed FraudAdmissionPolicyV1 value, classified separately by fraud_admission_policy_v1; node endpoints and deadlines are excluded from the commitment. Two fields are digests of the other two policy catalogs (`digests`), whose fields are classified there. The checker reads the field list from the function, including names a loop takes from a literal table, and fails on a field that is neither or on a field it cannot name.",
+      "what": "The typed catalog behind the execution-policy digest committed with State, outside [zk] and [nexus]: the function hashes each field. The code is authoritative; this view records which of its fields are resource bounds of the transaction and proof path and why every other field is not. The listed bounds are the execution limits of the pipeline. Their values come from the committed custom parameter pipeline_validity_policy_v1 (iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1, applied by iroha_core::pipeline_validity_policy), set by an authorized SetParameter in genesis or later and effective from the next block, or from the protocol default when a chain commits none; the node configuration schema has no key for them. Gas fees have a separate validated committed projection in iroha_core::pipeline_gas_policy. The excluded fields of [gov], oracle, content and the settlement router are still read from node configuration (census entries cfg.*, owner F.4). The retired crypto.default_hash, crypto.allowed_signing, crypto.sm2_distid_default and crypto.allowed_curve_ids entries are not fields of this digest. Ordinary signing and account-controller admission has the separately authenticated committed CryptoAdmissionPolicyV1 owner; this catalog removal does not qualify its consumers. Fraud admission is the exact committed FraudAdmissionPolicyV1 value, classified separately by fraud_admission_policy_v1; node endpoints and deadlines are excluded from the commitment. Two fields are digests of the other two policy catalogs (`digests`), whose fields are classified there. The checker reads the field list from the function, including names a loop takes from a literal table, and fails on a field that is neither or on a field it cannot name.",
       "fields": {
         "pipeline.overlay_max_instructions": "queued_effects.config_overlay_max_instructions",
         "pipeline.overlay_max_bytes": "queued_effects.config_overlay_max_bytes",
@@ -13501,15 +13506,6 @@
             "pipeline.gas.tech_account_id",
             "pipeline.gas.accepted_assets",
             "pipeline.gas.units_per_gas"
-          ]
-        },
-        {
-          "reason": "Admitted signature and hash algorithms: a cryptographic admission policy, not a resource bound.",
-          "fields": [
-            "crypto.default_hash",
-            "crypto.allowed_signing",
-            "crypto.sm2_distid_default",
-            "crypto.allowed_curve_ids"
           ]
         },
         {
@@ -16152,7 +16148,7 @@
               "DYNAMIC_ACCESS_HINT_RESERVED_STATE_PREFIXES_V1"
             ],
             "exprs": {
-              "DYNAMIC_ACCESS_HINT_RESERVED_STATE_IDENTIFIERS_V1": "&[ \"as\", \"permission\", \"authorize\", \"break\", \"const\", \"continue\", \"else\", \"enum\", \"error\", \"export\", \"false\", \"fn\", \"for\", \"hajimari\", \"if\", \"import\", \"in\", \"include\", \"kaizen\", \"kotoage\", \"let\", \"match\", \"module\", \"return\", \"seiyaku\", \"state\", \"struct\", \"event\", \"emit\", \"trigger\", \"true\", \"var\", \"view\", \"int\", \"decimal\", \"quantity\", \"bool\", \"string\", \"bytes\", \"Json\", \"AccountId\", \"AssetDefinitionId\", \"AssetId\", \"DomainId\", \"Name\", \"NftId\", \"DataSpaceId\", \"Option\", \"Result\", \"List\", \"ListError\", \"NumericError\", \"StateMap\", \"StateCursor\", \"StatePage\", \"Secret\", \"AccountView\", \"AssetView\", \"AssetDefinitionView\", \"DomainView\", \"NftView\", \"QueryPage\", \"AxtDescriptor\", \"AxtAnchoredSpendV1\", \"ProofBlob\", \"SoracloudRequest\", \"SoracloudResponse\", \"state_map_get\", \"__kotodama_state_page\", \"__kotodama_state_take\", \"__kotodama_list_len\", \"__kotodama_list_get\", \"__kotodama_list_set\", \"__kotodama_list_push\", \"__kotodama_list_try_set\", \"__kotodama_list_try_push\", \"__kotodama_list_pop\", \"__kotodama_list_contains\", \"__kotodama_list_take\", \"__kotodama_list_enumerate\", \"__kotodama_decimal_div_round\", \"__kotodama_decimal_mul_div_round\", \"__kotodama_quantity_mul_div_round\", \"__kotodama_quantity_div_round\", \"__kotodama_quantity_ratio_round\", \"__kotodama_decimal_to_int_trunc\", \"__kotodama_decimal_to_int_round\", \"__kotodama_option_ok_or\", \"__kotodama_result_or_err\", ]",
+              "DYNAMIC_ACCESS_HINT_RESERVED_STATE_IDENTIFIERS_V1": "&[ \"as\", \"permission\", \"authorize\", \"break\", \"const\", \"continue\", \"else\", \"enum\", \"error\", \"export\", \"false\", \"fn\", \"for\", \"hajimari\", \"if\", \"import\", \"in\", \"include\", \"kaizen\", \"kotoage\", \"let\", \"match\", \"module\", \"return\", \"seiyaku\", \"state\", \"struct\", \"event\", \"emit\", \"trigger\", \"true\", \"var\", \"view\", \"int\", \"decimal\", \"quantity\", \"bool\", \"string\", \"bytes\", \"Json\", \"AccountId\", \"AssetDefinitionId\", \"AssetId\", \"DomainId\", \"Name\", \"NftId\", \"DataSpaceId\", \"Option\", \"Result\", \"List\", \"ListError\", \"NumericError\", \"StateMap\", \"StateCursor\", \"StatePage\", \"Secret\", \"AccountView\", \"AssetView\", \"AssetDefinitionView\", \"DomainView\", \"NftView\", \"QueryPage\", \"AssetUidHoldingQuote\", \"AxtDescriptor\", \"AxtAnchoredSpendV1\", \"ProofBlob\", \"SoracloudRequest\", \"SoracloudResponse\", \"state_map_get\", \"__kotodama_state_page\", \"__kotodama_state_take\", \"__kotodama_list_len\", \"__kotodama_list_get\", \"__kotodama_list_set\", \"__kotodama_list_push\", \"__kotodama_list_try_set\", \"__kotodama_list_try_push\", \"__kotodama_list_pop\", \"__kotodama_list_contains\", \"__kotodama_list_take\", \"__kotodama_list_enumerate\", \"__kotodama_decimal_div_round\", \"__kotodama_decimal_mul_div_round\", \"__kotodama_quantity_mul_div_round\", \"__kotodama_quantity_div_round\", \"__kotodama_quantity_ratio_round\", \"__kotodama_decimal_to_int_trunc\", \"__kotodama_decimal_to_int_round\", \"__kotodama_option_ok_or\", \"__kotodama_result_or_err\", ]",
               "DYNAMIC_ACCESS_HINT_RESERVED_STATE_PREFIXES_V1": "&[\"__kotodama_link_\"]"
             }
           },
@@ -16373,7 +16369,7 @@
               "KOTODAMA_V1_RESERVED_TYPE_DECLARATIONS"
             ],
             "exprs": {
-              "KOTODAMA_V1_RESERVED_TYPE_DECLARATIONS": "&[ \"int\", \"decimal\", \"quantity\", \"bool\", \"string\", \"bytes\", \"Json\", \"AccountId\", \"AssetDefinitionId\", \"AssetId\", \"DomainId\", \"Name\", \"NftId\", \"DataSpaceId\", \"Option\", \"Result\", \"List\", \"ListError\", \"NumericError\", \"StateMap\", \"StateCursor\", \"StatePage\", \"Secret\", \"AccountView\", \"AssetView\", \"AssetDefinitionView\", \"DomainView\", \"NftView\", \"QueryPage\", \"AxtDescriptor\", \"AxtAnchoredSpendV1\", \"ProofBlob\", \"SoracloudRequest\", \"SoracloudResponse\", \"state_map_get\", \"__kotodama_state_page\", \"__kotodama_state_take\", \"__kotodama_list_len\", \"__kotodama_list_get\", \"__kotodama_list_set\", \"__kotodama_list_push\", \"__kotodama_list_try_set\", \"__kotodama_list_try_push\", \"__kotodama_list_pop\", \"__kotodama_list_contains\", \"__kotodama_list_take\", \"__kotodama_list_enumerate\", \"__kotodama_decimal_div_round\", \"__kotodama_decimal_mul_div_round\", \"__kotodama_quantity_mul_div_round\", \"__kotodama_quantity_div_round\", \"__kotodama_quantity_ratio_round\", \"__kotodama_decimal_to_int_trunc\", \"__kotodama_decimal_to_int_round\", \"__kotodama_option_ok_or\", \"__kotodama_result_or_err\", \"i8\", \"i16\", \"i32\", \"i64\", \"i128\", \"isize\", \"u8\", \"u16\", \"u32\", \"u64\", \"u128\", \"usize\", \"num\", \"Int\", \"Integer\", \"float\", \"f32\", \"f64\", \"Decimal\", \"Fixed\", \"FixedPoint\", \"Amount\", \"amount\", \"money\", \"Quantity\", \"number\", ]"
+              "KOTODAMA_V1_RESERVED_TYPE_DECLARATIONS": "&[ \"int\", \"decimal\", \"quantity\", \"bool\", \"string\", \"bytes\", \"Json\", \"AccountId\", \"AssetDefinitionId\", \"AssetId\", \"DomainId\", \"Name\", \"NftId\", \"DataSpaceId\", \"Option\", \"Result\", \"List\", \"ListError\", \"NumericError\", \"StateMap\", \"StateCursor\", \"StatePage\", \"Secret\", \"AccountView\", \"AssetView\", \"AssetDefinitionView\", \"DomainView\", \"NftView\", \"QueryPage\", \"AssetUidHoldingQuote\", \"AxtDescriptor\", \"AxtAnchoredSpendV1\", \"ProofBlob\", \"SoracloudRequest\", \"SoracloudResponse\", \"state_map_get\", \"__kotodama_state_page\", \"__kotodama_state_take\", \"__kotodama_list_len\", \"__kotodama_list_get\", \"__kotodama_list_set\", \"__kotodama_list_push\", \"__kotodama_list_try_set\", \"__kotodama_list_try_push\", \"__kotodama_list_pop\", \"__kotodama_list_contains\", \"__kotodama_list_take\", \"__kotodama_list_enumerate\", \"__kotodama_decimal_div_round\", \"__kotodama_decimal_mul_div_round\", \"__kotodama_quantity_mul_div_round\", \"__kotodama_quantity_div_round\", \"__kotodama_quantity_ratio_round\", \"__kotodama_decimal_to_int_trunc\", \"__kotodama_decimal_to_int_round\", \"__kotodama_option_ok_or\", \"__kotodama_result_or_err\", \"i8\", \"i16\", \"i32\", \"i64\", \"i128\", \"isize\", \"u8\", \"u16\", \"u32\", \"u64\", \"u128\", \"usize\", \"num\", \"Int\", \"Integer\", \"float\", \"f32\", \"f64\", \"Decimal\", \"Fixed\", \"FixedPoint\", \"Amount\", \"amount\", \"money\", \"Quantity\", \"number\", ]"
             }
           },
           {
@@ -16703,7 +16699,7 @@
             ],
             "exprs": {
               "KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1": "2_048",
-              "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1": "10_000",
+              "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1": "10_034",
               "KAGEMUSHA_WALLET_SESSION_TEXT_MAX_BYTES_V1": "text_max_bytes_v1(KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1)",
               "KAGEMUSHA_WALLET_MESSAGE_TEXT_MAX_BYTES_V1": "text_max_bytes_v1(KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)",
               "KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1": "KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 - KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1",
@@ -23935,15 +23931,6 @@
             }
           },
           {
-            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation/cursor.rs",
-            "symbols": [
-              "CURSOR_MAX"
-            ],
-            "exprs": {
-              "CURSOR_MAX": "TRANSACTION_MAX + MAX_FINALITY_CHECKPOINT_BYTES + 4096"
-            }
-          },
-          {
             "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation.rs",
             "symbols": [
               "TRANSACTION_MAX",
@@ -23990,15 +23977,6 @@
             "exprs": {
               "LEDGER_PROOF_MAX_BYTES_V1": "MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024",
               "PAYOUT_RECORD_MAX_BYTES_V1": "1024"
-            }
-          },
-          {
-            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer/unload_session.rs",
-            "symbols": [
-              "SESSION_MAX"
-            ],
-            "exprs": {
-              "SESSION_MAX": "MAX_FINALITY_CHECKPOINT_BYTES + 1024"
             }
           },
           {
@@ -24632,6 +24610,7 @@
             },
             "term_of": {
               "METADATA_BOUND": [
+                "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs: INTAKE_MEMORY_RESERVATION_BYTES",
                 "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/fee_claims.rs: FEE_CLAIM_MAX_BYTES_V1",
                 "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/index.rs: NODE_LIMIT"
               ]
@@ -25095,6 +25074,53 @@
         "exprs": {
           "FOLD_METRICS_MAX_BYTES_V1": "131_072"
         }
+      },
+      {
+        "reason": "Terms of excluded limits: KAGEMUSHA phone-local memory admission accounting: the resident wallet-core baseline, bounded intake/recovery requested-byte allowance, and their combined intake peak. The coordinator compares the larger of that peak and installed relation proving memory with the current custody resource probe before intake allocation or recovery decoding. A known shortfall returns a typed retryable NotEnoughMemory before proving or committing; an unavailable OS memory observation is not a refusal. These are local wallet execution resources, not consensus validity or transaction, block, transport or generic proof ceilings. The allowance is logical requested-byte accounting, not an allocator/RSS guarantee or an exclusive OS reservation. The resident baseline and intake allowance are addends of the separately classified local intake peak, not independent admission ceilings; term_of pins their exact consumer.",
+        "files": [
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_capacity_v1.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1": "50 << 20"
+            },
+            "term_of": {
+              "KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1": [
+                "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs: INTAKE_PEAK_MEMORY_BYTES"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs",
+            "symbols": [
+              "INTAKE_MEMORY_RESERVATION_BYTES"
+            ],
+            "exprs": {
+              "INTAKE_MEMORY_RESERVATION_BYTES": "6 * (lifecycle::INTAKE_BATCH_BYTES as u64 + archive::METADATA_BOUND as u64) + 256 * lifecycle::INTAKE_DRAFT_OBJECTS as u64 + 2 * (REQUEST_MAX_BYTES as u64 + PLAN_BOUND as u64) + 64 * 1024"
+            },
+            "term_of": {
+              "INTAKE_MEMORY_RESERVATION_BYTES": [
+                "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs: INTAKE_PEAK_MEMORY_BYTES"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "reason": "KAGEMUSHA phone-local memory admission accounting: the resident wallet-core baseline, bounded intake/recovery requested-byte allowance, and their combined intake peak. The coordinator compares the larger of that peak and installed relation proving memory with the current custody resource probe before intake allocation or recovery decoding. A known shortfall returns a typed retryable NotEnoughMemory before proving or committing; an unavailable OS memory observation is not a refusal. These are local wallet execution resources, not consensus validity or transaction, block, transport or generic proof ceilings. The allowance is logical requested-byte accounting, not an allocator/RSS guarantee or an exclusive OS reservation.",
+        "files": [
+          {
+            "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs",
+            "symbols": [
+              "INTAKE_PEAK_MEMORY_BYTES"
+            ],
+            "exprs": {
+              "INTAKE_PEAK_MEMORY_BYTES": "INTAKE_MEMORY_RESERVATION_BYTES + KAGEMUSHA_WALLET_CORE_BASELINE_BYTES_V1"
+            }
+          }
+        ]
       }
     ],
     "literals": {
@@ -25451,14 +25477,7 @@
               }
             },
             {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/activation/confirmation.rs",
-              "sites": {
-                "self.height < 2": 1,
-                "verified.height() < 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs",
+              "path": "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_outcome.rs",
               "sites": {
                 "self.height < 2": 1
               }
@@ -27277,7 +27296,7 @@
             {
               "path": "crates/iroha_core_zk/src/kagemusha_wallet_capacity_v1.rs",
               "sites": {
-                "degree < 3": 1
+                "self.degree < 3": 1
               }
             },
             {
@@ -28395,6 +28414,39 @@
               "path": "crates/iroha_data_model/src/asset/uid.rs",
               "sites": {
                 "year < 2013": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Collection cursor tuple shape and coordinate-index safety: a one-coordinate public account-history block boundary has no transaction pair; a cursor with at least two coordinates exposes its first pair while optional subrow coordinates remain separately bound. This selects a cursor representation and imposes no byte, count or work budget.",
+          "files": [
+            {
+              "path": "crates/iroha_torii/src/collections/engine.rs",
+              "sites": {
+                "position.len() >= 2": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "The committed public-lane staking policy validates its maximum slash fraction against the full basis-point denominator (10,000). This bounds the value of one economic fraction, not bytes, counts, allocation or work. InvalidSlashFraction remains mandatory; the existing exact-bound and one-over test retains both acceptance and refusal.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/block/consensus/staking_policy.rs",
+              "sites": {
+                "self.max_slash_bps > 10_000": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "The finalized physical-transfer owner reads at most two matching source-call identities solely to distinguish exactly one match from duplicates. The following count != 1 rejects DuplicateSourceCall; two is a uniqueness-check sentinel, not an admissible source-entry limit. PhysicalTransferWork::SourceEntries still enforces limits.max_source_entries before this join.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/fastpq/finalized_source/physical_transfer.rs",
+              "sites": {
+                ".take(2)": 1
               }
             }
           ]

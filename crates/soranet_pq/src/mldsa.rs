@@ -1579,3 +1579,6 @@ mod tests {
 
 #[cfg(test)]
 mod fips204_nistkat_tests;
+
+#[cfg(test)]
+mod fips204_acvp_tests;

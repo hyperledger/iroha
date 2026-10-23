@@ -684,7 +684,7 @@ test("fromAccount rejects control and Unicode-confusable curve algorithm aliases
         () => sdk.AccountAddress.fromAccount({ publicKey: DEFAULT_PUBLIC_KEY, algorithm }),
         (error) =>
           error instanceof sdk.AccountAddressError &&
-          error.code === sdk.AccountAddressErrorCode.UNSUPPORTED_ALGORITHM,
+          error.code === sdk.AccountAddressErrorCode.UNKNOWN_ALGORITHM,
       );
     }
   }
@@ -729,7 +729,7 @@ test("curve registry accepts only exact canonical V1 algorithm labels in src and
         () => addressModule.curveIdFromAlgorithm(algorithm),
         (error) =>
           error instanceof addressModule.AccountAddressError &&
-          error.code === addressModule.AccountAddressErrorCode.UNSUPPORTED_ALGORITHM,
+          error.code === addressModule.AccountAddressErrorCode.UNKNOWN_ALGORITHM,
         algorithm,
       );
     }

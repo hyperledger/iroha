@@ -23,7 +23,6 @@ use super::{
         frozen_security_certificate_v1, security_candidate_input_digest_v1,
     },
 };
-use crate::vega::sponge::Keccak256;
 /// Frozen power-of-two cyclotomic degree of the collective-ingress candidate.
 pub const ZK_AMS_MKHE_RELEASE_RING_DEGREE_V1: usize = 131_072;
 /// Exact number of T256 base-field values packed through conjugate `Fp2` slots.
@@ -233,23 +232,35 @@ pub(super) fn release_profile_v1() -> BgvProfile {
 }
 const COLLECTIVE_INGRESS_CONSTRUCTION_V1: &[u8] = b"iroha.zk-ams.v1.collective-ingress-hybrid:not-cdks19:on-entry-independent-owner-key:fixed-roster-sum-secret:proof-bound-cks:collective-s2-rkg:all-roster-decryption:transparent-seeded-a:sampled-cbd-error:canonical-natural-lift-effective-error";
 fn collective_ingress_construction_digest_v1(noise: ZkAmsMkheNoiseCertificateV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(COLLECTIVE_INGRESS_CONSTRUCTION_V1);
-    hash.update(&noise.sampled_rlwe_error_min.to_be_bytes());
-    hash.update(&noise.sampled_rlwe_error_max.to_be_bytes());
-    hash.update(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        COLLECTIVE_INGRESS_CONSTRUCTION_V1,
+        6,
+    );
+    hash.push_field(&noise.sampled_rlwe_error_min.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&noise.sampled_rlwe_error_max.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         noise.sampled_rlwe_error_max_abs,
         noise.sampled_rlwe_error_bound_bits,
-    ]);
-    hash.update(&noise.natural_lift_effective_error_min.to_be_bytes());
-    hash.update(&noise.natural_lift_effective_error_max.to_be_bytes());
-    hash.update(&[
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&noise.natural_lift_effective_error_min.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&noise.natural_lift_effective_error_max.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         noise.natural_lift_effective_error_verifier_max_abs,
         noise.natural_lift_effective_error_bound_bits,
         noise.natural_lift_upper_half_correction_min,
         noise.natural_lift_upper_half_correction_max,
-    ]);
-    hash.finalize()
+    ])
+    .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 /// Return the machine-checked conservative Phase-II/III noise certificate.
 pub fn zk_ams_mkhe_noise_certificate_v1() -> Result<ZkAmsMkheNoiseCertificateV1, ZkAmsMkheErrorV1> {
@@ -273,16 +284,23 @@ pub fn zk_ams_mkhe_resource_certificate_v1()
 pub fn zk_ams_mkhe_resource_certificate_digest_v1() -> Result<[u8; 32], ZkAmsMkheErrorV1> {
     let profile = release_profile_v1();
     let certificate = zk_ams_mkhe_resource_certificate_v1()?;
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.resource-certificate");
-    hash.update(&profile.resource_policy_digest()?);
-    hash.update(&certificate.governed_roster_wire_bytes.to_be_bytes());
-    hash.update(&certificate.ring_degree.to_be_bytes());
-    hash.update(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.resource-certificate",
+        21,
+    );
+    hash.push_field(&profile.resource_policy_digest()?)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.governed_roster_wire_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         certificate.rns_limb_count,
         certificate.max_composed_rotation_key_switch_count,
         certificate.collective_evaluated_key_count,
-    ]);
+    ])
+    .expect("fixed bounded MKHE identity field");
     for value in [
         certificate.rns_polynomial_wire_bytes,
         certificate.compact_collective_ciphertext_wire_bytes,
@@ -301,9 +319,10 @@ pub fn zk_ams_mkhe_resource_certificate_digest_v1() -> Result<[u8; 32], ZkAmsMkh
         certificate.hybrid_key_switch_work_units,
         certificate.max_composed_rotation_work_units,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&[
+    hash.push_field(&[
         certificate.ciphertext_ceiling_met.into(),
         certificate.per_evaluated_key_ceiling_met.into(),
         certificate.workspace_ceiling_met.into(),
@@ -314,8 +333,12 @@ pub fn zk_ams_mkhe_resource_certificate_digest_v1() -> Result<[u8; 32], ZkAmsMkh
             .into(),
         certificate.phase23_work_measured.into(),
         certificate.release_peak_memory_measured.into(),
-    ]);
-    Ok(hash.finalize())
+    ])
+    .expect("fixed bounded MKHE identity field");
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 /// Return canonical coverage evidence for the complete MKHE wire surface.
 ///
@@ -460,41 +483,65 @@ pub fn zk_ams_mkhe_manifest_digest_v1() -> Result<[u8; 32], ZkAmsMkheErrorV1> {
     Ok(release_manifest_digest_v1(manifest))
 }
 fn release_manifest_digest_v1(manifest: ZkAmsMkheReleaseManifestV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.release-manifest");
-    hash.update(&[manifest.version]);
-    hash.update(&manifest.profile_id);
-    hash.update(&manifest.ring_degree.to_be_bytes());
-    hash.update(&manifest.slot_count.to_be_bytes());
-    hash.update(&[manifest.roster_size]);
-    hash.update(&manifest.construction_digest);
-    hash.update(&[manifest.rns_limb_count]);
-    hash.update(&manifest.ciphertext_modulus_bits.to_be_bytes());
-    hash.update(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.release-manifest",
+        41 + 2 * RELEASE_MODULI_V1.len(),
+    );
+    hash.push_field(&[manifest.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.profile_id)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.slot_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[manifest.roster_size])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.construction_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[manifest.rns_limb_count])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.ciphertext_modulus_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         manifest.hybrid_digit_bits,
         manifest.hybrid_digit_count,
         manifest.error_eta,
-    ]);
-    hash.update(&manifest.sampled_rlwe_error_min.to_be_bytes());
-    hash.update(&manifest.sampled_rlwe_error_max.to_be_bytes());
-    hash.update(&[
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.sampled_rlwe_error_min.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.sampled_rlwe_error_max.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         manifest.sampled_rlwe_error_max_abs,
         manifest.sampled_rlwe_error_bound_bits,
-    ]);
-    hash.update(&manifest.natural_lift_effective_error_min.to_be_bytes());
-    hash.update(&manifest.natural_lift_effective_error_max.to_be_bytes());
-    hash.update(&[
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.natural_lift_effective_error_min.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.natural_lift_effective_error_max.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         manifest.natural_lift_effective_error_verifier_max_abs,
         manifest.natural_lift_effective_error_bound_bits,
         manifest.natural_lift_upper_half_correction_min,
         manifest.natural_lift_upper_half_correction_max,
-    ]);
-    hash.update(&manifest.target_security_bits.to_be_bytes());
-    hash.update(&manifest.statistical_security_bits.to_be_bytes());
-    hash.update(&manifest.certified_security_bits.to_be_bytes());
-    hash.update(&manifest.max_samples_per_secret_epoch.to_be_bytes());
-    hash.update(&manifest.final_decryption_bound_bits.to_be_bytes());
-    hash.update(&manifest.correctness_margin_bits.to_be_bytes());
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.target_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.statistical_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.certified_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.max_samples_per_secret_epoch.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.final_decryption_bound_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.correctness_margin_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for value in [
         manifest.max_ciphertext_bytes,
         manifest.max_evaluated_key_bytes,
@@ -503,27 +550,47 @@ fn release_manifest_digest_v1(manifest: ZkAmsMkheReleaseManifestV1) -> [u8; 32] 
         manifest.max_workspace_bytes,
         manifest.max_work_units,
     ] {
-        hash.update(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
     for (&modulus, root) in RELEASE_MODULI_V1.iter().zip(RELEASE_NEGACYCLIC_ROOTS_V1) {
-        hash.update(&modulus.to_be_bytes());
-        hash.update(&root.to_be_bytes());
+        hash.push_field(&modulus.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&root.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&manifest.security_certificate_digest);
-    hash.update(&manifest.security_candidate_input_digest);
-    hash.update(&manifest.resource_certificate_digest);
-    hash.update(&manifest.resource_validation_evidence_digest);
-    hash.update(&manifest.wire_evidence_digest);
-    hash.update(&manifest.packing_certificate_digest);
-    hash.update(&manifest.phase23_equation_certificate_digest);
-    hash.update(&manifest.active_exact_binding_audit_digest);
-    hash.update(&manifest.decryption_resource_evidence_digest);
-    hash.update(&manifest.receipt_capability_audit_digest);
-    hash.update(&manifest.receipt_capability_blocker_mask.to_be_bytes());
-    hash.update(&[manifest.receipt_capability_release_available.into()]);
-    hash.update(&manifest.release_kat_digest);
-    hash.update(&manifest.release_kat_evidence_digest);
-    hash.finalize()
+    hash.push_field(&manifest.security_certificate_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.security_candidate_input_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.resource_certificate_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.resource_validation_evidence_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.wire_evidence_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.packing_certificate_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.phase23_equation_certificate_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.active_exact_binding_audit_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.decryption_resource_evidence_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.receipt_capability_audit_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.receipt_capability_blocker_mask.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[manifest.receipt_capability_release_available.into()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.release_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&manifest.release_kat_evidence_digest)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 fn resource_evidence_gate_v1(
     manifest: ZkAmsMkheReleaseManifestV1,
@@ -642,10 +709,14 @@ pub fn zk_ams_mkhe_readiness_v1() -> Result<ZkAmsMkheReadinessV1, ZkAmsMkheError
 /// Return a consensus digest binding the manifest and every readiness bit.
 pub fn zk_ams_mkhe_readiness_digest_v1() -> Result<[u8; 32], ZkAmsMkheErrorV1> {
     let readiness = zk_ams_mkhe_readiness_v1()?;
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.release-readiness");
-    hash.update(&zk_ams_mkhe_manifest_digest_v1()?);
-    hash.update(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.mkhe.release-readiness",
+        4,
+    );
+    hash.push_field(&zk_ams_mkhe_manifest_digest_v1()?)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         readiness.parameter_gate.into(),
         readiness.security_gate.into(),
         readiness.noise_gate.into(),
@@ -656,10 +727,16 @@ pub fn zk_ams_mkhe_readiness_digest_v1() -> Result<[u8; 32], ZkAmsMkheErrorV1> {
         readiness.packing_gate.into(),
         readiness.phase23_gate.into(),
         readiness.receipt_capability_gate.into(),
-    ]);
-    hash.update(&readiness.receipt_capability_blocker_mask.to_be_bytes());
-    hash.update(&[readiness.release_kat_gate.into()]);
-    Ok(hash.finalize())
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&readiness.receipt_capability_blocker_mask.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[readiness.release_kat_gate.into()])
+        .expect("fixed bounded MKHE identity field");
+    Ok(*hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes())
 }
 pub(in crate::vega::zk_ams) fn require_release_ready_v1() -> Result<(), ZkAmsMkheErrorV1> {
     if !zk_ams_mkhe_readiness_v1()?.is_ready() {
@@ -701,9 +778,11 @@ mod tests {
                 .split_once(end)
                 .expect("digest helper boundary")
                 .0;
-            assert!(digest.contains("let mut hash = Keccak256::new();"));
-            assert!(digest.contains("hash.update("));
-            assert!(digest.contains("hash.finalize()"));
+            assert!(digest.contains("let mut hash = super::native_outer_identity_v1("));
+            assert!(digest.contains("hash.push_field("));
+            assert!(digest.contains(".finish()"));
+            assert!(digest.contains("exact MKHE outer identity field count"));
+            assert!(!digest.contains("Keccak256"));
             for forbidden in ["Vec::", "with_capacity", "keccak256("] {
                 assert!(!digest.contains(forbidden), "found {forbidden} in {start}");
             }

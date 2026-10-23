@@ -2,6 +2,7 @@
 use super::profile::ProfileDefaults;
 use iroha_crypto::PublicKey;
 use iroha_data_model::{
+    block::consensus::PublicLaneStakingPolicy,
     hijiri::HijiriParametersV1,
     parameter::{
         Parameter, Parameters,
@@ -43,7 +44,7 @@ pub fn validate_consensus_mode(
     }
     Ok(())
 }
-/// Build the canonical operator-owned genesis with explicit authority and consensus parameters.
+/// Build genesis with explicit authority, consensus parameters, and one authored staking policy.
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 ///
 /// # Errors
@@ -55,7 +56,10 @@ pub fn generate_default(
     consensus_mode: SumeragiConsensusMode,
     profile_defaults: Option<&ProfileDefaults>,
     profile_vrf_seed: Option<[u8; 32]>,
+    staking_policy: PublicLaneStakingPolicy,
 ) -> color_eyre::Result<RawGenesisTransaction> {
+    let staking_asset = staking_policy.stake_asset_id.clone();
+    let builder = builder.with_staking_policy(staking_policy)?;
     let genesis_account_id = AccountId::new(genesis_public_key.clone());
     // Default genesis contains only operator-owned bootstrap state. Public test
     // identities and sample assets belong in explicitly synthetic fixtures.
@@ -84,6 +88,8 @@ pub fn generate_default(
             color_eyre::eyre::eyre!("NPoS genesis requires an explicit or profile-derived VRF seed")
         })?;
         let mut defaults = SumeragiNposParameters::default().with_epoch_seed(seed);
+        // The first build derives root fees from this same authored currency.
+        defaults.xor_asset_definition_id = staking_asset;
         defaults.epoch_length_blocks = parameters.sumeragi().epoch_length_blocks;
         defaults
             .validate()
@@ -116,4 +122,73 @@ pub fn generate_default(
         .with_consensus_meta()?;
     manifest.validate_mode_specific_consensus_parameters()?;
     Ok(manifest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iroha_data_model::block::consensus::{RootFeePolicy, SumeragiGenesisContextParameters};
+
+    #[test]
+    fn selected_staking_asset_binds_npos_and_root_fees_on_the_first_build() {
+        let _author = iroha_data_model::account::address::ChainDiscriminantGuard::enter(369);
+        let key =
+            iroha_crypto::KeyPair::from_seed(vec![0x5c; 32], iroha_crypto::Algorithm::Ed25519);
+        let custody = iroha_config::parameters::defaults::governance::bond_escrow_account_id();
+        for literal in [
+            crate::genesis::profile::TAIRA_XOR_ASSET_DEFINITION_ID,
+            "61CtjvNd9T3THAR65GsMVHr82Bjc",
+        ] {
+            let asset = AssetDefinitionId::parse_address_literal(literal).unwrap();
+            let policy = crate::genesis::default_staking_policy(
+                asset.clone(),
+                custody.clone(),
+                custody.clone(),
+            );
+            let builder = GenesisBuilder::new_without_executor(
+                "explicit-first-build-currency".parse().unwrap(),
+                ".",
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .unwrap(),
+            )
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended());
+            let manifest = generate_default(
+                builder,
+                key.public_key(),
+                None,
+                SumeragiConsensusMode::Npos,
+                None,
+                Some([7; 32]),
+                policy.clone(),
+            )
+            .unwrap();
+            let parameters = manifest.effective_parameters().unwrap();
+            assert_eq!(
+                PublicLaneStakingPolicy::from_parameters(&parameters).unwrap(),
+                policy
+            );
+            let npos = SumeragiNposParameters::from_custom_parameter(
+                parameters
+                    .custom()
+                    .get(&SumeragiNposParameters::parameter_id())
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(npos.xor_asset_definition_id, asset);
+            assert_eq!(
+                RootFeePolicy::from_parameters(&parameters)
+                    .unwrap()
+                    .unwrap()
+                    .fee_asset_id,
+                asset
+            );
+            manifest
+                .validate_mode_specific_consensus_parameters()
+                .unwrap();
+        }
+    }
 }

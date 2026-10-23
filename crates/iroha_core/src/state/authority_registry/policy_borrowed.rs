@@ -25,17 +25,6 @@ impl SerializePayload for Raw<'_> {
     }
 }
 
-/// An immutable stack projection whose fields are measured and streamed twice.
-pub(crate) struct Payload<F>(pub(crate) F);
-impl<F> SerializePayload for Payload<F>
-where
-    F: Fn(&mut Encoder<'_>) -> Result<(), Error>,
-{
-    fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
-        (self.0)(writer)
-    }
-}
-
 /// An immutable linked tuple of already borrowed record fields.
 pub(crate) struct FieldsEnd;
 pub(crate) struct FieldsCons<H, T>(pub(crate) H, pub(crate) T);

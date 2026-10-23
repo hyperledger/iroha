@@ -1,40 +1,49 @@
-// Initial-dispatch fixtures retain the component World and its explicit Nexus,
-// then authenticate an original signed genesis before ordinary H2 execution.
+// Initial-dispatch fixtures begin with a policy-pristine World and explicit Nexus.
+// All mandatory policies are authored into signed genesis before ordinary H2 execution.
 // This grants no authority to a synthetic header or unretained source hash.
-fn original_staking_state(
-    component: State,
-    nexus: iroha_config::parameters::actual::Nexus,
-    mode: iroha_data_model::parameter::system::SumeragiConsensusMode,
-) -> State {
+// Staking admission needs an original NPoS schedule; permissioned genesis
+// deliberately forbids this policy and cannot establish the required authority.
+fn original_npos_staking_state(policy: SumeragiNposParameters) -> State {
     use crate::sumeragi::{
         startup,
         test_chain::{CertifiedTestChain, TestChainConfig},
     };
     use iroha_data_model::parameter::system::{SumeragiConsensusMode, SumeragiParameter};
-    let mut config = TestChainConfig::new(component.world, 0);
-    config.consensus_mode = mode;
-    let npos_epoch_length = if mode == SumeragiConsensusMode::Npos {
-        let policy = config
-            .world
-            .view()
-            .sumeragi_npos_parameters()
-            .expect("fixture policy read completes")
-            .expect("NPoS fixture owns an explicit policy");
-        let length = policy.epoch_length_blocks;
-        config.genesis_parameters.extend([
-            Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(length)),
-            Parameter::Custom(policy.into_custom_parameter()),
-        ]);
-        Some(length.get())
-    } else {
-        None
-    };
-    config.chain_id = component.chain_id;
+    let (world, mut nexus) = staking_fixture_world_and_nexus();
+    // Match the component fixture's explicitly free fee schedule, but carry it
+    // only as signed author input instead of an initialized World parameter.
+    nexus.fees.base_fee = Quantity::zero();
+    nexus.fees.per_byte_fee = Quantity::zero();
+    nexus.fees.per_instruction_fee = Quantity::zero();
+    nexus.fees.per_gas_unit_fee = Quantity::zero();
+    let mut config = TestChainConfig::new(world, 0);
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    let length = policy.epoch_length_blocks;
+    // Replace the constructor's one authored staking parameter with this
+    // fixture's exact monetary profile; never remove policy from a live World.
+    assert_eq!(config.genesis_parameters.len(), 1);
+    config.genesis_parameters[0] = Parameter::Custom(
+        committed_staking_fixture_policy()
+            .into_custom_parameter()
+            .expect("valid original staking policy"),
+    );
+    config
+        .genesis_parameters
+        .push(Parameter::Custom(policy.into_custom_parameter()));
+    config
+        .genesis_parameters
+        .push(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+            length,
+        )));
     config.nexus = Some(nexus);
-    config.governance = Some(component.gov);
     let account = AccountId::new(config.genesis_key.public_key().clone());
     let mode = config.consensus_mode;
     let prepared = CertifiedTestChain::prepare(config).expect("original signed staking genesis");
+    assert_eq!(
+        prepared.genesis.consensus_metadata().mode,
+        SumeragiConsensusMode::Npos,
+        "the retained original signed source establishes the NPoS schedule",
+    );
     let state = std::sync::Arc::try_unwrap(prepared.state)
         .unwrap_or_else(|_| panic!("unpublished staking State is unique"));
     startup::apply_genesis(
@@ -45,11 +54,12 @@ fn original_staking_state(
         None,
     )
     .expect("apply original authenticated staking genesis");
-    if let Some(length) = npos_epoch_length {
-        let (_, authority) = crate::state::validator_committee::current_authority(&state.view())
-            .expect("fixture owns authenticated NPoS scheduling authority");
-        assert_eq!((authority.first_height, authority.last_height), (1, length));
-    }
+    let (_, authority) = crate::state::validator_committee::current_authority(&state.view())
+        .expect("fixture owns authenticated NPoS scheduling authority");
+    assert_eq!(
+        (authority.first_height, authority.last_height),
+        (1, length.get())
+    );
     state
 }
 
@@ -64,21 +74,48 @@ fn original_staking_header(state: &State) -> iroha_data_model::block::BlockHeade
 }
 
 #[test]
+fn staking_genesis_inputs_are_pristine_before_policy_authorship() {
+    let (world, nexus) = staking_fixture_world_and_nexus();
+    let parameters = world.parameters.view();
+    assert!(parameters.get().crypto_policy().is_none());
+    assert!(parameters.get().staking_policy().is_none());
+    assert!(parameters.get().root_fees().is_none());
+    assert!(world.view().sumeragi_npos_parameters().unwrap().is_none());
+    assert!(world.accounts.view().get(&*ALICE_ID).is_some());
+    assert_eq!(nexus.lane_catalog, staking_test_lane_catalog());
+    assert_eq!(nexus.configured_lane_catalog, nexus.lane_catalog);
+    assert_eq!(nexus.configured_dataspace_catalog, nexus.dataspace_catalog);
+    let policy = staking_fixture_npos_policy(6);
+    assert_eq!(policy.epoch_length_blocks.get(), 6);
+    assert_eq!(policy.evidence_horizon_blocks, 1);
+    assert_eq!(policy.slashing_delay_blocks, 1);
+    policy.validate().expect("valid original epoch policy");
+}
+
+#[test]
 fn staking_initial_fixture_owns_original_root_and_retains_epoch_policy() {
-    let mut component = setup_state();
-    set_epoch_length(&mut component, 6);
-    let nexus = component.nexus_snapshot();
-    let original_lanes = nexus.lane_catalog.clone();
-    let state = original_staking_state(
-        component,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
-    );
+    let original_lanes = staking_test_lane_catalog();
+    let state = original_npos_staking_state(staking_fixture_npos_policy(6));
     let parent = state
         .view()
         .latest_block_hash()
         .expect("committed original genesis");
     assert_eq!(state.network_id_ref().into_genesis_hash(), parent);
+    assert_eq!(state.view().height(), 1);
+    assert_eq!(state.kura().blocks_count(), 1);
+    assert_eq!(
+        state.view().world().parameters().staking_policy(),
+        Some(&committed_staking_fixture_policy()),
+    );
+    assert_eq!(
+        state
+            .view()
+            .world()
+            .parameters()
+            .require_crypto_policy()
+            .unwrap(),
+        &crate::sumeragi::test_chain::crypto_fixture_policy(),
+    );
     let header = original_staking_header(&state);
     assert_eq!(header.prev_block_hash(), Some(parent));
     let mut block = state.block(header);
@@ -166,14 +203,7 @@ fn signed_candidate(
 
 #[test]
 fn initial_executor_candidate_bonds_after_key_lead_without_joining_current_topology() {
-    let mut state = setup_state();
-    set_epoch_length(&mut state, 6);
-    let nexus = state.nexus_snapshot();
-    let state = original_staking_state(
-        state,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
-    );
+    let state = original_npos_staking_state(staking_fixture_npos_policy(6));
     let mut block = state.block(original_staking_header(&state));
     let mut stx = block.transaction_for_callback_testing();
     let (validator, _, escrow, definition) = prepare_accounts(&mut stx);
@@ -253,13 +283,7 @@ fn candidate_rejects_other_authority_tampered_consent_and_invalid_pop() {
 
 #[test]
 fn failed_candidate_transaction_rolls_back_peer_key_and_stake() {
-    let component = setup_state();
-    let nexus = component.nexus_snapshot();
-    let state = original_staking_state(
-        component,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
-    );
+    let state = original_npos_staking_state(SumeragiNposParameters::default());
     let mut block = state.block(original_staking_header(&state));
     let (validator, delegator, escrow, definition, nexus) = {
         let mut stx = block.transaction_for_callback_testing();
@@ -598,7 +622,8 @@ fn candidate_requires_committed_schedule_and_rejects_expired_tenure_consent() {
     stx.world
         .parameters
         .get_mut()
-        .remove_custom_parameter(&SumeragiNposParameters::parameter_id());
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id())
+        .expect("optional fixture parameter removal");
     let error = candidate
         .execute(&validator, &mut stx)
         .expect_err("missing committed schedule");

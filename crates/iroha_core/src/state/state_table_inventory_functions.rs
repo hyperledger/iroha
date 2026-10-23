@@ -733,6 +733,15 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Record, BLOCK_HASH),
     ),
     function(
+        "crates/iroha_core/src/state/asset_uid_reader/same_uid.rs",
+        "retail_uid",
+        1,
+        UseOwner::Other(
+            Use::Record,
+            "Reads the retained nonzero retail UID after exact account, binding and policy membership checks and institutional exclusion; the equality query computes no digest or State root",
+        ),
+    ),
+    function(
         "crates/iroha_core/src/state/authority_registry/cell_snapshot.rs",
         "capture_once",
         1,

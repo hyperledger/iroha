@@ -40,19 +40,24 @@ fn mk_state_with_bls_batch() -> (State, NetworkId, AccountId, KeyPair) {
     let domain = Domain::new(domain_id.clone()).build(&account_id);
     let account = Account::new(account_id.clone()).build(&account_id);
     let world = World::with([domain], [account], std::iter::empty::<AssetDefinition>());
+    {
+        let mut block = world.block();
+        let policy = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::BlsNormal,
+        ])
+        .unwrap();
+        block
+            .parameters
+            .set_parameter(policy.into_parameter().unwrap())
+            .unwrap();
+        block.commit();
+    }
     let mut state =
         State::new_with_chain_for_testing(world, kura, query_handle, ChainId::from("chain"));
     let network_id = *state.network_id_ref();
     let mut pipeline = state.view().pipeline().clone();
     pipeline.signature_batch_max_bls = 4;
     state.set_pipeline(pipeline);
-    let mut crypto_cfg = iroha_config::parameters::actual::Crypto::default();
-    if !crypto_cfg.allowed_signing.contains(&Algorithm::BlsNormal) {
-        crypto_cfg.allowed_signing.push(Algorithm::BlsNormal);
-        crypto_cfg.allowed_signing.sort();
-        crypto_cfg.allowed_signing.dedup();
-    }
-    state.set_crypto(crypto_cfg);
     (state, network_id, account_id, kp)
 }
 fn make_tx(

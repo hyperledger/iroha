@@ -52,8 +52,7 @@ _STATEMENT_DIGEST_DOMAIN_V1: Final = b"iroha:privacy:statement:v1"
 _INTENT_DIGEST_DOMAIN_V1: Final = b"iroha.privacy.transaction-intent-digest.v1"
 _PROOF_WIRE_MAGIC_V1: Final = b"IRHZK1\xa5\x5a"
 _CATALOG_COMMITMENT_V1: Final = bytes.fromhex(
-    "e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e"
-    "747f65787cbfbffac94f11c369e2bbff"
+    "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0"
 )
 _BASE64_RE_V1: Final = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 

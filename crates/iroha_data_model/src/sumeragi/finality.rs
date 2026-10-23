@@ -482,13 +482,29 @@ mod tests {
 
     #[test]
     fn native_finality_decoders_preserve_original_scope_refusal_and_exact_retry() {
-        let artifact = NativeFinalityArtifact::from_block(&source(), limits()).unwrap();
+        // The empty codec-only block is now decoded directly without heap storage.
+        // Exercise real refusal using a nonempty signature owner, not a retired scratch copy.
+        let empty = NativeFinalityArtifact::from_block(&source(), limits()).unwrap();
+        let header = source().header();
+        let key =
+            iroha_crypto::KeyPair::from_seed(vec![0x51; 32], iroha_crypto::Algorithm::Ed25519);
+        let signature = crate::block::BlockSignature::new(
+            0,
+            iroha_crypto::SignatureOf::try_from_hash(key.private_key(), header.hash()).unwrap(),
+        );
+        let expected = SignedBlock::presigned(signature, header, Vec::new());
+        let artifact = NativeFinalityArtifact::from_block(&expected, limits()).unwrap();
         let journal = NativeFinalityJournal {
             blocks: vec![artifact.clone()],
         };
         let bytes = norito::encode_canonical(&journal).unwrap();
         let no_allocation =
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        assert_eq!(
+            norito::core::with_decode_limits_scope(no_allocation, || empty.decode_block(limits()))
+                .unwrap(),
+            source(),
+        );
         let errors = [
             norito::core::with_decode_limits_scope(no_allocation, || {
                 artifact.decode_block(limits())
@@ -512,7 +528,7 @@ mod tests {
                 Some(norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. })
             ));
         }
-        assert_eq!(artifact.decode_block(limits()).unwrap(), source());
+        assert_eq!(artifact.decode_block(limits()).unwrap(), expected);
         assert_eq!(
             NativeFinalityJournal::decode(&bytes, limits()).unwrap(),
             journal

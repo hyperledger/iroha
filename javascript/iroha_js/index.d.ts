@@ -119,7 +119,6 @@ export type {
   PrivacyExact12ReleaseManifestV1,
   PrivacyExecutionModeV1,
   PrivacyFixed32BytesV1,
-  PrivacyFixed48BytesV1,
   PrivacyOperationSchemaV1,
   PrivacyProofSystemIdV1,
   PrivacyProofSystemTagV1,
@@ -179,7 +178,9 @@ export type VersionedSignedTransactionV1 =
   | ArrayBufferView;
 
 export const AccountAddressErrorCode: {
-  readonly UNSUPPORTED_ALGORITHM: "ERR_UNSUPPORTED_ALGORITHM";
+  readonly DECODE_RESOURCE_LIMIT: "ERR_DECODE_RESOURCE_LIMIT";
+  readonly UNKNOWN_ALGORITHM: "ERR_UNKNOWN_ALGORITHM";
+  readonly UNSUPPORTED_IMPLEMENTATION: "ERR_UNSUPPORTED_IMPLEMENTATION";
   readonly KEY_PAYLOAD_TOO_LONG: "ERR_KEY_PAYLOAD_TOO_LONG";
   readonly INVALID_HEADER_VERSION: "ERR_INVALID_HEADER_VERSION";
   readonly INVALID_NORM_VERSION: "ERR_INVALID_NORM_VERSION";
@@ -5318,7 +5319,6 @@ export interface AccountCapabilitiesV1 {
   readonly network_id: string;
   readonly network_prefix: number;
   readonly allowed_signing: readonly CryptoAlgorithm[];
-  readonly default_signing: "ed25519";
 }
 
 export interface ToriiNodeCapabilities {

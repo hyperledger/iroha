@@ -484,7 +484,7 @@ object PrivacyExact12CapabilityAdmissionV1 {
 
 internal object PrivacyExact12CapabilityManifestInspectionV1 {
     private const val MAX_INSPECTION_BYTES = 1024 * 1024
-    private const val CATALOG_COMMITMENT_BYTES = 48
+    private const val CATALOG_COMMITMENT_BYTES = 32
     private val U64_MAX = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
 
     fun parse(

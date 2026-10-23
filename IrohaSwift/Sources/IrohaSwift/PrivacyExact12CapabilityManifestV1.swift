@@ -531,28 +531,18 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
     private static let submitProofSchema =
         "iroha_data_model::isi::privacy::SubmitPrivacyProofV1"
     private static let securityClaimSchema =
-        "iroha_data_model::privacy::protocol::PrivacySecurityClaimV1"
+        "iroha_data_model::privacy::PrivacySecurityClaimV1"
     private static let manifestDigestDomain =
         Data("iroha:privacy:exact12-capability-manifest:v1".utf8)
     private static let securityClaimDigestDomain =
         Data("iroha:privacy:security-claim:v1".utf8)
     private static let proofWireMagic = Data([0x49, 0x52, 0x48, 0x5a, 0x4b, 0x31, 0xa5, 0x5a])
-    private static let exact12CatalogCommitment: Data = {
-        let words: [UInt64] = [
-            0x7c30_a004_39f1_37e0,
-            0x6b40_fb5c_d815_db00,
-            0x49a9_4401_d272_97d7,
-            0x2e34_8ea7_fdf3_f0de,
-            0xfabf_bf7c_7865_7f74,
-            0xffbb_e269_c311_4fc9,
-        ]
-        var bytes = Data()
-        for var word in words {
-            word = word.littleEndian
-            bytes.append(Data(bytes: &word, count: MemoryLayout<UInt64>.size))
-        }
-        return bytes
-    }()
+    private static let exact12CatalogCommitment = Data([
+        0x5b, 0xcf, 0x36, 0x6f, 0xb1, 0x8d, 0x2e, 0x43,
+        0x61, 0x48, 0x6c, 0x01, 0x5d, 0xa5, 0xb4, 0x1a,
+        0x3f, 0xb0, 0x0e, 0xdf, 0x05, 0x61, 0x10, 0x42,
+        0xcc, 0xc4, 0x52, 0x12, 0x0d, 0x17, 0x6e, 0xb0,
+    ])
     private static let maximumFieldBytes = PrivacyExact12CapabilityManifestV1.maximumArchiveBytes
     private static let maximumEvidenceBytes = PrivacyExact12CapabilityManifestV1.maximumArchiveBytes
     // Whole statement plus fixed metadata/framing; the raw proof ceiling stays 9 MiB.
@@ -1140,7 +1130,7 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
             throw invalid("release uses an unknown catalog id")
         }
         let catalogCommitment = try release.readField(
-            maximum: 48,
+            maximum: 32,
             label: "release catalog commitment"
         )
         guard catalogCommitment == exact12CatalogCommitment else {
@@ -1457,7 +1447,7 @@ enum PrivacyExact12CapabilityManifestCodecV1 {
     ) throws -> PrivacySecurityClaimV1 {
         var claim = WireReader(bytes)
         let catalogCommitment = try claim.readField(
-            maximum: 48,
+            maximum: 32,
             label: "security claim catalog commitment"
         )
         guard catalogCommitment == exact12CatalogCommitment else {

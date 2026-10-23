@@ -562,7 +562,7 @@ fn every_unwind_clears_the_secrets_built_so_far() {
         });
         assert!(outcome.is_err(), "{label}: the injected fault did not fire");
         assert_cleared(label, observation);
-        // Every sampling operation unwinds with its seed block live; decryption has none.
+        // Every sampling operation releases its seed block during this call; decryption has none.
         let seeds = usize::from(*point != FaultPoint::DecryptionAfterInnerProduct);
         assert_coins_cleared(label, observation, seeds);
         // The fault fired once: the next call completes.
@@ -648,4 +648,268 @@ fn secret_key_custody_frames_are_cleared_on_success_error_and_unwind() {
     assert_cleared("import that unwinds", observation);
     assert!(observation.freed >= 3, "{observation:?}");
     fixtures::disarm_fault();
+}
+
+/// An explicit offline threshold, independent of consensus membership.
+fn threshold_context(profile: &BgvProfile) -> iroha_fhe::bgv::threshold::ThresholdContext {
+    iroha_fhe::bgv::threshold::ThresholdContext::new(profile, [41; 32], 12, 2, vec![1, 2, 7])
+        .expect("threshold context")
+}
+
+#[test]
+fn threshold_dealer_and_shares_clear_on_drop_and_final_issuance() {
+    use iroha_fhe::bgv::threshold::DealerKeyShares;
+    let profile = profile();
+    let context = threshold_context(&profile);
+    let limit = DealerKeyShares::required_secret_bytes(&profile, &context).expect("limit");
+    let secret = fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(31))).expect("key");
+    let (dealer, observation) = observe(POLYNOMIAL_BYTES, || {
+        fixtures::threshold_dealer(
+            &profile,
+            context,
+            secret,
+            limit,
+            &mut FixtureEntropy::new(master(32)),
+        )
+    });
+    let mut dealer = dealer.expect("dealer");
+    assert_coins_cleared("threshold split", observation, 1);
+    assert_eq!(observation.uncleared, 0);
+    let a = dealer.take_share(1).expect("a");
+    let b = dealer.take_share(2).expect("b");
+    let (c, observation) = observe(POLYNOMIAL_BYTES, || dealer.take_share(7));
+    let c = c.expect("c");
+    assert_eq!(dealer.remaining(), 0);
+    assert_cleared(
+        "final issuance clears dealer key and polynomial",
+        observation,
+    );
+    assert!(observation.freed >= 3, "{observation:?}");
+    let ((), observation) = observe(POLYNOMIAL_BYTES, move || drop((a, b, c)));
+    assert_cleared("issued shares", observation);
+    assert_eq!(observation.freed, 3);
+    // Abandonment clears the complete key and every retained polynomial too.
+    let secret = fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(33))).expect("key");
+    let dealer = fixtures::threshold_dealer(
+        &profile,
+        threshold_context(&profile),
+        secret,
+        limit,
+        &mut FixtureEntropy::new(master(34)),
+    )
+    .expect("dealer");
+    let ((), observation) = observe(POLYNOMIAL_BYTES, move || drop(dealer));
+    assert_cleared("abandoned dealer", observation);
+    assert!(observation.freed >= 3, "{observation:?}");
+}
+
+#[test]
+fn threshold_refusals_clear_consumed_keys_and_failed_coin_blocks() {
+    use iroha_fhe::bgv::threshold::{DealerKeyShares, ThresholdError};
+    let profile = profile();
+    let context = threshold_context(&profile);
+    let limit = DealerKeyShares::required_secret_bytes(&profile, &context).expect("limit");
+    let secret = fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(35))).expect("key");
+    let mut entropy = FixtureEntropy::new(master(36));
+    let (error, observation) = observe(POLYNOMIAL_BYTES, || {
+        fixtures::threshold_dealer(&profile, context.clone(), secret, limit - 1, &mut entropy).err()
+    });
+    assert_eq!(
+        error,
+        Some(ThresholdError::SecretBufferLimit {
+            required: limit,
+            limit: limit - 1
+        })
+    );
+    assert_eq!(entropy.draws(), 0);
+    assert_cleared("budget refusal consumes key", observation);
+    assert_eq!(observation.freed, 2);
+    for mut entropy in [
+        FixtureEntropy::failing_after(master(37), 0),
+        FixtureEntropy::stuck_after(master(38), 0, 6),
+    ] {
+        let secret =
+            fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(39))).expect("key");
+        let (error, observation) = observe(POLYNOMIAL_BYTES, || {
+            fixtures::threshold_dealer(&profile, context.clone(), secret, limit, &mut entropy).err()
+        });
+        assert_eq!(
+            error,
+            Some(ThresholdError::Bgv(BgvError::EntropyUnavailable))
+        );
+        assert_coins_cleared("threshold entropy refusal", observation, 1);
+        assert_cleared("entropy refusal consumes key", observation);
+        assert!(observation.freed >= 2, "{observation:?}");
+    }
+}
+
+#[test]
+fn threshold_sampling_and_issuance_unwind_clear_secrets_without_consuming_a_share() {
+    use iroha_fhe::bgv::threshold::DealerKeyShares;
+    quiet_injected_faults();
+    let profile = profile();
+    let context = threshold_context(&profile);
+    let limit = DealerKeyShares::required_secret_bytes(&profile, &context).expect("limit");
+    let secret = fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(40))).expect("key");
+    fixtures::arm_fault(FaultPoint::ThresholdAfterFirstPolynomial);
+    let (outcome, observation) = observe(POLYNOMIAL_BYTES, || {
+        catch_unwind(AssertUnwindSafe(|| {
+            let _ = fixtures::threshold_dealer(
+                &profile,
+                context.clone(),
+                secret,
+                limit,
+                &mut FixtureEntropy::new(master(41)),
+            );
+        }))
+    });
+    assert!(outcome.is_err());
+    assert_coins_cleared("threshold sampling unwind", observation, 1);
+    assert_cleared("sampling unwind key and first polynomial", observation);
+    assert!(observation.freed >= 3, "{observation:?}");
+    let secret = fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(42))).expect("key");
+    let mut dealer = fixtures::threshold_dealer(
+        &profile,
+        context,
+        secret,
+        limit,
+        &mut FixtureEntropy::new(master(43)),
+    )
+    .expect("dealer");
+    fixtures::arm_fault(FaultPoint::ThresholdBeforeShareRelease);
+    let (outcome, observation) = observe(POLYNOMIAL_BYTES, || {
+        catch_unwind(AssertUnwindSafe(|| dealer.take_share(1)))
+    });
+    assert!(outcome.is_err());
+    assert_cleared("calculated share clears on unwind", observation);
+    assert_eq!(observation.freed, 1);
+    assert_eq!(dealer.remaining(), 3);
+    let share = dealer.take_share(1).expect("unwind did not mark issued");
+    assert_eq!(dealer.remaining(), 2);
+    let ((), observation) = observe(POLYNOMIAL_BYTES, move || drop((dealer, share)));
+    assert_cleared("retained dealer and retried share", observation);
+    assert!(observation.freed >= 4, "{observation:?}");
+    fixtures::disarm_fault();
+}
+
+#[test]
+fn retained_encryption_witness_clears_on_drop_refusal_and_unwind() {
+    let profile = profile();
+    let secret =
+        fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(31))).expect("secret");
+    let public = fixtures::public_key(&profile, &secret, &mut FixtureEntropy::new(master(32)))
+        .expect("public");
+    let plaintext = message(&profile);
+    let limit = fixtures::encryption_witness_working_bytes(&profile).expect("limit");
+    let ((ciphertext, witness), observation) = observe(POLYNOMIAL_BYTES, || {
+        fixtures::encrypt_with_witness(
+            &profile,
+            &public,
+            &plaintext,
+            &mut FixtureEntropy::new(master(33)),
+            limit,
+        )
+        .expect("witness")
+    });
+    assert_cleared("witness generation scratch", observation);
+    assert_coins_cleared("witness generation", observation, 1);
+    let ((), observation) = observe(POLYNOMIAL_BYTES, || {
+        witness
+            .check(&profile, &public, &plaintext, &ciphertext, limit)
+            .expect("relation");
+    });
+    assert_cleared("witness relation scratch", observation);
+    let other = Plaintext::constant(&profile, 0).expect("different input");
+    let ((), observation) = observe(POLYNOMIAL_BYTES, || {
+        assert_eq!(
+            witness.check(&profile, &public, &other, &ciphertext, limit),
+            Err(fixtures::EncryptionWitnessError::StatementMismatch)
+        );
+        drop(witness);
+    });
+    assert!(observation.freed >= 3, "all three owned arrays released");
+    assert_cleared("witness refusal and drop", observation);
+}
+
+#[test]
+fn retained_encryption_witness_clears_when_generation_or_check_unwinds() {
+    quiet_injected_faults();
+    let profile = profile();
+    let secret =
+        fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(34))).expect("secret");
+    let public = fixtures::public_key(&profile, &secret, &mut FixtureEntropy::new(master(35)))
+        .expect("public");
+    let plaintext = message(&profile);
+    let limit = fixtures::encryption_witness_working_bytes(&profile).expect("limit");
+    fixtures::arm_fault(FaultPoint::EncryptionAfterSampling);
+    let (outcome, observation) = observe(POLYNOMIAL_BYTES, || {
+        catch_unwind(AssertUnwindSafe(|| {
+            let _ = fixtures::encrypt_with_witness(
+                &profile,
+                &public,
+                &plaintext,
+                &mut FixtureEntropy::new(master(36)),
+                limit,
+            );
+        }))
+    });
+    assert!(outcome.is_err());
+    assert_cleared("witness generation unwind", observation);
+    assert_coins_cleared("witness generation unwind", observation, 1);
+    let (ciphertext, witness) = fixtures::encrypt_with_witness(
+        &profile,
+        &public,
+        &plaintext,
+        &mut FixtureEntropy::new(master(37)),
+        limit,
+    )
+    .expect("witness");
+    fixtures::arm_fault(FaultPoint::EncryptionAfterSampling);
+    let (outcome, observation) = observe(POLYNOMIAL_BYTES, || {
+        catch_unwind(AssertUnwindSafe(|| {
+            let owned = witness;
+            let _ = owned.check(&profile, &public, &plaintext, &ciphertext, limit);
+        }))
+    });
+    assert!(outcome.is_err());
+    assert_cleared("witness check unwind", observation);
+    fixtures::disarm_fault();
+}
+
+#[test]
+fn retained_witness_preflight_allocates_no_secret_buffers_and_entropy_failure_clears() {
+    let profile = profile();
+    let secret =
+        fixtures::secret_key(&profile, &mut FixtureEntropy::new(master(38))).expect("secret");
+    let public = fixtures::public_key(&profile, &secret, &mut FixtureEntropy::new(master(39)))
+        .expect("public");
+    let plaintext = message(&profile);
+    let limit = fixtures::encryption_witness_working_bytes(&profile).expect("limit");
+    let mut rng = FixtureEntropy::new(master(40));
+    let (error, observation) = observe(POLYNOMIAL_BYTES, || {
+        fixtures::encrypt_with_witness(&profile, &public, &plaintext, &mut rng, limit - 1).err()
+    });
+    assert_eq!(
+        error,
+        Some(fixtures::EncryptionWitnessError::BufferLimit {
+            required: limit,
+            limit: limit - 1
+        })
+    );
+    assert_eq!(rng.draws(), 0);
+    assert_eq!(observation.freed, 0);
+    assert_coins_cleared("witness preflight", observation, 0);
+    let mut failing = FixtureEntropy::failing_after(master(41), 0);
+    let (error, observation) = observe(POLYNOMIAL_BYTES, || {
+        fixtures::encrypt_with_witness(&profile, &public, &plaintext, &mut failing, limit).err()
+    });
+    assert_eq!(
+        error,
+        Some(fixtures::EncryptionWitnessError::Bgv(
+            BgvError::EntropyUnavailable
+        ))
+    );
+    assert_eq!(failing.draws(), 1);
+    assert_coins_cleared("witness entropy failure", observation, 1);
+    assert_eq!(observation.uncleared, 0);
 }

@@ -74,10 +74,7 @@ fn account_case(name: &str, account: &AccountId) -> Value {
                                 ("algorithm", text(algorithm.as_static_str())),
                                 (
                                     "curve_id",
-                                    u64::from(
-                                        CurveId::try_from_algorithm(algorithm).unwrap().as_u8(),
-                                    )
-                                    .into(),
+                                    u64::from(CurveId::from_algorithm(algorithm).as_u8()).into(),
                                 ),
                                 ("public_key_hex", text(hex::encode(payload))),
                                 ("weight", u64::from(member.weight()).into()),

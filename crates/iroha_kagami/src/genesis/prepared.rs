@@ -878,17 +878,31 @@ mod tests {
                 }
             })
             .collect::<Vec<_>>();
+        let _author_context = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+            *configs[0].common.chain_discriminant.value(),
+        );
         let reviewed = super::super::complete_test_genesis_builder(
-            GenesisBuilder::new_without_executor(configs[0].common.chain.clone(), ".")
-                .append_parameter(Parameter::Custom(
-                    SumeragiNposParameters::default().into_custom_parameter(),
-                ))
-                .set_topology(
-                    validator_bindings
-                        .iter()
-                        .map(|binding| PeerId::new(binding.public_key.clone()))
-                        .collect(),
-                ),
+            GenesisBuilder::new_without_executor(
+                configs[0].common.chain.clone(),
+                ".",
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy")
+            .append_parameter(Parameter::Custom(
+                SumeragiNposParameters::default().into_custom_parameter(),
+            ))
+            .set_topology(
+                validator_bindings
+                    .iter()
+                    .map(|binding| PeerId::new(binding.public_key.clone()))
+                    .collect(),
+            ),
         )
         .build_raw()
         .expect("complete prepared-bundle test genesis")

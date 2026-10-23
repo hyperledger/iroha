@@ -67,6 +67,16 @@ verify_mldsa(MlDsaSuite::MlDsa65, dsa_keys.public_key(), b"", message, sig.as_by
   fallback. This helper does not add SoraNet's canonical-key checks or hedged
   RNG policy to that existing signing API.
 
+## Independent known-answer coverage
+
+The crate retains the six pinned PQClean count-zero responses and also checks a
+[50-case official NIST ACVP subset](tests/fixtures/acvp/README.md) across all
+ML-KEM and ML-DSA parameter sets. Tests compare independently published outputs,
+strict key checks, implicit rejection, signature rejection and context/message
+binding. The subset's source revision, full-source hashes, selected case IDs and
+reproduction command are documented with the fixtures. This bounded coverage
+does not claim ACVP certification or cross-platform qualification.
+
 ## C FFI
 
 Workspace builds emit the Rust library. Build the C-compatible artifacts

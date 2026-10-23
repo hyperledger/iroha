@@ -6,7 +6,7 @@
   "protocol_matrix_sha256": "1e8c12983c3fe0e3894e51c5839c27bccb47c075229c80f3720bf6d1d058697d",
   "wire_contract": {
     "catalog_size": 12,
-    "catalog_commitment_le_hex": "e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+    "catalog_commitment_hex": "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
     "proof_envelope_magic_hex": "4952485a4b31a55a"
   },
   "capability_gate": {

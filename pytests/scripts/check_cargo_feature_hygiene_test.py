@@ -913,3 +913,53 @@ def test_unit_mutation_dependency_is_nonshipping_even_through_an_alias(
                 "from a non-dev dependency declaration" in error
                 for error in errors
             ), (section, errors)
+
+
+def test_model_governance_feature_cannot_return_as_an_alias_or_gate() -> None:
+    """Canonical governance is unconditional and has no retired feature alias."""
+    document = _guarded_document("iroha_data_model")
+    assert _guarded_errors("iroha_data_model", document) == []
+    assert "governance" not in document["features"]
+    assert document["features"]["application-model"] == ["pqc", "bls", "gost", "sm"]
+    for gated in (False, True):
+        changed = copy.deepcopy(document)
+        changed["features"]["governance"] = []
+        if gated:
+            changed["features"]["application-model"].insert(0, "governance")
+        assert changed != document
+        errors = _guarded_errors("iroha_data_model", changed)
+        if gated:
+            assert any(
+                "default-reachable feature `governance` lacks an exact portable feature pin"
+                in error for error in errors
+            ), errors
+            assert any("feature `application-model` must be" in error for error in errors)
+        else:
+            assert any(
+                "Cargo feature `governance` is unclassified" in error for error in errors
+            ), errors
+
+
+def test_parliament_ballot_model_dev_features_are_explicit(monkeypatch) -> None:
+    """Dev-only transparent APIs cannot implicitly enable foundational defaults."""
+    manifest = _manifest_path("iroha_parliament_ballot")
+    document = FEATURE_HYGIENE._load_toml(manifest)
+    assert document["dependencies"]["iroha_data_model"]["features"] == ["application-model"]
+    assert document["dependencies"]["iroha_data_model"]["default-features"] is False
+    assert document["dev-dependencies"]["iroha_data_model"]["features"] == ["transparent_api"]
+    assert document["dev-dependencies"]["iroha_data_model"]["default-features"] is False
+    assert FEATURE_HYGIENE.check_repository(ROOT) == []
+    changed = copy.deepcopy(document)
+    del changed["dev-dependencies"]["iroha_data_model"]["default-features"]
+    original_load = FEATURE_HYGIENE._load_toml
+
+    def mutated_load(path: Path) -> dict:
+        return copy.deepcopy(changed) if path == manifest else original_load(path)
+
+    monkeypatch.setattr(FEATURE_HYGIENE, "_load_toml", mutated_load)
+    errors = FEATURE_HYGIENE.check_repository(ROOT)
+    assert any(
+        str(manifest) in error
+        and "[dev-dependencies] `iroha_data_model` must set `default-features = false`" in error
+        for error in errors
+    ), errors

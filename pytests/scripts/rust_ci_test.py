@@ -1082,12 +1082,13 @@ def _feature_workspace(tmp_path: Path, features: str, dependencies: str = "") ->
 
 
 def test_supported_feature_matrix_preserves_all_current_nonmutation_features() -> None:
-    """Governance, fixtures and explicit network diagnostics retain coverage."""
+    """Canonical governance is unconditional; optional implementations retain coverage."""
 
     inventory = rust_ci.workspace_check_features(ROOT)
     for package in rust_ci.MUTATION_FEATURE_OWNERS:
         assert "mutation-testing" not in inventory[package]
-    assert {"governance", "application-model", "transparent_api", "test-fixtures",
+    assert "governance" not in inventory["iroha_data_model"]
+    assert {"application-model", "transparent_api", "test-fixtures",
             "fault_injection"} <= set(inventory["iroha_data_model"])
     assert {"iroha-core-tests", "node", "simd", "zk-stark",
             "test-network-private-settlement-evidence",

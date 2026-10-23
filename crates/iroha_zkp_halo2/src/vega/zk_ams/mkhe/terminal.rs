@@ -13,6 +13,7 @@
 //! fresh; that is enforced at encrypted ingress by the authenticated full-roster mask-share
 //! ceremony bound to the roster/epoch/transcript context, not by trusting a prover-supplied digest
 //! at this terminal boundary.
+#[cfg(test)]
 use super::keccak256;
 #[cfg(test)]
 use super::{
@@ -474,21 +475,39 @@ pub fn zk_ams_phase3_terminal_implementation_v1() -> ZkAmsPhase3TerminalImplemen
     let mut implementation = ZkAmsPhase3TerminalImplementationV1 {
         version: PHASE3_TERMINAL_VERSION_V1,
         max_proof_bytes: ZK_AMS_PHASE3_MAX_TERMINAL_PROOF_BYTES_V1 as u32,
-        c1_schema_digest: keccak256(PHASE3_C1_SCHEMA_V1),
-        c2_schema_digest: keccak256(PHASE3_C2_SCHEMA_V1),
+        c1_schema_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase3.c1-schema",
+            PHASE3_C1_SCHEMA_V1,
+        ),
+        c2_schema_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase3.c2-schema",
+            PHASE3_C2_SCHEMA_V1,
+        ),
         release_kat_digest: [0; 32],
         release_kat_complete: false,
         digest: [0; 32],
     };
-    let mut frame = Vec::with_capacity(192);
-    frame.extend_from_slice(PHASE3_IMPLEMENTATION_DOMAIN_V1);
-    frame.push(implementation.version);
-    frame.extend_from_slice(&implementation.max_proof_bytes.to_be_bytes());
-    frame.extend_from_slice(&implementation.c1_schema_digest);
-    frame.extend_from_slice(&implementation.c2_schema_digest);
-    frame.extend_from_slice(&implementation.release_kat_digest);
-    frame.push(implementation.release_kat_complete.into());
-    implementation.digest = keccak256(&frame);
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        PHASE3_IMPLEMENTATION_DOMAIN_V1,
+        6,
+    );
+    hash.push_field(&[implementation.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.max_proof_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.c1_schema_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.c2_schema_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.release_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[implementation.release_kat_complete.into()])
+        .expect("fixed bounded MKHE identity field");
+    implementation.digest = *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes();
     implementation
 }
 #[cfg(test)]

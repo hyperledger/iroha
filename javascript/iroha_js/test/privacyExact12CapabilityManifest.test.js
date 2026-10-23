@@ -172,7 +172,10 @@ function qualificationPayload() {
     release_manifest: {
       version: 1,
       catalog_id: "iroha-privacy-exact12-v1",
-      catalog_commitment: Array(48).fill(0xc1),
+      catalog_commitment: Array.from(Buffer.from(
+        "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
+        "hex",
+      )),
       source: {},
       abi_version: 1,
       abi_hash: Array(32).fill(0xa1),

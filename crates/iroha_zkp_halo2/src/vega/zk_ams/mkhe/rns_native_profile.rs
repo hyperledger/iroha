@@ -12,6 +12,7 @@ use super::{
     },
     modulus_product_bit_len,
 };
+#[cfg(test)]
 use crate::vega::sponge::Keccak256;
 
 #[cfg(test)]
@@ -224,39 +225,54 @@ pub fn zk_ams_mkhe_rns_native_topology_v1() -> Result<ZkAmsMkheRnsNativeTopology
 }
 
 fn topology_digest_v1(topology: ZkAmsMkheRnsNativeTopologyV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.rns-native-topology");
-    hash.update(&[topology.version]);
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        b"iroha.zk-ams.v1.mkhe.rns-native-topology",
+        8 + ZK_AMS_MKHE_RNS_NATIVE_FAMILY_ORDER_V1.len(),
+    );
+    hash.push_field(&[topology.version])
+        .expect("fixed bounded MKHE identity field");
     for (family, count) in ZK_AMS_MKHE_RNS_NATIVE_FAMILY_ORDER_V1
         .into_iter()
         .zip(topology.family_record_counts)
     {
-        hash.update(&[family as u8, count]);
+        hash.push_field(&[family as u8, count])
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.update(&[
+    hash.push_field(&[
         topology.opening_count,
         topology.rlwe_equation_count,
         topology.cross_field_point_count,
         topology.lde_domain_log2,
-    ]);
-    hash.update(&topology.query_count.to_be_bytes());
-    hash.update(&[
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&topology.query_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         topology.fri_rounds,
         topology.radix_log2,
         topology.quotient_bits,
         topology.sumcheck_rounds,
-    ]);
-    hash.update(&topology.max_proof_bytes.to_be_bytes());
-    hash.update(&topology.max_initial_multiproof_bytes.to_be_bytes());
-    hash.update(&topology.max_correlated_fri_bytes.to_be_bytes());
-    hash.update(&topology.max_qpcs_bytes.to_be_bytes());
-    hash.finalize()
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&topology.max_proof_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&topology.max_initial_multiproof_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&topology.max_correlated_fri_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&topology.max_qpcs_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 /// Exact current proof hash, field encoding, and Fiat-Shamir sampling contract.
 ///
-/// This descriptor is public profile identity metadata; its Keccak identity is
-/// not a commitment or transcript implementation. It binds the native proof's
+/// This descriptor is public profile identity metadata; its typed BLAKE3 identity
+/// is not a commitment or transcript implementation. It binds the native proof's
 /// sole six-lane hash and wire interpretation before a proof root is accepted.
 pub(super) const ZK_AMS_MKHE_RNS_NATIVE_PROOF_HASH_WIRE_SCHEMA_V1: &[u8] = concat!(
     "iroha.zk-ams.rns-native.proof-hash-wire.v1;",
@@ -273,7 +289,7 @@ pub(super) const ZK_AMS_MKHE_RNS_NATIVE_PROOF_HASH_WIRE_SCHEMA_V1: &[u8] = conca
     "global-qpcs-binding=transcript/binding/level6/index0/counter0;current-parameter32-and-exact200-ordered-limb-u8-repetition-u8-modulus-u64be-product-u64be-quotient-u64be-records;",
     "global-pre-z=13-physical-roles39634-points;scalar-wire=exact2-point33-multiplicity-then-inverse-product-mask;header56;inverse-product-mask-purpose14;post-z-inverse-roles15-through21;existing-inverse11696-added20712;",
     "global-clean-bridge=terminal-bridge/binding/level2/index0/counter0;ten-verified-curve32-identities-z32-U-sum33-M33-and-pre-global-native48;",
-    "carrier-binding=transcript/binding/level7/index0/counter0;60-fixed-fields2382bytes;current-version1;full-public32-and-native48-role-widths;two-equation-and40-limb-native48-roots;538-framed-words-per-lane;",
+    "carrier-binding=transcript/binding/level7/index0/counter0;60-fixed-fields2382bytes;current-version1;full-public32-and-native48-role-widths;two-equation-and40-limb-native48-roots;536-framed-words-per-lane;",
 
     "catalog=sole-privacy-exact12-commitment;",
     "frame=shared-length-framed-catalog,protocol,profile,role,phase,level,index,counter,lane,fields;",
@@ -292,7 +308,7 @@ pub(super) const ZK_AMS_MKHE_RNS_NATIVE_PROOF_HASH_WIRE_SCHEMA_V1: &[u8] = conca
     "q-mask-last-field=262400bytes-exact-shared-stream;one-source-traversal;bounded-six-lane-state-and41byte-point-record;no-heap-tape-or-source-replay-per-lane;",
     "claimed-numeric-binding=one-owner;transcript/binding/level2/index2/counter0;fields=domain,version,anchor48,preflight48,public-bundle32,source-parameter32,source-transcript48,source-schedule48,evaluation48,residual48,schedule-parameter32,q-mask48,pre-relation48,relation-seed48,final-transcript48,exact200-u64be-triples;",
     "claimed-numeric-parameter=both-parameters-equal-current-canonical-profile;",
-    "numeric-handoff-binding=transcript/binding/level5/index0/counter0;one-V1-domain-and-version;29-fixed-fields-824bytes;native-schedule-and-proof-state-full48;public-source-receipt-identities32;250-framed-words-per-lane;750-lane-permutations;",
+    "numeric-handoff-binding=transcript/binding/level5/index0/counter0;one-V1-domain-and-version;29-fixed-fields-824bytes;native-schedule-and-proof-state-full48;public-source-receipt-identities32;248-framed-words-per-lane;744-lane-permutations;",
     "public-reader-schedule=transcript/binding/level4/index1/counter0;fields=domain,version,parameter32,q-mask48,pre-relation48,relation-seed48,limbs-u16be,repetitions-u16be,40-ordered-limb-u16be-modulus-u64be-five-repetition-u16be-point-u64be-records;",
     "source-anchor=898byte-fixed-header;23-exact-position-identities;native48-ordinals=1,2,3,4,19,20,21,22;other15-public32;downstream-length-u32be;no-width-tags-or-aliases;",
     "source-packing-post-equation-binding=native48-source-anchor-and-final-aggregation-schedule-ordinals0,1;17-ordered-public-curve32-components;640-component-bytes;combined-curve32-ordinal19;full-width-absorption-and-tagged-zero-alias-checks;outer-bindings-admitted-only-after-child-equation;",
@@ -455,24 +471,34 @@ impl ZkAmsMkheRnsNativeProfileV1 {
 }
 
 fn profile_id_v1() -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(b"iroha.zk-ams.v1.mkhe.rns-native-profile");
-    let schema_length = u64::try_from(ZK_AMS_MKHE_RNS_NATIVE_PROOF_HASH_WIRE_SCHEMA_V1.len())
-        .expect("the fixed native proof descriptor fits u64");
-    hash.update(&schema_length.to_be_bytes());
-    hash.update(ZK_AMS_MKHE_RNS_NATIVE_PROOF_HASH_WIRE_SCHEMA_V1);
-    hash.update(&fastpq_isi::GOLDILOCKS_DIGEST384_PARAMETER_SHA3_256_V1);
-    hash.update(&(ZK_AMS_MKHE_RELEASE_RING_DEGREE_V1 as u64).to_be_bytes());
-    hash.update(&(ZK_AMS_MKHE_RELEASE_SLOT_COUNT_V1 as u64).to_be_bytes());
-    hash.update(&(ZK_AMS_MKHE_RELEASE_ROSTER_SIZE_V1 as u64).to_be_bytes());
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Parameter,
+        b"iroha.zk-ams.v1.mkhe.rns-native-profile",
+        5 + 2 * ZK_AMS_MKHE_RNS_NATIVE_MODULI_V1.len(),
+    );
+    hash.push_field(ZK_AMS_MKHE_RNS_NATIVE_PROOF_HASH_WIRE_SCHEMA_V1)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&fastpq_isi::GOLDILOCKS_DIGEST384_PARAMETER_SHA3_256_V1)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&(ZK_AMS_MKHE_RELEASE_RING_DEGREE_V1 as u64).to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&(ZK_AMS_MKHE_RELEASE_SLOT_COUNT_V1 as u64).to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&(ZK_AMS_MKHE_RELEASE_ROSTER_SIZE_V1 as u64).to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for (&modulus, &root) in ZK_AMS_MKHE_RNS_NATIVE_MODULI_V1
         .iter()
         .zip(ZK_AMS_MKHE_RNS_NATIVE_NEGACYCLIC_ROOTS_V1.iter())
     {
-        hash.update(&modulus.to_be_bytes());
-        hash.update(&root.to_be_bytes());
+        hash.push_field(&modulus.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&root.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    hash.finalize()
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 pub(super) fn candidate_profile_v1() -> BgvProfile {
@@ -878,11 +904,58 @@ mod tests {
         assert_eq!(
             profile_id_v1(),
             [
-                0x67, 0x2e, 0x47, 0x10, 0x27, 0xe5, 0x12, 0xf8, 0x48, 0x93, 0x10, 0xe3, 0x82, 0xde,
-                0xb1, 0x5a, 0xea, 0x59, 0x70, 0xd8, 0xec, 0x3d, 0x86, 0xc6, 0x8e, 0xe4, 0xad, 0x9b,
-                0x87, 0x1d, 0x94, 0x50
+                0xc8, 0xd8, 0x56, 0xf6, 0x04, 0xd2, 0x6d, 0x2d, 0x53, 0x71, 0x82, 0x4b, 0xff, 0x55,
+                0x5e, 0xd6, 0x24, 0x13, 0xaa, 0x1e, 0x31, 0x01, 0x39, 0xdb, 0x62, 0x18, 0xc6, 0x0b,
+                0x32, 0x26, 0xeb, 0xec
             ]
         );
+        // Canonical frame geometry changes every dependent identity.
+        // These fixed values were derived independently from the complete frames.
+        let current = zk_ams_mkhe_rns_native_profile_manifest_v1().expect("current manifest");
+        assert_eq!(
+            candidate_profile_v1()
+                .digest()
+                .expect("current BGV profile"),
+            [
+                0xba, 0x9f, 0x14, 0x2c, 0x16, 0xec, 0xa4, 0x73, 0x59, 0x94, 0x11, 0x49, 0x5a, 0xc1,
+                0x97, 0x95, 0x83, 0x1a, 0xe8, 0x5b, 0x28, 0xad, 0xdf, 0xa4, 0x7e, 0x13, 0xf8, 0x01,
+                0xb2, 0xa8, 0x1a, 0x1a
+            ]
+        );
+        assert_eq!(
+            current.profile_digest,
+            candidate_profile_v1()
+                .digest()
+                .expect("current BGV profile")
+        );
+        assert_eq!(
+            current.manifest_digest,
+            [
+                0xfa, 0x8f, 0x09, 0xf4, 0xa0, 0x4b, 0x9f, 0x01, 0x1d, 0xf2, 0xd0, 0xed, 0x69, 0x9f,
+                0x0c, 0x6a, 0x00, 0xdf, 0x10, 0xfb, 0xc7, 0xbf, 0xe4, 0xbc, 0x9c, 0x3e, 0x15, 0x46,
+                0xd0, 0x00, 0xc2, 0x3e
+            ]
+        );
+        assert_eq!(
+            zk_ams_mkhe_rns_native_release_candidate_digest_v1().expect("current candidate"),
+            [
+                0x4f, 0xfa, 0xc4, 0xf9, 0xb7, 0x57, 0x28, 0x5e, 0x07, 0xf2, 0x00, 0xb0, 0xbe, 0x96,
+                0x3a, 0x51, 0x15, 0x4f, 0x34, 0x79, 0xa2, 0x5f, 0xfe, 0x0f, 0xf5, 0x9d, 0x93, 0x51,
+                0xbe, 0xfb, 0xb0, 0xfd
+            ]
+        );
+        let mut stale_frame_parameters = candidate_profile_v1();
+        stale_frame_parameters.profile_id = [
+            0x58, 0x0c, 0x09, 0x39, 0x8e, 0xe4, 0xd6, 0x6f, 0xa6, 0x47, 0xec, 0x89, 0xac, 0x2d,
+            0xe2, 0xb7, 0x16, 0x3b, 0x4e, 0x47, 0x89, 0x2a, 0x42, 0x45, 0xc1, 0xf6, 0x20, 0xb3,
+            0x3e, 0x0e, 0x26, 0x75,
+        ];
+        let mut stale_frame = current;
+        stale_frame.profile_digest = stale_frame_parameters
+            .digest()
+            .expect("self-consistent stale frame profile");
+        stale_frame.manifest_digest = profile_manifest_digest_v1(stale_frame);
+        assert!(stale_frame.validate().is_err());
         let mut retired_parameters = candidate_profile_v1();
         retired_parameters.profile_id = [
             0x79, 0xd8, 0x4e, 0xb4, 0x82, 0x8a, 0x38, 0x4b, 0xc8, 0xc3, 0xdc, 0x71, 0x77, 0xa2,

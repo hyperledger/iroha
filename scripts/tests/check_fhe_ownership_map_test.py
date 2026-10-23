@@ -253,6 +253,32 @@ class TreeCase(unittest.TestCase):
         self.assertFalse(any(fragment in error for error in errors), f"{fragment!r} in {errors}")
 
 
+class FileWalkTest(TreeCase):
+    """The non-Git source snapshot sees the same captured source paths."""
+
+    def test_fallback_keeps_nested_capture_build_directories(self) -> None:
+        captures = [
+            "docs/validation/rehearsal/build/Cargo.lock.template",
+            "docs/validation/rehearsal/capture/source/target/reference.py.template",
+            "docs/validation/rehearsal/capture/dist/source.rs.template",
+        ]
+        for path in captures:
+            self.write(path, "ntt")
+        found = CHECKER.list_repository_files(self.root)
+        self.assertTrue(set(captures).issubset(found))
+        scanned = CHECKER.scan_tree(CHECKER.Tree(self.root))
+        for path in captures:
+            self.assertEqual(scanned[path], ["ntt"])
+
+    def test_fallback_still_skips_ordinary_generated_output_directories(self) -> None:
+        outputs = ["target/generated.rs", "dist/result.json", "crates/low/target/cache.rs"]
+        for path in outputs:
+            self.write(path, "ntt")
+        found = CHECKER.list_repository_files(self.root)
+        self.assertFalse(set(outputs).intersection(found))
+        self.assertIn(RING, found)
+
+
 class ScanTest(unittest.TestCase):
     def test_identifier_words_split_snake_camel_and_digits(self) -> None:
         self.assertEqual(CHECKER.identifier_words("HkdfSha3_512PrfV1"), ("hkdf", "sha", "3", "512", "prf", "v", "1"))

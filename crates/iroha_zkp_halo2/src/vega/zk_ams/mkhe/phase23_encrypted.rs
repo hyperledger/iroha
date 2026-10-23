@@ -9,6 +9,7 @@
 //! The frozen release certificate deliberately remains open.  A small-profile
 //! KAT exercises the complete native path, but it is not evidence for the
 //! release degree, roster, memory ceiling, or wall-clock budget.
+#[cfg(test)]
 use super::keccak256;
 #[cfg(test)]
 use super::phase23::{
@@ -1760,19 +1761,33 @@ pub fn zk_ams_phase23_encrypted_implementation_v1() -> ZkAmsPhase23EncryptedImpl
     let mut implementation = ZkAmsPhase23EncryptedImplementationV1 {
         version: PHASE23_ENCRYPTED_VERSION_V1,
         max_sparse_entries: ZK_AMS_PHASE23_MAX_CANONICAL_SPARSE_ENTRIES_V1,
-        algebra_digest: keccak256(PHASE23_ENCRYPTED_ALGEBRA_V1),
+        algebra_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase23.encrypted-algebra-schema",
+            PHASE23_ENCRYPTED_ALGEBRA_V1,
+        ),
         release_kat_digest: [0; 32],
         release_kat_complete: false,
         digest: [0; 32],
     };
-    let mut frame = Vec::with_capacity(128);
-    frame.extend_from_slice(PHASE23_IMPLEMENTATION_DOMAIN_V1);
-    frame.push(implementation.version);
-    frame.extend_from_slice(&implementation.max_sparse_entries.to_be_bytes());
-    frame.extend_from_slice(&implementation.algebra_digest);
-    frame.extend_from_slice(&implementation.release_kat_digest);
-    frame.push(implementation.release_kat_complete.into());
-    implementation.digest = keccak256(&frame);
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        PHASE23_IMPLEMENTATION_DOMAIN_V1,
+        5,
+    );
+    hash.push_field(&[implementation.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.max_sparse_entries.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.algebra_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&implementation.release_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[implementation.release_kat_complete.into()])
+        .expect("fixed bounded MKHE identity field");
+    implementation.digest = *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes();
     implementation
 }
 /// Consume owned chunks in exact `X/U/E/rE/W/rW` order with one retained `U`.

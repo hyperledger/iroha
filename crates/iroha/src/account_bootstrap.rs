@@ -170,24 +170,24 @@ fn validate_context(endpoint: &Url, timeout: Duration) -> Result<()> {
 }
 
 fn validate_capabilities(policy: &AccountCapabilitiesV1) -> Result<()> {
-    if policy.schema_version != 1
-        || policy.network_prefix == 0
-        || policy.default_signing != "ed25519"
-        || !policy
+    let canonical_algorithms = !policy.allowed_signing.is_empty()
+        && policy.allowed_signing.len() <= iroha_crypto::Algorithm::ALL.len()
+        && policy
             .allowed_signing
             .iter()
-            .any(|name| name == &policy.default_signing)
-        || policy
-            .allowed_signing
-            .windows(2)
-            .any(|pair| pair[0] >= pair[1])
-        || policy
-            .allowed_signing
-            .iter()
-            .any(|name| name.parse::<iroha_crypto::Algorithm>().is_err())
-    {
+            .try_fold(None, |previous, name| {
+                let algorithm = name.parse::<iroha_crypto::Algorithm>().ok()?;
+                if name != algorithm.as_static_str()
+                    || previous.is_some_and(|tag| tag >= algorithm as u8)
+                {
+                    return None;
+                }
+                Some(Some(algorithm as u8))
+            })
+            .is_some();
+    if policy.schema_version != 1 || policy.network_prefix == 0 || !canonical_algorithms {
         return Err(eyre!(
-            "network does not advertise the canonical first-release account signing policy"
+            "network does not advertise a canonical account signing policy"
         ));
     }
     Ok(())

@@ -4,8 +4,14 @@ import { NetworkId } from "./networkId.js";
 import { parseStrictLosslessIntegerJson } from "./strictLosslessJson.js";
 
 const RESPONSE_MAX_BYTES = 4 * 1024;
-const ALGORITHMS = new Set(Object.values(CRYPTO_ALGORITHMS));
-const FIELDS = ["schema_version", "network_id", "network_prefix", "allowed_signing", "default_signing"];
+const ALGORITHM_TAGS = new Map([
+  CRYPTO_ALGORITHMS.ED25519, CRYPTO_ALGORITHMS.SECP256K1,
+  CRYPTO_ALGORITHMS.BLS_NORMAL, CRYPTO_ALGORITHMS.BLS_SMALL, CRYPTO_ALGORITHMS.ML_DSA,
+  CRYPTO_ALGORITHMS.GOST_2012_256_A, CRYPTO_ALGORITHMS.GOST_2012_256_B,
+  CRYPTO_ALGORITHMS.GOST_2012_256_C, CRYPTO_ALGORITHMS.GOST_2012_512_A,
+  CRYPTO_ALGORITHMS.GOST_2012_512_B, CRYPTO_ALGORITHMS.SM2,
+].map((name, tag) => [name, tag]));
+const FIELDS = ["schema_version", "network_id", "network_prefix", "allowed_signing"];
 const CONTEXT = "account capabilities response";
 
 /** Decode the closed, account-free first-release bootstrap capability contract. */
@@ -27,21 +33,17 @@ export function normalizeAccountCapabilitiesV1(value) {
     throw new TypeError(`${CONTEXT} network_prefix must be a u16 integer`);
   }
   if (!Array.isArray(value.allowed_signing) || value.allowed_signing.length === 0
-    || value.allowed_signing.length > ALGORITHMS.size
-    || value.allowed_signing.some((algorithm) => !ALGORITHMS.has(algorithm))
-    || new Set(value.allowed_signing).size !== value.allowed_signing.length) {
-    throw new TypeError(`${CONTEXT} allowed_signing must contain unique canonical algorithms`);
-  }
-  // This is explicit protocol policy, never a preference inferred from list order or hashing.
-  if (value.default_signing !== "ed25519" || !value.allowed_signing.includes("ed25519")) {
-    throw new TypeError(`${CONTEXT} must advertise the admitted V1 Ed25519 default`);
+    || value.allowed_signing.length > ALGORITHM_TAGS.size
+    || value.allowed_signing.some((algorithm) => !ALGORITHM_TAGS.has(algorithm))
+    || value.allowed_signing.some((algorithm, index) => index > 0
+      && ALGORITHM_TAGS.get(value.allowed_signing[index - 1]) >= ALGORITHM_TAGS.get(algorithm))) {
+    throw new TypeError(`${CONTEXT} allowed_signing must contain algorithms in strictly increasing canonical tag order`);
   }
   return Object.freeze({
     schema_version: 1,
     network_id: networkId.literal,
     network_prefix: value.network_prefix,
     allowed_signing: Object.freeze([...value.allowed_signing]),
-    default_signing: "ed25519",
   });
 }
 

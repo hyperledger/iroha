@@ -28,6 +28,22 @@ pub(in crate::state) mod proof_tag_index;
 #[path = "deserialize_world_verifying_key_index.rs"]
 mod verifying_key_index;
 
+/// Project persisted privacy validation without flattening original local codec refusal.
+fn privacy_state_json_error(
+    error: crate::privacy_state::PrivacyStateValidationErrorV1,
+) -> json::Error {
+    use crate::privacy_state::{PrivacyPgcAccountStateRootErrorV1, PrivacyStateValidationErrorV1};
+    match error {
+        PrivacyStateValidationErrorV1::PgcAccountRoot(
+            PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(original),
+        ) => json::Error::from_decode_resource(original.into_error()),
+        original => json::Error::InvalidField {
+            field: "world.privacy_state".to_owned(),
+            message: original.to_string(),
+        },
+    }
+}
+
 struct MusubiPersistedState<'a> {
     namespace_bindings: &'a Storage<MusubiNamespaceV1, MusubiNamespaceBindingV1>,
     packages: &'a Storage<MusubiPackageIdV1, MusubiPackageRecordV1>,
@@ -8688,10 +8704,7 @@ fn decode_world_fields(
         &privacy_roots.view(),
         &privacy_root_heads.view(),
     )
-    .map_err(|message| json::Error::InvalidField {
-        field: "world.privacy_state".to_owned(),
-        message,
-    })?;
+    .map_err(privacy_state_json_error)?;
     if let Some(qualification) = privacy_exact12_qualification.view().get() {
         qualification
             .validate()
@@ -9800,6 +9813,33 @@ struct BuildStateInputs {
     #[cfg(feature = "telemetry")]
     telemetry: StateTelemetry,
 }
+// Validate original current/predecessor parameter cuts against the restored
+// history coordinate. This grants no authority to restore native execution.
+fn validate_restored_crypto_policy(
+    world: &World,
+    committed_height: usize,
+) -> Result<(), MergeLedgerCommitError> {
+    let reject = |message: &str| MergeLedgerCommitError::ExecutionStatePublication(message.into());
+    if committed_height > 0 {
+        world
+            .parameters
+            .view()
+            .get()
+            .require_crypto_policy()
+            .map_err(reject)?;
+    }
+    if committed_height > 1 {
+        let predecessor = world.parameters.predecessor_view();
+        // MV retains an undo value only when the last committed block changed
+        // this cell. With no undo value, the predecessor is the current cut,
+        // whose mandatory policy was validated above.
+        if let Some(previous) = predecessor.get().as_ref() {
+            previous.require_crypto_policy().map_err(reject)?;
+        }
+    }
+    Ok(())
+}
+
 fn build_state(
     inputs: BuildStateInputs,
     allow_durable_recovery: bool,
@@ -9850,6 +9890,7 @@ fn build_state(
             "restored standalone governance state is invalid: {error}"
         ))
     })?;
+    validate_restored_crypto_policy(&world, block_hashes.committed_height())?;
     let initial_crypto = iroha_config::parameters::actual::Crypto::default();
     let da_receipt_cursors =
         PublicationRwLock::try_new(DaReceiptCursorIndex::default(), &execution_budget)
@@ -13282,3 +13323,53 @@ mod kaigi_typed_deferral_tests;
 #[cfg(test)]
 #[path = "deserialize_world_kaigi_relay_deferral_tests.rs"]
 mod kaigi_relay_typed_deferral_tests;
+
+#[cfg(test)]
+#[path = "deserialize_crypto_policy_tests.rs"]
+mod crypto_policy_history_tests;
+
+#[cfg(test)]
+mod privacy_root_refusal_tests {
+    use super::privacy_state_json_error;
+    use crate::privacy_state::{PrivacyPgcAccountStateRootErrorV1, PrivacyStateValidationErrorV1};
+
+    #[test]
+    fn privacy_restore_json_preserves_original_scope_and_invalid_field() {
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let mut expected = None;
+        let original = norito::with_decode_limits_scope(limits, || {
+            norito::core::classify_decode_attempt(|| {
+                let inner = norito::core::classify_decode_attempt(|| {
+                    norito::core::reserve_decode_allocation(1)
+                })
+                .unwrap_err();
+                expected = inner.local_refusal();
+                Err::<(), _>(
+                    privacy_state_json_error(PrivacyStateValidationErrorV1::PgcAccountRoot(
+                        PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(inner),
+                    ))
+                    .into_core_error(),
+                )
+            })
+        })
+        .unwrap_err();
+        assert_eq!(original.local_refusal().as_ref(), expected.as_ref());
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        norito::core::reserve_decode_allocation(1)
+            .expect("same allocation retries outside retired scope");
+        for error in [
+            PrivacyStateValidationErrorV1::Invalid("orphan table".to_owned()),
+            PrivacyStateValidationErrorV1::PgcAccountRoot(
+                PrivacyPgcAccountStateRootErrorV1::ZeroEpoch,
+            ),
+        ] {
+            assert!(
+                matches!(privacy_state_json_error(error), norito::json::Error::InvalidField { field, .. }
+                if field == "world.privacy_state")
+            );
+        }
+    }
+}

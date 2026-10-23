@@ -1770,13 +1770,20 @@ impl PrivacyPgcBootstrapProofBytesV1 {
     ///
     /// Rejects an empty, all-zero, unrepresentable, or oversized payload.
     pub fn validate(&self) -> Result<(), PrivacyPgcBootstrapProofValidationError> {
-        if self.bytes.is_empty() {
+        Self::validate_bytes(&self.bytes)
+    }
+    /// Validate an original borrowed proof without constructing an owned wrapper.
+    ///
+    /// # Errors
+    /// Returns the exact structural failures of [`Self::validate`].
+    pub fn validate_bytes(bytes: &[u8]) -> Result<(), PrivacyPgcBootstrapProofValidationError> {
+        if bytes.is_empty() {
             return Err(PrivacyPgcBootstrapProofValidationError::Empty);
         }
-        if self.bytes.iter().all(|byte| *byte == 0) {
+        if bytes.iter().all(|byte| *byte == 0) {
             return Err(PrivacyPgcBootstrapProofValidationError::AllZero);
         }
-        let len = u64::try_from(self.bytes.len())
+        let len = u64::try_from(bytes.len())
             .map_err(|_| PrivacyPgcBootstrapProofValidationError::LengthOverflow)?;
         if len > u64::from(TAIRA_PRIVACY_MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1) {
             return Err(PrivacyPgcBootstrapProofValidationError::TooLarge {
@@ -1798,13 +1805,24 @@ impl PrivacyPgcBootstrapProofBytesV1 {
     pub fn digest(
         &self,
     ) -> Result<PrivacyPgcBootstrapProofDigestV1, PrivacyPgcBootstrapProofValidationError> {
-        self.validate()?;
-        let len = u64::try_from(self.bytes.len())
+        Self::digest_bytes(&self.bytes)
+    }
+    /// Derive the existing audit digest from exact original borrowed proof bytes.
+    ///
+    /// Call only after native verification; this digest is not proof authority.
+    ///
+    /// # Errors
+    /// Returns the exact structural failures of [`Self::validate_bytes`].
+    pub fn digest_bytes(
+        bytes: &[u8],
+    ) -> Result<PrivacyPgcBootstrapProofDigestV1, PrivacyPgcBootstrapProofValidationError> {
+        Self::validate_bytes(bytes)?;
+        let len = u64::try_from(bytes.len())
             .map_err(|_| PrivacyPgcBootstrapProofValidationError::LengthOverflow)?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(PRIVACY_PGC_BOOTSTRAP_PROOF_DIGEST_DOMAIN_V1);
         hasher.update(&len.to_le_bytes());
-        hasher.update(&self.bytes);
+        hasher.update(bytes);
         Ok(PrivacyPgcBootstrapProofDigestV1::new(
             *hasher.finalize().as_bytes(),
         ))

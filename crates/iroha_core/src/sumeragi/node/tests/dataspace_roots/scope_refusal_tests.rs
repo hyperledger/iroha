@@ -45,7 +45,11 @@ fn signed_private_work_keeps_scope_decode_refusal_local_and_retries_original_car
         chain.state().network_id_ref(),
         Duration::from_secs(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .unwrap();
     assert_eq!(accepted.hash_as_entrypoint(), signed.hash_as_entrypoint());
@@ -88,7 +92,7 @@ fn signed_private_work_keeps_scope_decode_refusal_local_and_retries_original_car
             Executor::Initial.execute_transaction(
                 &mut transaction,
                 &ALICE_ID,
-                signed.clone(),
+                &signed,
                 &mut IvmCache::new(),
             )
         })
@@ -99,18 +103,33 @@ fn signed_private_work_keeps_scope_decode_refusal_local_and_retries_original_car
             "metadata refusal became a completed signed-input verdict: {error:?}"
         );
         let refusal = refusal.unwrap_err();
+        let crate::execution_attempt::ExecutionAttemptError::Deferred(reason) = error else {
+            panic!("root parser refusal became a completed signed-input verdict");
+        };
+        let original = reason
+            .decode_refusal()
+            .expect("the signed route retains the original scoped JSON decoder")
+            .clone();
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert!(matches!(original.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
+                if limit == u64::try_from(allocation_limit).unwrap() && attempted > limit));
         assert_eq!(
             refusal,
-            crate::state::StateStorageAdmissionError::RootScopeDecode(
-                crate::state::RootScopeDecodeRefusal::Budget,
-            ),
+            crate::state::StateStorageAdmissionError::RootScopeDecode(original.clone()),
         );
-        assert!(matches!(
-            error,
-            crate::execution_attempt::ExecutionAttemptError::Deferred(reason)
-                if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                    && reason.allocation_refusal().is_none()
-        ));
+        assert_eq!(
+            reason.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(reason.allocation_refusal().is_none());
+        let moved =
+            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(reason.into_vm_error())
+                .unwrap();
+        assert_eq!(moved.decode_refusal(), Some(&original));
         assert!(refusal.release_wait().is_none());
         // Even a caller which catches the inner instruction error cannot publish the attempt.
         transaction.apply();
@@ -238,13 +257,35 @@ fn signed_private_host_query_keeps_scope_refusal_out_of_completed_vm_errors() {
         || QueryStateRef::View(&view).execute_optional_singular_query(&ALICE_ID, request(), None),
     )
     .unwrap_err();
-    assert!(
-        matches!(
-            error,
-            ivm::VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
-        ),
-        "local scope refusal became a completed VM error: {error:?}",
+    let ivm::VMError::DecodeDeferred(original) = error else {
+        panic!("scope refusal lost its original decoder owner: {error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
     );
+    let resource = original.resource_error();
+    assert!(matches!(resource,
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+            if attempted > 0));
+    // Diagnostic capacity alone is insufficient: the exact original attempt,
+    // shared counter owner and opaque scope survive the VM/Core round trip.
+    let expected = original.clone();
+    let deferred = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+        ivm::VMError::DecodeDeferred(original),
+    )
+    .unwrap();
+    assert_eq!(
+        deferred.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(deferred.decode_refusal(), Some(&expected));
+    assert!(deferred.allocation_refusal().is_none());
+    let ivm::VMError::DecodeDeferred(restored) = deferred.into_vm_error() else {
+        panic!("the original scoped refusal became a reason-only VM error");
+    };
+    assert_eq!(restored, expected);
+    assert_eq!(restored.resource_error(), resource);
     assert!(
         QueryStateRef::View(&view)
             .execute_optional_singular_query(&ALICE_ID, request(), None)
@@ -278,13 +319,35 @@ fn signed_private_contract_lookup_does_not_turn_scope_refusal_into_vm_permission
         || QueryStateRef::View(&view).contract_instance_by_address(&address),
     )
     .unwrap_err();
-    assert!(
-        matches!(
-            error,
-            ivm::VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
-        ),
-        "scope read refusal became completed contract authorization: {error:?}"
+    let ivm::VMError::DecodeDeferred(original) = error else {
+        panic!("scope refusal lost its original decoder owner: {error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
     );
+    let resource = original.resource_error();
+    assert!(matches!(resource,
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+            if attempted > 0));
+    // Diagnostic capacity alone is insufficient: the exact original attempt,
+    // shared counter owner and opaque scope survive the VM/Core round trip.
+    let expected = original.clone();
+    let deferred = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+        ivm::VMError::DecodeDeferred(original),
+    )
+    .unwrap();
+    assert_eq!(
+        deferred.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(deferred.decode_refusal(), Some(&expected));
+    assert!(deferred.allocation_refusal().is_none());
+    let ivm::VMError::DecodeDeferred(restored) = deferred.into_vm_error() else {
+        panic!("the original scoped refusal became a reason-only VM error");
+    };
+    assert_eq!(restored, expected);
+    assert_eq!(restored.resource_error(), resource);
     assert!(matches!(
         QueryStateRef::View(&view).contract_instance_by_address(&address),
         Err(ivm::VMError::DecodeError)

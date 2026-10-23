@@ -192,14 +192,15 @@ async fn sequential_payments_share_original_prefix_and_retire_only_local_history
         assert_eq!(account.signs.load(Ordering::Relaxed), 1);
         assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
         assert_eq!(Arc::as_ptr(&session.owner), owner);
-        let verifier = session.verifier().unwrap();
-        assert_eq!(verifier.instance(), instance);
-        assert_eq!(verifier.authenticated_height(), Some(height));
-        assert_eq!(
-            verifier.oldest_authenticated_height(),
-            Some(height.saturating_sub(2).max(1))
-        );
-        drop(verifier);
+        {
+            let verifier = session.verifier().unwrap();
+            assert_eq!(verifier.instance(), instance);
+            assert_eq!(verifier.authenticated_height(), Some(height));
+            assert_eq!(
+                verifier.oldest_authenticated_height(),
+                Some(height.saturating_sub(2).max(1))
+            );
+        }
         if height == 3 {
             let before = first_source.proof_reads.load(Ordering::Relaxed);
             let retained = first.recover(&allowance(1)).await.unwrap();
@@ -387,8 +388,7 @@ async fn cancelled_observation_keeps_authenticated_prefix_and_resumes_original_c
         .attempts
         .last()
         .unwrap()
-        .identity
-        .clone();
+        .identity;
     assert_eq!(original_identity, Some(identity(&transaction)));
     drop(pending);
     assert!(session.owner.catch_up.try_lock().is_ok());

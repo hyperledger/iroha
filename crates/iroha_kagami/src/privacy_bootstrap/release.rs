@@ -1253,7 +1253,7 @@ fn validate_rollout_plan_v1(bytes: &[u8]) -> color_eyre::Result<()> {
     expect_exact_keys_v1(
         wire,
         &[
-            "catalog_commitment_le_hex",
+            "catalog_commitment_hex",
             "catalog_size",
             "proof_envelope_magic_hex",
         ],
@@ -1267,8 +1267,8 @@ fn validate_rollout_plan_v1(bytes: &[u8]) -> color_eyre::Result<()> {
     )?;
     expect_string_v1(
         wire,
-        "catalog_commitment_le_hex",
-        "e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+        "catalog_commitment_hex",
+        &hex::encode(iroha_data_model::privacy::PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1),
         "privacy rollout wire contract",
     )?;
     expect_string_v1(

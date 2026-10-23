@@ -307,6 +307,12 @@ pub use zk_ams::{
     ZkAmsMkheRnsNativeCrossFieldGlobalLookupSectionV1, ZkAmsMkheRnsNativeRnsRelationQpcsSectionV1,
     ZkAmsMkheRnsNativeSectionCodecErrorV1, ZkAmsMkheRnsNativeTerminalBridgeSectionV1,
 };
+pub use zk_ams::{
+    ZkAmsMkheCksNoiseInputV1, ZkAmsMkheFailureAllocationV1, ZkAmsMkheNoiseAccountingV1,
+    ZkAmsMkheNoiseAdmissionV1, ZkAmsMkheNoiseConstructionV1, ZkAmsMkheNoiseFeasibilityV1,
+    ZkAmsMkhePhaseNoiseBoundsV1, ZkAmsMkheSmudgePurposeV1, ZkAmsMkheSmudgeQueriesV1,
+    ZkAmsMkheTerminalFeasibilityV1, zk_ams_mkhe_noise_feasibility_v1,
+};
 #[cfg(test)]
 pub use zk_ams::{
     ZkAmsMkheCollectiveCiphertextV1, ZkAmsMkheCollectiveLevelOneV1, ZkAmsMkheCollectivePublicKeyV1,

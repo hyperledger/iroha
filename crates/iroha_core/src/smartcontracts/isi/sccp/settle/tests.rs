@@ -619,9 +619,16 @@ fn every_hold_reason_keeps_the_proof_and_is_retried_by_settle() {
 #[test]
 fn recipients_that_can_never_be_credited_bounce() {
     let state = state();
-    let mut crypto = (*state.crypto()).clone();
-    crypto.allowed_signing = vec![Algorithm::Ed25519];
-    state.install_crypto_snapshot_for_isolated_replay(crypto);
+    let policy = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+        Algorithm::Ed25519,
+    ])
+    .unwrap();
+    let mut parameters = state.world.parameters.block();
+    parameters
+        .get_mut()
+        .set_parameter(policy.into_parameter().unwrap())
+        .unwrap();
+    parameters.commit();
     let mut block = state.block(header(5));
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"bounces"));
     install(&mut stx);

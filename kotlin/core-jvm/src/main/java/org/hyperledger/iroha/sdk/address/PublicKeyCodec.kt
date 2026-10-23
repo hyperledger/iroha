@@ -102,18 +102,18 @@ fun decodeCompactPublicKeyPayload(payload: ByteArray?): PublicKeyPayload? {
     return admitDecodedPublicKey(curveId, keyBytes)
 }
 
-/** Returns the canonical algorithm label for the curve id, or `null` when unknown. */
+/** Returns the canonical signing algorithm name for the curve id, or `null` when unknown. */
 fun algorithmForCurveId(curveId: Int): String? = when (curveId) {
     0x01 -> "ed25519"
     0x02 -> "ml-dsa"
     0x03 -> "bls_normal"
     0x04 -> "secp256k1"
     0x05 -> "bls_small"
-    0x0A -> "gost256a"
-    0x0B -> "gost256b"
-    0x0C -> "gost256c"
-    0x0D -> "gost512a"
-    0x0E -> "gost512b"
+    0x0A -> "gost3410-2012-256-paramset-a"
+    0x0B -> "gost3410-2012-256-paramset-b"
+    0x0C -> "gost3410-2012-256-paramset-c"
+    0x0D -> "gost3410-2012-512-paramset-a"
+    0x0E -> "gost3410-2012-512-paramset-b"
     0x0F -> "sm2"
     else -> null
 }

@@ -8,6 +8,113 @@ use std::{
 include!("../runtime_artifact_tests.rs");
 
 #[test]
+fn generated_staking_policy_is_authored_once_with_selected_custody_and_liability() {
+    use iroha_data_model::block::consensus::PublicLaneStakingPolicy;
+    let (public_key, _) =
+        generate_genesis_key_pair(Some(b"explicit-localnet-staking"), GENESIS_SEED).unwrap();
+    for sccp_enabled in [false, true] {
+        let expected = localnet_staking_policy(&public_key, sccp_enabled);
+        assert_eq!(expected.stake_asset_id, localnet_xor_asset_definition_id());
+        assert_eq!(
+            expected.stake_escrow_account_id,
+            localnet_gas_account_id(&public_key)
+        );
+        assert_eq!(
+            expected.slash_sink_account_id,
+            expected.stake_escrow_account_id
+        );
+        assert_eq!(
+            expected.unbonding_delay_ms,
+            if sccp_enabled {
+                crate::genesis::sccp::UNBONDING_DELAY_MS
+            } else {
+                0
+            }
+        );
+        let raw = generate_raw_genesis(
+            &public_key,
+            SumeragiConsensusMode::Npos,
+            "explicit-localnet-staking",
+            sccp_enabled,
+        )
+        .unwrap();
+        assert_eq!(
+            PublicLaneStakingPolicy::from_parameters(&raw.effective_parameters().unwrap()).unwrap(),
+            expected
+        );
+        let retained = raw.into_builder().build_raw().unwrap();
+        assert_eq!(
+            PublicLaneStakingPolicy::from_parameters(&retained.effective_parameters().unwrap())
+                .unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn parameter_overrides_preserve_original_staking_and_fee_authority() {
+    use iroha_data_model::block::consensus::{PublicLaneStakingPolicy, RootFeePolicy};
+    let (public_key, _) =
+        generate_genesis_key_pair(Some(b"parameter-delta-authority"), GENESIS_SEED).unwrap();
+    for mode in [
+        SumeragiConsensusMode::Permissioned,
+        SumeragiConsensusMode::Npos,
+    ] {
+        let original =
+            generate_raw_genesis(&public_key, mode, "parameter-delta-authority", false).unwrap();
+        let before = original.effective_parameters().unwrap();
+        let staking = PublicLaneStakingPolicy::from_parameters(&before).unwrap();
+        let fees = RootFeePolicy::from_parameters(&before).unwrap().unwrap();
+        let context = original.sumeragi_context_parameters();
+        let crypto = original.crypto_admission_policy().clone();
+        let overridden = apply_parameter_overrides(
+            original,
+            NonZeroU16::new(4).unwrap(),
+            Some(LOCALNET_PIPELINE_TIME_MS),
+            137,
+            mode,
+        )
+        .expect("changing limits must not append a second staking authority");
+        let after = overridden.effective_parameters().unwrap();
+        assert_eq!(after.block.max_transactions.get(), 137);
+        assert_eq!(
+            after.sumeragi.block_cadence_ms.get(),
+            LOCALNET_PIPELINE_TIME_MS
+        );
+        assert_eq!(
+            PublicLaneStakingPolicy::from_parameters(&after).unwrap(),
+            staking
+        );
+        assert_eq!(
+            RootFeePolicy::from_parameters(&after).unwrap().unwrap(),
+            fees
+        );
+        assert_eq!(overridden.sumeragi_context_parameters(), context);
+        assert_eq!(overridden.crypto_admission_policy(), &crypto);
+        let repeated = apply_parameter_overrides(
+            overridden,
+            NonZeroU16::new(4).unwrap(),
+            Some(LOCALNET_PIPELINE_TIME_MS),
+            137,
+            mode,
+        )
+        .expect("reapplying selected limits must retain a single authority");
+        assert_eq!(repeated.effective_parameters().unwrap(), after);
+        // The canonical builder must still reject a genuinely duplicated policy.
+        assert!(
+            repeated
+                .into_builder()
+                .with_staking_policy(staking)
+                .unwrap()
+                .build_raw()
+                .unwrap_err()
+                .to_string()
+                .contains("repeated public_lane_staking_v1")
+        );
+    }
+}
+
+#[test]
 fn parent_admission_is_explicit_and_exclusive_to_global_localnets() {
     let seed = b"localnet-private-root-admission";
     let (genesis_public_key, _) = generate_genesis_key_pair(Some(seed), GENESIS_SEED).unwrap();
@@ -16,6 +123,7 @@ fn parent_admission_is_explicit_and_exclusive_to_global_localnets() {
         &genesis_public_key,
         SumeragiConsensusMode::Permissioned,
         chain_id,
+        false,
     )
     .unwrap();
     let policy_id = PrivateDataspaceAdmissionPolicy::parameter_id();
@@ -86,6 +194,7 @@ fn asset_extension_preserves_global_prefix_and_scoped_home_owners() {
         &genesis_public_key,
         SumeragiConsensusMode::Npos,
         PUBLIC_TAIRA_CHAIN_ID,
+        false,
     )
     .unwrap();
     let asset = AssetSpec {
@@ -259,6 +368,7 @@ fn localnet_signed_topology_establishes_exact_bls_generation_zero() {
         &public,
         SumeragiConsensusMode::Permissioned,
         "generation-fixture",
+        false,
     )
     .unwrap();
     let raw = append_peer_pop(raw, &peers).unwrap();
@@ -1314,9 +1424,13 @@ fn localnet_genesis_for_opts_and_client(
     } else {
         effective_localnet_assets_for_client(&opts.assets, client_account_id)
     };
-    let mut genesis =
-        generate_raw_genesis(&genesis_public_key, opts.consensus_mode, DEFAULT_CHAIN_ID)
-            .expect("generate raw genesis");
+    let mut genesis = generate_raw_genesis(
+        &genesis_public_key,
+        opts.consensus_mode,
+        DEFAULT_CHAIN_ID,
+        false,
+    )
+    .expect("generate raw genesis");
     if opts.extra_accounts > 0 || !assets.is_empty() {
         genesis = extend_genesis(
             genesis,
@@ -1391,8 +1505,8 @@ fn localnet_genesis_for_opts_and_client(
             append_localnet_permissioned_support_accounts(genesis, &peers, &gas_account_id, false)
                 .expect("append localnet permissioned support accounts");
     }
-    apply_localnet_crypto_overrides(genesis)
-        .expect("apply generated localnet fixture cryptography overrides")
+    validate_localnet_crypto_policy(genesis)
+        .expect("validate the explicitly authored localnet policy")
 }
 include!("../private_profile_bootstrap_tests.rs");
 fn genesis_json_from_path(path: &Path) -> json::Value {
@@ -2253,7 +2367,39 @@ fn generated_peers_use_dedicated_deterministic_transport_and_streaming_identitie
     }
 }
 #[test]
-fn generated_peer_config_allows_bls_signing_for_npos() {
+fn localnet_requires_explicit_bls_membership_without_rewriting_policy() {
+    let (public_key, _) =
+        generate_genesis_key_pair(Some(b"explicit-localnet-policy"), GENESIS_SEED).unwrap();
+    let source = |members| {
+        GenesisBuilder::new_without_executor(
+            ChainId::from("explicit-localnet-policy"),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(members)
+                .expect("canonical authored list"),
+        )
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .with_staking_policy(localnet_staking_policy(&public_key, false))
+        .expect("explicit fixture staking authority")
+        .build_raw()
+        .expect("explicit source")
+    };
+    let absent = source(vec![iroha_crypto::Algorithm::Ed25519]);
+    assert!(validate_localnet_crypto_policy(absent).is_err());
+    let present = source(vec![iroha_crypto::Algorithm::BlsNormal]);
+    let validated = validate_localnet_crypto_policy(present.clone()).unwrap();
+    assert_eq!(
+        validated.crypto_admission_policy(),
+        present.crypto_admission_policy()
+    );
+    assert!(
+        !validated
+            .crypto_admission_policy()
+            .allows(iroha_crypto::Algorithm::Ed25519)
+    );
+}
+
+#[test]
+fn generated_peer_config_cannot_override_committed_genesis_crypto_policy() {
     let temp = crate::localnet::localnet_test_helpers::private_tempdir().expect("make temp dir");
     let opts = LocalnetOptions {
         service_profile: crate::localnet::LocalnetServiceProfile::Standard,
@@ -2276,17 +2422,15 @@ fn generated_peer_config_allows_bls_signing_for_npos() {
         &fs::read_to_string(temp.path().join("peer0.toml")).expect("read generated peer config"),
     )
     .expect("parse peer config");
-    let allowed = peer_cfg
-        .get("crypto")
-        .and_then(|crypto| crypto.get("allowed_signing"))
-        .and_then(|value| value.as_array())
-        .expect("crypto.allowed_signing should be set for NPoS localnet");
     assert!(
-        allowed
-            .iter()
-            .filter_map(|value| value.as_str())
-            .any(|value| value.eq_ignore_ascii_case("bls_normal")),
-        "allowed_signing must include bls_normal for NPoS localnet"
+        peer_cfg.get("crypto").is_none(),
+        "ordinary policy authority is retained only in signed genesis"
+    );
+    let manifest = localnet_genesis_for_opts(&opts);
+    assert!(
+        manifest
+            .crypto_admission_policy()
+            .allows(iroha_crypto::Algorithm::BlsNormal)
     );
     assert!(peer_cfg["sumeragi"].get("mint_finality_seed_fd").is_none());
     assert!(!temp.path().join("runtime/mint-finality-signers").exists());
@@ -2317,21 +2461,12 @@ fn generated_genesis_allows_bls_signing_for_npos() {
     };
     generate_localnet(&opts, &mut BufWriter::new(Vec::new())).expect("generate localnet files");
     let manifest = localnet_genesis_for_opts(&opts);
-    let crypto = manifest.crypto();
+    let policy = manifest.crypto_admission_policy();
+    assert!(policy.allows(iroha_crypto::Algorithm::BlsNormal));
     assert!(
-        crypto
-            .allowed_signing
-            .iter()
-            .any(|algo| matches!(algo, iroha_crypto::Algorithm::BlsNormal)),
-        "genesis allowed_signing must include bls_normal for NPoS localnet"
-    );
-    let bls_curve = iroha_data_model::account::curve::CurveId::try_from_algorithm(
-        iroha_crypto::Algorithm::BlsNormal,
-    )
-    .expect("bls curve id");
-    assert!(
-        crypto.allowed_curve_ids.contains(&bls_curve.as_u8()),
-        "genesis allowed_curve_ids must include bls_normal for NPoS localnet"
+        policy
+            .allowed_curves()
+            .any(|curve| curve.algorithm() == iroha_crypto::Algorithm::BlsNormal)
     );
 }
 #[test]
@@ -3111,9 +3246,8 @@ fn permissioned_localnet_registers_support_accounts_without_staking() {
     );
     assert!(
         manifest
-            .crypto()
-            .allowed_signing
-            .contains(&iroha_crypto::Algorithm::BlsNormal)
+            .crypto_admission_policy()
+            .allows(iroha_crypto::Algorithm::BlsNormal)
     );
 }
 #[test]

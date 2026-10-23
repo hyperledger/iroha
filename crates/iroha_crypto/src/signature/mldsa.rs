@@ -2,6 +2,9 @@
 
 use crate::{Error, ML_DSA_65_PUBLIC_KEY_BYTES, error::ParseError};
 
+#[cfg(not(feature = "pqc"))]
+use crate::{Algorithm, CryptoOperation, UnsupportedImplementation};
+
 /// Fixed key-validation diagnostics; ordinary API adapters retain their exact text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeyRejection {
@@ -12,7 +15,7 @@ pub(crate) enum KeyRejection {
 }
 impl KeyRejection {
     pub(crate) fn into_parse_error(self) -> ParseError {
-        ParseError(
+        ParseError::Invalid(
             match self {
                 Self::Length => "invalid ML-DSA public key length",
                 Self::AllZero => "invalid ML-DSA public key: all-zero material",
@@ -28,13 +31,19 @@ impl KeyRejection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Rejection {
     Key(KeyRejection),
+    #[cfg(any(feature = "pqc", test))]
     Signature,
+    #[cfg(not(feature = "pqc"))]
+    UnsupportedImplementation(UnsupportedImplementation),
 }
 impl Rejection {
     pub(crate) fn into_error(self) -> Error {
         match self {
             Self::Key(reason) => Error::Parse(reason.into_parse_error()),
+            #[cfg(any(feature = "pqc", test))]
             Self::Signature => Error::BadSignature,
+            #[cfg(not(feature = "pqc"))]
+            Self::UnsupportedImplementation(original) => Error::UnsupportedImplementation(original),
         }
     }
 }
@@ -75,7 +84,12 @@ pub(crate) fn verify(key: &[u8], signature: &[u8], message: &[u8]) -> Result<(),
     #[cfg(not(feature = "pqc"))]
     {
         let _ = (signature, message);
-        Err(Rejection::Signature)
+        Err(Rejection::UnsupportedImplementation(
+            UnsupportedImplementation {
+                algorithm: Algorithm::MlDsa,
+                operation: CryptoOperation::VerifySignature,
+            },
+        ))
     }
 }
 

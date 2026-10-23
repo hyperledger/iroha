@@ -314,14 +314,17 @@ fn accepted_transaction(
     let max_clock_drift = view.world().parameters().sumeragi().max_clock_drift();
     let transaction_parameters = view.world().parameters().transaction();
     drop(view);
-    let crypto = state.crypto.read().clone();
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::from_millis(2));
     AcceptedTransaction::accept_with_time_source(
         signed,
         state.network_id_ref(),
         max_clock_drift,
         transaction_parameters,
-        crypto.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &time_source,
     )
     .expect("deterministic transaction must pass stateless admission")

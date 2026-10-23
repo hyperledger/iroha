@@ -2349,7 +2349,7 @@ mod tests {
         // independently computed source and compact plaintext oracles agree above.
         assert_eq!(
             hex::encode(keccak256(&transcript)),
-            "ba0dad2a52a03a43fa2262081f9d1577cdd3eff4689cd64fb5dd5cb6834d9f96"
+            "ee8cff6acf3c56b750ebc04c8381e678b5c06d98a6721157a6d998fb449b42f5"
         );
     }
     #[test]

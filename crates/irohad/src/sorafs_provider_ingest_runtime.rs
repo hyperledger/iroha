@@ -2163,15 +2163,18 @@ impl NativeTransactionIngressV1 {
         transaction: SignedTransaction,
     ) -> std::result::Result<AcceptedTransaction<'static>, ProviderIngestIngressPrepareErrorV1>
     {
-        let (max_clock_drift, transaction_parameters) = self.state.transaction_admission_limits();
+        let parameters = self.state.transaction_admission_parameters();
+        let admission_policy = parameters
+            .require_crypto_policy()
+            .map_err(|_| ProviderIngestIngressPrepareErrorV1::Unavailable)?;
         AcceptedTransaction::accept(
             transaction,
             self.state.network_id_ref(),
-            max_clock_drift,
-            transaction_parameters,
-            self.state.crypto().as_ref(),
+            parameters.sumeragi().max_clock_drift(),
+            parameters.transaction(),
+            admission_policy,
         )
-        .map_err(|_| ProviderIngestIngressPrepareErrorV1::Rejected)
+        .map_err(provider_ingress_admission_error)
     }
     fn expose_sync(
         &self,
@@ -3786,3 +3789,58 @@ mod tests;
 
 #[cfg(any(unix, windows))]
 pub(crate) use native_attestation::start as start_native_attestation;
+
+/// Preserve the completed-versus-local distinction at the current lower ingress API.
+/// TODO: retain the original move-only attempt through the lower provider runtime;
+/// its current fixed error enum cannot carry that owner. Never mark it rejected.
+fn provider_ingress_admission_error(
+    error: iroha_core::tx::AcceptTransactionFail,
+) -> ProviderIngestIngressPrepareErrorV1 {
+    match error.into_execution_deferred() {
+        Ok(_original) => ProviderIngestIngressPrepareErrorV1::Unavailable,
+        Err(_completed) => ProviderIngestIngressPrepareErrorV1::Rejected,
+    }
+}
+
+#[cfg(test)]
+mod crypto_policy_admission_errors {
+    use super::*;
+    #[test]
+    fn backend_and_actual_codec_refusals_never_mark_provider_preflight_rejected() {
+        use iroha_core::tx::AcceptTransactionFail;
+        let cause = iroha_crypto::UnsupportedImplementation {
+            algorithm: iroha_crypto::Algorithm::MlDsa,
+            operation: iroha_crypto::CryptoOperation::VerifySignature,
+        };
+        assert_eq!(
+            provider_ingress_admission_error(
+                AcceptTransactionFail::CryptoImplementationUnavailable(cause)
+            ),
+            ProviderIngestIngressPrepareErrorV1::Unavailable
+        );
+        let bytes = norito::encode_canonical(&vec![31_u8; 8]).unwrap();
+        let original = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            },
+        )
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        assert_eq!(provider_ingress_admission_error(AcceptTransactionFail::SignedAttachments(
+            iroha_data_model::transaction::signed_attachments::SignedAttachmentErrorV1::LocalResource(original))),
+            ProviderIngestIngressPrepareErrorV1::Unavailable);
+        assert_eq!(
+            provider_ingress_admission_error(AcceptTransactionFail::TransactionLimit(
+                iroha_data_model::transaction::error::TransactionLimitError {
+                    reason: "actual completed admission refusal".into()
+                }
+            )),
+            ProviderIngestIngressPrepareErrorV1::Rejected
+        );
+    }
+}

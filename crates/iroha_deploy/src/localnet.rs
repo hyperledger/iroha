@@ -1298,7 +1298,8 @@ fn generate_localnet_runtime<T: Write>(
     let genesis_account_id = AccountId::new(genesis_public_key.clone());
     let assets = effective_localnet_assets_for_client(&opts.assets, &client_identity.account_id);
     let gas_account_id = localnet_gas_account_id(&genesis_public_key);
-    let mut genesis = generate_raw_genesis(&genesis_public_key, opts.consensus_mode, &chain_id)?;
+    let mut genesis =
+        generate_raw_genesis(&genesis_public_key, opts.consensus_mode, &chain_id, taira)?;
     genesis = append_localnet_private_root_admission_policy(genesis, &chain_id)?;
     if opts.extra_accounts > 0 || !assets.is_empty() {
         genesis = extend_genesis(
@@ -1397,7 +1398,7 @@ fn generate_localnet_runtime<T: Write>(
     } else {
         None
     };
-    genesis = apply_localnet_crypto_overrides(genesis)?;
+    genesis = validate_localnet_crypto_policy(genesis)?;
     let alias_setup_request =
         localnet_alias_setup_request(&genesis_account_id, &client_identity.account_id, taira)?;
     let append_alias_setup_to_current_transaction = npos_bootstrap
@@ -2816,37 +2817,6 @@ fn render_peer_config(
         Value::Integer(i64::try_from(LOCALNET_QUEUE_TTL_MS).expect("queue ttl fits i64")),
     );
     root.insert("queue".into(), Value::Table(queue));
-    let mut crypto = Table::new();
-    let allowed_signing = [
-        iroha_crypto::Algorithm::Ed25519,
-        iroha_crypto::Algorithm::Secp256k1,
-        iroha_crypto::Algorithm::BlsNormal,
-    ];
-    crypto.insert(
-        "allowed_signing".into(),
-        Value::Array(
-            allowed_signing
-                .iter()
-                .map(|algo| Value::String(algo.as_static_str().to_owned()))
-                .collect(),
-        ),
-    );
-    let mut curves = Table::new();
-    let mut curve_ids = allowed_signing
-        .iter()
-        .filter_map(|algo| {
-            iroha_data_model::account::curve::CurveId::try_from_algorithm(*algo).ok()
-        })
-        .map(|curve| i64::from(curve.as_u8()))
-        .collect::<Vec<_>>();
-    curve_ids.sort_unstable();
-    curve_ids.dedup();
-    curves.insert(
-        "allowed_curve_ids".into(),
-        Value::Array(curve_ids.into_iter().map(Value::Integer).collect()),
-    );
-    crypto.insert("curves".into(), Value::Table(curves));
-    root.insert("crypto".into(), Value::Table(crypto));
     let mut streaming = Table::new();
     streaming.insert(
         "identity_public_key".into(),
@@ -3420,14 +3390,24 @@ fn generate_raw_genesis(
     genesis_public_key: &iroha_crypto::PublicKey,
     consensus_mode: SumeragiConsensusMode,
     chain_id: &str,
+    sccp_enabled: bool,
 ) -> Result<RawGenesisTransaction> {
     let chain_id = chain_id
         .parse::<ChainId>()
         .wrap_err("localnet chain id must be canonical")?;
     let npos_epoch_seed = matches!(consensus_mode, SumeragiConsensusMode::Npos)
         .then(|| localnet_npos_epoch_seed(&chain_id));
-    let builder = GenesisBuilder::new_without_executor(chain_id, PathBuf::from("."))
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended());
+    let builder = GenesisBuilder::new_without_executor(
+        chain_id,
+        PathBuf::from("."),
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended());
     generate_default(
         builder,
         genesis_public_key,
@@ -3435,7 +3415,26 @@ fn generate_raw_genesis(
         consensus_mode,
         None,
         npos_epoch_seed,
+        localnet_staking_policy(genesis_public_key, sccp_enabled),
     )
+}
+
+/// Resolve the generated root's monetary identities and liability bounds before signing.
+fn localnet_staking_policy(
+    genesis_public_key: &iroha_crypto::PublicKey,
+    sccp_enabled: bool,
+) -> iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+    let custody = localnet_gas_account_id(genesis_public_key);
+    let mut policy = crate::genesis::default_staking_policy(
+        localnet_xor_asset_definition_id(),
+        custody.clone(),
+        custody,
+    );
+    if sccp_enabled {
+        policy.unbonding_delay_ms = crate::genesis::sccp::UNBONDING_DELAY_MS;
+        policy.max_slash_bps = crate::genesis::sccp::MAX_SLASH_BPS;
+    }
+    policy
 }
 
 fn extend_genesis(
@@ -3725,6 +3724,9 @@ fn apply_parameter_overrides(
     if !should_update {
         return Ok(genesis);
     }
+    // into_builder retains the original signed parameter snapshot. Append only
+    // selected changes; replaying unchanged authority would duplicate staking.
+    let original_parameters = parameters.parameters().collect::<Vec<_>>();
     parameters.block.max_transactions = block_max_transactions;
     if let Some(block_cadence_ms) = block_cadence_ms {
         parameters.sumeragi.block_cadence_ms =
@@ -3743,40 +3745,26 @@ fn apply_parameter_overrides(
             NonZeroU64::new(block_cadence_ms).expect("validated non-zero block cadence"),
         );
     }
-    let pending_parameters = parameters.parameters().collect::<Vec<_>>();
-    if !pending_parameters.is_empty() {
-        for parameter in pending_parameters {
-            builder = builder.append_parameter(parameter);
-        }
+    for parameter in parameters
+        .parameters()
+        .filter(|parameter| !original_parameters.contains(parameter))
+    {
+        builder = builder.append_parameter(parameter);
     }
     builder.build_raw()
 }
-fn apply_localnet_crypto_overrides(
+fn validate_localnet_crypto_policy(
     genesis: RawGenesisTransaction,
 ) -> Result<RawGenesisTransaction> {
-    let mut crypto = genesis.crypto().clone();
-    if !crypto
-        .allowed_signing
-        .iter()
-        .any(|algo| matches!(algo, iroha_crypto::Algorithm::BlsNormal))
+    if !genesis
+        .crypto_admission_policy()
+        .allows(iroha_crypto::Algorithm::BlsNormal)
     {
-        crypto
-            .allowed_signing
-            .push(iroha_crypto::Algorithm::BlsNormal);
+        return Err(eyre!(
+            "localnet genesis validator account controllers require explicitly allowing bls_normal"
+        ));
     }
-    crypto.allowed_signing.sort();
-    crypto.allowed_signing.dedup();
-    crypto.allowed_curve_ids = crypto
-        .allowed_signing
-        .iter()
-        .filter_map(|algo| {
-            iroha_data_model::account::curve::CurveId::try_from_algorithm(*algo).ok()
-        })
-        .map(iroha_data_model::account::curve::CurveId::as_u8)
-        .collect();
-    crypto.allowed_curve_ids.sort_unstable();
-    crypto.allowed_curve_ids.dedup();
-    genesis.into_builder().with_crypto(crypto).build_raw()
+    Ok(genesis)
 }
 fn append_peer_pop(
     genesis: RawGenesisTransaction,
@@ -5063,8 +5051,6 @@ fn generated_config_parameter_name(id: &iroha_config::base::ParameterId) -> Opti
                 "transaction_time_to_live_ms",
             ],
         ),
-        (&["crypto"], &["allowed_signing"]),
-        (&["crypto", "curves"], &["allowed_curve_ids"]),
         (
             &["streaming"],
             &[

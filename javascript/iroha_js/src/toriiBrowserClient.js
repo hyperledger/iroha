@@ -1470,6 +1470,15 @@ async function readBoundedResponseBytes(response, maximumBodyBytes, context, sig
       rejectRange(`${context} exceeds its ${maximumBodyBytes}-byte response limit`);
     }
   }
+  // Fetch represents a genuinely absent body as null: its bounded size is zero.
+  // A missing or malformed body owner still fails the stream contract below.
+  if (response?.body === null) {
+    if (signal?.aborted) throw abortReasonOf(signal);
+    if (declaredLength !== null && declaredLength !== 0) {
+      rejectType(`${context} Content-Length${TEXT_DOES_NOT_MATCH_THE}response body`);
+    }
+    return new Uint8Array(0);
+  }
   if (typeof response?.body?.getReader !== FIELD_FUNCTION) {
     rejectType(`${context} requires a byte-stream response body so its size can be bounded`);
   }

@@ -1,4 +1,4 @@
-//! Data-event filter wire tags remain fixed across optional capability builds.
+//! Complete data-event filter wire tags remain fixed across backend feature builds.
 
 use super::*;
 use norito::{SerializePayload, core as ncore};
@@ -97,7 +97,6 @@ fn canonical_cases() -> Vec<(&'static str, u32, DataEventFilter)> {
             22,
             DataEventFilter::Bridge(BridgeEventFilter::new()),
         ),
-        #[cfg(feature = "governance")]
         (
             "Governance",
             23,
@@ -216,27 +215,22 @@ fn data_event_filter_rejects_unassigned_tags() {
     }
 }
 
-#[cfg(not(feature = "governance"))]
 #[test]
-fn disabled_governance_tag_is_never_decoded_as_game_session() {
+fn governance_tag_rejects_a_game_session_body() {
     for game_id in [None, Some(iroha_crypto::Hash::prehashed([0xB9; 32]))] {
         for flags in layouts() {
             let mut bytes = payload(&DataEventFilter::GameSession(game_id), flags);
             assert_eq!(&bytes[..4], &24_u32.to_le_bytes());
-            // Reserved Governance tag with an otherwise valid GameSession body:
-            // the disabled decoder must reject the tag before interpreting fields.
+            // The canonical Governance payload has a different complete field layout.
+            // Rebinding a valid GameSession body cannot manufacture that payload.
             bytes[..4].copy_from_slice(&23_u32.to_le_bytes());
-            assert!(matches!(
-                decode(&bytes, flags),
-                Err(ncore::Error::Message(message)) if message == "invalid enum discriminant"
-            ));
+            assert!(decode(&bytes, flags).is_err());
         }
     }
 }
 
-#[cfg(feature = "governance")]
 #[test]
-fn enabled_governance_filter_retains_tag_and_scope_fields() {
+fn governance_filter_retains_tag_and_scope_fields_in_every_build() {
     let value = DataEventFilter::Governance(
         GovernanceEventFilter::new()
             .for_proposal([0xC3; 32])

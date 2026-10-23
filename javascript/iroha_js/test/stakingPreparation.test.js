@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { ToriiClient, LocalSigningContext } from "../src/toriiClient.js";
 import { NetworkId } from "../src/networkId.js";
 import {
@@ -126,15 +127,28 @@ test("staking transport rejects wrong media, missing binding, cancellation and u
 // These transports deliberately ignore fetch cancellation, as user-supplied
 // fetch callbacks may do. The production owner must stop waiting and dispose
 // the eventual response without relying on a cooperative callback.
-test("staking preparation original deadline cancels a slow body after late headers", { timeout: 2000 }, async () => {
+test("staking preparation original deadline cancels a slow body after late headers", { timeout: 2000 }, async (t) => {
   const f = fixture();
   // Warm the ordinary optional module before the measured mocked dispatch.
   await client(f, async () => response(f.responseBytes)).preparePublicLanePlan(f.request, f.xor);
+  // Advance only the declared dispatch/body schedule. Native request preparation
+  // may take longer than 100 ms on a busy host and must not accidentally turn
+  // this body-deadline control into the separate late-header disposal case.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_800_000_000_000 });
+  // Torii captures timer intrinsics when its module is evaluated. This test-owned
+  // evaluation captures the clock before constructing the original deadline.
+  const timed = await import("../src/toriiClient.js?staking-original-deadline-control");
   for (const status of [200, 503]) {
     let cancelled = false, completed = false, calls = 0, bodyTimer;
-    const c = client(f, async () => {
+    let markDispatched, headersDelivered = false;
+    const dispatched = new Promise((resolve) => { markDispatched = resolve; });
+    const c = new timed.ToriiClient("https://staking.invalid", {
+      localSigningContext: new timed.LocalSigningContext(f.network, 753),
+      fetchImpl: async () => {
       calls += 1;
+      markDispatched();
       await new Promise((resolve) => setTimeout(resolve, 60));
+      headersDelivered = true;
       return response(new ReadableStream({
         start(controller) {
           controller.enqueue(f.responseBytes.subarray(0, 1));
@@ -148,10 +162,28 @@ test("staking preparation original deadline cancels a slow body after late heade
         },
         cancel() { cancelled = true; clearTimeout(bodyTimer); },
       }), status);
-    }, { timeoutMs: 100 });
+      }, maxRetries: 3, retryMethods: ["POST"], timeoutMs: 100,
+    });
     try {
-      await assert.rejects(c.preparePublicLanePlan(f.request, f.xor), /timed out/);
+      let rejected = false;
+      const rejection = assert.rejects(c.preparePublicLanePlan(f.request, f.xor), /timed out/)
+        .then(() => { rejected = true; });
+      await dispatched;
+      t.mock.timers.tick(60);
+      await setImmediate();
+      assert.equal(headersDelivered, true);
+      assert.equal(cancelled, false); assert.equal(completed, false); assert.equal(rejected, false);
+      t.mock.timers.tick(39);
+      await setImmediate();
+      assert.equal(cancelled, false); assert.equal(completed, false); assert.equal(rejected, false);
+      t.mock.timers.tick(1);
+      await setImmediate();
+      assert.equal(rejected, true, "the original 100 ms deadline must not restart at headers");
+      await rejection;
       assert.equal(cancelled, true); assert.equal(completed, false); assert.equal(calls, 1);
+      t.mock.timers.tick(30);
+      await setImmediate();
+      assert.equal(completed, false, "cancelled original body never completes later");
     } finally { clearTimeout(bodyTimer); }
   }
 });

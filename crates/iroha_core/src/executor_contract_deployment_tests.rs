@@ -80,7 +80,7 @@ fn contract_code_management_manager_sponsors_registration_and_meters_every_instr
             .execute_transaction(
                 &mut state_transaction,
                 &manager,
-                transaction,
+                &transaction,
                 &mut IvmCache::new(),
             )
             .map_err(crate::execution_attempt::expect_completed_rejection)
@@ -305,7 +305,7 @@ fn default_user_provided_executor_rejects_existing_bootstrap_before_grant_dispat
             .execute_transaction(
                 &mut state_transaction,
                 &authority,
-                transaction,
+                &transaction,
                 &mut ivm_cache,
             )
             .map_err(crate::execution_attempt::expect_completed_rejection)
@@ -422,7 +422,7 @@ fn default_user_provided_executor_rejects_noncanonical_bootstrap_without_committ
                 .execute_transaction(
                     &mut state_transaction,
                     &authority,
-                    transaction,
+                    &transaction,
                     &mut ivm_cache,
                 )
                 .map_err(crate::execution_attempt::expect_completed_rejection)
@@ -546,7 +546,7 @@ fn initial_executor_denies_preexisting_deployment_self_grant_without_state_chang
         .execute_transaction(
             &mut state_transaction,
             &authority,
-            transaction,
+            &transaction,
             &mut ivm_cache,
         )
         .map_err(crate::execution_attempt::expect_completed_rejection)

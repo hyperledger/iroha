@@ -398,23 +398,7 @@ export {
   buildPrecommitTriggerAction,
   submitSignedTransaction,
 } from "./transaction.js";
-export {
-  BrowserTransactionCodecError,
-  browserSignedTransactionHashHex,
-  browserTransactionCodec,
-  browserTransactionPayloadHashHex,
-  buildBrowserExecutableBatchPayload,
-  buildBrowserInstructionTransactionPayload,
-  buildBrowserVerifyingKeyTransactionPayload,
-  buildBrowserTransferPayload,
-  decodeCanonicalVerifyingKeyTransactionPayload,
-  finalizeBrowserExecutableBatchTransaction,
-  finalizeBrowserInstructionTransaction,
-  finalizeBrowserSignedTransaction,
-  validateBrowserExecutableBatchSignable,
-  validateBrowserInstructionTransactionSignable,
-  validateBrowserTransferSignable,
-} from "./transactionCodec.js";
+export * from "./public/transactionCodec.js";
 export {
   SMART_CONTRACT_CODE_CHUNK_BYTES,
   deploySmartContractBrowser,

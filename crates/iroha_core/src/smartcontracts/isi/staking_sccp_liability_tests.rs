@@ -24,14 +24,7 @@ fn fixture_sccp_liability_generation(
 
 #[test]
 fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
-    let mut state = setup_state();
-    set_epoch_length(&mut state, 4);
-    let nexus = state.nexus_snapshot();
-    let state = original_staking_state(
-        state,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Npos,
-    );
+    let state = original_npos_staking_state(staking_fixture_npos_policy(4));
     let block = new_block_with_height_and_time(2, 0);
     let mut state_block = state.block(block.as_ref().header());
     let mut stx = state_block.transaction_for_callback_testing();
@@ -179,14 +172,7 @@ fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
 /// or L3 check, exactly as before the borrowed L3 preflight existed.
 #[test]
 fn unbond_of_never_registered_validator_keeps_the_retained_custody_rejection_first() {
-    let mut state = setup_state();
-    set_epoch_length(&mut state, 4);
-    let nexus = state.nexus_snapshot();
-    let state = original_staking_state(
-        state,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Npos,
-    );
+    let state = original_npos_staking_state(staking_fixture_npos_policy(4));
     let block = new_block_with_height_and_time(2, 0);
     let mut state_block = state.block(block.as_ref().header());
     let mut stx = state_block.transaction_for_callback_testing();
@@ -253,14 +239,7 @@ fn unbond_of_never_registered_validator_keeps_the_retained_custody_rejection_fir
 
 #[test]
 fn sccp_liable_zero_custody_registration_survives_pruning_and_replacement() {
-    let mut state = setup_state();
-    set_epoch_length(&mut state, 3);
-    let nexus = state.nexus_snapshot();
-    let state = original_staking_state(
-        state,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Npos,
-    );
+    let state = original_npos_staking_state(staking_fixture_npos_policy(3));
     let block = new_block_with_height_and_time(2, 0);
     let mut state_block = state.block(block.as_ref().header());
     let mut stx = state_block.transaction_for_callback_testing();
@@ -320,14 +299,7 @@ fn sccp_liable_zero_custody_registration_survives_pruning_and_replacement() {
 
 #[test]
 fn sccp_liability_does_not_refuse_exit_or_change_the_captured_registration() {
-    let mut state = setup_state();
-    set_epoch_length(&mut state, 3);
-    let nexus = state.nexus_snapshot();
-    let state = original_staking_state(
-        state,
-        nexus,
-        iroha_data_model::parameter::system::SumeragiConsensusMode::Npos,
-    );
+    let state = original_npos_staking_state(staking_fixture_npos_policy(3));
     let block = new_block_with_height_and_time(2, 0);
     let mut state_block = state.block(block.as_ref().header());
     let mut stx = state_block.transaction_for_callback_testing();

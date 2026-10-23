@@ -1141,9 +1141,6 @@ mod tests {
 
     #[test]
     fn evidence_unavailable_has_one_canonical_code_and_codec() {
-        let code = WorkflowErrorCode::EvidenceUnavailable;
-        assert_eq!(code.id(), "EvidenceUnavailable");
-        assert!(code.is_shared_operation_code());
         // Contract enums are nested payloads of the framed workflow journal.
         // Exercise the same declared framing without inventing a standalone
         // production schema for each nested enum.
@@ -1152,6 +1149,9 @@ mod tests {
         struct ErrorCodeRecord {
             code: WorkflowErrorCode,
         }
+        let code = WorkflowErrorCode::EvidenceUnavailable;
+        assert_eq!(code.id(), "EvidenceUnavailable");
+        assert!(code.is_shared_operation_code());
         let record = ErrorCodeRecord { code };
         let frame = norito::encode_canonical(&record).unwrap();
         assert_eq!(

@@ -114,6 +114,32 @@ decryption and refresh belong to later tasks.
   that were not sampled honestly or side channels, and it leaves the class
   fit as it is. No candidate is qualified; the parameters await review.
 
+## Offline threshold custody candidate
+
+`bgv::threshold` is a bounded C.4 component for an explicitly trusted offline
+dealer. It consumes an existing BGV secret key and issues opaque, non-Clone
+Shamir shares over every main and special RNS prime. The context binds a
+caller-declared threshold and roster, application key context, and epoch;
+fresh per-invocation instance IDs prevent mixing separate sharings. These are
+independent of consensus quorum rules. `t=1` means no threshold secrecy.
+
+The existing coin and polynomial owners clear seeds, random coefficients,
+the consumed key, and share buffers on drop/error/unwind. Final issuance
+clears the dealer's retained secrets. A caller-supplied ceiling bounds the
+dealer's secret buffers plus one issuance, excluding already returned shares,
+public metadata, allocator overhead, and stack/register copies. It is not a
+process-memory bound. One-time issuance is in-memory only.
+
+`validate_selection_metadata` checks distinct participation and exact context
+and instance binding. It is not an algebraic verifier. Only test fixtures
+expose secret words for an independent interpolation oracle. There is no
+production share codec/import, reconstruction, decryption contribution,
+network route, or registered policy. This does not qualify the C.3 profiles
+or complete C.4. TODO(C.4): distributed key generation, authenticated durable
+custody, reviewed masked ciphertext-bound contributions, malicious-party
+proofs, and verifiable threshold opening. The separate BFV and MKHE protocols
+retain their own semantics.
+
 ## Rounding rules
 
 No floating point is used. Every rule is stated in `rounding` and tested at
@@ -194,3 +220,21 @@ The answers were derived with Python integers, and the test re-derives each one
 with an independent `num-bigint` oracle built from the textbook definitions
 (quadratic DFT, schoolbook negacyclic product, constructive CRT, exact rational
 rounding), so neither the kernels nor the vectors can drift unnoticed.
+
+## R.11 offline encryption relation
+
+Ordinary encryption owns its sampled mask and errors in a non-cloneable,
+clearing witness and still uses the original tagged streams and BGV arithmetic.
+The `bgv-test-fixtures` module alone can retain that witness and check bounded
+ternary/error coefficients, the exact borrowed key and plaintext, and every
+ciphertext component and fresh noise-metadata word. It offers no witness codec
+or raw coefficient accessor. The checked buffer ceiling covers owned sample and
+RNS scratch payloads, not input objects, allocator overhead or process memory.
+
+This variable-time offline oracle is a prerequisite, not a client proof or
+admission route. It establishes neither honest key/randomness generation nor
+circuit privacy. RAM-LFE tests compose the existing scalar encoding with its
+64-slot length/byte policy and zero upper slots at the crypto layer.
+TODO(R.11): authenticated committed input/key proofs, honest-generation
+provenance, a reviewed sanitizer and fixed maximum-shape physical schedule,
+query/replay enforcement, and full leakage/security/resource qualification.

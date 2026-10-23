@@ -22,7 +22,6 @@ fn execution_policy(config: &Config) -> [u8; 32] {
     actual::execution_policy_digest_v1(
         &config.pipeline,
         &config.oracle,
-        &config.crypto,
         &config.fraud_monitoring,
         &config.gov,
         &config.content,

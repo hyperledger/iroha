@@ -4995,7 +4995,9 @@ mod tests {
         world
     }
 
-    fn validate_tiered_x509_root_world(world: &World) -> Result<(), String> {
+    fn validate_tiered_x509_root_world(
+        world: &World,
+    ) -> Result<(), crate::privacy_state::PrivacyStateValidationErrorV1> {
         crate::privacy_state::validate_privacy_persisted_state_v1(
             &iroha_data_model::privacy::PrivacyConsensusPolicyV1::taira_default(),
             &world.privacy_activations.view(),

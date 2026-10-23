@@ -11,8 +11,7 @@ use super::shake256;
 #[cfg(test)]
 use super::{Scalar, ZkAmsMkheErrorV1};
 use super::{
-    keccak256, manifest::release_profile_v1,
-    phase23_encrypted::zk_ams_phase23_encrypted_implementation_v1,
+    manifest::release_profile_v1, phase23_encrypted::zk_ams_phase23_encrypted_implementation_v1,
     phase23_mask_proof::zk_ams_phase23_mask_proof_audit_v1,
     terminal::zk_ams_phase3_terminal_implementation_v1,
 };
@@ -149,11 +148,26 @@ pub fn zk_ams_phase23_equation_certificate_v1() -> ZkAmsPhase23EquationCertifica
         max_batch_size: PHASE23_MAX_BATCH_SIZE_V1,
         assignment_columns: PHASE23_ASSIGNMENT_COLUMNS_V1,
         constraint_rows: PHASE23_CONSTRAINT_ROWS_V1,
-        equation_6_digest: keccak256(EQUATION_6_SCHEMA_V1),
-        equation_7_digest: keccak256(EQUATION_7_SCHEMA_V1),
-        equations_9_10_digest: keccak256(EQUATIONS_9_10_SCHEMA_V1),
-        equation_11_digest: keccak256(EQUATION_11_SCHEMA_V1),
-        phase3_checker_digest: keccak256(PHASE3_CHECKER_SCHEMA_V1),
+        equation_6_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase23.equation-6-schema",
+            EQUATION_6_SCHEMA_V1,
+        ),
+        equation_7_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase23.equation-7-schema",
+            EQUATION_7_SCHEMA_V1,
+        ),
+        equations_9_10_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase23.equations-9-10-schema",
+            EQUATIONS_9_10_SCHEMA_V1,
+        ),
+        equation_11_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase23.equation-11-schema",
+            EQUATION_11_SCHEMA_V1,
+        ),
+        phase3_checker_digest: super::native_outer_schema_v1(
+            b"iroha.zk-ams.v1.phase23.phase3-checker-schema",
+            PHASE3_CHECKER_SCHEMA_V1,
+        ),
         encrypted_implementation_digest: encrypted_implementation.digest,
         terminal_implementation_digest: terminal_implementation.digest,
         encrypted_sparse_maps_complete: encrypted_mechanics_complete,
@@ -170,20 +184,34 @@ pub fn zk_ams_phase23_equation_certificate_v1() -> ZkAmsPhase23EquationCertifica
 #[must_use]
 pub fn zk_ams_phase23_equation_certificate_digest_v1() -> [u8; 32] {
     let certificate = zk_ams_phase23_equation_certificate_v1();
-    let mut frame = Vec::with_capacity(256);
-    frame.extend_from_slice(b"iroha.zk-ams.v1.phase23.equation-certificate");
-    frame.push(certificate.version);
-    frame.push(certificate.max_batch_size);
-    frame.extend_from_slice(&certificate.assignment_columns.to_be_bytes());
-    frame.extend_from_slice(&certificate.constraint_rows.to_be_bytes());
-    frame.extend_from_slice(&certificate.equation_6_digest);
-    frame.extend_from_slice(&certificate.equation_7_digest);
-    frame.extend_from_slice(&certificate.equations_9_10_digest);
-    frame.extend_from_slice(&certificate.equation_11_digest);
-    frame.extend_from_slice(&certificate.phase3_checker_digest);
-    frame.extend_from_slice(&certificate.encrypted_implementation_digest);
-    frame.extend_from_slice(&certificate.terminal_implementation_digest);
-    frame.extend_from_slice(&[
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        b"iroha.zk-ams.v1.phase23.equation-certificate",
+        13,
+    );
+    hash.push_field(&[certificate.version])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[certificate.max_batch_size])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.assignment_columns.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.constraint_rows.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.equation_6_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.equation_7_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.equations_9_10_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.equation_11_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.phase3_checker_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.encrypted_implementation_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.terminal_implementation_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         certificate.encrypted_sparse_maps_complete.into(),
         certificate.encrypted_cross_term_complete.into(),
         certificate.encrypted_commitment_complete.into(),
@@ -191,9 +219,14 @@ pub fn zk_ams_phase23_equation_certificate_digest_v1() -> [u8; 32] {
         certificate.padding_and_final_proof_complete.into(),
         certificate.hidden_mask_proof_complete.into(),
         certificate.hidden_mask_proof_blocker_mask,
-    ]);
-    frame.extend_from_slice(&certificate.hidden_mask_proof_audit_digest);
-    keccak256(&frame)
+    ])
+    .expect("fixed bounded MKHE identity field");
+    hash.push_field(&certificate.hidden_mask_proof_audit_digest)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 /// Evaluate the exact Equation (6) cross term component-wise.
 #[cfg(test)]

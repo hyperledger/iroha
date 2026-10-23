@@ -34,6 +34,17 @@ fn balance(state: &State, id: &AssetId) -> Quantity {
         .map_or_else(Quantity::zero, |value| value.clone().into_inner())
 }
 fn test_state(world: World) -> State {
+    let selected = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+        Algorithm::Ed25519,
+        Algorithm::Secp256k1,
+    ])
+    .expect("explicit implicit-receive fixture policy");
+    let mut block = world.block();
+    block
+        .parameters
+        .set_parameter(selected.into_parameter().expect("canonical fixture policy"))
+        .expect("author original policy before State construction");
+    block.commit();
     let kura = Kura::blank_kura_for_testing();
     let query = LiveQueryStore::start_test();
     let state = State::new_for_testing(world, kura, query);
@@ -59,18 +70,19 @@ fn block_header(height: u64, timestamp_ms: u64) -> BlockHeader {
     )
 }
 fn accept_transaction(state: &State, tx: SignedTransaction) -> AcceptedTransaction<'static> {
-    let network_id = *state.network_id_ref();
-    let max_clock_drift = state
-        .view()
-        .world()
-        .parameters()
-        .sumeragi()
-        .max_clock_drift();
-    let tx_params = state.view().world().parameters().transaction();
-    let crypto = state.crypto.read().clone();
-    AcceptedTransaction::accept(tx, &network_id, max_clock_drift, tx_params, crypto.as_ref())
-        .expect("transaction admission must succeed")
+    let parameters = state.transaction_admission_parameters();
+    AcceptedTransaction::accept(
+        tx,
+        state.network_id_ref(),
+        parameters.sumeragi().max_clock_drift(),
+        parameters.transaction(),
+        parameters
+            .require_crypto_policy()
+            .expect("original fixture policy"),
+    )
+    .expect("transaction admission must succeed")
 }
+
 fn prepare_state(
     policy: Option<AccountAdmissionPolicy>,
     alice_balance: Quantity,

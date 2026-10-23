@@ -215,7 +215,7 @@ fn raw_ivm_staking_trigger_requires_signed_monetary_plan() {
                 let result = Executor::Initial.execute_transaction(
                     &mut tx,
                     authority,
-                    signed,
+                    &signed,
                     &mut IvmCache::new(),
                 );
                 assert!(
@@ -269,7 +269,7 @@ fn raw_ivm_staking_trigger_requires_signed_monetary_plan() {
         let mut tx = block.transaction_for_fastpq_testing(call);
         bind_scope(&mut tx);
         Executor::Initial
-            .execute_transaction(&mut tx, authority, signed, &mut IvmCache::new())
+            .execute_transaction(&mut tx, authority, &signed, &mut IvmCache::new())
             .unwrap();
         assert!(tx.complete_direct_callbacks(call).unwrap().is_empty());
         tx.apply();
@@ -355,7 +355,7 @@ fn supplied_proved_staking_effects_require_signed_monetary_plan() {
                     &mut tx,
                     authority,
                     &signed,
-                    instructions,
+                    &instructions,
                     Some(replay),
                     None,
                     None,
@@ -365,6 +365,7 @@ fn supplied_proved_staking_effects_require_signed_monetary_plan() {
                     None,
                     None,
                     true,
+                    None,
                 )
                 .expect_err("supplied replay must not manufacture a signed monetary plan");
             assert_opaque_rejection(error);

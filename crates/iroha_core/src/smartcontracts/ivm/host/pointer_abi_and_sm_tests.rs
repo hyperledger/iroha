@@ -221,7 +221,7 @@ fn nft_mint_enqueues_register_and_transfer() {
         _ => panic!("expected NFT transfer"),
     }
 }
-#[cfg(all(feature = "telemetry", feature = "sm"))]
+#[cfg(feature = "telemetry")]
 #[test]
 fn sm3_syscall_records_success_metric() {
     let authority: AccountId = fixture_account("alice");
@@ -243,7 +243,6 @@ fn sm3_syscall_records_success_metric() {
     let program = build_program(&code, 4);
     let accounts = Arc::new(vec![authority.clone()]);
     let mut host = CoreHost::with_accounts(authority, accounts);
-    host.force_sm_enabled_for_tests(true);
     let metrics = Arc::new(iroha_telemetry::metrics::Metrics::default());
     host.set_telemetry(StateTelemetry::new(Arc::clone(&metrics), true));
     vm.set_host(host);
@@ -258,7 +257,7 @@ fn sm3_syscall_records_success_metric() {
         1
     );
 }
-#[cfg(all(feature = "telemetry", feature = "sm"))]
+#[cfg(feature = "telemetry")]
 #[test]
 fn sm3_syscall_failure_records_failure_metric() {
     let authority: AccountId = fixture_account("alice");
@@ -281,7 +280,6 @@ fn sm3_syscall_failure_records_failure_metric() {
     let program = build_program(&code, 4);
     let accounts = Arc::new(vec![authority.clone()]);
     let mut host = CoreHost::with_accounts(authority, accounts);
-    host.force_sm_enabled_for_tests(true);
     let metrics = Arc::new(iroha_telemetry::metrics::Metrics::default());
     host.set_telemetry(StateTelemetry::new(Arc::clone(&metrics), true));
     vm.set_host(host);
@@ -298,4 +296,152 @@ fn sm3_syscall_failure_records_failure_metric() {
             .get(),
         1
     );
+}
+
+#[test]
+fn sm_syscalls_ignore_local_crypto_preferences() {
+    use iroha_crypto::{Sm2PrivateKey, Sm2PublicKey, Sm3Digest, Sm4Key};
+    let message = b"mandatory-v1-sm";
+    let private = Sm2PrivateKey::new(Sm2PublicKey::DEFAULT_DISTID, [0x43; 32])
+        .expect("canonical SM2 fixture");
+    let signature = private.sign(message).to_bytes();
+    let public = private.public_key().to_sec1_bytes(false);
+    let key_bytes = [0x27; 16];
+    let nonce = [0x35; 12];
+    let aad = b"bound-aad";
+    let key = Sm4Key::new(key_bytes);
+    let (mut gcm, gcm_tag) = key
+        .encrypt_gcm(&nonce, aad, message)
+        .expect("GCM reference");
+    gcm.extend_from_slice(&gcm_tag);
+    let (mut ccm, ccm_tag) = key
+        .encrypt_ccm(&nonce, aad, message, 16)
+        .expect("CCM reference");
+    ccm.extend_from_slice(&ccm_tag);
+    let cases = [
+        (
+            ivm_sys::SYSCALL_SM3_HASH,
+            vec![message.as_slice()],
+            Some(Sm3Digest::hash(message).as_bytes().to_vec()),
+        ),
+        (
+            ivm_sys::SYSCALL_SM2_VERIFY,
+            vec![message.as_slice(), signature.as_ref(), public.as_slice()],
+            None,
+        ),
+        (
+            ivm_sys::SYSCALL_SM4_GCM_SEAL,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                message.as_slice(),
+            ],
+            Some(gcm.clone()),
+        ),
+        (
+            ivm_sys::SYSCALL_SM4_GCM_OPEN,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                gcm.as_slice(),
+            ],
+            Some(message.to_vec()),
+        ),
+        (
+            ivm_sys::SYSCALL_SM4_CCM_SEAL,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                message.as_slice(),
+            ],
+            Some(ccm.clone()),
+        ),
+        (
+            ivm_sys::SYSCALL_SM4_CCM_OPEN,
+            vec![
+                key_bytes.as_slice(),
+                nonce.as_slice(),
+                aad.as_slice(),
+                ccm.as_slice(),
+            ],
+            Some(message.to_vec()),
+        ),
+    ];
+    let mut prior = None;
+    for (default_hash, sm2_distid_default) in [
+        ("blake2b-256", Sm2PublicKey::DEFAULT_DISTID),
+        ("sm3-256", "node-local-generation-preference"),
+    ] {
+        let mut crypto = iroha_config::parameters::actual::Crypto::default();
+        crypto.default_hash = default_hash.to_owned();
+        crypto.sm2_distid_default = sm2_distid_default.to_owned();
+        let mut host = CoreHost::new(fixture_account("alice"));
+        host.set_crypto_config(Arc::new(crypto));
+        let mut outcomes = Vec::new();
+        for (number, inputs, expected) in &cases {
+            let mut vm = IVM::new(1_000_000);
+            for (index, payload) in inputs.iter().enumerate() {
+                let pointer = store_tlv(&mut vm, PointerType::Blob, payload);
+                vm.set_register(10 + index, pointer);
+            }
+            vm.set_register(14, 16);
+            let quote = host
+                .prepare_syscall(*number, &vm)
+                .expect("mandatory SM quote");
+            let actual = host
+                .syscall(*number, &mut vm)
+                .expect("mandatory SM execution");
+            assert_eq!(actual, quote, "SM quote and execution gas {number}");
+            let output = if let Some(expected) = expected {
+                let result = vm
+                    .memory
+                    .validate_tlv(vm.register(10))
+                    .expect("SM result TLV");
+                assert_eq!(result.type_id, PointerType::Blob);
+                assert_eq!(result.payload, expected.as_slice(), "SM output {number}");
+                result.payload.to_vec()
+            } else {
+                assert_eq!(vm.register(10), 1, "valid SM2 signature");
+                vec![1]
+            };
+            assert!(host.drain_instructions().is_empty());
+            outcomes.push((quote, output));
+        }
+        if let Some(expected) = prior.as_ref() {
+            assert_eq!(
+                &outcomes, expected,
+                "local crypto preferences cannot change SM execution"
+            );
+        }
+        prior = Some(outcomes);
+    }
+}
+
+#[test]
+fn sm_quotes_validate_pointer_types_without_node_opt_in() {
+    let mut host = CoreHost::new(fixture_account("alice"));
+    for number in [
+        ivm_sys::SYSCALL_SM3_HASH,
+        ivm_sys::SYSCALL_SM2_VERIFY,
+        ivm_sys::SYSCALL_SM4_GCM_SEAL,
+        ivm_sys::SYSCALL_SM4_GCM_OPEN,
+        ivm_sys::SYSCALL_SM4_CCM_SEAL,
+        ivm_sys::SYSCALL_SM4_CCM_OPEN,
+    ] {
+        let mut vm = IVM::new(10_000);
+        let pointer = store_tlv(
+            &mut vm,
+            PointerType::Name,
+            &norito_blob(&"wrong".parse::<Name>().expect("fixture name")),
+        );
+        vm.set_register(10, pointer);
+        assert!(matches!(
+            host.prepare_syscall(number, &vm),
+            Err(ivm::VMError::NoritoInvalid)
+        ));
+        assert!(host.drain_instructions().is_empty());
+    }
 }

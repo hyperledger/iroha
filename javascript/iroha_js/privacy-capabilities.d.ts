@@ -51,7 +51,6 @@ export type PrivacyEngineTagV1 = PrivacyTaggedUnitV1<
   PrivacyEngineIdV1
 >;
 export type PrivacyFixed32BytesV1 = readonly number[];
-export type PrivacyFixed48BytesV1 = readonly number[];
 /** Exact unsigned 64-bit protocol integer decoded without IEEE-754 rounding. */
 export type PrivacyU64V1 = bigint;
 export interface PrivacyConsensusLimitsV1 {
@@ -151,7 +150,7 @@ export type PrivacySecurityModelTagV1 = PrivacyTaggedUnitV1<
   PrivacySecurityModelV1
 >;
 export interface PrivacySecurityClaimV1 {
-  readonly catalog_commitment: PrivacyFixed48BytesV1;
+  readonly catalog_commitment: PrivacyFixed32BytesV1;
   readonly protocol_id: PrivacyProtocolTagV1;
   readonly security_model: PrivacySecurityModelTagV1;
   readonly target_security_bits: 128;
@@ -169,7 +168,7 @@ export interface PrivacyReleaseProtocolBindingV1
 export interface PrivacyExact12ReleaseManifestV1 {
   readonly version: 1;
   readonly catalog_id: string;
-  readonly catalog_commitment: PrivacyFixed48BytesV1;
+  readonly catalog_commitment: PrivacyFixed32BytesV1;
   readonly source: Readonly<Record<string, unknown>>;
   readonly abi_version: 1;
   readonly abi_hash: PrivacyFixed32BytesV1;

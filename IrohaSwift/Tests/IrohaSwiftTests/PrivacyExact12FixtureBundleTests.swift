@@ -463,12 +463,12 @@ final class PrivacyExact12FixtureBundleTests: XCTestCase {
         )
     }
 
-    func testFinalEnvelopeMarkerAndAllSixCatalogLanesRejectSubstitution() throws {
+    func testFinalEnvelopeMarkerAndEveryNativeCatalogByteRejectSubstitution() throws {
         let canonical = try PrivacyExact12FixtureCodecV1.decodeCanonicalArchive(Self.fixtureArchive)
         let row = canonical.rows[0]
         for (fieldIndex, offsets, label) in [
             (0, [0, 7], "final V1 wire marker"),
-            (1, [0, 8, 16, 24, 32, 40, 47], "Exact12 catalog commitment"),
+            (1, Array(0..<32), "Exact12 catalog commitment"),
         ] {
             for offset in offsets {
                 let mutated = try reframe(
@@ -483,7 +483,7 @@ final class PrivacyExact12FixtureBundleTests: XCTestCase {
                         cursor += markerLength
                     }
                     let length = try readCompactLength(payload, cursor: &cursor)
-                    XCTAssertEqual(length, fieldIndex == 0 ? 8 : 48)
+                    XCTAssertEqual(length, fieldIndex == 0 ? 8 : 32)
                     payload[cursor + offset] ^= 1
                 }
                 let rows = [try copyRow(row, envelopeNorito: mutated)] + Array(canonical.rows.dropFirst())
@@ -495,6 +495,34 @@ final class PrivacyExact12FixtureBundleTests: XCTestCase {
                     )
                 }
             }
+        }
+    }
+
+    func testNativeCatalogRejectsRetiredWidthTruncationAndExtension() throws {
+        let canonical = try PrivacyExact12FixtureCodecV1.decodeCanonicalArchive(Self.fixtureArchive)
+        let row = canonical.rows[0]
+        let expected = Data([0x5b, 0xcf, 0x36, 0x6f, 0xb1, 0x8d, 0x2e, 0x43, 0x61, 0x48, 0x6c, 0x01, 0x5d, 0xa5, 0xb4, 0x1a, 0x3f, 0xb0, 0x0e, 0xdf, 0x05, 0x61, 0x10, 0x42, 0xcc, 0xc4, 0x52, 0x12, 0x0d, 0x17, 0x6e, 0xb0])
+        for hostile in [
+            Data(expected.dropLast()), expected + Data([0]), expected + Data(repeating: 0, count: 16),
+            Data([0xe0, 0x37, 0xf1, 0x39, 0x04, 0xa0, 0x30, 0x7c, 0x00, 0xdb, 0x15, 0xd8, 0x5c, 0xfb, 0x40, 0x6b, 0xd7, 0x97, 0x72, 0xd2, 0x01, 0x44, 0xa9, 0x49, 0xde, 0xf0, 0xf3, 0xfd, 0xa7, 0x8e, 0x34, 0x2e, 0x74, 0x7f, 0x65, 0x78, 0x7c, 0xbf, 0xbf, 0xfa, 0xc9, 0x4f, 0x11, 0xc3, 0x69, 0xe2, 0xbb, 0xff]),
+        ] {
+            let malformed = try reframe(
+                row.envelopeNorito,
+                typeName: "iroha.privacy.proof-envelope.v1",
+                payloadAlignment: 16
+            ) { payload in
+                var cursor = 0
+                let markerLength = try readCompactLength(payload, cursor: &cursor)
+                XCTAssertEqual(markerLength, 8)
+                cursor += markerLength
+                let fieldStart = cursor
+                let length = try readCompactLength(payload, cursor: &cursor)
+                XCTAssertEqual(length, 32)
+                XCTAssertEqual(cursor - fieldStart, 1)
+                XCTAssertEqual(Data(payload[cursor..<(cursor + length)]), expected)
+                payload.replaceSubrange(fieldStart..<(cursor + length), with: Data([UInt8(hostile.count)]) + hostile)
+            }
+            try assertEncodingRejects(canonical, row: 0, replacement: copyRow(row, envelopeNorito: malformed))
         }
     }
 

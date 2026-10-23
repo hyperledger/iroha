@@ -4,11 +4,13 @@ mod defaults;
 pub mod profile;
 pub mod sccp;
 pub mod staging;
+mod staking;
 pub use defaults::{ConsensusPolicy, generate_default, validate_consensus_mode};
 use iroha_data_model::prelude::RoleId;
 use iroha_model_base::topology::DataSpaceId;
 pub use profile::PUBLIC_XOR_ALIAS;
 pub use staging::bind_and_sign_staged_sumeragi_context;
+pub use staking::default_staking_policy;
 /// Deterministic role used to authorize restricted-dataspace reads at the
 /// universal Torii ingress hop for a private localnet profile.
 pub fn private_dataspace_reader_role_id(alias: &str, dataspace: DataSpaceId) -> RoleId {

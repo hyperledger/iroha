@@ -74,13 +74,18 @@ fn build_transaction(
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
+    let crypto_policy =
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("explicit fixture admission policy");
     AcceptedTransaction::accept(
         tx,
         &network_id,
         Duration::from_secs(30),
         params,
-        &crypto_cfg,
+        &crypto_policy,
     )
     .expect("transaction should be accepted")
 }

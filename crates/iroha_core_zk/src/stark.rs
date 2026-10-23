@@ -19,7 +19,7 @@
 #![allow(clippy::needless_pass_by_value)]
 use fastpq_isi::{GoldilocksDigestDomainV1, hash_bytes_384_v1};
 use iroha_data_model::privacy::{
-    GoldilocksDigest384V1, PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1,
+    GoldilocksDigest384V1, PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1,
 };
 use norito::derive::{JsonDeserialize, JsonSerialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -596,11 +596,10 @@ impl StarkMerkleDomainV1 {
         }
     }
 }
-fn stark_catalog_commitment_bytes_v1() -> [u8; GoldilocksDigest384V1::BYTES] {
-    GoldilocksDigest384V1::new(PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1)
-        .expect("the pinned Exact12 catalog commitment is canonical")
-        .to_le_bytes()
+fn stark_catalog_commitment_bytes_v1() -> [u8; 32] {
+    PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1
 }
+
 fn stark_digest_v1(
     params: &StarkFriParamsV1,
     role: &[u8],

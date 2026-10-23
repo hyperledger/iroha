@@ -36,7 +36,7 @@ ms-threshold = uint .size 2
 ms-member = {
   1: curve-id,          ; matches specs/references/address_curve_registry.md
   2: member-weight,     ; uint16 > 0
-  3: bytes .size (1..=256) ; raw PublicKey payload
+  3: bytes ; canonical raw PublicKey payload for the registered algorithm
 }
 curve-id = uint .size 1
 member-weight = uint .size 2
@@ -56,8 +56,20 @@ account address:
 | `1 <= threshold <= Σ member.weight` | Enforcement happens after deduplication so callers cannot bypass the check by repeating members. | `ZeroThreshold` or `ThresholdExceedsTotal` |
 | `1 <= members.len() <= CONTROLLER_MULTISIG_MEMBER_MAX (65,535)` | `CONTROLLER_MULTISIG_MEMBER_MAX` is the `u16` member-count limit shared with the binary controller encoding documented in `specs/account_structure.md`. | `EmptyMembers` or `AccountAddressError::MultisigMemberOverflow` |
 | Member weight ≥ 1 | Enforced inside `MultisigMember::new`. | `MemberWeightZero` |
-| Curves must exist in `address_curve_registry.md` **and** be enabled in `crypto.allowed_signing` | Guarantees deterministic rejection when a registered curve is not enabled on a cluster. | `UnsupportedCurve` / `AccountAddressError::UnknownCurve` |
+| Every member uses a canonical `Algorithm` / `CurveId` identity | The total registry is feature-independent; address decoding rejects only unassigned curve IDs as unknown. | `AccountAddressError::UnknownCurve` for an unassigned ID |
 | Members are deduplicated after canonical sorting by `(algorithm_string || 0x00 || key_bytes)` | Prevents equivalent public keys from inflating total weight; the canonical order feeds directly into CTAP2 encoding. | `DuplicateMember` |
+
+These are structural controller invariants. Ordinary account admission separately
+requires every member algorithm in the committed
+`CryptoAdmissionPolicyV1.allowed_algorithms` set. Curve permissions are derived
+from that one set; BLS members have no blanket exemption. `MultisigPolicy::validate`
+does not consult node-local configuration or claim that a local backend exists.
+
+A known algorithm with an absent parser or verifier produces a typed
+`UnsupportedImplementation { algorithm, operation }` at the native boundary.
+Immediate Norito adapters retain `UnsupportedFeature`; this is distinct from an
+unknown curve, a failed signature relation, and an original local resource
+refusal. Complete service/SDK propagation requires separate qualification.
 
 These invariants ensure every controller hash is deterministic regardless of the
 host language. SDKs must surface the same validation errors so users receive

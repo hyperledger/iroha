@@ -1962,7 +1962,6 @@ pub(crate) fn configured_execution_policy(
     Ok(Hash::prehashed(actual::execution_policy_digest_v1(
         &config.pipeline,
         &config.oracle,
-        &config.crypto,
         &config.fraud_monitoring,
         &config.gov,
         &config.content,

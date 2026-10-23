@@ -2300,7 +2300,6 @@ fn taira_config_enables_untrusted_cid_hosting() {
 }
 #[test]
 fn crypto_section_defaults_applied() {
-    use iroha_crypto::Algorithm;
     let cfg = load_config_from_fixtures("minimal_with_trusted_peers.toml")
         .expect("minimal config should be valid");
     let crypto = &cfg.crypto;
@@ -2310,28 +2309,16 @@ fn crypto_section_defaults_applied() {
     );
     assert_eq!(crypto.default_hash, defaults::crypto::DEFAULT_HASH);
     assert_eq!(
-        crypto.allowed_signing,
-        vec![Algorithm::Ed25519, Algorithm::Secp256k1]
-    );
-    assert_eq!(
         crypto.sm2_distid_default,
         defaults::crypto::SM2_DISTID_DEFAULT
     );
-    assert_eq!(crypto.allowed_curve_ids, vec![1, 4]);
 }
 #[test]
 fn crypto_section_respects_env_overrides() {
-    use iroha_crypto::Algorithm;
-    let (default_hash, allowed_signing_env) = if cfg!(feature = "sm") {
-        ("sm3-256", "ed25519,secp256k1,sm2")
-    } else {
-        ("blake2b-256", "ed25519,secp256k1")
-    };
+    let default_hash = "sm3-256";
     let mut env = MockEnv::new()
         .set("CRYPTO_DEFAULT_HASH", default_hash)
-        .set("CRYPTO_ALLOWED_SIGNING", allowed_signing_env)
-        .set("CRYPTO_SM2_DISTID_DEFAULT", "CN12345678901234")
-        .set("CRYPTO_CURVES_ALLOWED_IDS", "1,4");
+        .set("CRYPTO_SM2_DISTID_DEFAULT", "CN12345678901234");
     env = env.set(
         "CRYPTO_SM_OPENSSL_PREVIEW",
         if cfg!(feature = "sm-ffi-openssl") {
@@ -2355,17 +2342,6 @@ fn crypto_section_respects_env_overrides() {
         crypto.enable_sm_openssl_preview,
         cfg!(feature = "sm-ffi-openssl")
     );
-    #[cfg(feature = "sm")]
-    assert_eq!(
-        crypto.allowed_signing,
-        vec![Algorithm::Ed25519, Algorithm::Secp256k1, Algorithm::Sm2]
-    );
-    #[cfg(not(feature = "sm"))]
-    assert_eq!(
-        crypto.allowed_signing,
-        vec![Algorithm::Ed25519, Algorithm::Secp256k1]
-    );
-    assert_eq!(crypto.allowed_curve_ids, vec![1, 4]);
 }
 #[test]
 fn fraud_monitoring_config_overrides_and_defaults() {

@@ -10,7 +10,8 @@ use iroha_sumeragi::{
 use norito::codec::{Decode, Encode};
 
 use super::ValidationError;
-use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId};
+use crate::{DeriveJsonSerialize, NetworkId};
+mod json;
 
 /// Immutable root identity selected by signed genesis, never by node-local configuration.
 ///
@@ -27,7 +28,6 @@ use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId};
     Encode,
     IntoSchema,
     DeriveJsonSerialize,
-    DeriveJsonDeserialize,
     norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::block::consensus::SumeragiRootScope")]

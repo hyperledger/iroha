@@ -103,7 +103,11 @@ impl Fixture {
             &chain.network_id(),
             Duration::from_secs(1),
             chain.state().view().world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit current admission fixture policy"),
             &queue_time,
         )
         .unwrap();
@@ -143,7 +147,11 @@ impl Fixture {
             &self.chain.network_id(),
             Duration::from_secs(1),
             self.chain.state().view().world().parameters().transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit current admission fixture policy"),
             &self.queue_clock.source(),
         )
         .unwrap()
@@ -390,7 +398,11 @@ fn lane_original_queue_lease_preserves_sealed_carriers_and_retires_readmission()
                 .world()
                 .parameters()
                 .transaction(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit current admission fixture policy"),
             Duration::from_millis(4_999),
         )
         .unwrap();

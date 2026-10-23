@@ -131,6 +131,43 @@ impl ValidBlock {
 mod native_genesis_policy_tests {
     use super::*;
 
+    fn explicit_staking_config() -> crate::sumeragi::test_chain::TestChainConfig {
+        use iroha_data_model::{
+            asset::AssetDefinitionId, block::consensus::PublicLaneStakingPolicy,
+            parameter::Parameter,
+        };
+        let mut config =
+            crate::sumeragi::test_chain::TestChainConfig::new(crate::state::World::new(), 1_000);
+        // Author the monetary policy in the signed original parameter vector; these
+        // policy references do not assert that any account or stake is funded.
+        let staking = PublicLaneStakingPolicy {
+            min_validator_stake: 1_000_u64.into(),
+            max_stake_shares_per_validator: std::num::NonZeroU32::new(7).unwrap(),
+            max_pending_unbonds_per_share: std::num::NonZeroU32::new(3).unwrap(),
+            unbonding_delay_ms: 43_210,
+            max_slash_bps: 1_001,
+            stake_asset_id: AssetDefinitionId::derive_from_components(
+                iroha_model_base::domain::DomainId::parse_fully_qualified("app.acme").unwrap(),
+                "stake".parse().unwrap(),
+            ),
+            stake_escrow_account_id: iroha_test_samples::ALICE_ID.clone(),
+            slash_sink_account_id: iroha_test_samples::BOB_ID.clone(),
+        };
+        let mut original_slots = config.genesis_parameters.iter_mut().filter(|parameter| {
+            matches!(parameter, Parameter::Custom(custom)
+                if custom.id() == &PublicLaneStakingPolicy::parameter_id())
+        });
+        let slot = original_slots
+            .next()
+            .expect("the fixture authors one staking policy");
+        *slot = Parameter::Custom(staking.into_custom_parameter().unwrap());
+        assert!(
+            original_slots.next().is_none(),
+            "one canonical staking authority"
+        );
+        config
+    }
+
     #[test]
     fn signed_genesis_requires_both_exact_policy_commitments() {
         let execution = Hash::new(b"original execution policy");
@@ -161,13 +198,7 @@ mod native_genesis_policy_tests {
 
     #[test]
     fn native_signed_genesis_ignores_local_fraud_policy_and_transport() {
-        use crate::{
-            state::World,
-            sumeragi::{
-                network_topology::Topology,
-                test_chain::{CertifiedTestChain, TestChainConfig},
-            },
-        };
+        use crate::sumeragi::{network_topology::Topology, test_chain::CertifiedTestChain};
         use iroha_config::parameters::actual::FraudMonitoring;
         use iroha_data_model::fraud::FraudRiskBandV1;
         use iroha_primitives::time::TimeSource;
@@ -182,7 +213,7 @@ mod native_genesis_policy_tests {
             },
             ..FraudMonitoring::default()
         };
-        let mut config = TestChainConfig::new(World::new(), 1_000);
+        let mut config = explicit_staking_config();
         config.fraud_monitoring = fraud.clone();
         let authority = AccountId::new(config.genesis_key.public_key().clone());
         let mut prepared =
@@ -240,15 +271,12 @@ mod native_genesis_policy_tests {
     #[test]
     fn native_final_genesis_policy_requires_exact_executed_cadence_before_publication() {
         use crate::{
-            state::{World, WorldReadOnly as _},
-            sumeragi::{
-                network_topology::Topology,
-                test_chain::{CertifiedTestChain, TestChainConfig},
-            },
+            state::WorldReadOnly as _,
+            sumeragi::{network_topology::Topology, test_chain::CertifiedTestChain},
         };
         use iroha_primitives::time::TimeSource;
 
-        let config = TestChainConfig::new(World::new(), 1_000);
+        let config = explicit_staking_config();
         let authority = AccountId::new(config.genesis_key.public_key().clone());
         let prepared =
             CertifiedTestChain::prepare(config).expect("original signed genesis fixture");
@@ -294,12 +322,26 @@ mod native_genesis_policy_tests {
             staking: crate::sumeragi::evidence::prepare(&prepared.state, genesis, generation)
                 .expect("the original authenticated genesis staking inputs"),
         };
-        let (mut staged, _recording) =
-            ValidBlock::state_block_for_execution(genesis, &prepared.state, source, &profile)
-                .expect("the original pristine genesis execution owner");
-        staged.request_sumeragi_lanes(profile.take_sumeragi_lanes().unwrap());
         let authenticated = authenticate_genesis_block_intents(genesis, &authority)
             .expect("the same original signed genesis inputs");
+        let mut genesis_policies = Some(
+            authenticated
+                .initial_policies(genesis)
+                .expect("both original signed genesis policies"),
+        );
+        let (mut staged, _recording) = ValidBlock::state_block_for_execution(
+            genesis,
+            &prepared.state,
+            source,
+            &profile,
+            &mut genesis_policies,
+        )
+        .expect("the original pristine genesis execution owner");
+        assert!(
+            genesis_policies.is_none(),
+            "installation moves both original policy owners"
+        );
+        staged.request_sumeragi_lanes(profile.take_sumeragi_lanes().unwrap());
         staged.reserve_ordinary_execution_outputs(genesis).unwrap();
         staged
             .execute_ordinary_output_plan(genesis, Some(&authenticated))
@@ -400,13 +442,7 @@ mod native_genesis_policy_tests {
     }
     #[test]
     fn native_h1_rejects_missing_or_duplicate_original_root_fee_slots() {
-        use crate::{
-            state::World,
-            sumeragi::{
-                network_topology::Topology,
-                test_chain::{CertifiedTestChain, TestChainConfig},
-            },
-        };
+        use crate::sumeragi::{network_topology::Topology, test_chain::CertifiedTestChain};
         use iroha_data_model::{
             block::consensus::{RootFeePolicy, SumeragiRootScope},
             isi::SetParameter,
@@ -417,7 +453,7 @@ mod native_genesis_policy_tests {
         use std::sync::Arc;
 
         for copies in [0_usize, 2] {
-            let config = TestChainConfig::new(World::new(), 1_000);
+            let config = explicit_staking_config();
             let key = config.genesis_key.clone();
             let authority = AccountId::new(key.public_key().clone());
             let mut prepared = CertifiedTestChain::prepare(config).unwrap();

@@ -12,7 +12,6 @@ use super::rns_native_profile::{
     ZK_AMS_MKHE_RNS_NATIVE_OPENING_COUNT_V1, zk_ams_mkhe_rns_native_profile_v1,
     zk_ams_mkhe_rns_native_topology_v1,
 };
-use crate::vega::sponge::Keccak256;
 
 const SOURCE_BINDING_DOMAIN_V1: &[u8] = b"iroha.zk-ams.v1.mkhe.rns-native-source-binding";
 const SOURCE_CONTEXT_DOMAIN_V1: &[u8] = b"iroha.zk-ams.v1.mkhe.rns-native-source-context";
@@ -310,32 +309,58 @@ fn source_binding_digest_v1(
     statement_digest: [u8; 32],
     operational_context_digest: [u8; 32],
 ) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(SOURCE_BINDING_DOMAIN_V1);
-    hash.update(&[ZK_AMS_MKHE_RNS_NATIVE_SOURCE_VERSION_V1]);
-    hash.update(&profile_digest);
-    hash.update(&topology_digest);
-    hash.update(&release_candidate_digest);
-    hash.update(&statement_digest);
-    hash.update(&operational_context_digest);
-    hash.update(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_MAIN_SLOTS_V1.to_be_bytes());
-    hash.update(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_MAIN_PLAINTEXT_BYTES_V1.to_be_bytes());
-    hash.update(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_NONCE_SLOTS_V1.to_be_bytes());
-    hash.update(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_NONCE_PLAINTEXT_BYTES_V1.to_be_bytes());
-    hash.finalize()
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::SourceReceipt,
+        SOURCE_BINDING_DOMAIN_V1,
+        10,
+    );
+    hash.push_field(&[ZK_AMS_MKHE_RNS_NATIVE_SOURCE_VERSION_V1])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&profile_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&topology_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&release_candidate_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&statement_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&operational_context_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_MAIN_SLOTS_V1.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_MAIN_PLAINTEXT_BYTES_V1.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_NONCE_SLOTS_V1.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&ZK_AMS_MKHE_RNS_NATIVE_SOURCE_NONCE_PLAINTEXT_BYTES_V1.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 fn arena_context_digest_v1(
     source_binding_digest: [u8; 32],
     arena: ZkAmsMkheRnsNativeSourceArenaV1,
 ) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(SOURCE_CONTEXT_DOMAIN_V1);
-    hash.update(&source_binding_digest);
-    hash.update(&[arena as u8]);
-    hash.update(&arena.slot_count().to_be_bytes());
-    hash.update(&arena.plaintext_bytes().to_be_bytes());
-    hash.finalize()
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::SourceReceipt,
+        SOURCE_CONTEXT_DOMAIN_V1,
+        4,
+    );
+    hash.push_field(&source_binding_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[arena as u8])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&arena.slot_count().to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&arena.plaintext_bytes().to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 /// Move-only secret chunk supplied by a concrete confidential backend.
@@ -485,13 +510,23 @@ impl ZkAmsMkheRnsNativeSourceReceiptV1 {
 }
 
 fn receipt_digest_v1(receipt: ZkAmsMkheRnsNativeSourceReceiptV1) -> [u8; 32] {
-    let mut hash = Keccak256::new();
-    hash.update(SOURCE_RECEIPT_DOMAIN_V1);
-    hash.update(&[ZK_AMS_MKHE_RNS_NATIVE_SOURCE_VERSION_V1]);
-    hash.update(&receipt.source_binding_digest);
-    hash.update(&receipt.main_snapshot_digest);
-    hash.update(&receipt.nonce_snapshot_digest);
-    hash.finalize()
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::SourceReceipt,
+        SOURCE_RECEIPT_DOMAIN_V1,
+        4,
+    );
+    hash.push_field(&[ZK_AMS_MKHE_RNS_NATIVE_SOURCE_VERSION_V1])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&receipt.source_binding_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&receipt.main_snapshot_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&receipt.nonce_snapshot_digest)
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 
 #[cfg(test)]

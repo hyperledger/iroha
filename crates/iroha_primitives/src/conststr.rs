@@ -60,6 +60,17 @@ impl norito::NoritoSchema for ConstString {
     }
 }
 impl ConstString {
+    /// Exact optional backing requested when decoding this borrowed text.
+    ///
+    /// Inline strings require no heap allocation. This plan shares the concrete
+    /// representation threshold with the fallible decoder; it validates no text.
+    #[must_use]
+    pub fn decode_allocation_layout(value: &str) -> Option<std::alloc::Layout> {
+        (value.len() > MAX_INLINED_STRING_LEN).then(|| {
+            std::alloc::Layout::array::<u8>(value.len()).expect("existing borrowed text layout")
+        })
+    }
+
     /// Return the length of this [`Self`], in bytes.
     #[inline]
     pub fn len(&self) -> usize {
@@ -741,5 +752,22 @@ mod tests {
         .into_iter()
         .map(str::to_owned)
         .for_each(f);
+    }
+}
+
+#[cfg(test)]
+mod decode_layout_tests {
+    use super::*;
+    #[test]
+    fn decode_layout_matches_the_concrete_inline_threshold() {
+        for length in 0..=64 {
+            let text = "x".repeat(length);
+            let value = ConstString::try_from_str_for_decode(&text).unwrap();
+            let layout = ConstString::decode_allocation_layout(&text);
+            assert_eq!(layout.is_none(), value.is_inlined());
+            if let Some(layout) = layout {
+                assert_eq!(layout.size(), value.len());
+            }
+        }
     }
 }

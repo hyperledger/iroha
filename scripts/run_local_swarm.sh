@@ -414,6 +414,7 @@ GEN_PUB="$(cat "$GENESIS_PUBLIC_KEY_FILE")"
 echo "[1/6] Generate genesis"
 
 $KAGAMI genesis generate --ivm-dir . --genesis-public-key "$GEN_PUB" \
+  --allowed-signing ed25519 --allowed-signing secp256k1 --allowed-signing bls_normal \
   default | write_private_config "$BASE/genesis.json"
 
 echo "[2/6] Inject topology"

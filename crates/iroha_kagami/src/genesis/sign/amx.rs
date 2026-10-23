@@ -61,10 +61,21 @@ mod tests {
     use iroha_genesis::GenesisBuilder;
 
     fn manifest() -> RawGenesisTransaction {
-        GenesisBuilder::new_without_executor(ChainId::from("ordinary-signing"), PathBuf::from("."))
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .build_raw()
-            .unwrap()
+        GenesisBuilder::new_without_executor(
+            ChainId::from("ordinary-signing"),
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .build_raw()
+        .unwrap()
     }
 
     #[test]

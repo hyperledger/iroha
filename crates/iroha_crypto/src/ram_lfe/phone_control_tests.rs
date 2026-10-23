@@ -40,8 +40,9 @@ fn ed25519(seed: u8) -> KeyPair {
     KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).unwrap()
 }
 
-fn mldsa() -> KeyPair {
-    KeyPair::try_random_with_algorithm(Algorithm::MlDsa).unwrap()
+#[cfg(feature = "pqc")]
+fn mldsa(seed: u8) -> KeyPair {
+    KeyPair::try_from_seed(vec![seed; 32], Algorithm::MlDsa).unwrap()
 }
 
 fn roundtrip<T>(value: &T)
@@ -165,7 +166,7 @@ fn padding_is_injective() {
 }
 
 #[test]
-fn blinding_is_validated_redacted_and_generated_fresh() {
+fn blinding_is_validated_and_redacted() {
     assert_eq!(
         PhoneNumberBlindingV1::from_bytes([0; 32]).unwrap_err(),
         PhoneControlError::ZeroBlinding
@@ -176,6 +177,11 @@ fn blinding_is_validated_redacted_and_generated_fresh() {
         "[REDACTED phone-number blinding]"
     );
     assert_eq!(PhoneNumberBlindingV1::LENGTH, 32);
+}
+
+#[cfg(feature = "rand")]
+#[test]
+fn blinding_is_generated_fresh() {
     let first = PhoneNumberBlindingV1::generate().unwrap();
     let second = PhoneNumberBlindingV1::generate().unwrap();
     assert_ne!(first.expose(), second.expose());
@@ -607,7 +613,11 @@ fn owned_key_identity(algorithm: Algorithm, public_key: &[u8]) -> Hash {
 
 #[test]
 fn provider_key_identity_is_the_documented_framing_and_tags_the_algorithm() {
-    for pair in [ed25519(1), mldsa()] {
+    for pair in [
+        ed25519(1),
+        #[cfg(feature = "pqc")]
+        mldsa(1),
+    ] {
         let (algorithm, bytes) = pair.public_key().try_to_bytes().unwrap();
         let id = PhoneControlProviderKeyIdV1::commit(pair.public_key()).unwrap();
         assert_eq!(id.as_hash(), &owned_key_identity(algorithm, bytes));
@@ -632,19 +642,23 @@ fn provider_key_identity_is_the_documented_framing_and_tags_the_algorithm() {
 
 /// One key pair of every algorithm this build offers besides the two admitted.
 fn unsupported_keys() -> Vec<KeyPair> {
-    let mut keys = vec![KeyPair::try_from_seed(vec![9; 32], Algorithm::Secp256k1).unwrap()];
-    #[cfg(feature = "bls")]
-    {
-        keys.push(KeyPair::try_random_with_algorithm(Algorithm::BlsNormal).unwrap());
-        keys.push(KeyPair::try_random_with_algorithm(Algorithm::BlsSmall).unwrap());
-    }
-    keys
+    vec![
+        KeyPair::try_from_seed(vec![9; 32], Algorithm::Secp256k1).unwrap(),
+        #[cfg(feature = "bls")]
+        KeyPair::try_from_seed(vec![10; 32], Algorithm::BlsNormal).unwrap(),
+        #[cfg(feature = "bls")]
+        KeyPair::try_from_seed(vec![11; 32], Algorithm::BlsSmall).unwrap(),
+    ]
 }
 
 #[test]
 fn provider_keys_are_ed25519_or_mldsa65_only() {
     let message = b"provider message";
-    for pair in [ed25519(1), mldsa()] {
+    for pair in [
+        ed25519(1),
+        #[cfg(feature = "pqc")]
+        mldsa(1),
+    ] {
         let signature = phone_control_provider_sign(pair.private_key(), message).unwrap();
         phone_control_provider_verify(pair.public_key(), message, &signature).unwrap();
     }
@@ -674,7 +688,11 @@ fn provider_keys_are_ed25519_or_mldsa65_only() {
 #[test]
 fn provider_signature_binds_the_key_and_every_message_byte() {
     let message = b"iroha.ram_lfe.v1.phone_control.credential/frame".to_vec();
-    for (pair, other) in [(ed25519(1), ed25519(2)), (mldsa(), mldsa())] {
+    for (pair, other) in [
+        (ed25519(1), ed25519(2)),
+        #[cfg(feature = "pqc")]
+        (mldsa(1), mldsa(2)),
+    ] {
         let signature = phone_control_provider_sign(pair.private_key(), &message).unwrap();
         phone_control_provider_verify(pair.public_key(), &message, &signature).unwrap();
         let rejected = |public_key: &PublicKey, message: &[u8], signature: &Signature| {
@@ -724,18 +742,21 @@ fn provider_signature_binds_the_key_and_every_message_byte() {
             &Signature::from_bytes(&flipped),
         );
     }
-    // A signature of one algorithm never verifies under a key of the other.
-    let (first, second) = (ed25519(1), mldsa());
-    let by_first = phone_control_provider_sign(first.private_key(), &message).unwrap();
-    let by_second = phone_control_provider_sign(second.private_key(), &message).unwrap();
-    assert_eq!(
-        phone_control_provider_verify(second.public_key(), &message, &by_first),
-        Err(PhoneControlError::BadProviderSignature)
-    );
-    assert_eq!(
-        phone_control_provider_verify(first.public_key(), &message, &by_second),
-        Err(PhoneControlError::BadProviderSignature)
-    );
+    #[cfg(feature = "pqc")]
+    {
+        // A signature of one algorithm never verifies under a key of the other.
+        let (first, second) = (ed25519(1), mldsa(1));
+        let by_first = phone_control_provider_sign(first.private_key(), &message).unwrap();
+        let by_second = phone_control_provider_sign(second.private_key(), &message).unwrap();
+        assert_eq!(
+            phone_control_provider_verify(second.public_key(), &message, &by_first),
+            Err(PhoneControlError::BadProviderSignature)
+        );
+        assert_eq!(
+            phone_control_provider_verify(first.public_key(), &message, &by_second),
+            Err(PhoneControlError::BadProviderSignature)
+        );
+    }
 }
 
 /// Canonical encoding of the identity of the Ed25519 group, a small-order point.
@@ -828,9 +849,10 @@ fn ed25519_signature_that_only_an_unchecked_verifier_accepts_is_refused() {
     phone_control_provider_verify(pair.public_key(), message, &regular).unwrap();
 }
 
+#[cfg(feature = "pqc")]
 #[test]
 fn mldsa65_signatures_of_another_length_are_refused() {
-    let pair = mldsa();
+    let pair = mldsa(1);
     let message = b"provider message";
     let signature = phone_control_provider_sign(pair.private_key(), message).unwrap();
     let bytes = signature.payload();
@@ -851,6 +873,19 @@ fn mldsa65_signatures_of_another_length_are_refused() {
             Err(PhoneControlError::BadProviderSignature)
         );
     }
+}
+
+#[cfg(not(feature = "pqc"))]
+#[test]
+fn provider_mldsa_key_generation_reports_unavailable_backend() {
+    let error = KeyPair::try_from_seed(vec![1; 32], Algorithm::MlDsa).unwrap_err();
+    assert!(matches!(
+        error,
+        crate::Error::UnsupportedImplementation(crate::UnsupportedImplementation {
+            algorithm: Algorithm::MlDsa,
+            operation: crate::CryptoOperation::GenerateKeyPair
+        })
+    ));
 }
 
 #[test]

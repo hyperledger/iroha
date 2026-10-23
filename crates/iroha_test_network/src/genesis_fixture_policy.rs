@@ -24,7 +24,7 @@ pub(super) fn policy_bound_proposal(
             entries,
             key,
             chain_id(),
-            None,
+            test_network_crypto_admission_policy(),
             None,
             None,
             None,
@@ -32,6 +32,7 @@ pub(super) fn policy_bound_proposal(
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
             None,
+            default_test_network_staking_policy(),
         );
     let (proposal, manifest) = bind_proposal(proposal, manifest, &account, &topology, &key, None)
         .expect("bind original fixture policy before testing result handling");

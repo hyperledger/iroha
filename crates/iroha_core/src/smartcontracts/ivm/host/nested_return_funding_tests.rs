@@ -593,7 +593,7 @@ fn execute_imported_return_call(
         tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         let result = crate::executor::Executor::Initial
-            .execute_transaction(&mut tx, authority, signed, cache);
+            .execute_transaction(&mut tx, authority, &signed, cache);
         assert!(
             tx.last_tx_gas_used > 0 && tx.last_tx_gas_used < IMPORTED_RETURN_GAS,
             "{label}: actual root/child work must be metered below the unchanged policy"

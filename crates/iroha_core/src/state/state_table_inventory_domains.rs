@@ -56,7 +56,7 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Name,
-        reason: "Native FI relationship, asset UID policy/enrollment/reader and controlled-lock storage-key prefixes in world.smart_contract_state. They name canonical record paths; these literals compute no digest or independent State root",
+        reason: "Reserved native storage-key prefixes for FI records and attestations, owner links, UID policy and membership, daily usage, enrollment, system-account classification, reader grants and controlled-lock terms. These name rows of world.smart_contract_state; the prefix literals compute no State digest or separate table root",
         literals: &[
             r"asset_fi_link_attestation_v1/",
             r"asset_fi_link_v1/",
@@ -72,7 +72,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Exact first-release instruction wire identities for native FI relationships, asset UID policy/enrollment/reader grants and controlled locks. They select instruction layouts in the model and dispatch registry and compute no digest",
+        reason: "Exact wire identities of native FI, UID and controlled-lock instructions, including their built-in dispatch entries. They select instruction layouts; neither the identifiers nor their registration compute a digest or grant the instruction authority",
         literals: &[
             r"iroha.asset.fi.link.attestation.set.v1",
             r"iroha.asset.fi.link.set.v1",
@@ -90,15 +90,18 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Snapshot validation error field labels for native controlled-lock and asset UID records in world.smart_contract_state; these diagnostics name the failing record family and compute no digest",
+        reason: "Exact InvalidField diagnostic names for persisted FI records, controlled-lock terms, UID enrollment, reader grants and UID state validation. They locate malformed rows of world.smart_contract_state and are not hash domains",
         literals: &[
+            r"world.smart_contract_state.asset_fi_v1",
             r"world.smart_contract_state.asset_lock_control_v1",
+            r"world.smart_contract_state.asset_uid_enrollment_v1",
+            r"world.smart_contract_state.asset_uid_reader_v1",
             r"world.smart_contract_state.asset_uid_v1",
         ],
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Typed numeric-movement purpose labels for an authenticated owner-linked FI transfer and a controlled-lock owner waterfall. They bind one authorized movement transcript, including supplied lock, policy and owner-link records; they do not authenticate a State table or replace keyed State witnesses",
+        reason: "Typed-purpose tags for one authenticated owner-linked FI transfer or controlled-lock waterfall batch. The retained transcript binds the exact checked movement and its supplied lock, policy, link and control records; current source, balance, revision and controller checks remain independent. These transaction-purpose bindings provide no table-membership witness or State-read root",
         literals: &[
             r"controlled-lock-owner-waterfall-v1",
             r"owner-linked-fi-transfer-v1",
@@ -106,7 +109,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Seed,
-        reason: "Contract-scoped controlled-lock identifier derived from the canonical controller address and opaque application key, with a reserved namespace prefix. It addresses one lock and grants no authority independently of native admission",
+        reason: "Derived controlled-lock identifier over one canonical controller address and opaque application key, with the reserved lock namespace. This selects an escrow record and hashes no existing State row; controller authorization and retained lock ownership are checked separately",
         literals: &[r"iroha:controlled-asset-lock:v1\0"],
     },
     OtherDomains {
@@ -599,7 +602,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         literals: &[
             r"iroha:state:content-stripe-layout:v1",
             r"iroha:state:content:v1",
-            r"iroha:state:crypto:v1",
             r"iroha:state:executor-semantic:v1",
             r"iroha:state:governance-vk-ref:v1",
             r"iroha:state:governance:v1",

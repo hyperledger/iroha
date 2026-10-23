@@ -1798,7 +1798,7 @@ pub mod extractors {
     #[allow(clippy::result_large_err)]
     fn decode_versioned_json<T>(body: &Bytes, expected: &'static str) -> Result<T, Response>
     where
-        T: JsonDeserializeOwned + Version,
+        T: JsonDeserializeOwned + Version + 'static,
     {
         let value = json::from_slice::<Value>(body.as_ref())
             .map_err(|error| versioned_json_decode_rejection(error, expected))?;
@@ -1843,8 +1843,16 @@ pub mod extractors {
             )
                 .into_response()
         })?;
-        json::from_value::<T>(content.clone())
-            .map_err(|error| versioned_json_decode_rejection(error, expected))
+        json::from_value::<T>(content.clone()).map_err(|error| {
+            if let json::Error::UnsupportedFeature(algorithm) = &error
+                && let Some(response) = transaction_crypto_decode_deferral::<T>(
+                    &norito::Error::UnsupportedFeature(*algorithm),
+                )
+            {
+                return response;
+            }
+            versioned_json_decode_rejection(error, expected)
+        })
     }
     fn decode_allocation_unavailable() -> Response {
         typed_request_rejection(
@@ -2035,9 +2043,23 @@ pub mod extractors {
             },
         )
     }
+    fn transaction_crypto_decode_deferral<T: 'static>(error: &norito::Error) -> Option<Response> {
+        if TypeId::of::<T>() != TypeId::of::<SignedTransaction>()
+            && TypeId::of::<T>() != TypeId::of::<TransactionEntrypoint>()
+        {
+            return None;
+        }
+        iroha_core::execution_attempt::crypto_public_key_decode_deferred(error)
+            .map(|original| crate::Error::TransactionAdmissionDeferred(original).into_response())
+    }
     fn versioned_decode_rejection<T: 'static>(
         versioned_err: iroha_version::error::Error,
     ) -> Response {
+        if let iroha_version::error::Error::NoritoCodec(original) = &versioned_err
+            && let Some(response) = transaction_crypto_decode_deferral::<T>(original)
+        {
+            return response;
+        }
         let codec_error = match &versioned_err {
             iroha_version::error::Error::NoritoCodec(error) => Some(error),
             iroha_version::error::Error::NoritoResourceLimit(attempt) => Some(attempt.error()),

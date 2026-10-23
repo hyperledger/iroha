@@ -657,7 +657,12 @@ fn execute_transaction_rejects_authority_argument_mismatch() {
     state_transaction.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     let mut ivm_cache = IvmCache::new();
     let error = super::Executor::Initial
-        .execute_transaction(&mut state_transaction, &BOB_ID, transaction, &mut ivm_cache)
+        .execute_transaction(
+            &mut state_transaction,
+            &BOB_ID,
+            &transaction,
+            &mut ivm_cache,
+        )
         .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("the call-site authority must match the signed transaction");
     assert!(matches!(error, ValidationFail::InternalError(message) if
@@ -718,7 +723,7 @@ fn transaction_metadata_cannot_change_governed_executor_fuel_budget() {
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
         let executor = state_tx.world.executor.clone();
         executor
-            .execute_transaction(&mut state_tx, &ALICE_ID, tx, &mut ivm_cache)
+            .execute_transaction(&mut state_tx, &ALICE_ID, &tx, &mut ivm_cache)
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect("ordinary metadata must not reject execution");
         assert_eq!(

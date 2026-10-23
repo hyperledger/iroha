@@ -1081,7 +1081,7 @@ fn sortition_request_enforces_candidate_and_target_bounds() {
         .validate(Some(49))
         .expect("valid sortition request revalidates");
 }
-#[cfg(feature = "governance")]
+
 #[test]
 fn empty_sortition_capacity_intent_preserves_every_other_invariant() {
     let governance_attempt_id = GovernanceAttemptId::new([0x73; 32]);

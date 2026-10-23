@@ -138,6 +138,8 @@ pqcrypto-mldsa = { version = "0.1.2", optional = true }
 rustix = { version = "1.1.4", features = ["fs"] }
 
 [dev-dependencies]
+# Offline R.11 equation-oracle composition tests only; no production fixture edge.
+iroha_fhe = { path = "../iroha_fhe", default-features = false, features = ["bgv-test-fixtures"] }
 criterion = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["compression"] }
 num-bigint = "0.4.6"

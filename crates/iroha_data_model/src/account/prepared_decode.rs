@@ -23,6 +23,10 @@ pub enum AccountDecodeError {
     #[error("canonical account destination: {0}")]
     Invariant(&'static str),
 }
+mod json;
+pub(crate) use json::AccountJsonAdmissionError;
+pub use json::AccountLiteralAdmissionError;
+
 use AccountDecodeError as Error;
 impl From<DecodeIntoError<Error>> for Error {
     fn from(error: DecodeIntoError<Error>) -> Self {

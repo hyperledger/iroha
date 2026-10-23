@@ -16,6 +16,15 @@ fn line(value: impl std::fmt::Display) -> Vec<u8> {
     format!("{value}\n").into_bytes()
 }
 
+fn fixture_staking_policy() -> iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+    let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    iroha_deploy::genesis::default_staking_policy(
+        fees.fee_asset_id,
+        fees.fee_sink_account_id.clone(),
+        fees.fee_sink_account_id,
+    )
+}
+
 #[derive(Clone)]
 struct Fixture {
     block: SignedBlock,
@@ -80,21 +89,34 @@ impl Fixture {
                 )
             })
             .collect();
+        let staking = fixture_staking_policy();
         let mut npos = iroha_data_model::parameter::system::SumeragiNposParameters::default();
+        npos.xor_asset_definition_id = staking.stake_asset_id.clone();
         npos.max_validators = 4;
         npos.epoch_length_blocks = NonZeroU64::new(epoch).unwrap();
         npos.evidence_horizon_blocks = epoch;
         npos.slashing_delay_blocks = 1;
         npos.validate().unwrap();
-        let mut builder = iroha_genesis::GenesisBuilder::new_without_executor(CHAIN_ID.into(), ".")
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .set_topology(topology)
-            .append_parameter(Parameter::Sumeragi(
-                iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
-                    NonZeroU64::new(epoch).unwrap(),
-                ),
-            ))
-            .append_parameter(Parameter::Custom(npos.into_custom_parameter()));
+        let mut builder = iroha_genesis::GenesisBuilder::new_without_executor(
+            CHAIN_ID.into(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(staking)
+        .expect("explicit fixture staking policy")
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .set_topology(topology)
+        .append_parameter(Parameter::Sumeragi(
+            iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
+                NonZeroU64::new(epoch).unwrap(),
+            ),
+        ))
+        .append_parameter(Parameter::Custom(npos.into_custom_parameter()));
         if !instructions.is_empty() {
             // Genesis serializes topology registrations after a transaction's
             // explicit instructions. Staking must execute in the next batch,
@@ -468,8 +490,8 @@ pub(crate) fn deployment_lane_genesis_fixture() -> (SignedBlock, KeyPair) {
     static FIXTURE: std::sync::OnceLock<Fixture> = std::sync::OnceLock::new();
     let fixture = FIXTURE.get_or_init(|| {
         use iroha_data_model::{
-            account::{Account, address::AccountAddress},
-            asset::{AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
+            account::Account,
+            asset::{AssetBalancePolicy, AssetDefinition, AssetId},
             domain::Domain,
             isi::{ActivatePublicLaneValidator, Mint, Register, RegisterPublicLaneValidator},
         };
@@ -477,18 +499,9 @@ pub(crate) fn deployment_lane_genesis_fixture() -> (SignedBlock, KeyPair) {
         use iroha_primitives::numeric::{NumericSpec, Quantity};
 
         let _profile = ChainDiscriminantGuard::enter(CHAIN_DISCRIMINANT);
-        let escrow = AccountAddress::from_i105_for_discriminant(
-            &iroha_config::parameters::defaults::nexus::staking::stake_escrow_account_id(),
-            Some(iroha_config::parameters::defaults::common::chain_discriminant()),
-        )
-        .unwrap()
-        .to_i105_for_discriminant(CHAIN_DISCRIMINANT)
-        .unwrap();
-        let escrow = AccountId::parse_encoded(&escrow).unwrap();
-        let stake_asset = AssetDefinitionId::parse_address_literal(
-            &iroha_config::parameters::defaults::nexus::staking::stake_asset_id(),
-        )
-        .unwrap();
+        let staking = fixture_staking_policy();
+        let escrow = staking.stake_escrow_account_id;
+        let stake_asset = staking.stake_asset_id;
         let mut instructions: Vec<iroha_data_model::isi::InstructionBox> = vec![
             Register::domain(Domain::new(
                 DomainId::parse_fully_qualified("nexus.universal").unwrap(),
@@ -1118,4 +1131,31 @@ fn public_bundle_refuses_a_network_that_cannot_seat_the_parliament() {
     assert!(error.contains("does not share"), "{error}");
     fs::remove_file(args.localnet_dir.join("peer1.toml")).unwrap();
     prepare(&args, &mut Vec::new()).unwrap();
+}
+
+#[test]
+fn fixture_staking_policy_matches_executed_npos_fees_and_deployment_custody() {
+    use iroha_data_model::block::consensus::{PublicLaneStakingPolicy, RootFeePolicy};
+    use iroha_data_model::parameter::system::SumeragiNposParameters;
+    let _author = ChainDiscriminantGuard::enter(CHAIN_DISCRIMINANT);
+    let fixture = Fixture::new();
+    let parameters = fixture.manifest.effective_parameters().unwrap();
+    let staking = PublicLaneStakingPolicy::from_parameters(&parameters).unwrap();
+    let expected = fixture_staking_policy();
+    let fees = RootFeePolicy::from_parameters(&parameters)
+        .unwrap()
+        .unwrap();
+    let npos = SumeragiNposParameters::from_custom_parameter(
+        parameters
+            .custom()
+            .get(&SumeragiNposParameters::parameter_id())
+            .unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(staking, expected);
+    assert_eq!(staking.stake_asset_id, fees.fee_asset_id);
+    assert_eq!(staking.stake_asset_id, npos.xor_asset_definition_id);
+    assert_eq!(staking.stake_escrow_account_id, fees.fee_sink_account_id);
+    assert_eq!(staking.slash_sink_account_id, fees.fee_sink_account_id);
 }

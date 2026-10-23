@@ -10,7 +10,7 @@
 //! adapter with purpose-bound attempts and certificates. Testing selection grants no
 //! production qualification, SCCP or enactment authority.
 
-use super::{StateBlock, StateReadOnly, StateTransaction, WorldReadOnly};
+use super::{StateBlock, StateTransaction, WorldReadOnly};
 use crate::execution_attempt::{
     ExecutionAttemptError, genesis_read_attempt_error, json_decode_attempt_error,
     norito_decode_attempt_error,

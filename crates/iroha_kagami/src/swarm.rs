@@ -1007,7 +1007,6 @@ fn execution_policy_projection(config: &actual::Root) -> [u8; 32] {
     actual::execution_policy_digest_v1(
         &config.pipeline,
         &config.oracle,
-        &config.crypto,
         &config.fraud_monitoring,
         &config.gov,
         &config.content,
@@ -4009,7 +4008,15 @@ mod tests {
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("resultless-prepared-bundle"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .set_topology_for_test(topology)
         .build_raw()
         .expect("complete resultless prepared-bundle fixture")
@@ -4246,14 +4253,24 @@ api_port = 9000
         }
     }
     fn write_minimal_genesis(path: &Path) {
-        let manifest =
-            GenesisBuilder::new_without_executor(ChainId::from("test-chain"), PathBuf::from("."))
-                .complete_for_test()
-                .build_raw()
-                .expect("complete minimal swarm fixture")
-                .with_consensus_mode(
-                    iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
-                );
+        let manifest = GenesisBuilder::new_without_executor(
+            ChainId::from("test-chain"),
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .complete_for_test()
+        .build_raw()
+        .expect("complete minimal swarm fixture")
+        .with_consensus_mode(
+            iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
+        );
         let genesis_json = norito::json::to_json_pretty(&manifest).expect("serialize genesis");
         fs::write(path, genesis_json).expect("write minimal genesis");
     }
@@ -4261,7 +4278,15 @@ api_port = 9000
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("npos-without-parameters"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .complete_for_test()
         .build_raw()
         .expect("complete NPoS-without-parameters fixture")
@@ -4271,14 +4296,25 @@ api_port = 9000
     }
     fn write_npos_genesis(path: &Path) {
         let chain = ChainId::from("npos-swarm");
-        let manifest = GenesisBuilder::new_without_executor(chain, PathBuf::from("."))
-            .append_parameter(Parameter::Custom(
-                SumeragiNposParameters::default().into_custom_parameter(),
-            ))
-            .complete_for_test()
-            .build_raw()
-            .expect("complete NPoS swarm fixture")
-            .with_consensus_mode(iroha_data_model::parameter::system::SumeragiConsensusMode::Npos);
+        let manifest = GenesisBuilder::new_without_executor(
+            chain,
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .append_parameter(Parameter::Custom(
+            SumeragiNposParameters::default().into_custom_parameter(),
+        ))
+        .complete_for_test()
+        .build_raw()
+        .expect("complete NPoS swarm fixture")
+        .with_consensus_mode(iroha_data_model::parameter::system::SumeragiConsensusMode::Npos);
         let json = norito::json::to_json_pretty(&manifest).expect("serialize genesis");
         fs::write(path, json).expect("write npos genesis");
     }

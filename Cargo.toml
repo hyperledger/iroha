@@ -85,8 +85,8 @@ iroha_plonk_recursion = { path = "crates/iroha_plonk_recursion" }
 iroha_kagemusha_proof = { path = "crates/iroha_kagemusha_proof" }
 iroha_i18n = { path = "crates/iroha_i18n" }
 
-# Crates that need JSON, governance, HTTP, bridge, BLS, or transparent APIs
-# request them locally so focused builds do not compile the broadest model.
+# Canonical JSON and governance model identities are unconditional.
+# Crates request HTTP, crypto implementations and transparent APIs locally.
 iroha_data_model = { path = "crates/iroha_data_model", default-features = false }
 iroha_model_base = { path = "crates/iroha_model_base", default-features = false }
 iroha_js_codec = { path = "crates/iroha_js_codec", default-features = false }

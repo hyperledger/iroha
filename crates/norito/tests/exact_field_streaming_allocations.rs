@@ -394,6 +394,141 @@ mod prepared_option;
 #[path = "exact_field_streaming_allocations/prepared_string.rs"]
 mod prepared_string;
 
+#[test]
+fn finite_count_refusal_and_exact_boundary_make_no_heap_allocation() {
+    struct Original;
+    impl SerializePayload for Original {
+        fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
+            writer.write_all(&[7; 64])?;
+            Ok(())
+        }
+    }
+    for maximum in [0, 63, 64] {
+        let mut result = None;
+        assert_eq!(
+            allocations_during(|| {
+                result = Some(norito::core::encoded_payload_len_bounded(
+                    &Original, maximum,
+                ));
+            }),
+            0
+        );
+        if maximum == 64 {
+            assert_eq!(result.unwrap().unwrap(), 64);
+        } else {
+            assert!(matches!(result.unwrap(), Err(Error::Io(original))
+                if original.kind() == std::io::ErrorKind::Other
+                    && original.get_ref().is_none()
+                    && original.raw_os_error().is_none()));
+        }
+    }
+}
+
+#[test]
+fn count_refusal_does_not_rewrite_unrelated_io_or_codec_errors() {
+    struct Original {
+        exceed: bool,
+        io: bool,
+    }
+    impl SerializePayload for Original {
+        fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
+            if self.exceed {
+                let _ = writer.write_all(&[7; 64]);
+            }
+            // This unrelated error deliberately uses the same I/O kind as the
+            // count writer. A sticky count refusal cannot replace its payload.
+            if self.io {
+                Err(std::io::Error::other("unrelated original codec I/O").into())
+            } else {
+                Err(Error::InvalidValue {
+                    context: "unrelated original codec value",
+                })
+            }
+        }
+    }
+    for exceed in [false, true] {
+        for io in [false, true] {
+            let error = norito::core::encoded_payload_len_bounded(&Original { exceed, io }, 63)
+                .unwrap_err();
+            if io {
+                let Error::Io(original) = error else {
+                    panic!("original I/O remains owned");
+                };
+                assert_eq!(original.kind(), std::io::ErrorKind::Other);
+                assert_eq!(original.to_string(), "unrelated original codec I/O");
+                assert!(original.get_ref().is_some());
+            } else {
+                assert!(matches!(
+                    error,
+                    Error::InvalidValue {
+                        context: "unrelated original codec value"
+                    }
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn count_refusal_preserves_actual_enclosing_allocation_and_work_owners() {
+    use norito::core::{
+        DecodeLimits, DecodeLocalRefusal, classify_decode_attempt, decode_field_canonical,
+        reserve_decode_allocation, with_decode_limits_scope,
+    };
+    use std::cell::RefCell;
+    struct Original {
+        exceed: bool,
+        work: bool,
+        bytes: Vec<u8>,
+        original: RefCell<Option<DecodeLocalRefusal>>,
+    }
+    impl SerializePayload for Original {
+        fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
+            if self.exceed {
+                let _ = writer.write_all(&[7; 64]);
+            }
+            let failure = classify_decode_attempt(|| {
+                if self.work {
+                    decode_field_canonical::<Vec<u8>>(&self.bytes).map(|_| ())
+                } else {
+                    reserve_decode_allocation(1)
+                }
+            })
+            .unwrap_err();
+            self.original.replace(failure.local_refusal());
+            Err(failure.into_error())
+        }
+    }
+    for exceed in [false, true] {
+        for work in [false, true] {
+            let source = Original {
+                exceed,
+                work,
+                bytes: norito::codec::Encode::encode(&vec![1_u8]),
+                original: RefCell::new(None),
+            };
+            let (elements, allocations) = if work {
+                (0, usize::MAX)
+            } else {
+                (usize::MAX, 0)
+            };
+            let failure = with_decode_limits_scope(
+                DecodeLimits::new(usize::MAX, usize::MAX, elements, allocations, usize::MAX),
+                || {
+                    classify_decode_attempt(|| {
+                        norito::core::encoded_payload_len_bounded(&source, 63)
+                    })
+                },
+            )
+            .unwrap_err();
+            assert_eq!(
+                failure.into_local_refusal().unwrap(),
+                source.original.take().unwrap()
+            );
+        }
+    }
+}
+
 #[path = "exact_field_streaming_allocations/enum_rollback.rs"]
 mod enum_rollback;
 #[path = "exact_field_streaming_allocations/materialized_destination.rs"]

@@ -1580,42 +1580,21 @@ pub struct Crypto {
     pub enable_sm_openssl_preview: bool,
     /// Intrinsic dispatch policy applied to SM acceleration.
     pub sm_intrinsics: SmIntrinsicsPolicy,
-    /// Default hash algorithm identifier (e.g., `blake2b-256`, `sm3-256`).
+    /// Local generation hash preference (e.g., `blake2b-256`, `sm3-256`);
+    /// this does not select transaction hashing or committed admission semantics.
     pub default_hash: String,
-    /// Signing algorithms allowed for transaction admission.
-    pub allowed_signing: Vec<Algorithm>,
-    /// Default distinguishing identifier applied when SM2 signatures omit it.
+    /// Local SM2 generation default; mandatory IVM verification uses the fixed
+    /// protocol distinguishing identifier when the syscall operand is omitted.
     pub sm2_distid_default: String,
-    /// Curve identifiers (per the account curve registry) allowed for controllers.
-    pub allowed_curve_ids: Vec<u8>,
 }
 impl_default!(Crypto => {
         Self {
             enable_sm_openssl_preview: defaults::crypto::enable_sm_openssl_preview(),
             sm_intrinsics: SmIntrinsicsPolicy::Auto,
             default_hash: defaults::crypto::default_hash(),
-            allowed_signing: defaults::crypto::allowed_signing(),
             sm2_distid_default: defaults::crypto::sm2_distid_default(),
-            allowed_curve_ids: defaults::crypto::allowed_curve_ids(),
         }
 });
-impl Crypto {
-    /// Determine whether SM helper syscalls should be enabled for this configuration.
-    #[must_use]
-    pub fn sm_helpers_enabled(&self) -> bool {
-        #[cfg(feature = "sm")]
-        {
-            self.allowed_signing
-                .iter()
-                .any(|algo| matches!(algo, Algorithm::Sm2))
-        }
-        #[cfg(not(feature = "sm"))]
-        {
-            let _ = self;
-            false
-        }
-    }
-}
 /// Parsed `SoraNet` handshake configuration.
 #[derive(Clone)]
 pub struct SoranetHandshake {
@@ -4269,14 +4248,13 @@ fn execution_policy_canonical_set<'a, T: Encode + 'a>(
 // The pipeline execution limits hashed here are the committed `pipeline_validity_policy_v1`
 // parameter or its protocol default; pipeline fee fields are also a validated
 // committed projection (State passes its effective settings).
-// TODO(F.4): the other fields are still read from node configuration ([crypto], [gov], oracle, content, settlement router and the Nexus policy digest).
+// TODO(F.4): the other fields are still read from node configuration ([gov], oracle, content, settlement router and the Nexus policy digest).
 // Move each family into a typed committed parameter, as `zk_validity_policy_v1` and
 // `pipeline_validity_policy_v1` did (census entries `cfg.*` of
 // specs/zk_runtime_validity_census.json), then remove this digest from genesis metadata.
 pub fn execution_policy_digest_v1(
     pipeline: &Pipeline,
     oracle: &Oracle,
-    crypto: &Crypto,
     fraud_monitoring: &FraudMonitoring,
     governance: &Governance,
     content: &Content,
@@ -4375,17 +4353,8 @@ pub fn execution_policy_digest_v1(
         &pipeline.amx_per_memory_access_ns,
     );
     policy.push("pipeline.amx_per_syscall_ns", &pipeline.amx_per_syscall_ns);
-    // Cryptographic admission and host-surface policy. Backend selection is operational.
-    policy.push("crypto.default_hash", &crypto.default_hash);
-    policy.push(
-        "crypto.allowed_signing",
-        &execution_policy_canonical_set(crypto.allowed_signing.iter()),
-    );
-    policy.push("crypto.sm2_distid_default", &crypto.sm2_distid_default);
-    let mut allowed_curve_ids = crypto.allowed_curve_ids.clone();
-    allowed_curve_ids.sort_unstable();
-    allowed_curve_ids.dedup();
-    policy.push("crypto.allowed_curve_ids", &allowed_curve_ids);
+    // Ordinary crypto admission belongs exclusively to committed Parameters.
+    // Local generation defaults and implementation selection carry no execution authority.
     // Oracle state transitions, economics, governance, and binding admission.
     policy.push(
         "oracle.history_depth",

@@ -188,7 +188,11 @@ fn parent_service_assembly_retains_original_parent_and_queue_before_capacity_ret
                 &chain.network_id(),
                 Duration::from_secs(1),
                 chain.state().view().world().parameters().transaction(),
-                &iroha_config::parameters::actual::Crypto::default(),
+                &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                ])
+                .expect("explicit current admission fixture policy"),
                 &time,
             )
             .unwrap();
@@ -612,7 +616,11 @@ fn queue_original_tick(chain: &CertifiedTestChain, worker: &mut Worker<'_>) {
         &chain.network_id(),
         Duration::from_secs(1),
         chain.state().view().world().parameters().transaction(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("explicit current admission fixture policy"),
         &time,
     )
     .unwrap();
@@ -1178,7 +1186,13 @@ fn parent_service_producer_copy_refusal_precedes_queue_lease_and_retries_same_in
                 &chain.network_id(),
                 Duration::from_secs(1),
                 chain.state().view().world().parameters().transaction(),
-                &iroha_config::parameters::actual::Crypto::default(),
+                chain
+                    .state()
+                    .view()
+                    .world()
+                    .parameters()
+                    .crypto_policy()
+                    .expect("original committed admission policy"),
                 &time,
             )
             .unwrap();

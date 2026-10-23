@@ -1,9 +1,11 @@
 use crate::{Outcome, RunArgs, tui};
 use clap::Parser;
 use color_eyre::eyre::{WrapErr as _, eyre};
-use iroha_data_model::account::address::ChainDiscriminantGuard;
+use iroha_data_model::{
+    account::address::ChainDiscriminantGuard, crypto_admission_policy::CryptoAdmissionPolicyV1,
+};
 use iroha_genesis::{
-    ManifestCrypto, RawGenesisTransaction, genesis_instructions_json, read_genesis_manifest_bytes,
+    RawGenesisTransaction, genesis_instructions_json, read_genesis_manifest_bytes,
 };
 use iroha_model_base::name::Name;
 use std::{
@@ -75,7 +77,11 @@ fn collect_offenses_from_value(
     // Validate top-level fields if present
     validate_parameters("/parameters", json.get("parameters"), &mut offenses);
     validate_instructions_array("/instructions", json.get("instructions"), &mut offenses);
-    validate_crypto("/crypto", json.get("crypto"), &mut offenses);
+    validate_crypto_policy(
+        "/crypto_admission_policy",
+        json.get("crypto_admission_policy"),
+        &mut offenses,
+    );
     // Validate per-transaction fields
     if let Some(txs) = json.get("transactions").and_then(|v| v.as_array()) {
         for (i, tx) in txs.iter().enumerate() {
@@ -115,11 +121,15 @@ fn validate_parameters(
         }
     }
 }
-fn validate_crypto(path: &str, value: Option<&norito::json::Value>, offenses: &mut Vec<Offense>) {
+fn validate_crypto_policy(
+    path: &str,
+    value: Option<&norito::json::Value>,
+    offenses: &mut Vec<Offense>,
+) {
     let Some(value) = value else {
         return;
     };
-    match norito::json::value::from_value::<ManifestCrypto>(value.clone()) {
+    match norito::json::value::from_value::<CryptoAdmissionPolicyV1>(value.clone()) {
         Ok(crypto) => {
             if let Err(err) = crypto.validate() {
                 offenses.push(Offense {
@@ -130,7 +140,7 @@ fn validate_crypto(path: &str, value: Option<&norito::json::Value>, offenses: &m
         }
         Err(err) => offenses.push(Offense {
             path: path.to_owned(),
-            message: format!("invalid crypto configuration: {err}"),
+            message: format!("invalid crypto admission policy: {err}"),
         }),
     }
 }
@@ -235,7 +245,18 @@ mod tests {
     #[test]
     fn run_accepts_permissioned_consensus() {
         let manifest = super::super::complete_test_genesis_builder(
-            GenesisBuilder::new_without_executor(ChainId::from("0"), PathBuf::from(".")),
+            GenesisBuilder::new_without_executor(
+                ChainId::from("0"),
+                PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy"),
         )
         .build_raw()
         .expect("complete permissioned validation fixture")
@@ -270,7 +291,15 @@ mod tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("mismatched-authority"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy")
             .set_topology(topology),
         )
         .build_raw()
@@ -294,7 +323,15 @@ mod tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("npos-validate"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy")
             .append_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
             )),

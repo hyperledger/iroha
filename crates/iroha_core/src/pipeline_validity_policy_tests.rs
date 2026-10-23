@@ -1082,7 +1082,7 @@ fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
             )
             .into(),
         ];
-        config.genesis_parameters = vec![
+        config.genesis_parameters.extend([
             parameter("ivm_gas_tech_account_id", Json::new(BOB_ID.to_string())),
             parameter(
                 "ivm_gas_accepted_assets",
@@ -1096,7 +1096,7 @@ fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
                 ))
                 .unwrap(),
             ),
-        ];
+        ]);
         let mut prepared = CertifiedTestChain::prepare(config).unwrap();
         if divergent {
             let state = Arc::get_mut(&mut prepared.state).unwrap();

@@ -30,6 +30,8 @@ INVENTORY = C.load()
 REGISTRY = "crates/iroha_data_model/src/isi/registry/wire_ids.rs"
 PRIVACY_MODEL = "crates/iroha_data_model/src/privacy.rs"
 PRIVACY_HANDLERS = "crates/iroha_core/src/smartcontracts/isi/privacy.rs"
+PGC_NATIVE = "crates/iroha_core/src/executor/attachment_custody/pgc_bootstrap.rs"
+PGC_DIRECT = "crates/iroha_core/src/executor/attachment_direct.rs"
 VERIFIER = "crates/iroha_core_privacy/src/privacy_verifier.rs"
 PROFILES = "crates/iroha_core_privacy/src/privacy_profiles.rs"
 SYSCALLS = "crates/ivm_abi/src/syscalls.rs"
@@ -196,6 +198,28 @@ class Registry(Base):
         overrides = appended_registry('built_in_wire_id!(wg::AssertSomethingV1 => "iroha.wg.assert.v1"),')
         self.assert_fails(run("check_registry", overrides=overrides), "module `wg`")
 
+    def test_transparent_fi_and_enrollment_handlers_cannot_hide_a_proof_verifier(self) -> None:
+        for module, names in (
+            ("asset_fi", ("SetAssetFiV1", "SetAssetFiLinkAttestationV1",
+                          "SetAssetFiLinkV1", "TransferToLinkedFiV1")),
+            ("asset_uid_enrollment", ("ActivateAssetUidEnrollmentV1",
+                                      "SetAssetUidSystemAccountV1")),
+        ):
+            self.assertEqual(INVENTORY["registry"]["modules"][module]["scope"], "out")
+            path = f"crates/iroha_core/src/smartcontracts/isi/{module}.rs"
+            text = source(path)
+            for name in names:
+                with self.subTest(module=module, instruction=name):
+                    head = f"impl Execute for {name} {{"
+                    self.assertIn(head, text)
+                    body_start = text.index("{", text.index("fn execute", text.index(head)))
+                    mutated = text[:body_start + 1] + "\n        verify_native_proof(&self)?;" + text[body_start + 1:]
+                    self.assertNotEqual(mutated, text)
+                    self.assert_fails(
+                        run("check_registry", overrides={path: mutated}),
+                        f"the handler of {module}::{name} calls verify_native_proof",
+                    )
+
     def test_family_name_in_an_out_of_scope_module_fails(self) -> None:
         overrides = appended_registry('built_in_wire_id!(sorafs::SubmitSorafsZkProofV2 => "iroha.sorafs.zk_proof.v2"),')
         self.assert_fails(run("check_registry", overrides=overrides), "sorafs::SubmitSorafsZkProofV2 has a family name")
@@ -272,7 +296,7 @@ class Registry(Base):
 
         text = source(PRIVACY_HANDLERS)
         head = "impl Execute for SubmitPrivacyProofV1 {"
-        mark = "let submission = PreparedPrivacySubmissionV1::prepare(self, state_transaction)?;"
+        mark = "let submission = PreparedPrivacySubmissionV1::prepare(self, authority, state_transaction)?;"
         index = text.index(mark, text.index(head))
         mutated = text[:index] + "ensure_privacy_governance(authority, state_transaction)?;\n        " + text[index:]
         self.assert_fails(run("check_registry", overrides={PRIVACY_HANDLERS: mutated}),
@@ -1611,7 +1635,7 @@ class EntryPoints(Base):
             rows[("execution_proof", "", "crates/iroha_core/src/smartcontracts/isi/game.rs")]["route"] = "telepathy"
             rows[("purpose_bound", "", "crates/iroha_core_zk/src/confidential_v2.rs")].pop("note")
             rows[("lane_privacy", "", "crates/iroha_core/src/queue.rs")]["excluded"] = "no_such_exclusion"
-            section["restore"]["sites"] = [site for site in section["restore"]["sites"] if "validate_proof_tag_index" not in site["symbol"]]
+            section["restore"]["sites"] = [site for site in section["restore"]["sites"] if "proof_tag_index::rebuild" not in site["symbol"]]
             section["torii"]["sites"] = [site for site in section["torii"]["sites"] if not site["path"].endswith("zk_prover.rs")]
             section["excluded"].append({"id": "incomplete"})
             section["entry_point_census"]["tokens"].append({"id": "never", "pattern": r"never_called_anywhere_v9\("})
@@ -1622,7 +1646,7 @@ class EntryPoints(Base):
         self.assert_fails(errors, "is not classed under a route class (route: telepathy)")
         self.assert_fails(errors, "crates/iroha_core_zk/src/confidential_v2.rs is classed `not_admission` and needs a note")
         self.assert_fails(errors, "crates/iroha_core/src/queue.rs names no entry of admission_routes.excluded")
-        self.assert_fails(errors, "admission_routes.restore: `validate_proof_tag_index` in crates/iroha_core/src/state/deserialize_world.rs is classed here and no site of the class names it")
+        self.assert_fails(errors, "admission_routes.restore: `proof_tag_index::rebuild` in crates/iroha_core/src/state/deserialize_world.rs is classed here and no site of the class names it")
         self.assert_fails(errors, "admission_routes.torii: `generic_backend_guardrails` in crates/iroha_torii/src/zk_prover.rs is classed here and no site of the class names it")
         self.assert_fails(errors, "admission_routes.excluded[incomplete]: id, site and reason are required")
         self.assert_fails(errors, "tokens[never]: the token occurs nowhere")
@@ -1636,7 +1660,7 @@ class EntryPoints(Base):
     def test_restore_lists_the_validators_of_the_plan_products(self) -> None:
         symbols = " ".join(site["symbol"] for site in INVENTORY["admission_routes"]["restore"]["sites"])
         for name in ("validate_private_settlement_persisted_state_v1", "validate_privacy_persisted_state_v1",
-                     "validate_privacy_public_reserve_dependencies_v1", "validate_proof_tag_index", "validate_verifying_key_index",
+                     "validate_privacy_public_reserve_dependencies_v1", "proof_tag_index::rebuild", "validate_verifying_key_index",
                      "validate_identifier_claims", "validate_soracloud_service_deployment_history", "proof_status_restore::rebuild"):
             self.assertIn(name, symbols)
         self.assertNotIn("read as stored", INVENTORY["admission_routes"]["restore"]["what"])
@@ -2360,11 +2384,11 @@ class Exact12SingleRoute(Base):
         self.assert_fails(run(self.METHOD, overrides=appended(CORE_PRIVACY, shortcut)),
                           "administrative operation privacy::BootstrapPrivacyPgcAccountsV1: native verifier "
                           f"`verify_bootstrap_encoded` is called in {CORE_PRIVACY}")
-        text = source(PRIVACY_HANDLERS)
+        text = source(PGC_NATIVE)
         self.assertEqual(text.count("verify_bootstrap_encoded("), 1)
-        errors = run(self.METHOD, overrides={PRIVACY_HANDLERS: text.replace("verify_bootstrap_encoded(", "verify_bootstrap_elsewhere(")})
-        self.assert_fails(errors, f"{PRIVACY_HANDLERS} no longer calls native verifier `verify_bootstrap_encoded`")
-        self.assert_fails(errors, "its executor does not call `verify_bootstrap_encoded`")
+        errors = run(self.METHOD, overrides={PGC_NATIVE: text.replace("verify_bootstrap_encoded(", "verify_bootstrap_elsewhere(")})
+        self.assert_fails(errors, f"{PGC_NATIVE} no longer calls native verifier `verify_bootstrap_encoded`")
+        self.assert_fails(errors, "does not name `verify_bootstrap_encoded`")
 
         def edit(inventory: dict) -> None:
             inventory["exact12"]["single_route"]["administrative_proof_operations"][0]["id"] = "privacy::NotListedV1"
@@ -2376,10 +2400,10 @@ class Exact12SingleRoute(Base):
                           f"role OrchardActions: {VERIFIER} calls native verifier `verify_orchard_bundle_v1` "
                           "2 time(s); its one admission caller must call it exactly once")
 
-    def test_second_pgc_bootstrap_call_in_the_handler_file_fails(self) -> None:
+    def test_second_pgc_bootstrap_call_in_the_native_consumer_file_fails(self) -> None:
         shortcut = "fn bootstrap_shortcut() { let _ = verify_bootstrap_encoded(a, b, c); }"
-        self.assert_fails(run(self.METHOD, overrides=appended(PRIVACY_HANDLERS, shortcut)),
-                          f"administrative operation privacy::BootstrapPrivacyPgcAccountsV1: {PRIVACY_HANDLERS} "
+        self.assert_fails(run(self.METHOD, overrides=appended(PGC_NATIVE, shortcut)),
+                          f"administrative operation privacy::BootstrapPrivacyPgcAccountsV1: {PGC_NATIVE} "
                           "calls native verifier `verify_bootstrap_encoded` 2 time(s); "
                           "its one admission caller must call it exactly once")
 
@@ -2574,6 +2598,114 @@ class Exact12RouteReaders(Base):
             del test["feature"]
         errors = run("check_anchors", edited(edit))
         self.assert_fails(errors, 'is compiled only with feature `privacy-release-evidence`; record "feature": "privacy-release-evidence"')
+
+
+class OriginalInvocationEntry(Base):
+    """An attachment-owned entry is explicit and cannot erase the detached refusal."""
+
+    ID = "privacy::BootstrapPrivacyPgcAccountsV1"
+
+    def entry_errors(self, overrides=None, edit=None) -> list[str]:
+        inventory = copy.deepcopy(INVENTORY)
+        item = operation(inventory, self.ID)
+        if edit:
+            edit(item)
+        checker = C.Checker(inventory, C.Tree(C.ROOT, overrides))
+        checker.operation_execution_entry(self.ID, item)
+        return checker.errors
+
+    def test_current_original_invocation_entry_is_recorded(self) -> None:
+        self.assert_clean(self.entry_errors())
+        item = operation(INVENTORY, self.ID)
+        self.assertEqual(item["verifier_path"][0], item["invocation"]["entry"])
+        self.assertEqual(item["verifier_path"][-1]["path"], PGC_NATIVE)
+        self.assert_clean(run("check_registry"))
+        self.assert_clean(run("check_exact12_single_route"))
+
+    def test_detached_handler_cannot_succeed_or_delegate(self) -> None:
+        old = '''Err(invalid_privacy_parameter(
+            "PGC bootstrap requires its original signed invocation context",
+        ))'''
+        for replacement in ("Ok(())", "execute_pgc_bootstrap(&self, _authority, _state_transaction, forged)"):
+            with self.subTest(replacement=replacement):
+                self.assert_fails(self.entry_errors(replaced(PRIVACY_HANDLERS, old, replacement)),
+                                  "detached handler must retain its exact unconditional refusal")
+
+    def test_recorded_detached_body_cannot_allow_success_or_an_early_return(self) -> None:
+        for body in ("Ok(())", "Err({ return Ok(()); error() })", "Err(error()); do_something()"):
+            with self.subTest(body=body):
+                self.assert_fails(self.entry_errors(edit=lambda item: item["invocation"].update(detached_body=body)),
+                                  "detached_body must be one unconditional Err expression")
+
+    def test_dispatch_must_keep_instruction_entry_and_context_guard(self) -> None:
+        for old, new, error in (
+            ("downcast_ref::<BootstrapPrivacyPgcAccountsV1>()", "downcast_ref::<SubmitPrivacyProofV1>()", "exact instruction and entry"),
+            ("return privacy::execute_pgc_bootstrap(bootstrap, authority, state, invocation);", "return other(bootstrap, authority, state, invocation);", "exact instruction and entry"),
+            ("if let Some(invocation) = invocation {", "if let Some(invocation) = fabricated {", "dispatch_guard"),
+        ):
+            with self.subTest(old=old):
+                self.assert_fails(self.entry_errors(replaced(PGC_DIRECT, old, new)), error)
+
+    def test_entry_requires_the_original_invocation_parameter(self) -> None:
+        self.assert_fails(self.entry_errors(replaced(
+            PRIVACY_HANDLERS,
+            "invocation: &mut crate::executor::attachment_custody::Invocation<'_, '_>,",
+            "invocation: &mut GuestSuppliedDigest,",
+        )), "context_parameter")
+
+    def test_comments_cannot_supply_the_dispatch_guard_or_context_parameter(self) -> None:
+        guard = "if let Some(invocation) = invocation {"
+        self.assert_fails(self.entry_errors(replaced(
+            PGC_DIRECT, guard, "/* " + guard + " */ if let Some(invocation) = forged {",
+        )), "dispatch_guard")
+        parameter = "invocation: &mut crate::executor::attachment_custody::Invocation<'_, '_>,"
+        self.assert_fails(self.entry_errors(replaced(
+            PRIVACY_HANDLERS, parameter, "/* " + parameter + " */ invocation: &mut ForgedContext,",
+        )), "context_parameter")
+
+    def test_body_text_cannot_supply_a_missing_signature_parameter(self) -> None:
+        parameter = "invocation: &mut crate::executor::attachment_custody::Invocation<'_, '_>,"
+        text = source(PRIVACY_HANDLERS).replace(parameter, "invocation: &mut ForgedContext,", 1)
+        start = text.index("pub(crate) fn execute_pgc_bootstrap(")
+        body = text.index("{", start)
+        text = text[:body + 1] + "\n" + parameter + text[body + 1:]
+        self.assert_fails(self.entry_errors({PRIVACY_HANDLERS: text}), "context_parameter")
+
+    def test_missing_or_unregistered_invocation_is_rejected(self) -> None:
+        self.assert_fails(self.entry_errors(edit=lambda item: item["invocation"]["entry"].update(symbol="fn absent_entry(")),
+                          "entry and dispatch must name existing functions")
+        self.assert_fails(self.entry_errors(edit=lambda item: item.pop("handler")), "requires a registered handler")
+
+    def test_verifier_path_starts_at_the_invocation_entry(self) -> None:
+        def edit(inventory):
+            item = operation(inventory, self.ID)
+            item["verifier_path"][0] = item["handler"]
+        self.assert_fails(run("check_registry", edited(edit)), "verifier_path starts at the handler")
+
+    def test_administrative_executor_cannot_name_the_detached_handler(self) -> None:
+        def edit(inventory):
+            inventory["exact12"]["single_route"]["administrative_proof_operations"][0]["executor"] = operation(inventory, self.ID)["handler"]
+        self.assert_fails(run("check_exact12_single_route", edited(edit)), "executor must be the recorded invocation entry")
+
+    def test_new_invocation_authority_check_is_not_a_passthrough(self) -> None:
+        original = "    ensure_privacy_governance(authority, state_transaction)?;"
+        text = source(PRIVACY_HANDLERS)
+        start = text.index("pub(crate) fn execute_pgc_bootstrap(")
+        before, tail = text[:start], text[start:]
+        self.assertIn(original, tail)
+        changed = before + tail.replace(original, original + "\n    ensure_additional_authority(authority)?;", 1)
+        self.assert_fails(run("check_registry", overrides={PRIVACY_HANDLERS: changed}),
+                          "authority check `ensure_additional_authority`, which is not listed")
+
+    def test_anchor_item_keeps_its_signature_without_following_other_functions(self) -> None:
+        path = "crates/sample.rs"
+        text = "fn entry(context: &mut Invocation) { helper(context); }\nfn helper(context: &mut Invocation) { secret(); }"
+        tree = C.Tree(C.ROOT, {path: text})
+        anchor = {"path": path, "symbol": "fn entry("}
+        self.assertEqual(C.anchor_item_text(tree, anchor), "{ helper(context); }")
+        self.assertEqual(C.anchor_item_text(tree, anchor, signature=True), "fn entry(context: &mut Invocation) ")
+        self.assertIsNone(C.anchor_item_text(tree, {"path": path, "symbol": "fn absent("}))
+        self.assertIsNone(C.anchor_item_text(tree, {"path": "missing.rs", "symbol": "fn entry("}))
 
 
 if __name__ == "__main__":

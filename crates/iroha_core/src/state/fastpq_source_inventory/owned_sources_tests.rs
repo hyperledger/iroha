@@ -159,7 +159,7 @@ fn fixture_with_effects_in_root(
     config.pipeline = state.pipeline;
     config.governance = Some(state.gov);
     config.nexus = Some(nexus);
-    config.genesis_parameters = genesis_parameters;
+    config.genesis_parameters.extend(genesis_parameters);
     config.genesis_parameters.extend(fee_parameters);
     if let Some(dataspace) = private_dataspace {
         use iroha_data_model::{

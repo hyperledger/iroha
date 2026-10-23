@@ -13,7 +13,7 @@ use iroha_primitives::json::Json;
 use mv::storage::StorageReadOnly;
 
 use crate::{
-    smartcontracts::isi::domain::isi::ensure_controller_capabilities,
+    smartcontracts::isi::domain::isi::ensure_controller_policy,
     state::{StateTransaction, WorldReadOnly},
 };
 
@@ -101,10 +101,15 @@ pub(crate) fn ensure_custody_account(
     custody: &AccountId,
     state_transaction: &mut StateTransaction<'_, '_>,
 ) -> Result<bool, InstructionExecutionError> {
-    ensure_controller_capabilities(
+    ensure_controller_policy(
         custody.controller(),
-        &state_transaction.crypto.allowed_signing,
-        &state_transaction.crypto.allowed_curve_ids,
+        state_transaction
+            .crypto_admission_policy()
+            .map_err(|message| {
+                iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                    message.into(),
+                )
+            })?,
     )?;
     if state_transaction.world.account(custody).is_ok() {
         return Ok(false);

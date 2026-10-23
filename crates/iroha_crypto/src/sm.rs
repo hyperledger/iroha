@@ -51,8 +51,9 @@ fn validate_distid(distid: &str) -> Result<(), ParseError> {
 }
 fn distid_len_prefix(distid: &str) -> Result<[u8; SM2_DISTID_LEN_BYTES], ParseError> {
     validate_distid(distid)?;
-    let len = u16::try_from(distid.len())
-        .map_err(|_| ParseError("SM2 distinguishing identifier length exceeds u16".into()))?;
+    let len = u16::try_from(distid.len()).map_err(|_| {
+        ParseError::Invalid("SM2 distinguishing identifier length exceeds u16".into())
+    })?;
     Ok(len.to_be_bytes())
 }
 fn split_sm2_payload(payload: &[u8]) -> Result<(&str, &[u8]), ParseError> {
@@ -167,15 +168,15 @@ impl Sm2PublicKey {
             .map_err(verification::KeyRejection::into_parse_error)?;
         VerifyingKey::new(distid, point)
             .map(Self)
-            .map_err(|_| ParseError("invalid SM2 public key".to_owned()))
+            .map_err(|_| ParseError::Invalid("invalid SM2 public key".to_owned()))
     }
     /// Construct a public key from a hex-encoded SEC1 byte string.
     ///
     /// # Errors
     /// Returns [`ParseError`] when the string is not valid hex or the key is malformed.
     pub fn from_hex(distid: impl AsRef<str>, bytes: impl AsRef<str>) -> Result<Self, ParseError> {
-        let raw =
-            hex::decode(bytes.as_ref()).map_err(|err| ParseError(format!("invalid hex: {err}")))?;
+        let raw = hex::decode(bytes.as_ref())
+            .map_err(|err| ParseError::Invalid(format!("invalid hex: {err}")))?;
         Self::from_sec1_bytes(distid, &raw)
     }
     /// Export the public key as SEC1 bytes.
@@ -193,7 +194,9 @@ impl Sm2PublicKey {
     pub fn from_public_key_pem(distid: impl AsRef<str>, pem: &str) -> Result<Self, ParseError> {
         use sm2::pkcs8::DecodePublicKey;
         let encoded_point = Sm2EcPublicKey::from_public_key_pem(pem)
-            .map_err(|err| ParseError(format!("failed to decode SM2 public key PEM: {err}")))?
+            .map_err(|err| {
+                ParseError::Invalid(format!("failed to decode SM2 public key PEM: {err}"))
+            })?
             .to_encoded_point(false);
         Self::from_sec1_bytes(distid, encoded_point.as_bytes())
     }
@@ -203,12 +206,14 @@ impl Sm2PublicKey {
     /// Returns [`ParseError`] when the key cannot be encoded.
     pub fn to_public_key_der(&self) -> Result<Vec<u8>, ParseError> {
         let public = Sm2EcPublicKey::from_affine(*self.0.as_affine()).map_err(|_| {
-            ParseError("failed to project SM2 public key into affine coordinates".into())
+            ParseError::Invalid("failed to project SM2 public key into affine coordinates".into())
         })?;
         public
             .to_public_key_der()
             .map(|doc| doc.as_bytes().to_vec())
-            .map_err(|err| ParseError(format!("failed to encode SM2 public key to DER: {err}")))
+            .map_err(|err| {
+                ParseError::Invalid(format!("failed to encode SM2 public key to DER: {err}"))
+            })
     }
     /// Export the public key as a PEM-encoded `SubjectPublicKeyInfo` string.
     ///
@@ -306,10 +311,12 @@ impl Sm2PrivateKey {
     /// Returns [`ParseError`] when the slice is not exactly 32 bytes or contains an invalid scalar.
     pub fn from_bytes(distid: impl Into<String>, secret: &[u8]) -> Result<Self, ParseError> {
         if secret.len() != 32 {
-            return Err(ParseError("SM2 private key must be 32 bytes".into()));
+            return Err(ParseError::Invalid(
+                "SM2 private key must be 32 bytes".into(),
+            ));
         }
         if secret.iter().all(|&byte| byte == 0) {
-            return Err(ParseError(
+            return Err(ParseError::Invalid(
                 "SM2 private key material must not be all zero".into(),
             ));
         }
@@ -318,7 +325,7 @@ impl Sm2PrivateKey {
         let mut buf = Zeroizing::new([0u8; 32]);
         buf.copy_from_slice(secret);
         SecretKey::from_slice(buf.as_ref())
-            .map_err(|_| ParseError("invalid SM2 private key".into()))?;
+            .map_err(|_| ParseError::Invalid("invalid SM2 private key".into()))?;
         Ok(Self {
             distid,
             secret: Secret::new(buf),
@@ -330,8 +337,9 @@ impl Sm2PrivateKey {
     /// Returns [`ParseError`] when the PEM cannot be decoded or does not contain a valid SM2 key.
     pub fn from_pkcs8_pem(distid: impl Into<String>, pem: &str) -> Result<Self, ParseError> {
         let distid = distid.into();
-        let secret = SecretKey::from_pkcs8_pem(pem)
-            .map_err(|err| ParseError(format!("failed to decode SM2 PKCS#8 private key: {err}")))?;
+        let secret = SecretKey::from_pkcs8_pem(pem).map_err(|err| {
+            ParseError::Invalid(format!("failed to decode SM2 PKCS#8 private key: {err}"))
+        })?;
         Self::from_secret_key(distid, &secret)
     }
     /// Generate a random SM2 private key using the provided RNG.
@@ -349,9 +357,9 @@ impl Sm2PrivateKey {
         let mut secret = Zeroizing::new([0u8; 32]);
         for _ in 0..SM2_RANDOM_KEY_ATTEMPTS {
             rng.try_fill_bytes(secret.as_mut())
-                .map_err(|err| ParseError(format!("SM2 RNG failed: {err}")))?;
+                .map_err(|err| ParseError::Invalid(format!("SM2 RNG failed: {err}")))?;
             if secret.iter().all(|&byte| byte == 0) {
-                return Err(ParseError(
+                return Err(ParseError::Invalid(
                     "SM2 RNG returned all-zero seed material".to_owned(),
                 ));
             }
@@ -359,7 +367,7 @@ impl Sm2PrivateKey {
                 return Ok(private);
             }
         }
-        Err(ParseError(
+        Err(ParseError::Invalid(
             "SM2 RNG did not produce a valid private key".into(),
         ))
     }
@@ -396,9 +404,11 @@ impl Sm2PrivateKey {
             }
             counter = counter
                 .checked_add(1)
-                .ok_or_else(|| ParseError("failed to derive SM2 key from seed".into()))?;
+                .ok_or_else(|| ParseError::Invalid("failed to derive SM2 key from seed".into()))?;
             if counter > 1024 {
-                return Err(ParseError("failed to derive SM2 key from seed".into()));
+                return Err(ParseError::Invalid(
+                    "failed to derive SM2 key from seed".into(),
+                ));
             }
         }
     }
@@ -453,7 +463,7 @@ impl Sm2PrivateKey {
             .to_pkcs8_der()
             .map(|doc| doc.as_bytes().to_vec())
             .map_err(|err| {
-                ParseError(format!(
+                ParseError::Invalid(format!(
                     "failed to encode SM2 private key to PKCS#8 DER: {err}"
                 ))
             })
@@ -468,12 +478,13 @@ impl Sm2PrivateKey {
     }
     fn secret_key(&self) -> Result<SecretKey, ParseError> {
         SecretKey::from_slice(self.secret.expose_secret().as_ref())
-            .map_err(|_| ParseError("invalid SM2 private key".into()))
+            .map_err(|_| ParseError::Invalid("invalid SM2 private key".into()))
     }
     fn try_signing_key(&self) -> Result<SigningKey, ParseError> {
         let secret = self.secret_key()?;
-        SigningKey::new(&self.distid, &secret)
-            .map_err(|_| ParseError("invalid SM2 private key or distinguishing identifier".into()))
+        SigningKey::new(&self.distid, &secret).map_err(|_| {
+            ParseError::Invalid("invalid SM2 private key or distinguishing identifier".into())
+        })
     }
     pub(crate) fn from_secret_key(distid: String, secret: &SecretKey) -> Result<Self, ParseError> {
         let mut bytes = secret.to_bytes();
@@ -485,7 +496,7 @@ impl Sm2PrivateKey {
 }
 fn validate_seed_material_not_all_zero(seed: &[u8]) -> Result<(), ParseError> {
     if !seed.is_empty() && seed.iter().all(|&byte| byte == 0) {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 seed material must not be all zero".to_owned(),
         ));
     }
@@ -499,7 +510,7 @@ fn validate_seed_material_not_all_zero(seed: &[u8]) -> Result<(), ParseError> {
 /// Returns [`ParseError`] when `distid` is invalid or `sec1` has the wrong length.
 pub fn encode_sm2_public_key_payload(distid: &str, sec1: &[u8]) -> Result<Vec<u8>, ParseError> {
     if sec1.len() != SM2_PUBLIC_KEY_UNCOMPRESSED_LEN {
-        return Err(ParseError(format!(
+        return Err(ParseError::Invalid(format!(
             "SM2 public key must be {SM2_PUBLIC_KEY_UNCOMPRESSED_LEN} bytes"
         )));
     }
@@ -519,7 +530,7 @@ pub fn encode_sm2_public_key_payload(distid: &str, sec1: &[u8]) -> Result<Vec<u8
 /// Returns [`ParseError`] when `distid` is invalid or `secret` has the wrong length.
 pub fn encode_sm2_private_key_payload(distid: &str, secret: &[u8]) -> Result<Vec<u8>, ParseError> {
     if secret.len() != SM2_PRIVATE_KEY_LEN {
-        return Err(ParseError(format!(
+        return Err(ParseError::Invalid(format!(
             "SM2 private key must be {SM2_PRIVATE_KEY_LEN} bytes"
         )));
     }
@@ -538,13 +549,15 @@ pub fn encode_sm2_private_key_payload(distid: &str, secret: &[u8]) -> Result<Vec
 pub fn decode_sm2_public_key_payload(payload: &[u8]) -> Result<Sm2PublicKey, ParseError> {
     let (distid, rest) = split_sm2_payload(payload)?;
     if rest.len() != SM2_PUBLIC_KEY_UNCOMPRESSED_LEN {
-        return Err(ParseError(format!(
+        return Err(ParseError::Invalid(format!(
             "SM2 public key payload must be {SM2_PUBLIC_KEY_UNCOMPRESSED_LEN} bytes"
         )));
     }
     let key = Sm2PublicKey::from_sec1_bytes(distid, rest)?;
     if key.0.to_encoded_point(false).as_bytes() != rest {
-        return Err(ParseError("non-canonical SM2 public key encoding".into()));
+        return Err(ParseError::Invalid(
+            "non-canonical SM2 public key encoding".into(),
+        ));
     }
     Ok(key)
 }
@@ -555,7 +568,7 @@ pub fn decode_sm2_public_key_payload(payload: &[u8]) -> Result<Sm2PublicKey, Par
 pub fn decode_sm2_private_key_payload(payload: &[u8]) -> Result<Sm2PrivateKey, ParseError> {
     let (distid, rest) = split_sm2_payload(payload)?;
     if rest.len() != SM2_PRIVATE_KEY_LEN {
-        return Err(ParseError(format!(
+        return Err(ParseError::Invalid(format!(
             "SM2 private key payload must be {SM2_PRIVATE_KEY_LEN} bytes"
         )));
     }
@@ -626,12 +639,17 @@ impl Sm2Signature {
     /// Returns [`ParseError`] when `bytes` do not describe a valid SM2 signature.
     pub fn from_bytes(bytes: &[u8; Self::LENGTH]) -> Result<Self, ParseError> {
         if bytes.iter().all(|&byte| byte == 0) {
-            return Err(ParseError("invalid SM2 signature: all-zero payload".into()));
+            return Err(ParseError::Invalid(
+                "invalid SM2 signature: all-zero payload".into(),
+            ));
         }
         if bytes[..32].iter().all(|&byte| byte == 0) || bytes[32..].iter().all(|&byte| byte == 0) {
-            return Err(ParseError("invalid SM2 signature: zero scalar".into()));
+            return Err(ParseError::Invalid(
+                "invalid SM2 signature: zero scalar".into(),
+            ));
         }
-        sm::parse_signature(bytes).map_err(|_| ParseError("invalid SM2 signature".into()))?;
+        sm::parse_signature(bytes)
+            .map_err(|_| ParseError::Invalid("invalid SM2 signature".into()))?;
         let mut r = [0u8; 32];
         r.copy_from_slice(&bytes[..32]);
         let mut s = [0u8; 32];
@@ -644,9 +662,9 @@ impl Sm2Signature {
     /// Returns [`ParseError`] when the string is not valid hex or the signature is malformed.
     pub fn from_hex(hex_str: impl AsRef<str>) -> Result<Self, ParseError> {
         let bytes = hex::decode(hex_str.as_ref())
-            .map_err(|err| ParseError(format!("invalid hex: {err}")))?;
+            .map_err(|err| ParseError::Invalid(format!("invalid hex: {err}")))?;
         let bytes: [u8; Self::LENGTH] = bytes.try_into().map_err(|_| {
-            ParseError(format!("expected {} bytes for SM2 signature", Self::LENGTH))
+            ParseError::Invalid(format!("expected {} bytes for SM2 signature", Self::LENGTH))
         })?;
         Self::from_bytes(&bytes)
     }
@@ -712,7 +730,7 @@ impl Sm2Signature {
 }
 fn push_der_short_len(output: &mut Vec<u8>, len: usize, context: &str) -> Result<(), ParseError> {
     let len = u8::try_from(len).map_err(|_| {
-        ParseError(format!(
+        ParseError::Invalid(format!(
             "SM2 DER signature {context} length exceeds short form"
         ))
     })?;
@@ -727,17 +745,23 @@ impl Sm2Signature {
     /// encoding, or the decoded signature is invalid.
     pub fn from_der(bytes: &[u8]) -> Result<Self, ParseError> {
         if bytes.len() < 2 || bytes[0] != 0x30 {
-            return Err(ParseError("SM2 DER signature must start with 0x30".into()));
+            return Err(ParseError::Invalid(
+                "SM2 DER signature must start with 0x30".into(),
+            ));
         }
         let len = usize::from(bytes[1]);
         if len + 2 != bytes.len() {
-            return Err(ParseError("SM2 DER signature length mismatch".into()));
+            return Err(ParseError::Invalid(
+                "SM2 DER signature length mismatch".into(),
+            ));
         }
         let mut cursor = 2;
         let r = parse_der_integer(bytes, &mut cursor)?;
         let s = parse_der_integer(bytes, &mut cursor)?;
         if cursor != bytes.len() {
-            return Err(ParseError("SM2 DER signature has trailing data".into()));
+            return Err(ParseError::Invalid(
+                "SM2 DER signature has trailing data".into(),
+            ));
         }
         let mut raw = [0u8; Self::LENGTH];
         raw[..32].copy_from_slice(&r);
@@ -752,41 +776,43 @@ impl From<Sm2RawSignature> for Sm2Signature {
 }
 fn parse_der_integer(bytes: &[u8], cursor: &mut usize) -> Result<[u8; 32], ParseError> {
     if *cursor >= bytes.len() || bytes[*cursor] != 0x02 {
-        return Err(ParseError("expected INTEGER in SM2 DER signature".into()));
+        return Err(ParseError::Invalid(
+            "expected INTEGER in SM2 DER signature".into(),
+        ));
     }
     *cursor += 1;
     if *cursor >= bytes.len() {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 DER signature missing INTEGER length".into(),
         ));
     }
     let len = usize::from(bytes[*cursor]);
     *cursor += 1;
     if len == 0 || *cursor + len > bytes.len() {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 DER signature INTEGER length invalid".into(),
         ));
     }
     if len > 33 {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 DER signature INTEGER exceeds 33 bytes".into(),
         ));
     }
     let slice = &bytes[*cursor..*cursor + len];
     *cursor += len;
     if slice[0] & 0x80 != 0 {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 DER signature INTEGER must be non-negative".into(),
         ));
     }
     if len > 1 && slice[0] == 0x00 && slice[1] & 0x80 == 0 {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 DER signature INTEGER has non-canonical leading zero".into(),
         ));
     }
     let value = if slice[0] == 0 { &slice[1..] } else { slice };
     if value.len() > 32 {
-        return Err(ParseError(
+        return Err(ParseError::Invalid(
             "SM2 DER signature integer exceeds 32 bytes".into(),
         ));
     }
@@ -2929,7 +2955,7 @@ mod tests {
             Err(err) => {
                 assert_eq!(
                     err,
-                    crate::ParseError("invalid SM2 public key".to_owned()),
+                    crate::ParseError::Invalid("invalid SM2 public key".to_owned()),
                     "unexpected error parsing Annex Example 1 public key"
                 );
             }
@@ -3199,9 +3225,12 @@ mod tests {
     fn sm2_try_random_reports_rng_failure() {
         let mut rng = FailingTryRng;
         match Sm2PrivateKey::try_random(Sm2PublicKey::DEFAULT_DISTID, &mut rng) {
-            Err(ParseError(message)) => {
+            Err(ParseError::Invalid(message)) => {
                 assert!(message.contains("SM2 RNG failed"));
                 assert!(message.contains("failing SM2 RNG"));
+            }
+            Err(ParseError::UnsupportedImplementation(original)) => {
+                panic!("enabled SM2 RNG control unexpectedly lacks a backend: {original}")
             }
             Ok(_) => panic!("RNG failure must be reported"),
         }

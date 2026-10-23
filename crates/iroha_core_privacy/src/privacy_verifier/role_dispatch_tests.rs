@@ -55,9 +55,9 @@ fn verifier_arm_of(error: &PrivacyVerificationErrorV1) -> Option<PrivacyProtocol
             Protocol::IrohaIvmPrivateNoteStarkV1
         }
         Error::PqMaspState(_) | Error::NativePqMasp(_) => Protocol::PqMaspStarkV1,
-        Error::AnonymousPgcState(_) | Error::NativeAnonymousPgc(_) => {
-            Protocol::AnonymousPgcKOutOfNV1
-        }
+        Error::AnonymousPgcState(_)
+        | Error::AnonymousPgcRoot { .. }
+        | Error::NativeAnonymousPgc(_) => Protocol::AnonymousPgcKOutOfNV1,
         Error::BootleLanternState(_) | Error::NativeBootleLantern(_) => {
             Protocol::IrohaBootleLanternAnoncredV1
         }
@@ -68,6 +68,31 @@ fn verifier_arm_of(error: &PrivacyVerificationErrorV1) -> Option<PrivacyProtocol
         | Error::EffectRoleMismatch(_)
         | Error::CanonicalEncoding(_) => return None,
     })
+}
+
+/// Root recomputation failures remain the PGC verifier's typed refusal.
+#[test]
+fn pgc_root_refusals_are_classified_as_the_pgc_verifier_arm() {
+    for code in [
+        PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootRecomputationFailed,
+        PrivacyAnonymousPgcStateFailureCodeV1::NextRootRecomputationFailed,
+    ] {
+        let error = PrivacyVerificationErrorV1::AnonymousPgcRoot {
+            code,
+            source: crate::privacy_state::PrivacyPgcAccountStateRootErrorV1::ZeroEpoch,
+        };
+        assert_eq!(
+            verifier_arm_of(&error),
+            Some(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1)
+        );
+        assert!(matches!(
+            error,
+            PrivacyVerificationErrorV1::AnonymousPgcRoot {
+                code: retained_code,
+                source: crate::privacy_state::PrivacyPgcAccountStateRootErrorV1::ZeroEpoch,
+            } if retained_code == code
+        ));
+    }
 }
 
 /// Every role enters the one dispatch and leaves it either through the native

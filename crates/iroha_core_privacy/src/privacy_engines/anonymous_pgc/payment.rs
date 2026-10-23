@@ -22,7 +22,8 @@
 //! exactly one sender, exactly `k` recipients, and exactly `n-k-1` decoys.
 use super::{
     AnonymousPgcError, AnonymousPgcParametersV1, AnonymousPgcPoolInvariantV1,
-    TwistedElGamalCiphertextV1, TwistedElGamalPublicKeyV1, fixed_array::FixedProofArray,
+    AnonymousPgcReadError, TwistedElGamalCiphertextV1, TwistedElGamalPublicKeyV1,
+    fixed_array::FixedProofArray,
 };
 use crate::privacy_engines::p256::{
     CanonicalScalarV1, CompressedPointV1, P256EngineError, SecretScalarV1, TranscriptBindingV1,
@@ -423,25 +424,27 @@ impl AnonymousPgcPaymentProofV1 {
     /// # Errors
     ///
     /// Rejects oversized, truncated, trailing, noncanonical, unknown-version,
-    /// or incorrectly shaped proof bytes.
+    /// or incorrectly shaped proof bytes. Original enclosing/allocator refusals
+    /// remain typed; fallible streaming comparison authenticates canonicality.
     pub fn decode_exact(
         bytes: &[u8],
         statement: &AnonymousPgcPaymentStatementV1<'_>,
-    ) -> Result<Self, AnonymousPgcError> {
+    ) -> Result<Self, AnonymousPgcReadError> {
         if bytes.len() > MAX_PGC_PAYMENT_PROOF_BYTES_V1 {
             return Err(AnonymousPgcError::EncodingTooLarge {
                 actual: bytes.len(),
                 max: MAX_PGC_PAYMENT_PROOF_BYTES_V1,
-            });
+            }
+            .into());
         }
-        let proof = norito::codec::decode_exact_from_slice_with_limits::<Self>(
-            bytes,
-            payment_proof_decode_limits(statement, bytes.len())?,
-        )
-        .map_err(|_| AnonymousPgcError::InvalidNoritoEncoding)?;
-        if proof.encode().as_slice() != bytes {
-            return Err(AnonymousPgcError::InvalidNoritoEncoding);
-        }
+        let limits = payment_proof_decode_limits(statement, bytes.len())?;
+        let proof = norito::core::classify_decode_attempt(|| {
+            let proof = norito::codec::decode_exact_from_slice_with_limits::<Self>(bytes, limits)?;
+            // Authenticate fixed-V1 framing against the original borrowed proof.
+            // No duplicate proof Vec or infallible re-encoding may erase refusal.
+            norito::codec::verify_exact_payload(&proof, bytes)?;
+            Ok(proof)
+        })?;
         proof.validate_shape(statement)?;
         Ok(proof)
     }
@@ -2303,9 +2306,9 @@ pub fn verify_payment(
 pub fn verify_payment_encoded(
     statement: &AnonymousPgcPaymentStatementV1<'_>,
     proof_bytes: &[u8],
-) -> Result<VerifiedAnonymousPgcPaymentEffectV1, AnonymousPgcError> {
+) -> Result<VerifiedAnonymousPgcPaymentEffectV1, AnonymousPgcReadError> {
     let proof = AnonymousPgcPaymentProofV1::decode_exact(proof_bytes, statement)?;
-    verify_payment(statement, &proof)
+    verify_payment(statement, &proof).map_err(Into::into)
 }
 #[cfg(test)]
 mod tests {
@@ -2683,6 +2686,54 @@ mod tests {
             .expect("nonidentity inverse")
     }
     #[test]
+    fn payment_decoder_retains_original_scope_and_same_source_retry() {
+        let fixture = Fixture::new();
+        let statement = fixture.statement();
+        let bytes = fixture.prove().encode();
+        let pointer = bytes.as_ptr();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128);
+        let fail = || {
+            norito::with_decode_limits_scope(limits, || verify_payment_encoded(&statement, &bytes))
+        };
+        let AnonymousPgcReadError::Codec(first) = fail().unwrap_err() else {
+            panic!("actual payment decoder must retain the original codec error");
+        };
+        let first_owner = first.local_refusal().expect("original enclosing quota");
+        assert_eq!(
+            first_owner.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(
+            first_owner.resource_error(),
+            first.error().decode_resource_error().unwrap()
+        );
+        let AnonymousPgcReadError::Codec(second) = fail().unwrap_err() else {
+            panic!("second payment decoder refusal");
+        };
+        let second_owner = second.local_refusal().unwrap();
+        assert_eq!(first_owner.resource_error(), second_owner.resource_error());
+        assert_ne!(
+            first_owner, second_owner,
+            "equal quotas have distinct original scopes"
+        );
+        assert_eq!(bytes.as_ptr(), pointer);
+        let retried =
+            verify_payment_encoded(&statement, &bytes).expect("same original proof retries");
+        assert_eq!(
+            retried.next_balance_ciphertexts().len(),
+            fixture.public_keys.len()
+        );
+        assert_eq!(bytes.as_ptr(), pointer);
+        for bytes in [&[][..], &bytes[..bytes.len() - 1]] {
+            let AnonymousPgcReadError::Codec(original) =
+                verify_payment_encoded(&statement, bytes).unwrap_err()
+            else {
+                panic!("actual malformed proof must remain a codec rejection");
+            };
+            assert!(original.local_refusal().is_none());
+        }
+    }
+    #[test]
     fn complete_payment_proves_verifies_and_derives_atomic_effect() {
         let fixture = Fixture::new();
         let statement = fixture.statement();
@@ -2766,7 +2817,7 @@ mod tests {
         assert_ne!(legacy, canonical);
         assert!(matches!(
             AnonymousPgcPaymentProofV1::decode_exact(&legacy, &statement),
-            Err(AnonymousPgcError::InvalidNoritoEncoding)
+            Err(AnonymousPgcReadError::Codec(ref original)) if original.local_refusal().is_none()
         ));
     }
     #[test]
@@ -3128,13 +3179,17 @@ mod tests {
                 &vec![0; MAX_PGC_PAYMENT_PROOF_BYTES_V1 + 1],
                 &statement,
             ),
-            Err(AnonymousPgcError::EncodingTooLarge { .. })
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::EncodingTooLarge { .. }
+            ))
         ));
         let mut unknown = proof.clone();
         unknown.version += 1;
         assert!(matches!(
             AnonymousPgcPaymentProofV1::decode_exact(&unknown.encode(), &statement),
-            Err(AnonymousPgcError::UnsupportedPaymentProofVersion { .. })
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::UnsupportedPaymentProofVersion { .. }
+            ))
         ));
         let mut oversized_count = proof.clone();
         oversized_count
@@ -3143,7 +3198,7 @@ mod tests {
         let oversized = oversized_count.encode();
         assert!(matches!(
             AnonymousPgcPaymentProofV1::decode_exact(&oversized, &statement),
-            Err(AnonymousPgcError::InvalidNoritoEncoding)
+            Err(AnonymousPgcReadError::Codec(ref original)) if original.local_refusal().is_none()
         ));
         let encoded_count = 79_u64.to_le_bytes();
         let count_offset = oversized
@@ -3154,13 +3209,15 @@ mod tests {
         forged[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
         assert!(matches!(
             AnonymousPgcPaymentProofV1::decode_exact(&forged, &statement),
-            Err(AnonymousPgcError::InvalidNoritoEncoding)
+            Err(AnonymousPgcReadError::Codec(ref original)) if original.local_refusal().is_none()
         ));
         let mut wrong_shape = proof;
         wrong_shape.recipients.pop();
         assert!(matches!(
             AnonymousPgcPaymentProofV1::decode_exact(&wrong_shape.encode(), &statement),
-            Err(AnonymousPgcError::InvalidPaymentProofShape)
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::InvalidPaymentProofShape
+            ))
         ));
         assert_eq!(pair_count(8).expect("recipient pairs"), 28);
         assert_eq!(pair_count(62).expect("n=64 decoy pairs"), 1_891);

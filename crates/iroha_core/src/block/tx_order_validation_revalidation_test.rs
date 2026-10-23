@@ -28,14 +28,17 @@ async fn tx_order_same_in_validation_and_revalidation() {
     )
     .with_instructions::<InstructionBox>([register_a.into()])
     .sign(alice_keypair.private_key());
-    let crypto_cfg = state.crypto();
     let (_clock, time_source) = TimeSource::new_mock(tx.creation_time());
     let tx = AcceptedTransaction::accept_with_time_source(
         tx,
         &state.network_id,
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &time_source,
     )
     .expect("Valid");
@@ -55,7 +58,11 @@ async fn tx_order_same_in_validation_and_revalidation() {
         &state.network_id,
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &time_source,
     )
     .expect("Valid");
@@ -72,7 +79,11 @@ async fn tx_order_same_in_validation_and_revalidation() {
         &state.network_id,
         max_clock_drift,
         tx_limits,
-        crypto_cfg.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         &time_source,
     )
     .expect("Valid");

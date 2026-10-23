@@ -178,7 +178,7 @@ use iroha_crypto::{
 };
 use iroha_data_model::{
     Level, NetworkId,
-    account::{AccountId, curve::CurveId},
+    account::AccountId,
     asset::{AssetDefinitionAlias, prelude::AssetDefinitionId},
     block::BlockHeader,
     compute::{
@@ -565,22 +565,6 @@ impl json::JsonDeserialize for PerProviderSubmittersConfig {
         Ok(Self(inner))
     }
 }
-/// Wrapper around a list of curve identifiers allowing env parsing.
-#[derive(Debug, Clone, Default)]
-pub struct CurveIdListConfig(pub Vec<u8>);
-impl CurveIdListConfig {
-    fn into_vec(self) -> Vec<u8> {
-        self.0
-    }
-    fn default_allowed() -> Self {
-        Self(defaults::crypto::allowed_curve_ids())
-    }
-}
-impl From<Vec<u8>> for CurveIdListConfig {
-    fn from(value: Vec<u8>) -> Self {
-        CurveIdListConfig(value)
-    }
-}
 /// Intrinsic dispatch policy for SM acceleration (`auto`/`force-enable`/`force-disable`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SmIntrinsicsPolicyConfig {
@@ -658,34 +642,6 @@ mod sm_intrinsics_policy_config_tests {
                 "noncanonical policy {value:?} must be rejected"
             );
         }
-    }
-}
-impl From<CurveIdListConfig> for Vec<u8> {
-    fn from(value: CurveIdListConfig) -> Self {
-        value.into_vec()
-    }
-}
-impl json::JsonDeserialize for CurveIdListConfig {
-    fn json_deserialize(
-        parser: &mut json::Parser<'_>,
-    ) -> ::core::result::Result<Self, json::Error> {
-        let list = Vec::<u8>::json_deserialize(parser)?;
-        Ok(CurveIdListConfig(list))
-    }
-}
-impl FromEnvStr for CurveIdListConfig {
-    type Error = core::num::ParseIntError;
-    fn from_env_str(value: Cow<'_, str>) -> std::result::Result<Self, Self::Error> {
-        let mut list = Vec::new();
-        for entry in value.split(',') {
-            let trimmed = entry.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let parsed = trimmed.parse::<u8>()?;
-            list.push(parsed);
-        }
-        Ok(CurveIdListConfig(list))
     }
 }
 /// Hex-encoded byte vector helper used for capability vectors.
@@ -9037,98 +8993,29 @@ pub struct Crypto {
         default = "defaults::crypto::DEFAULT_HASH.to_owned()"
     )]
     pub default_hash: String,
-    /// Signing algorithms allowed for transaction admission (string list).
-    #[config(
-        env = "CRYPTO_ALLOWED_SIGNING",
-        default = "AlgorithmListConfig::from(defaults::crypto::allowed_signing_env())"
-    )]
-    pub allowed_signing: AlgorithmListConfig,
-    /// Default distinguishing identifier applied for SM2 signatures when callers omit one.
+    /// Local SM2 generation default; the IVM omitted operand uses its fixed protocol constant.
     #[config(
         env = "CRYPTO_SM2_DISTID_DEFAULT",
         default = "defaults::crypto::SM2_DISTID_DEFAULT.to_owned()"
     )]
     pub sm2_distid_default: String,
-    /// Curve capability overrides (optional).
-    #[config(nested)]
-    pub curves: CryptoCurves,
-}
-/// Curve capability configuration (user view).
-#[derive(Debug, ReadConfig, Clone)]
-pub struct CryptoCurves {
-    /// Allowed curve identifiers per the account curve registry.
-    #[config(
-        env = "CRYPTO_CURVES_ALLOWED_IDS",
-        default = "CurveIdListConfig::default_allowed()"
-    )]
-    pub allowed_curve_ids: CurveIdListConfig,
 }
 impl Crypto {
     /// Convert this user configuration into the runtime representation.
     #[allow(clippy::too_many_lines)]
     pub fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Crypto {
-        let mut allowed = Vec::new();
-        for (idx, value) in self.allowed_signing.into_vec().into_iter().enumerate() {
-            match Algorithm::from_str(value.trim()) {
-                Ok(algo) => allowed.push(algo),
-                Err(_) => emitter.emit(Report::new(ParseError::InvalidCryptoConfig).attach(
-                    format!("allowed_signing[{idx}] is not a supported algorithm: {value}"),
-                )),
-            }
-        }
-        if allowed.is_empty() {
-            emitter.emit(ParseError::InvalidCryptoConfig.into());
-            allowed = defaults::crypto::allowed_signing();
-        }
-        if !allowed.contains(&iroha_crypto::Algorithm::Ed25519) {
-            emitter.emit(
-                Report::new(ParseError::InvalidCryptoConfig)
-                    .attach("allowed_signing must include ed25519 for control-plane operations"),
-            );
-            allowed.push(iroha_crypto::Algorithm::Ed25519);
-        }
-        allowed.sort();
-        allowed.dedup();
-        let has_sm2 = allowed
-            .iter()
-            .any(|algo| algo.as_static_str().eq_ignore_ascii_case("sm2"));
-        if has_sm2 && !cfg!(feature = "sm") {
-            emitter.emit(
-                Report::new(ParseError::InvalidCryptoConfig)
-                    .attach("allowed_signing includes `sm2`, but this build lacks SM support"),
-            );
-        }
         let default_hash = if self.default_hash.trim().is_empty() {
             emitter.emit(ParseError::InvalidCryptoConfig.into());
             defaults::crypto::default_hash()
         } else {
             self.default_hash
         };
-        if has_sm2 {
-            if !default_hash.eq_ignore_ascii_case("sm3-256") {
-                emitter.emit(
-                    Report::new(ParseError::InvalidCryptoConfig)
-                        .attach("allowed_signing includes `sm2`, default_hash must be `sm3-256`"),
-                );
-            }
-        } else if default_hash.eq_ignore_ascii_case("sm3-256") {
-            emitter.emit(
-                Report::new(ParseError::InvalidCryptoConfig)
-                    .attach("default_hash `sm3-256` requires allowed_signing to include `sm2`"),
-            );
-        }
         let sm2_distid_default = if self.sm2_distid_default.trim().is_empty() {
             emitter.emit(ParseError::InvalidCryptoConfig.into());
             defaults::crypto::sm2_distid_default()
         } else {
             self.sm2_distid_default
         };
-        if has_sm2 && sm2_distid_default.trim().is_empty() {
-            emitter.emit(
-                Report::new(ParseError::InvalidCryptoConfig)
-                    .attach("sm2_distid_default must be non-empty when `sm2` signing is enabled"),
-            );
-        }
         #[allow(clippy::let_and_return)]
         let enable_sm_openssl_preview = if self.enable_sm_openssl_preview {
             if cfg!(feature = "sm-ffi-openssl") {
@@ -9143,37 +9030,6 @@ impl Crypto {
         } else {
             false
         };
-        let mut allowed_curve_ids = self.curves.allowed_curve_ids.into_vec();
-        if allowed_curve_ids.is_empty() {
-            allowed_curve_ids = defaults::crypto::derive_curve_ids_from_algorithms(&allowed);
-        }
-        if allowed_curve_ids.is_empty() {
-            emitter.emit(
-                Report::new(ParseError::InvalidCryptoConfig)
-                    .attach("crypto.curves.allowed_curve_ids resolved to an empty set; include ed25519 (curve id 0x01)"),
-            );
-            allowed_curve_ids = defaults::crypto::allowed_curve_ids();
-        }
-        allowed_curve_ids.sort_unstable();
-        allowed_curve_ids.dedup();
-        for id in &allowed_curve_ids {
-            match CurveId::try_from(*id) {
-                Ok(curve) => {
-                    let algo = curve.algorithm();
-                    if !allowed.contains(&algo) {
-                        emitter.emit(Report::new(ParseError::InvalidCryptoConfig).attach(format!(
-                            "crypto.curves.allowed_curve_ids includes {id:#04X} ({}) \
-                                     but allowed_signing omits the matching algorithm",
-                            algo.as_static_str()
-                        )));
-                    }
-                }
-                Err(err) => emitter
-                    .emit(Report::new(ParseError::InvalidCryptoConfig).attach(format!(
-                    "crypto.curves.allowed_curve_ids contains unknown identifier {id:#04X}: {err}"
-                ))),
-            }
-        }
         let sm_intrinsics = self.sm_intrinsics;
         if matches!(sm_intrinsics, SmIntrinsicsPolicyConfig::ForceEnable) && !cfg!(feature = "sm") {
             emitter.emit(Report::new(ParseError::InvalidCryptoConfig).attach(
@@ -9184,9 +9040,7 @@ impl Crypto {
             enable_sm_openssl_preview,
             sm_intrinsics: sm_intrinsics.into(),
             default_hash,
-            allowed_signing: allowed,
             sm2_distid_default,
-            allowed_curve_ids,
         }
     }
 }

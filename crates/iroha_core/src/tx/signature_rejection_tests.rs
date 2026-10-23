@@ -6,7 +6,7 @@ fn malformed_multisig_bundle_shapes_have_stable_rejection_code() {
     ] {
         assert_eq!(
             AcceptedTransaction::signature_rejection_code(&error),
-            SignatureRejectionCode::MalformedSignature,
+            Ok(SignatureRejectionCode::MalformedSignature),
         );
     }
 }
@@ -18,7 +18,7 @@ fn malformed_domain_shape_errors_have_stable_rejection_code() {
     ] {
         assert_eq!(
             AcceptedTransaction::signature_rejection_code(&error),
-            SignatureRejectionCode::MalformedSignature,
+            Ok(SignatureRejectionCode::MalformedSignature),
         );
     }
 }

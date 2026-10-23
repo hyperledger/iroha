@@ -2,7 +2,8 @@
 //!
 //! # Entropy
 //!
-//! Every key generation, switching-key generation and encryption draws one
+//! Every key generation, switching-key generation, encryption and offline
+//! threshold sharing draws one
 //! seed of [`COIN_SEED_BYTES`] bytes from the operating system. A failed
 //! draw, or a draw whose bytes are all equal (a stuck source), fails the
 //! operation with [`BgvError::EntropyUnavailable`]; nothing is sampled from a
@@ -13,10 +14,13 @@
 //! A stream is the BLAKE3 extendable output of
 //! `derive_key(`[`COIN_STREAM_CONTEXT`]`, material)` with
 //! `material = identity (32) || purpose (1) || key_tag (u32 LE) || digit (u32 LE) || seed (64)`.
-//! `identity` is the profile identity, `purpose` a [`CoinPurpose`] tag,
+//! `identity` is the profile identity (the full offline threshold-context identity
+//! for threshold custody), `purpose` a [`CoinPurpose`] tag,
 //! `key_tag` zero for the relinearization key and the Galois element for a
 //! Galois key (zero elsewhere), and `digit` the key-switching digit (zero
-//! elsewhere). Each sampled object reads its own stream from its first byte.
+//! elsewhere). Threshold sharing uses the sharing-polynomial degree for
+//! `key_tag` and zero for `digit`; the fresh instance ID has both tags zero.
+//! Each sampled object reads its own stream from its first byte.
 //!
 //! # Samplers
 //!
@@ -92,6 +96,10 @@ pub enum CoinPurpose {
     SwitchingKeyMask,
     /// The error of one switching-key digit.
     SwitchingKeyError,
+    /// Public nonce identifying one offline dealer invocation.
+    ThresholdInstance,
+    /// Uniform nonconstant coefficient of an offline sharing polynomial.
+    ThresholdPolynomial,
 }
 
 impl CoinPurpose {
@@ -107,6 +115,8 @@ impl CoinPurpose {
             Self::EncryptionError1 => 6,
             Self::SwitchingKeyMask => 7,
             Self::SwitchingKeyError => 8,
+            Self::ThresholdInstance => 9,
+            Self::ThresholdPolynomial => 10,
         }
     }
 }
@@ -256,6 +266,13 @@ pub(super) struct CoinStream<'coins> {
 }
 
 impl CoinStream<'_> {
+    /// Fill a public, domain-separated instance identifier from this stream.
+    pub(super) fn bytes(mut self, output: &mut [u8]) {
+        for byte in output {
+            *byte = self.next_le::<1>().to_le_bytes()[0];
+        }
+    }
+
     /// The next `COUNT` bytes of the stream as a little-endian integer; `COUNT <= 8`.
     fn next_le<const COUNT: usize>(&mut self) -> u64 {
         let state = &mut *self.state;
@@ -365,9 +382,11 @@ pub(super) mod tests {
             CoinPurpose::EncryptionError1,
             CoinPurpose::SwitchingKeyMask,
             CoinPurpose::SwitchingKeyError,
+            CoinPurpose::ThresholdInstance,
+            CoinPurpose::ThresholdPolynomial,
         ]
         .map(CoinPurpose::tag);
-        assert_eq!(tags, [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(tags, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     }
 
     #[test]

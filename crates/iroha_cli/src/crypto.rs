@@ -847,7 +847,7 @@ private_key = "{private_key}"
 
 [crypto]
 default_hash = "sm3-256"
-allowed_signing = ["ed25519", "sm2"]  # remove "sm2" to stay in verify-only mode
+# Admit sm2 in genesis crypto_admission_policy.allowed_algorithms before account use.
 sm2_distid_default = "{distid}"
 # enable_sm_openssl_preview = true  # optional: only when deploying the OpenSSL/Tongsuo path
 "#,
@@ -1117,8 +1117,8 @@ mod tests {
             "snippet missing default_hash guidance: {snippet}"
         );
         assert!(
-            snippet.contains("allowed_signing = [\"ed25519\", \"sm2\"]"),
-            "snippet missing allowed_signing guidance: {snippet}"
+            snippet.contains("genesis crypto_admission_policy.allowed_algorithms"),
+            "snippet missing committed crypto policy guidance: {snippet}"
         );
     }
     #[test]

@@ -1960,8 +1960,23 @@ fn refused_amx_decode_limits() -> norito::DecodeLimits {
 }
 
 #[test]
-fn amx_record_decode_refusal_is_not_a_deterministic_record_error() {
+fn fixed_amx_prepared_record_decodes_with_zero_allocation_budget() {
     let record = prepared([0x71; 32], DS1, AmxVoteV1::Yes([0x72; 32]));
+    let key = record.witness_key();
+    let bytes = record.witness_value().unwrap();
+    assert_eq!(
+        norito::with_decode_limits_scope(refused_amx_decode_limits(), || {
+            AmxRecordV1::from_witness(&key, &bytes)
+        })
+        .unwrap(),
+        record,
+    );
+}
+
+#[test]
+fn amx_record_decode_refusal_is_not_a_deterministic_record_error() {
+    // Begin owns a nonempty participant vector; fixed Prepared records need no decode heap.
+    let record = AmxRecordV1::Begin(transaction(&[DS1, DS2], 9, 0x71).begin().unwrap());
     let key = record.witness_key();
     let bytes = record.witness_value().unwrap();
     let original = bytes.clone();
@@ -2152,7 +2167,8 @@ fn amx_intrinsic_codec_limit_under_equal_or_wider_caller_scope_remains_a_proof_e
 
 #[test]
 fn amx_record_refusal_keeps_original_origin_after_scope_retirement_and_foreign_budget() {
-    let record = prepared([0x75; 32], DS1, AmxVoteV1::Yes([0x76; 32]));
+    // Begin owns a nonempty participant vector; fixed Prepared records need no decode heap.
+    let record = AmxRecordV1::Begin(transaction(&[DS1, DS2], 9, 0x75).begin().unwrap());
     let key = record.witness_key();
     let bytes = record.witness_value().unwrap();
     let original_bytes = bytes.clone();

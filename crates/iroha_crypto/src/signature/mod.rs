@@ -3,12 +3,17 @@
 pub(crate) mod admission;
 mod allocation;
 mod borrowed_payload;
+mod encoding;
 #[cfg(feature = "bls")]
 pub use allocation::PrepaidBlsSignatureError;
 pub use allocation::{ChargedSignature, SignatureAllocationError};
 #[cfg(feature = "bls")]
 pub use bls::BlsSigningError;
 pub use borrowed_payload::{BorrowedSignaturePayload, BorrowedSignaturePayloadError};
+pub use encoding::{
+    SignatureEncodingError, ed25519_validate_signature_encoding,
+    mldsa65_validate_signature_encoding,
+};
 #[cfg(feature = "bls")]
 pub(crate) mod bls;
 pub(crate) mod ed25519;
@@ -231,7 +236,7 @@ fn public_key_material_cached(public_key: &PublicKey) -> Result<PublicKeyMateria
         }
         let payload_bytes: [u8; 32] = payload
             .try_into()
-            .map_err(|_| ParseError("invalid Ed25519 public key length".to_owned()))?;
+            .map_err(|_| ParseError::Invalid("invalid Ed25519 public key length".to_owned()))?;
         let full = ed25519::Ed25519Sha512::parse_public_key(&payload_bytes)?;
         PUBLIC_KEY_FULL_FAST_CACHE.with(|cache| {
             cache.borrow_mut().insert_ed25519(payload_bytes, full);
@@ -451,6 +456,12 @@ impl Signature {
     /// # Errors
     /// Fails if the message doesn't pass verification
     pub fn verify(&self, public_key: &PublicKey, payload: &[u8]) -> Result<(), Error> {
+        let algorithm = public_key.try_algorithm()?;
+        if algorithm != Algorithm::MlDsa {
+            algorithm
+                .require_implementation(crate::CryptoOperation::VerifySignature)
+                .map_err(Error::UnsupportedImplementation)?;
+        }
         #[cfg(feature = "bls")]
         {
             let (algorithm, key_bytes) = public_key.try_to_bytes()?;
@@ -547,7 +558,7 @@ fn validate_signature_payload_observation(
     Ok(())
 }
 fn validate_signature_payload_for_admission(payload: &[u8]) -> Result<(), ParseError> {
-    validate_signature_payload(payload).map_err(|error| ParseError(error.to_string()))
+    validate_signature_payload(payload).map_err(|error| ParseError::Invalid(error.to_string()))
 }
 
 #[allow(unsafe_code)]

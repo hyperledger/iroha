@@ -124,3 +124,14 @@ test("canonical owner byte admission rejects other views and forged Uint8Array b
     })), { code: "ERR_UNSUPPORTED_ADDRESS_FORMAT" });
   }
 });
+
+
+test("known native implementation absence remains separate from unknown identity and invalid key", () => {
+  // Injected owner here tests only the existing transport adapter, not actual Rust admission.
+  for (const code of ["ERR_DECODE_RESOURCE_LIMIT", "ERR_UNSUPPORTED_IMPLEMENTATION", "ERR_UNKNOWN_CURVE", "ERR_INVALID_PUBLIC_KEY"]) {
+    const cause = new Error(`${code}: original address operation`);
+    assert.throws(() => _renderCanonicalAccountAddress(Uint8Array.of(2), 369, createNativeRuntime({
+      accountAddressRender() { throw cause; },
+    })), (error) => error instanceof AccountAddressError && error.code === code && error.cause === cause);
+  }
+});

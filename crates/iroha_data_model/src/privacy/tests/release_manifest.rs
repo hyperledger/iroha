@@ -1201,9 +1201,7 @@ fn release_manifest_carrying_another_catalog_commitment_fails_to_decode() {
     let release = synthetic_valid_release_manifest();
     assert_eq!(release.validate(), Ok(()));
     let encoded = release.encode();
-    let commitment = PrivacyExact12CatalogCommitmentV1::canonical()
-        .digest()
-        .to_le_bytes();
+    let commitment = *PrivacyExact12CatalogCommitmentV1::canonical().as_bytes();
     let offset = encoded
         .windows(commitment.len())
         .position(|window| window == commitment)

@@ -161,7 +161,10 @@ fn commit_independent_global_work(fixture: &mut Fixture) {
         &fixture.chain.network_id(),
         Duration::from_secs(1),
         view.world().parameters().transaction(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        view.world()
+            .parameters()
+            .crypto_policy()
+            .expect("original committed admission policy"),
         &time_source,
     )
     .unwrap();
@@ -192,7 +195,6 @@ fn commit_independent_global_work(fixture: &mut Fixture) {
             .is_ok()
     );
 }
-
 #[test]
 fn closed_unhosted_lane_proposal_retries_original_opening_and_preserves_certified_backlog() {
     // Keep retired fixture allocations stable during exact capacity accounting.

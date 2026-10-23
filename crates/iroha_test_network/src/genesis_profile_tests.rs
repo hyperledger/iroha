@@ -90,7 +90,7 @@ fn genesis_preexecution_preserves_selected_profile_across_threads() {
                 topology_entries,
                 genesis_key_pair.clone(),
                 chain,
-                Some(config::manifest_crypto_from_actual(&actual.crypto)),
+                config::test_network_crypto_admission_policy(),
                 Some(iroha_core::da::proof_policy_bundle(
                     &actual.nexus.lane_config,
                 )),

@@ -16,7 +16,7 @@ use crate::{
         json_decode_attempt_error, norito_decode_attempt_error,
     },
     smartcontracts::Execute,
-    smartcontracts::isi::domain::isi::ensure_controller_capabilities,
+    smartcontracts::isi::domain::isi::ensure_controller_policy,
     state::{
         StateTransaction, WorldReadOnly, public_lane_stake_share_matches_key,
         public_lane_validator_record_matches_key, retail_daily_limit_state as retail_state,
@@ -431,10 +431,15 @@ fn rekey_multisig_account(
     ensure_signatories_are_single(spec).map_err(map_validation_fail)?;
     let policy = multisig_policy_from_spec(spec)?;
     let updated_account = AccountId::new_multisig(policy);
-    ensure_controller_capabilities(
+    ensure_controller_policy(
         updated_account.controller(),
-        &state_transaction.crypto.allowed_signing,
-        &state_transaction.crypto.allowed_curve_ids,
+        state_transaction
+            .crypto_admission_policy()
+            .map_err(|message| {
+                iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                    message.into(),
+                )
+            })?,
     )?;
     if &updated_account == account {
         return Ok(account.clone());
@@ -1037,10 +1042,15 @@ pub(crate) fn replace_account_controller(
             AccountId::new_multisig(policy)
         }
     };
-    ensure_controller_capabilities(
+    ensure_controller_policy(
         new_account.controller(),
-        &state_transaction.crypto.allowed_signing,
-        &state_transaction.crypto.allowed_curve_ids,
+        state_transaction
+            .crypto_admission_policy()
+            .map_err(|message| {
+                iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                    message.into(),
+                )
+            })?,
     )?;
     if &new_account == old_account {
         return Err(InstructionExecutionError::InvalidParameter(

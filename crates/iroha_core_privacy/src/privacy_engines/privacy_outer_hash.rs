@@ -72,8 +72,8 @@ const PROOF_INSTANCE_PROFILE_SUFFIX_BYTES_V1: usize = 5 + 1 + 32;
 /// Exact coordinates of a privacy outer hash frame.
 #[derive(Clone, Copy)]
 pub struct PrivacyOuterDomainV1<'a> {
-    /// Exact twelve-protocol catalog commitment bytes.
-    pub(crate) catalog: &'a [u8; 48],
+    /// Full 32-byte native BLAKE3 commitment to the twelve-protocol catalog.
+    pub(crate) catalog: &'a [u8; 32],
     /// Canonical protocol byte label.
     pub(crate) protocol: &'a [u8],
     /// Compiled proof-profile byte label.
@@ -131,7 +131,7 @@ impl Drop for WipingSha3V1 {
 }
 
 fn prefix_bytes_v1(domain: PrivacyOuterDomainV1<'_>) -> Option<usize> {
-    let mut bytes = FRAME_MAGIC_V1.len().checked_add(48)?;
+    let mut bytes = FRAME_MAGIC_V1.len().checked_add(32)?;
     for (index, label) in [domain.protocol, domain.profile, domain.role, domain.phase]
         .into_iter()
         .enumerate()
@@ -435,7 +435,7 @@ mod tests {
             })
             .collect()
     }
-    fn domain(catalog: &[u8; 48]) -> PrivacyOuterDomainV1<'_> {
+    fn domain(catalog: &[u8; 32]) -> PrivacyOuterDomainV1<'_> {
         PrivacyOuterDomainV1 {
             proof_scope: None,
             catalog,
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn scoped_x509_frames_match_independent_bytes_and_all_stream_owners() {
-        let catalog = [0x37; 48];
+        let catalog = [0x37; 32];
         let mut observed = std::collections::BTreeSet::new();
         for family in [
             PrivacyOuterProofFamilyV1::Joint,
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn scoped_profile_length_checks_include_the_complete_nonce_suffix() {
-        let catalog = [0; 48];
+        let catalog = [0; 32];
         let maximum = vec![b'x'; usize::from(u16::MAX) - 38];
         let oversized = vec![b'x'; maximum.len() + 1];
         let mut scoped = domain(&catalog);
@@ -596,14 +596,12 @@ mod tests {
         // This native control must pass on every supported CPU/assembly feature configuration.
         {
             // empty-fields
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -617,7 +615,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("5e48bdb2764f7d224987f52847f16304888444a789f1dd7a4996948c882811fb47d3f0208bcd50786e8c0679eff3bb45").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("d3003df62b7c5dbbfc26e2a7f48e3d6c8861f911db62f71602a4d4b2273902aae701261984d59b8b4d71a30bba3e405d").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -627,7 +625,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(170)
+                Some(154)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -649,14 +647,12 @@ mod tests {
         }
         {
             // empty-field
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -670,7 +666,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("adb1cc1958f14b09f551740bd7c3ac889c0fbcb33fd28176b1508da382f7c95d3ca18298c66de695b9897c7c7e5a7b3d").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("3715b9aa5251505db994dee88d2500f7739c181737d64156c51cd27a343fd94c71da28a258cfd81306662a08db662901").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -680,7 +676,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(178)
+                Some(162)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -702,14 +698,12 @@ mod tests {
         }
         {
             // ordered-fields
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -723,7 +717,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("61"), hex("6263")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("34defe5bbb9e33848816bae57976a179be7ac5cc1634fea5a995b04890246cae1a38400d855742b85ff5618265b65593").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("f1ba8b26cc6ccd175d33596d569cd5edf6f660c75a4c71ba9486a3f69b823cc20a75bea5f9d13fb6b3257a56e7a0e124").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -733,7 +727,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(189)
+                Some(173)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -755,14 +749,12 @@ mod tests {
         }
         {
             // split-fields
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -776,7 +768,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("6162"), hex("63")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("d8c4238987755df421e20bcb8f6bebc3fe11bbe38768cc65234ab2724bec0bbed22ef3973af179275a8d3b1d7aca509e").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("21b1f6a3f682306e8077207697334336cfac6f29d06b9204da24b265202a87b8787c85f148f60ba4a84740fcf1a4297a").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -786,7 +778,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(189)
+                Some(173)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -808,14 +800,12 @@ mod tests {
         }
         {
             // protocol
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d763178");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -829,7 +819,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("115d14f8c4c5ce2e689f92fb87fcba69163c12301ffccb7b8321030fd0d49f0f6b5b65efc20ce3697120dbc1dcb2f796").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("17405afb280f3fa256c594f69fcc486b3361b697cf7fe285bcb64bfc47e467778a121741ec046a6ed2471bdc914b2409").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -839,7 +829,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(180)
+                Some(164)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -861,14 +851,12 @@ mod tests {
         }
         {
             // profile
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c6578");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -882,7 +870,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("482dd3aa117376aa4eed950a3db7629a9ef975a3aba5d9fe8f4e574d04a40785a5c539c9120f649be78a409600b8fe05").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("a2e4a4a8f296f0852389814c88bc46673760979f4fc60c4374c2f71a16624afc4380562bdcb910d2fcc652d22da34b35").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -892,7 +880,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(180)
+                Some(164)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -914,14 +902,12 @@ mod tests {
         }
         {
             // role
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c65616678");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -935,7 +921,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("6cbf31150dbfececdb44bf44313b92603755795b4f5dcc1c6e0324c6cd2863c73fa8d3f28043dc2cd03c7e2739f7961c").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("fffcadaf07d909c27045ee38d6e4dad311bcc6763262a6e5092c76b7834611d7c1cd41c1e48f905b134c2d40e9305220").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -945,7 +931,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(180)
+                Some(164)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -967,14 +953,12 @@ mod tests {
         }
         {
             // phase
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f777378");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -988,7 +972,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("20823b18ab74d5d712b82006c46e79f21308b0daa3fd1864c5ac8a585a256bcdcb1ce8f149998598d3b14d09760e1d62").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("7578f54848a309d5e933e8456f03bd01216d6d00cdc47e2386fa3b519d4357ba62a76ee47e20b98547bd0185eafb506a").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -998,7 +982,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(180)
+                Some(164)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1020,14 +1004,12 @@ mod tests {
         }
         {
             // level
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -1041,7 +1023,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("0dfba43e4b7d1deebd752723c90ed93ca31b2fa98a3ae31ab1a87dca6db687d60eb0c4ffb7f3858f4e10e8a0ee1b1e4b").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("e36cc4e68e30ff166359a719c8b6785859001f9c855bc555b86f9ca1532d214eab4fa0fb7de23a4a776f03b73e71ee90").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -1051,7 +1033,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(179)
+                Some(163)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1073,14 +1055,12 @@ mod tests {
         }
         {
             // index
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -1094,7 +1074,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("eaba06ab4fd16bcfa32f156ed2fc14dc62c51ee35b69143111722f04c3b46a986064aedc7b032938c6ed37cc9162e69c").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("dc92778465b80cf0c33033e89238e9be8ee7ad05b838023c6cf4be061f953318c90b543c6df280d6f98f99b4a85d8c44").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -1104,7 +1084,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(179)
+                Some(163)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1126,14 +1106,12 @@ mod tests {
         }
         {
             // counter
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -1147,7 +1125,7 @@ mod tests {
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("4ef13eabb009e9713132014c5802c4a26cb40472d7ca194aaabb3f4437a5cd61e79319dbdd48f1f64aadc54e98753899").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("ac21c3fd93b2069a889575678ea748f0f1a567ad862cc7acc06c327436fcb86e501f141291b5d9e2acc70165359ee91d").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -1157,7 +1135,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(179)
+                Some(163)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1179,14 +1157,12 @@ mod tests {
         }
         {
             // binary-payload
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -1202,7 +1178,7 @@ mod tests {
                 "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
             )];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("322d8257aeca370767db3be7f01cd019e878c3084c63fc875f1e42ccf7085f4fe0a17eafcafa156f6aaf337fe6f3b487").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("666de662f2951da85584bb9c3019f172c53238f60df348f2819e6713ccc2417e6183c64e4aba756f1ecf9949cdbe2e75").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -1212,7 +1188,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(434)
+                Some(418)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1234,14 +1210,12 @@ mod tests {
         }
         {
             // sha3-rate-boundary
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -1257,7 +1231,7 @@ mod tests {
                 "7878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
             )];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("4e69b53017a7acf2bc52b1ab011fd6fb911ddd789ed940128a4d4bac30010ee982f15982c46b09e76b433675a330de55").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("265dc93b7db72da79b7b860a0056ee874fa56bdb05cc18217b50af44412e39670cb71106540f885c29d92ea8e6f2aac9").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -1267,7 +1241,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(282)
+                Some(266)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1289,14 +1263,12 @@ mod tests {
         }
         {
             // large-row
-            let catalog = hex(
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
-            );
+            let catalog = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
             let protocol = hex("69766d2d707269766174652d6e6f74652d737461726b2d7631");
             let profile = hex("666978747572652d70726f66696c65");
             let role = hex("6c656166");
             let phase = hex("726f7773");
-            let catalog: [u8; 48] = catalog.try_into().unwrap();
+            let catalog: [u8; 32] = catalog.try_into().unwrap();
             let domain = PrivacyOuterDomainV1 {
                 proof_scope: None,
                 catalog: &catalog,
@@ -1312,7 +1284,7 @@ mod tests {
                 "7878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
             )];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            let expected = PrivacyOuterDigestV1::from_bytes(hex("e267d662526c26daf31d3a4dabac6bac082967f5922694acaecd2a5655788a429905f6af8b44ba9d4410050f1a2281ba").try_into().unwrap());
+            let expected = PrivacyOuterDigestV1::from_bytes(hex("448d319a867176b89cfbcbfb1a77034d9742af827dc9fa2f73dd7d76f7d94a4dd36603e03cc8d55df48a36dc478a832d").try_into().unwrap());
             assert_eq!(
                 PrivacyOuterFrameV1::new(domain, &fields).unwrap().hash(),
                 expected
@@ -1322,7 +1294,7 @@ mod tests {
                     domain,
                     &fields.iter().map(|v| v.len()).collect::<Vec<_>>()
                 ),
-                Some(4626)
+                Some(4610)
             );
             assert_eq!(
                 PrivacyOuterDomainPrefixV1::new(domain)
@@ -1345,7 +1317,7 @@ mod tests {
     }
     #[test]
     fn cached_final_field_prefix_preserves_scalar_bytes_coordinates_and_errors() {
-        let catalog = [37; 48];
+        let catalog = [37; 32];
         let mut domain = domain(&catalog);
         domain.level = 11;
         let prefix = PrivacyOuterDomainPrefixV1::new(domain).unwrap();
@@ -1369,7 +1341,7 @@ mod tests {
                         assert_eq!(
                             expected.as_bytes(),
                             &hex(
-                                "79a92306d5759f329c507ade65e0fbd85e0b19fc29b8f4f7c38e747ccb988caf652b400de8ce4f02ed8195a508e4cdf7"
+                                "35c6b73b01d2f1c5fca3cf9df6dd471f9cc2360dd2875bfcc78121e789988c52dc5c668b62a60e078fe6331a02a3ac0a"
                             )[..]
                         );
                     }
@@ -1437,7 +1409,7 @@ mod tests {
     }
     #[test]
     fn sha3_framing_rejects_bad_labels_and_checked_size_overflow() {
-        let catalog = [0; 48];
+        let catalog = [0; 32];
         let base = domain(&catalog);
         let too_long = vec![b'x'; usize::from(u16::MAX) + 1];
         for label in [b"".as_slice(), too_long.as_slice()] {
@@ -1475,7 +1447,7 @@ mod tests {
     }
     #[test]
     fn sha3_stream_overrun_is_unchanged_and_underrun_cannot_finalize() {
-        let catalog = [0; 48];
+        let catalog = [0; 32];
         let domain = domain(&catalog);
         let mut stream = PrivacyOuterLastFieldStreamV1::new(domain, &[b"prefix"], 3).unwrap();
         stream.update(b"a").unwrap();

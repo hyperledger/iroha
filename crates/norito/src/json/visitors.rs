@@ -9,7 +9,36 @@ pub struct MapVisitor<'a, 'p> {
     after_comma: bool,
     total_entries: usize,
 }
+#[derive(Clone, Copy)]
+pub(super) struct MapState {
+    finished: bool,
+    value_pending: bool,
+    after_comma: bool,
+    total_entries: usize,
+}
 impl<'a, 'p> MapVisitor<'a, 'p> {
+    // Internal iterative callers suspend only this parser's existing delimiter
+    // state while a child value is decoded. No external replay API is exposed.
+    pub(super) fn suspend(self) -> MapState {
+        MapState {
+            finished: self.finished,
+            value_pending: self.value_pending,
+            after_comma: self.after_comma,
+            total_entries: self.total_entries,
+        }
+    }
+    pub(super) fn resume(parser: &'p mut Parser<'a>, state: MapState) -> Self {
+        Self {
+            parser,
+            finished: state.finished,
+            value_pending: state.value_pending,
+            after_comma: state.after_comma,
+            total_entries: state.total_entries,
+        }
+    }
+    pub(super) fn complete_value(&mut self) -> Result<(), Error> {
+        self.finish_value()
+    }
     /// Begin visiting an object at the parser's current position.
     pub fn new(parser: &'p mut Parser<'a>) -> Result<Self, Error> {
         let total_entries = parser.preflight_object_entries()?;
@@ -263,7 +292,38 @@ pub struct SeqVisitor<'a, 'p> {
     after_comma: bool,
     total_entries: usize,
 }
+#[derive(Clone, Copy)]
+pub(super) struct SeqState {
+    finished: bool,
+    after_comma: bool,
+    total_entries: usize,
+}
 impl<'a, 'p> SeqVisitor<'a, 'p> {
+    pub(super) fn suspend(self) -> SeqState {
+        SeqState {
+            finished: self.finished,
+            after_comma: self.after_comma,
+            total_entries: self.total_entries,
+        }
+    }
+    pub(super) fn resume(parser: &'p mut Parser<'a>, state: SeqState) -> Self {
+        Self {
+            parser,
+            finished: state.finished,
+            after_comma: state.after_comma,
+            total_entries: state.total_entries,
+        }
+    }
+    pub(super) fn begin_element(&mut self) -> Result<bool, Error> {
+        if self.finished {
+            return Ok(false);
+        }
+        self.prepare_element()?;
+        Ok(true)
+    }
+    pub(super) fn complete_element(&mut self) -> Result<(), Error> {
+        self.finish_element()
+    }
     /// Begin visiting an array at the parser's current position.
     pub fn new(parser: &'p mut Parser<'a>) -> Result<Self, Error> {
         let total_entries = parser.preflight_array_entries()?;

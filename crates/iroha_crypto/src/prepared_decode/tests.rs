@@ -1035,3 +1035,72 @@ fn borrowed_public_key_recheck_preserves_canonical_limits_and_original_backing()
     drop(owner);
     assert_eq!(pool.reserved_bytes(), 0);
 }
+
+#[test]
+fn raw_material_decode_charges_after_shared_validation_and_preserves_refusal_identity() {
+    use norito::core::{DecodeAttemptErrorKind, DecodeBudgetContext, classify_decode_attempt};
+    let pair = KeyPair::try_from_seed(vec![0xac; 32], Algorithm::Ed25519).unwrap();
+    let (algorithm, material) = pair.public_key().borrowed_parts().unwrap();
+    let layout = pair.public_key().retained_allocation_layout();
+    let pool = AllocationBudget::new(layout.size());
+    let limits = |bytes| DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX);
+    let original = DecodeBudgetContext::new(limits(0));
+    let invalid = without_allocations(|| {
+        original
+            .with(|| PreparedPublicKeyDecode::try_from_material_for_decode(algorithm, &[0], &pool))
+    });
+    assert!(
+        matches!(invalid,Err(PublicKeyDecodeAdmissionError::Codec(ref error)) if !error.is_decode_resource_limit())
+    );
+    assert_eq!(original.consumed_allocated_bytes(), 0);
+    assert_eq!(pool.reserved_bytes(), 0);
+    let mut seen = None;
+    let refusal = original
+        .with(|| {
+            classify_decode_attempt(|| {
+                let error = match PreparedPublicKeyDecode::try_from_material_for_decode(
+                    algorithm, material, &pool,
+                ) {
+                    Err(error) => error,
+                    Ok(_) => panic!("logical zero must refuse"),
+                };
+                let PublicKeyDecodeAdmissionError::Codec(Error::ScopedDecodeResource(origin)) =
+                    error
+                else {
+                    panic!("original observer lost: {error:?}")
+                };
+                seen = Some(origin.clone());
+                Err::<(), _>(Error::ScopedDecodeResource(origin))
+            })
+        })
+        .unwrap_err();
+    assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+    let Error::ScopedDecodeResource(returned) = refusal.into_local_refusal().unwrap().into_error()
+    else {
+        panic!("original identity lost")
+    };
+    assert_eq!(seen.as_ref(), Some(&returned));
+    assert_eq!(pool.reserved_bytes(), 0);
+    let (failed, _) = allocations_during(|| {
+        with_allocation_failure(layout.size(), || {
+            PreparedPublicKeyDecode::try_from_material_for_decode(algorithm, material, &pool)
+        })
+    });
+    assert!(
+        matches!(failed,Err(PublicKeyDecodeAdmissionError::Allocation(ChargedBufferError::Allocator{requested_bytes})) if requested_bytes==layout.size())
+    );
+    assert_eq!(pool.reserved_bytes(), 0);
+    let context = DecodeBudgetContext::new(limits(layout.size()));
+    let key = context
+        .with(|| PreparedPublicKeyDecode::try_from_material_for_decode(algorithm, material, &pool))
+        .unwrap();
+    assert_eq!(key.get(), pair.public_key());
+    assert!(key.belongs_to(&pool));
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(layout.size()).unwrap()
+    );
+    assert_eq!(pool.reserved_bytes(), layout.size());
+    drop(key);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

@@ -140,6 +140,12 @@ pub enum ExecutionDeferral {
     /// Original local committed execution history is missing, corrupt, or not readable.
     /// This is never evidence that the signed transaction was rejected.
     CanonicalHistoryUnavailable,
+    /// The initial canonical crypto admission policy has not been installed locally.
+    /// This readiness condition is neither an incoming signature verdict nor an allocation refusal.
+    CryptoAdmissionPolicyUnavailable,
+    /// The exact canonical operation requires an implementation absent from this node.
+    /// This fixed local cause retains its algorithm and operation, with no resource authority.
+    CryptoImplementationUnavailable(iroha_crypto::UnsupportedImplementation),
     /// A bounded native ancestry read exhausted its local source-work or byte allowance.
     /// No allocator wake source is implied by this independent read limit.
     CanonicalHistoryCapacity,
@@ -150,6 +156,9 @@ pub enum ExecutionDeferral {
 impl fmt::Display for ExecutionDeferral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::CryptoImplementationUnavailable(original) => {
+                return write!(f, "local crypto implementation unavailable: {original}");
+            }
             Self::LocalInvariantViolation => "local original execution custody invariant violated",
             Self::AllocationUnavailable => "local allocation unavailable",
             Self::ActiveMemoryCapacity => "local active execution memory capacity unavailable",
@@ -162,6 +171,9 @@ impl fmt::Display for ExecutionDeferral {
                 "trusted verifier initialization unavailable"
             }
             Self::CanonicalHistoryUnavailable => "local canonical execution history unavailable",
+            Self::CryptoAdmissionPolicyUnavailable => {
+                "initial committed crypto admission policy unavailable"
+            }
             Self::CanonicalHistoryCapacity => {
                 "local canonical execution history read capacity unavailable"
             }
@@ -940,6 +952,35 @@ mod execution_deferral_tests {
         let (gas, moved) = original.split_metered();
         assert_eq!(gas, None);
         assert_reason(&moved, reason);
+    }
+
+    #[test]
+    fn absent_initial_crypto_policy_is_unmetered_local_readiness() {
+        let reason = ExecutionDeferral::CryptoAdmissionPolicyUnavailable;
+        assert_eq!(
+            reason.to_string(),
+            "initial committed crypto admission policy unavailable"
+        );
+        let original = VMError::metered(777, VMError::ExecutionDeferred(reason));
+        assert_reason(&original, reason);
+        let (gas, moved) = original.split_metered();
+        assert_eq!(gas, None);
+        assert_reason(&moved, reason);
+    }
+
+    #[test]
+    fn missing_crypto_implementation_preserves_exact_unmetered_cause() {
+        let missing = iroha_crypto::UnsupportedImplementation {
+            algorithm: iroha_crypto::Algorithm::MlDsa,
+            operation: iroha_crypto::CryptoOperation::VerifySignature,
+        };
+        let reason = ExecutionDeferral::CryptoImplementationUnavailable(missing);
+        let original = VMError::metered(777, VMError::ExecutionDeferred(reason));
+        assert_reason(&original, reason);
+        let (gas, moved) = original.split_metered();
+        assert_eq!(gas, None);
+        assert_reason(&moved, reason);
+        assert!(reason.to_string().ends_with(&missing.to_string()));
     }
 
     #[test]

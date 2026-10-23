@@ -143,7 +143,7 @@ fn original_custom_parameter_checked_refusals_preserve_depth_and_exact_bytes() {
 fn original_custom_parameter_map_checked_refusals_preserve_depth_and_exact_bytes() {
     let parameter = custom();
     let mut values = CustomParameters::new();
-    values.insert(crate::Identifiable::id(&parameter).clone(), parameter);
+    values.insert(parameter);
     let mut expected = String::new();
     crate::parameter::custom::json_helpers::serialize(&values, &mut expected);
     audit_writer(&expected, |out| {

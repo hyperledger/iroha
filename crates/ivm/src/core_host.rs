@@ -10,10 +10,10 @@ use crate::{
     host::{
         AccessLog, IVMHost, TLV_ENVELOPE_OVERHEAD, canonical_state_map_key_at,
         canonical_typed_state_map_path, common_syscall_gas_quote, conservative_syscall_gas_quote,
-        debug_log_gas, is_sm_syscall, preflight_reserved_syscall_gas,
-        quote_canonical_state_map_path_lengths, quote_tlv_payload_len_at,
-        require_host_syscall_metering_spec, reserve_available_syscall_gas_at_least,
-        validate_declared_state_map_base, validate_declared_state_map_key,
+        debug_log_gas, preflight_reserved_syscall_gas, quote_canonical_state_map_path_lengths,
+        quote_tlv_payload_len_at, require_host_syscall_metering_spec,
+        reserve_available_syscall_gas_at_least, validate_declared_state_map_base,
+        validate_declared_state_map_key,
     },
     ivm::IVM,
     memory::Memory,
@@ -117,7 +117,6 @@ pub struct CoreHost {
     axt_active: bool,
     fastpq_batch_active: bool,
     fastpq_batch_has_entries: bool,
-    sm_enabled: bool,
     current_time_ms: u64,
     access_log: AccessLog,
     #[cfg(test)]
@@ -136,7 +135,6 @@ struct CoreHostSnapshot {
     axt_active: bool,
     fastpq_batch_active: bool,
     fastpq_batch_has_entries: bool,
-    sm_enabled: bool,
     current_time_ms: u64,
     access_log: AccessLog,
 }
@@ -167,7 +165,6 @@ impl CoreHost {
             axt_active: false,
             fastpq_batch_active: false,
             fastpq_batch_has_entries: false,
-            sm_enabled: false,
             current_time_ms: 0,
             access_log: AccessLog::default(),
             #[cfg(test)]
@@ -190,7 +187,6 @@ impl CoreHost {
             axt_active: false,
             fastpq_batch_active: false,
             fastpq_batch_has_entries: false,
-            sm_enabled: false,
             current_time_ms: 0,
             access_log: AccessLog::default(),
             #[cfg(test)]
@@ -616,19 +612,10 @@ impl CoreHost {
             }
         }
     }
-    /// Enable or disable SM helper syscalls when constructing the host.
-    pub fn with_sm_enabled(mut self, enabled: bool) -> Self {
-        self.sm_enabled = enabled;
-        self
-    }
     /// Set the logical execution time returned by `CURRENT_TIME_MS` (`context::transaction_time_ms()`).
     pub fn with_current_time_ms(mut self, current_time_ms: u64) -> Self {
         self.current_time_ms = current_time_ms;
         self
-    }
-    /// Enable or disable SM helper syscalls on this host.
-    pub fn set_sm_enabled(&mut self, enabled: bool) {
-        self.sm_enabled = enabled;
     }
     fn begin_fastpq_batch(&mut self) -> Result<u64, VMError> {
         if self.fastpq_batch_active {
@@ -1039,9 +1026,6 @@ impl IVMHost for CoreHost {
     fn prepare_syscall(&self, number: u32, vm: &IVM) -> Result<u64, VMError> {
         let metering = require_host_syscall_metering_spec(vm.syscall_policy(), number)?;
         if metering.metering == crate::syscall_metering::SyscallMetering::Staged {
-            return Ok(0);
-        }
-        if is_sm_syscall(number) && !self.sm_enabled {
             return Ok(0);
         }
         let quote = match number {
@@ -1855,9 +1839,6 @@ impl IVMHost for CoreHost {
                 }
             }
             syscalls::SYSCALL_SM3_HASH => {
-                if !self.sm_enabled {
-                    return Err(VMError::PermissionDenied);
-                }
                 let ptr = vm.register(10);
                 if ptr == 0 {
                     return Err(VMError::NoritoInvalid);
@@ -1935,10 +1916,7 @@ impl IVMHost for CoreHost {
             | syscalls::SYSCALL_SM4_GCM_OPEN
             | syscalls::SYSCALL_SM4_CCM_SEAL
             | syscalls::SYSCALL_SM4_CCM_OPEN => {
-                if !self.sm_enabled {
-                    return Err(VMError::PermissionDenied);
-                }
-                let mut default = crate::host::DefaultHost::new().with_sm_enabled(true);
+                let mut default = crate::host::DefaultHost::new();
                 default.syscall(number, vm)
             }
             syscalls::SYSCALL_UNREGISTER_DOMAIN => {
@@ -2093,7 +2071,6 @@ impl IVMHost for CoreHost {
             axt_active: self.axt_active,
             fastpq_batch_active: self.fastpq_batch_active,
             fastpq_batch_has_entries: self.fastpq_batch_has_entries,
-            sm_enabled: self.sm_enabled,
             current_time_ms: self.current_time_ms,
             access_log: self.access_log.clone(),
         }))
@@ -2113,7 +2090,6 @@ impl IVMHost for CoreHost {
         self.axt_active = saved.axt_active;
         self.fastpq_batch_active = saved.fastpq_batch_active;
         self.fastpq_batch_has_entries = saved.fastpq_batch_has_entries;
-        self.sm_enabled = saved.sm_enabled;
         self.current_time_ms = saved.current_time_ms;
         self.access_log = saved.access_log.clone();
         Ok(())

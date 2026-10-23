@@ -181,13 +181,13 @@ mod tests {
         .unwrap();
         assert_eq!(
             work.field_operations_v1(),
-            320 * (4_819_350 + 487_008 + 19 * 476_862)
+            320 * (4_809_204 + 476_862 + 19 * 466_716)
         );
         let [payload, index, _] = RnsNativeOracleV1::Initial
             .full_tree_frame_work(parameter_v1())
             .unwrap();
-        assert_eq!(frame_operations_v1(payload).unwrap(), 4_819_350);
-        assert_eq!(frame_operations_v1(index).unwrap(), 487_008);
+        assert_eq!(frame_operations_v1(payload).unwrap(), 4_809_204);
+        assert_eq!(frame_operations_v1(index).unwrap(), 476_862);
         assert!(matches!(
             RnsNativeQpcsOpeningHashWorkV1::for_opened_leaves_v1(
                 parameter_v1(),
@@ -219,10 +219,10 @@ mod tests {
             parameter,
         )
         .unwrap();
-        assert_eq!(all.field_operations_v1(), 57_475_588_392);
+        assert_eq!(all.field_operations_v1(), 56_714_638_392);
         assert_eq!(
-            all.field_operations_v1() - 55_777_553_832,
-            320 * (4_819_350 + 487_008)
+            all.field_operations_v1() - 55_023_097_272,
+            320 * (4_809_204 + 476_862)
         );
         let terminal = RnsNativeQpcsOpeningHashWorkV1::for_opened_leaves_v1(
             parameter,
@@ -230,7 +230,7 @@ mod tests {
             4,
         )
         .unwrap();
-        assert_eq!(terminal.field_operations_v1(), 25_040_328);
+        assert_eq!(terminal.field_operations_v1(), 24_877_992);
         assert!(all.field_operations_v1() > initial.field_operations_v1());
         assert!(all.field_operations_v1() < ZK_AMS_MKHE_RNS_NATIVE_WORK_MAX_V1);
 

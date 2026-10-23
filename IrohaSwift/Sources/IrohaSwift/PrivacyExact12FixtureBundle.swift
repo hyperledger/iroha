@@ -166,17 +166,12 @@ public enum PrivacyExact12FixtureCodecV1 {
     private static let statementSchemaName = "iroha.privacy.statement.v1"
     private static let envelopeSchemaName = "iroha.privacy.proof-envelope.v1"
     private static let proofWireMagic = Data([0x49, 0x52, 0x48, 0x5a, 0x4b, 0x31, 0xa5, 0x5a])
-    private static let catalogCommitment: Data = {
-        let words: [UInt64] = [
-            0x7c30_a004_39f1_37e0, 0x6b40_fb5c_d815_db00, 0x49a9_4401_d272_97d7,
-            0x2e34_8ea7_fdf3_f0de, 0xfabf_bf7c_7865_7f74, 0xffbb_e269_c311_4fc9,
-        ]
-        var bytes = Data()
-        for word in words {
-            appendUInt64LE(word, to: &bytes)
-        }
-        return bytes
-    }()
+    private static let catalogCommitment = Data([
+        0x5b, 0xcf, 0x36, 0x6f, 0xb1, 0x8d, 0x2e, 0x43,
+        0x61, 0x48, 0x6c, 0x01, 0x5d, 0xa5, 0xb4, 0x1a,
+        0x3f, 0xb0, 0x0e, 0xdf, 0x05, 0x61, 0x10, 0x42,
+        0xcc, 0xc4, 0x52, 0x12, 0x0d, 0x17, 0x6e, 0xb0,
+    ])
     private static let instructionSchemaName =
         "iroha_data_model::isi::privacy::SubmitPrivacyProofV1"
     private static let transactionPayloadSchemaName =

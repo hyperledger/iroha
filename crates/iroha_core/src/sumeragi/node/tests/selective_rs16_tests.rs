@@ -671,7 +671,13 @@ fn native_socket_selective_signed_rows_preserve_partial_delivery_and_original_pa
         &network,
         Duration::from_secs(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        fixture.nodes[0]
+            .state
+            .view()
+            .world()
+            .parameters()
+            .crypto_policy()
+            .expect("original committed admission policy"),
     )
     .unwrap();
     let hash = accepted.hash_as_entrypoint();

@@ -675,43 +675,24 @@ private fun decodeHeader(header: Byte): Int {
 // -- Encoding helpers --
 
 @Throws(AccountAddressException::class)
-private fun curveIdForAlgorithm(algorithm: String): Byte {
-    if (
-        algorithm.isEmpty() ||
-        algorithm != algorithm.trim() ||
-        !algorithm.all { it.code in 0x20..0x7E }
-    ) {
-        throw AccountAddressException(
-            AccountAddressErrorCode.UNSUPPORTED_ALGORITHM,
-            "unsupported signing algorithm: $algorithm",
-        )
-    }
-    val normalized = algorithm.lowercase()
-    val curveId = when (normalized) {
-        "ed25519", "ed" -> 0x01
-        "ml-dsa", "mldsa", "ml_dsa",
-        "mldsa65", "ml-dsa-65", "ml_dsa_65", "ml_dsa-65",
-        -> 0x02
-        "bls_normal", "bls-normal", "blsnormal", "bls12-381-g1" -> 0x03
-        "secp256k1", "secp-256k1", "secp" -> 0x04
-        "bls_small", "bls-small", "blssmall", "bls12-381-g2" -> 0x05
-        "gost256a", "gost-256-a" -> 0x0A
-        "gost3410-2012-256-paramset-a" -> 0x0A
-        "gost256b", "gost-256-b" -> 0x0B
-        "gost3410-2012-256-paramset-b" -> 0x0B
-        "gost256c", "gost-256-c" -> 0x0C
-        "gost3410-2012-256-paramset-c" -> 0x0C
-        "gost512a", "gost-512-a" -> 0x0D
-        "gost3410-2012-512-paramset-a" -> 0x0D
-        "gost512b", "gost-512-b" -> 0x0E
-        "gost3410-2012-512-paramset-b" -> 0x0E
-        "sm2", "sm-2" -> 0x0F
+internal fun curveIdForAlgorithm(algorithm: String): Byte {
+    val curveId = when (algorithm) {
+        "ed25519" -> 1
+        "secp256k1" -> 4
+        "ml-dsa" -> 2
+        "bls_normal" -> 3
+        "bls_small" -> 5
+        "gost3410-2012-256-paramset-a" -> 10
+        "gost3410-2012-256-paramset-b" -> 11
+        "gost3410-2012-256-paramset-c" -> 12
+        "gost3410-2012-512-paramset-a" -> 13
+        "gost3410-2012-512-paramset-b" -> 14
+        "sm2" -> 15
         else -> throw AccountAddressException(
-            AccountAddressErrorCode.UNSUPPORTED_ALGORITHM,
-            "unsupported signing algorithm: $algorithm",
+            AccountAddressErrorCode.UNKNOWN_ALGORITHM,
+            "unknown canonical signing algorithm: $algorithm",
         )
     }
-    ensureKnownCurve(curveId, "signing algorithm: $normalized")
     return curveId.toByte()
 }
 

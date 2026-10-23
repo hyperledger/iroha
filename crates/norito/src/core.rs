@@ -1582,7 +1582,12 @@ fn validate_current_sequence_reservation(bytes: &[u8], count: usize) -> Result<(
         count,
     )
 }
-fn validate_current_map_reservation(bytes: &[u8], count: usize) -> Result<(), Error> {
+/// Check the complete minimum map framing before a caller allocates entry backing.
+///
+/// # Errors
+/// Rejects a mismatched count, arithmetic overflow or truncated entry prefixes.
+#[doc(hidden)]
+pub fn validate_current_map_reservation(bytes: &[u8], count: usize) -> Result<(), Error> {
     let (declared_count, offset) = inspect_seq_len_slice(bytes)?;
     if declared_count != count {
         return Err(Error::LengthMismatch);
@@ -1952,7 +1957,9 @@ where
     }
     Some(total)
 }
-fn map_encoded_len_hint<'a, K, V, I>(entries: I) -> Option<usize>
+/// Canonical map sizing shared by exact immutable collection owners.
+#[doc(hidden)]
+pub fn map_encoded_len_hint<'a, K, V, I>(entries: I) -> Option<usize>
 where
     K: SerializePayload + 'a,
     V: SerializePayload + 'a,
@@ -1972,7 +1979,9 @@ where
     }
     Some(total)
 }
-fn map_encoded_len_exact<'a, K, V, I>(entries: I) -> Option<usize>
+/// Exact canonical map sizing without an owned staging collection.
+#[doc(hidden)]
+pub fn map_encoded_len_exact<'a, K, V, I>(entries: I) -> Option<usize>
 where
     K: SerializePayload + 'a,
     V: SerializePayload + 'a,
@@ -2741,7 +2750,16 @@ where
         Ok((out, used))
     }
 }
-fn decode_map_entries<'a, K, V, F>(
+/// Decode canonical map fields into the caller's originally admitted destination.
+///
+/// The caller validates the declared count before reserving its backing and
+/// enforces its own key order, identity and uniqueness invariants. No staging
+/// collection is constructed; each field uses the canonical field decoder.
+///
+/// # Errors
+/// Preserves original framing, field decoder and destination refusals.
+#[doc(hidden)]
+pub fn decode_map_entries<'a, K, V, F>(
     bytes: &'a [u8],
     mut on_entry: F,
 ) -> Result<(usize, usize), Error>
@@ -6008,9 +6026,12 @@ pub fn encoded_payload_len(value: &dyn SerializePayload) -> Result<usize, Error>
 /// refusal remains sticky even if a serializer ignores a failed write.
 ///
 /// # Errors
-/// Returns a serialization error or [`Error::LengthMismatch`] when the finite
-/// count allowance is exceeded. Arbitrary work performed before a serializer
-/// writes bytes still belongs to the source owner's separate work boundary.
+/// A propagated finite-count writer refusal is an allocation-free [`Error::Io`]
+/// with [`std::io::ErrorKind::Other`]. If the serializer suppresses that refusal,
+/// the sticky count check returns [`Error::LengthMismatch`] instead. Other codec
+/// and scoped resource errors propagate unchanged; an I/O kind is not authority
+/// to rewrite them. Arbitrary work performed before a serializer writes bytes
+/// still belongs to the source owner's separate work boundary.
 pub fn encoded_payload_len_bounded(
     value: &dyn SerializePayload,
     maximum: usize,

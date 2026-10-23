@@ -385,7 +385,11 @@ mod tests {
             state.network_id_ref(),
             Duration::from_secs(5),
             iroha_data_model::parameter::TransactionParameters::default(),
-            state.crypto().as_ref(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("explicit fixture admission policy"),
         )
         .expect("original signed transaction passes envelope admission");
         queue

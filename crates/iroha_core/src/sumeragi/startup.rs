@@ -24,7 +24,7 @@ use super::{
 };
 use crate::{
     block::ValidBlock,
-    state::{State, StateBlock},
+    state::{State, StateBlock, StateReadOnly},
 };
 
 /// The genesis height: iroha's genesis block is height 1.
@@ -93,6 +93,8 @@ pub struct GenesisStatePublicationError(
 );
 
 #[cfg(test)]
+mod archive_source_tests;
+#[cfg(test)]
 pub(crate) mod test_hooks;
 
 /// The core's view of the applied genesis: its block hash and result (`Init.tip` at `g`).
@@ -105,12 +107,35 @@ pub struct GenesisTip {
 }
 
 /// Origin proof produced only after this module executes the independently signed genesis.
-pub(crate) struct GenesisExecutionAuthorization {
+pub(crate) struct GenesisExecutionAuthorization<'execution, 'state> {
+    original_overlay: &'execution StateBlock<'state>,
+    original_result: &'execution iroha_allocation::RetainedPayload<
+        iroha_data_model::sumeragi_finality::CertifiedResultV1,
+    >,
     state: usize,
     tip: crate::state::native_execution_tip::NativeExecutionTipRecord,
     telemetry_origin: super::executor::CommitTelemetryOrigin,
 }
-impl GenesisExecutionAuthorization {
+impl GenesisExecutionAuthorization<'_, '_> {
+    /// Borrow signed genesis scope only for the same original executed source.
+    /// The retained references prevent either owner from moving or retiring before capture.
+    pub(crate) fn original_archive_scope(
+        &self,
+        overlay: &StateBlock<'_>,
+        executed: &SignedBlock,
+        result: &iroha_allocation::RetainedPayload<
+            iroha_data_model::sumeragi_finality::CertifiedResultV1,
+        >,
+    ) -> Option<iroha_data_model::block::consensus::SumeragiRootScope> {
+        (std::ptr::eq(self.original_overlay, overlay)
+            && std::ptr::eq(self.original_result, result)
+            && self.tip.height == GENESIS_HEIGHT
+            && executed.header().height().get() == GENESIS_HEIGHT
+            && self.tip.iroha_hash == executed.hash()
+            && overlay.native_execution_tip().is_none())
+        .then_some(self.tip.root_scope)
+    }
+
     pub(super) fn into_parts(
         self,
     ) -> (
@@ -287,6 +312,24 @@ fn finish_genesis(
         &budget,
     )
     .map_err(|(_original_parts, error)| StartupError::Certificate(error))?;
+    let authorization = GenesisExecutionAuthorization {
+        original_overlay: &overlay,
+        original_result: &retained_result,
+        telemetry_origin: match stored {
+            Some(_) => super::executor::CommitTelemetryOrigin::HistoricalReplay,
+            None => super::executor::CommitTelemetryOrigin::Forward,
+        },
+        state: std::ptr::from_ref(state) as usize,
+        tip: crate::state::native_execution_tip::NativeExecutionTipRecord {
+            root_scope,
+            height: GENESIS_HEIGHT,
+            creation_time_ms: u64::try_from(valid.as_ref().header().creation_time().as_millis())
+                .expect("block creation time fits u64"),
+            iroha_hash: valid.as_ref().hash(),
+            core_hash: block_hash.0,
+            result: result.0,
+        },
+    };
     // Freeze H1 complete context values from the same original overlay and R used by
     // every successor. A separately reconstructed current-head projection is not a source.
     let archive_error =
@@ -310,6 +353,16 @@ fn finish_genesis(
     }
     let mut native_contexts = archive
         .prepare(&overlay, valid.as_ref(), &retained_result, &witness)
+        .map_err(archive_error)?;
+    archive
+        .prepare_genesis_amx_intents(
+            &mut native_contexts,
+            &overlay,
+            valid.as_ref(),
+            &retained_result,
+            &witness,
+            &authorization,
+        )
         .map_err(archive_error)?;
     archive
         .prepare_fastpq_source(
@@ -348,35 +401,13 @@ fn finish_genesis(
         }
         iroha_logger::warn!(%error, "genesis FASTPQ source transport remains unresolved");
     }
+    let authorization = super::executor::NativeExecutionAuthorization::from_genesis(authorization);
     overlay
         .authorize_sumeragi_output_publication(
             &finalized_block,
             &witness,
             &certificate,
-            super::executor::NativeExecutionAuthorization::from_genesis(
-                GenesisExecutionAuthorization {
-                    telemetry_origin: match stored {
-                        Some(_) => super::executor::CommitTelemetryOrigin::HistoricalReplay,
-                        None => super::executor::CommitTelemetryOrigin::Forward,
-                    },
-                    state: std::ptr::from_ref(state) as usize,
-                    tip: crate::state::native_execution_tip::NativeExecutionTipRecord {
-                        root_scope,
-                        height: GENESIS_HEIGHT,
-                        creation_time_ms: u64::try_from(
-                            finalized_block
-                                .as_ref()
-                                .header()
-                                .creation_time()
-                                .as_millis(),
-                        )
-                        .expect("block creation time fits u64"),
-                        iroha_hash: finalized_block.as_ref().hash(),
-                        core_hash: block_hash.0,
-                        result: result.0,
-                    },
-                },
-            ),
+            authorization,
         )
         .map_err(|error| match error {
             crate::execution_attempt::ExecutionAttemptError::Rejected(reason) => {

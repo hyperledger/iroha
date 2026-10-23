@@ -250,6 +250,7 @@ fn native_private_read_role_cannot_be_removed_by_reader_or_foreign_bank_manager(
     let original =
         roots.participants[0].sign(&payer(), [Unregister::role(reader_role()).into()], 2_099);
     let view = roots.participants[1].state().view();
+    let parameters = view.world().transaction_admission_parameters();
     let (_, clock) = TimeSource::new_mock(Duration::from_millis(2_100));
     let source_network = roots.participants[0].network_id();
     let target_network = roots.participants[1].network_id();
@@ -258,8 +259,10 @@ fn native_private_read_role_cannot_be_removed_by_reader_or_foreign_bank_manager(
         original,
         &target_network,
         Duration::from_secs(1),
-        view.world().parameters().transaction(),
-        &view.crypto(),
+        parameters.transaction(),
+        parameters
+            .require_crypto_policy()
+            .expect("original fixture policy"),
         &clock,
     ) {
         Ok(_) => panic!(

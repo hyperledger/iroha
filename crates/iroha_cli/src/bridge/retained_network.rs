@@ -809,17 +809,39 @@ mod tests {
 
     #[test]
     fn genesis_discriminant_must_match_the_independent_request() {
+        let _author = iroha_data_model::account::address::ChainDiscriminantGuard::enter(369);
+        let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        let staking = iroha_deploy::genesis::default_staking_policy(
+            fees.fee_asset_id,
+            fees.fee_sink_account_id.clone(),
+            fees.fee_sink_account_id,
+        );
         let fixture = NativeFinalityFixture::new();
         let manifest = iroha_genesis::GenesisBuilder::new_without_executor(
             fixture.chain_id().parse().unwrap(),
             ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(staking.clone())
+        .expect("explicit fixture staking policy")
         .with_sumeragi_context_parameters(
             iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
         )
         .build_raw()
         .unwrap()
         .with_chain_discriminant(369);
+        assert_eq!(
+            iroha_data_model::block::consensus::PublicLaneStakingPolicy::from_parameters(
+                &manifest.effective_parameters().unwrap()
+            )
+            .unwrap(),
+            staking
+        );
         verify_manifest_identity(&manifest, fixture.chain_id(), 369).unwrap();
         assert!(verify_manifest_identity(&manifest, fixture.chain_id(), 753).is_err());
         assert!(verify_manifest_identity(&manifest, "foreign chain", 369).is_err());

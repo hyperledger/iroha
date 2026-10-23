@@ -17,6 +17,8 @@ internal object AccountAddressNative {
         requireCanonicalSize(canonical.size)
         try {
             NativeSignerBridge.validateAccountAddressCanonical(canonical)
+        } catch (error: AccountAddressNativeException) {
+            throw error.toAccountAddressException()
         } catch (error: UnsatisfiedLinkError) {
             throw unavailable()
         } catch (error: IllegalStateException) {
@@ -28,7 +30,10 @@ internal object AccountAddressNative {
     }
 
     fun requireSingleSize(curveId: Int, size: Int) {
-        if (algorithmForCurveId(curveId) == null || size !in 1..MAX_PUBLIC_KEY_BYTES) {
+        if (algorithmForCurveId(curveId) == null) {
+            throw AccountAddressException(AccountAddressErrorCode.UNKNOWN_CURVE, "unknown curve id $curveId")
+        }
+        if (size !in 1..MAX_PUBLIC_KEY_BYTES) {
             throw AccountAddressException(AccountAddressErrorCode.INVALID_PUBLIC_KEY, "invalid canonical public-key envelope")
         }
     }

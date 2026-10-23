@@ -167,7 +167,7 @@ iroha_core_timed_ovn = { workspace = true }
 iroha_allocation = { workspace = true }
 iroha_model_base = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
-iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "governance", "http"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "http"] }
 iroha_macro = { workspace = true }
 iroha_p2p = { workspace = true }
 iroha_logger = { workspace = true }

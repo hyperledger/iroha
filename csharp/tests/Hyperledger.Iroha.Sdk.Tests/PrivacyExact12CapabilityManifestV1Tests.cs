@@ -39,6 +39,35 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
         [0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0];
 
     [Fact]
+    public void ReleaseAndSecurityClaimPinAllNativeCatalogBytes()
+    {
+        var canonical = Exact12CatalogCommitment();
+        Assert.Equal(32, canonical.Length);
+        var fixture = BuildFixture();
+        PrivacyExact12CapabilityManifestCodecV1.DecodeValidated(fixture.Manifest, fixture.Catalog);
+        var hostile = new List<byte[]>
+        {
+            canonical[..31], canonical.Concat(new byte[] { 0 }).ToArray(),
+            canonical.Concat(new byte[16]).ToArray(),
+            Convert.FromHexString("E037F13904A0307C00DB15D85CFB406BD79772D20144A949DEF0F3FDA78E342E747F65787CBFBFFAC94F11C369E2BBFF"),
+        };
+        for (var index = 0; index < canonical.Length; index++)
+        {
+            var substituted = (byte[])canonical.Clone();
+            substituted[index] ^= 1;
+            hostile.Add(substituted);
+        }
+        foreach (var value in hostile)
+        {
+            foreach (var invalid in new[] { BuildFixture(releaseCatalog: value), BuildFixture(claimCatalog: value) })
+            {
+                Assert.Throws<PrivacyExact12CapabilityManifestException>(() =>
+                    PrivacyExact12CapabilityManifestCodecV1.DecodeValidated(invalid.Manifest, invalid.Catalog));
+            }
+        }
+    }
+
+    [Fact]
     public void ManagedProjectionPreservesFieldsWithoutGrantingNativeQualification()
     {
         var fixture = BuildFixture();
@@ -511,7 +540,9 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
         byte[]? deploymentNetwork = null,
         byte[]? deploymentGenesis = null,
         byte[]? pendingConsensus = null,
-        byte[]? pendingJindo = null)
+        byte[]? pendingJindo = null,
+        byte[]? releaseCatalog = null,
+        byte[]? claimCatalog = null)
     {
         var profiles = new byte[12][];
         profiles[0] = AvailableProfile(
@@ -596,7 +627,7 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
                 qualificationActivationHeight,
                 qualificationConvergenceHeight,
                 deploymentNetwork,
-                deploymentGenesis)
+                deploymentGenesis, releaseCatalog, claimCatalog)
             : Array.Empty<byte>();
         var manifestWithZeroDigest = BuildManifestArchive(
             rows,
@@ -683,11 +714,12 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
     private static (byte[] Claim, byte[] Digest) SecurityClaim(
         int protocolIndex,
         byte digestByte,
-        bool corruptDigest)
+        bool corruptDigest,
+        byte[]? claimCatalog)
     {
         var activationDigest = Struct(Enumerable.Repeat(digestByte, 32).ToArray());
         var securityClaim = Struct(
-            Exact12CatalogCommitment(),
+            claimCatalog ?? Exact12CatalogCommitment(),
             EnumValue(checked((uint)protocolIndex)),
             EnumValue(SecurityModels[protocolIndex]),
             U16(128),
@@ -709,14 +741,16 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
         ulong firstActivationHeight,
         ulong convergenceHeight,
         byte[]? deploymentNetwork,
-        byte[]? deploymentGenesis)
+        byte[]? deploymentGenesis,
+        byte[]? releaseCatalog,
+        byte[]? claimCatalog)
     {
         var releaseDigest = Enumerable.Repeat((byte)0xe3, 32).ToArray();
         var bindings = Enumerable.Range(0, 12)
             .Select(index => ReleaseBinding(
                 index,
                 ProfileDigestByte(index),
-                corruptSecurityClaimDigest && index == 0))
+                corruptSecurityClaimDigest && index == 0, claimCatalog))
             .ToArray();
         var source = Struct(
             Digest(0xa1),
@@ -727,7 +761,7 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
         var release = Struct(
             U16(1),
             CompactString("iroha-privacy-exact12-v1"),
-            Exact12CatalogCommitment(),
+            releaseCatalog ?? Exact12CatalogCommitment(),
             source,
             U16(1),
             Digest(0xa4),
@@ -769,13 +803,14 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
     private static byte[] ReleaseBinding(
         int protocolIndex,
         byte digestByte,
-        bool corruptSecurityClaimDigest)
+        bool corruptSecurityClaimDigest,
+        byte[]? claimCatalog)
     {
         var binding = Digest(digestByte);
         var claim = SecurityClaim(
             protocolIndex,
             digestByte,
-            corruptSecurityClaimDigest);
+            corruptSecurityClaimDigest, claimCatalog);
         return Struct(
             EnumValue(checked((uint)protocolIndex)),
             EnumValue(ProofSystems[protocolIndex]),
@@ -801,8 +836,7 @@ public sealed class PrivacyExact12CapabilityManifestV1Tests
 
     private static byte[] Exact12CatalogCommitment() =>
         Convert.FromHexString(
-            "E037F13904A0307C00DB15D85CFB406BD79772D20144A949" +
-            "DEF0F3FDA78E342E747F65787CBFBFFAC94F11C369E2BBFF");
+            "5BCF366FB18D2E4361486C015DA5B41A3FB00EDF05611042CCC452120D176EB0");
 
     private static byte[] ComputeSecurityClaimDigest(byte[] claim)
     {

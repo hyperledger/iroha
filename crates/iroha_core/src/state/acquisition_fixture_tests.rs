@@ -32,10 +32,22 @@ fn genesis(
         })
         .collect::<Vec<_>>();
     let topology = Topology::new(entries.iter().map(|entry| entry.peer.clone()));
-    let mut builder =
-        GenesisBuilder::new_without_executor(ChainId::from("carrier-preparation"), ".")
-            .set_topology(entries)
-            .with_sumeragi_context_parameters(parameters);
+    let mut builder = GenesisBuilder::new_without_executor(
+        ChainId::from("carrier-preparation"),
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::sumeragi::test_chain::staking_fixture_policy(
+        iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id,
+    ))
+    .expect("explicit fixture staking author")
+    .set_topology(entries)
+    .with_sumeragi_context_parameters(parameters);
     for instruction in instructions {
         builder = builder.append_instruction(instruction.clone());
     }

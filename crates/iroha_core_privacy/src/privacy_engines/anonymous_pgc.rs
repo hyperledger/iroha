@@ -48,6 +48,21 @@ pub const MAX_PGC_BUILDING_BLOCK_PROOF_BYTES_V1: usize = 1024;
 fn fixed_pgc_decode_limits(payload_len: usize, byte_cap: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(0, payload_len, 0, byte_cap.saturating_mul(4), 8)
 }
+/// A native PGC proof read preserves the original codec or relation refusal.
+///
+/// Codec limits intrinsic to the wire remain rejection. Only an authenticated
+/// enclosing/allocator refusal carries a local retry cause; no numeric error is
+/// relabeled as unavailable capacity.
+#[derive(Debug, thiserror::Error)]
+pub enum AnonymousPgcReadError {
+    /// The original decoder or streaming canonical-authentication error.
+    #[error(transparent)]
+    Codec(#[from] norito::core::DecodeAttemptError),
+    /// A completed native structural or equation rejection.
+    #[error(transparent)]
+    Relation(#[from] AnonymousPgcError),
+}
+
 /// Fixed baby-step table bound for wallet-side 32-bit decryption.
 pub const PGC_DECRYPTION_BABY_STEP_BOUND_V1: usize = 1 << 16;
 /// Fixed giant-step search bound for wallet-side 32-bit decryption.

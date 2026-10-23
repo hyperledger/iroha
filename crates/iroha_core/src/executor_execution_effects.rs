@@ -257,11 +257,11 @@ impl StateTransaction<'_, '_> {
     }
 
     /// Admit the actual authored signed instruction set, exactly once.
-    pub(crate) fn admit_authored_execution_effects(
+    pub(crate) fn admit_authored_execution_effects<'a>(
         &mut self,
-        instructions: &[InstructionBox],
+        instructions: impl ExactSizeIterator<Item = &'a InstructionBox> + 'a,
     ) -> Result<(), ValidationFail> {
-        self.admit_execution_effect_group(instructions.iter(), false, false)
+        self.admit_execution_effect_group(instructions, false, false)
     }
 
     /// Admit an authenticated replay's actual queued instructions before applying it.

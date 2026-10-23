@@ -70,8 +70,8 @@ fn render_json<T: Write>(
     write!(writer, "  \"sumeragi_context\": ")?;
     write_json_value(writer, &normalized.sumeragi_context)?;
     writeln!(writer, ",")?;
-    write!(writer, "  \"crypto\": ")?;
-    write_json_value(writer, &normalized.crypto)?;
+    write!(writer, "  \"crypto_admission_policy\": ")?;
+    write_json_value(writer, &normalized.crypto_admission_policy)?;
     writeln!(writer, ",")?;
     writeln!(writer, "  \"transactions\": [")?;
     for (tx_idx, instructions) in normalized.transactions.iter().enumerate() {
@@ -135,13 +135,8 @@ fn render_text<T: Write>(
     )?;
     writeln!(
         writer,
-        "crypto.default_hash: {}",
-        normalized.crypto.default_hash
-    )?;
-    writeln!(
-        writer,
-        "crypto.allowed_signing: {:?}",
-        normalized.crypto.allowed_signing
+        "crypto_admission_policy.allowed_algorithms: {:?}",
+        normalized.crypto_admission_policy.allowed_algorithms()
     )?;
     for (tx_idx, instructions) in normalized.transactions.iter().enumerate() {
         writeln!(
@@ -169,7 +164,18 @@ mod tests {
     fn minimal_genesis() -> NamedTempFile {
         let genesis_file = NamedTempFile::new().expect("create temp genesis");
         let manifest = super::super::complete_test_genesis_builder(
-            GenesisBuilder::new_without_executor(ChainId::from("test-chain"), PathBuf::from(".")),
+            GenesisBuilder::new_without_executor(
+                ChainId::from("test-chain"),
+                PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
+            )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy"),
         )
         .build_raw()
         .expect("complete normalize test genesis")

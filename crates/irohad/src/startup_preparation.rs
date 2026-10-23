@@ -214,6 +214,11 @@ impl PreparedStartup {
             )
         })?;
         startup_trust_root.verify(genesis_to_verify)?;
+        require_authenticated_genesis_crypto_implementations(
+            genesis_to_verify,
+            &config.genesis.public_key,
+        )
+        .change_context(StartError::InitKura)?;
         let signed_genesis_context = Some(
             signed_genesis_context_metadata(genesis_to_verify)
                 .map_err(|error| Report::new(StartError::InitKura).attach(error))?,
@@ -486,6 +491,17 @@ impl PreparedStartup {
             );
             Some(prepared)
         };
+        // A restored/replayed policy can differ from genesis. Borrow the committed owner
+        // before participation; never filter its algorithms to this machine's backends.
+        {
+            let parameters = state.transaction_admission_parameters();
+            let policy = parameters
+                .require_crypto_policy()
+                .map_err(|message| Report::new(StartError::InitKura).attach(message))?;
+            require_crypto_verification_implementations(policy)
+                .map_err(Report::new)
+                .change_context(StartError::InitKura)?;
+        }
         // Key admission and rotation read canonical WSV parameters. Local configuration must
         // match that authority rather than overwriting it without a block.
         state

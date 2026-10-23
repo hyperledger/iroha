@@ -1008,15 +1008,18 @@ fn account_capabilities_document_exact_public_bootstrap_policy() {
         schema["properties"]["schema_version"]["const"].as_u64(),
         Some(1)
     );
-    assert_eq!(
-        schema["properties"]["default_signing"]["const"].as_str(),
-        Some("ed25519")
+    assert!(
+        schema["properties"]
+            .as_object()
+            .unwrap()
+            .get("default_signing")
+            .is_none()
     );
     assert_eq!(
         schema["properties"]["network_prefix"]["maximum"].as_u64(),
         Some(65535)
     );
-    assert_eq!(schema["required"].as_array().expect("required").len(), 5);
+    assert_eq!(schema["required"].as_array().expect("required").len(), 4);
     let node = openapi_operation(&document, "/v1/node/capabilities", "get");
     assert!(
         node["parameters"]

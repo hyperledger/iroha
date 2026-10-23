@@ -59,7 +59,17 @@ pub(crate) fn signed_genesis(scope: SumeragiRootScope) -> iroha_data_model::bloc
     iroha_genesis::GenesisBuilder::new_without_executor(
         iroha_model_base::chain::ChainId::from("root-scope-fixture"),
         ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
     )
+    .with_staking_policy(crate::sumeragi::test_chain::staking_fixture_policy(
+        fees.fee_asset_id.clone(),
+    ))
+    .expect("explicit fixture staking author")
     .set_topology(
         crate::sumeragi::test_chain::fixture_validators()
             .into_iter()

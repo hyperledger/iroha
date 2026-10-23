@@ -155,23 +155,185 @@ fn parse_present_undo<S: ValueSeed>(
     seed: &S,
     parser: &mut json::Parser<'_>,
 ) -> Result<S::Value, json::Error> {
+    parse_present_undo_with(
+        parser,
+        &mut |parser| seed.parse_parser(parser),
+        &mut OrdinaryCellKeys,
+    )
+}
+
+// Both ordinary and admitted Cell reads, plus ordinary Storage undo values,
+// use this one explicit present-value grammar. The destination only owns keys.
+fn parse_present_undo_with<'a, V, D: CellKeyDestination>(
+    parser: &mut json::Parser<'a>,
+    parse_value: &mut impl FnMut(&mut json::Parser<'a>) -> Result<V, D::Error>,
+    keys: &mut D,
+) -> Result<V, D::Error> {
     let mut map = json::MapVisitor::new(parser)?;
-    // This outer option tracks whether the required member was read. An inner
-    // optional payload may independently be None and remains a present value.
+    // The outer option records member presence independently of a nullable V.
     let mut value = None;
-    while let Some(key) = map.next_key()? {
-        match key.as_str() {
+    while let Some(key) = keys.next(&mut map)? {
+        match cell_key_text(&key)? {
             "value" => {
                 if value.is_some() {
-                    return Err(json::MapVisitor::duplicate_field("value"));
+                    return Err(cell_field_error("duplicate undo value field").into());
                 }
-                value = Some(map.parse_value_with_parser(|parser| seed.parse_parser(parser))?);
+                value = Some(map.parse_value_with_parser_typed(&mut *parse_value)?);
             }
-            other => return Err(json::MapVisitor::unknown_field(other)),
+            _ => return Err(cell_field_error("unknown undo value field").into()),
         }
     }
     map.finish()?;
-    value.ok_or_else(|| json::MapVisitor::missing_field("value"))
+    value.ok_or_else(|| cell_field_error("missing undo value field").into())
+}
+
+// Fixed schema diagnostics never allocate a copy of attacker-selected text.
+fn cell_field_error(message: &'static str) -> json::Error {
+    json::Error::WithPos {
+        msg: message,
+        byte: 0,
+        line: 1,
+        col: 1,
+    }
+}
+trait CellKeyText {
+    fn text(&self) -> Result<&str, json::Error>;
+}
+impl CellKeyText for String {
+    fn text(&self) -> Result<&str, json::Error> {
+        Ok(self.as_str())
+    }
+}
+fn cell_key_text<'a, T: CellKeyText>(key: &'a json::KeyRef<'_, T>) -> Result<&'a str, json::Error> {
+    match key {
+        json::KeyRef::Borrowed(text) => Ok(text),
+        json::KeyRef::Owned(text) => text.text(),
+    }
+}
+trait CellKeyDestination {
+    type Error: From<json::Error>;
+    type Text: CellKeyText;
+    fn next<'a>(
+        &mut self,
+        map: &mut json::MapVisitor<'a, '_>,
+    ) -> Result<Option<json::KeyRef<'a, Self::Text>>, Self::Error>;
+}
+struct OrdinaryCellKeys;
+impl CellKeyDestination for OrdinaryCellKeys {
+    type Error = json::Error;
+    type Text = String;
+    fn next<'a>(
+        &mut self,
+        map: &mut json::MapVisitor<'a, '_>,
+    ) -> Result<Option<json::KeyRef<'a>>, json::Error> {
+        map.next_key()
+    }
+}
+struct CellKeyBuffer<B>(B);
+impl<B: AsMut<[u8]>> AsMut<[u8]> for CellKeyBuffer<B> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+impl<B: AsRef<[u8]>> CellKeyText for CellKeyBuffer<B> {
+    fn text(&self) -> Result<&str, json::Error> {
+        std::str::from_utf8(self.0.as_ref()).map_err(|_| json::Error::InvalidUtf8)
+    }
+}
+struct BufferedCellKeys<F, B, E> {
+    reserve: F,
+    marker: PhantomData<fn() -> (B, E)>,
+}
+impl<F, B, E> CellKeyDestination for BufferedCellKeys<F, B, E>
+where
+    F: FnMut(usize) -> Result<B, E>,
+    B: AsMut<[u8]> + AsRef<[u8]>,
+    E: From<json::Error>,
+{
+    type Error = E;
+    type Text = CellKeyBuffer<B>;
+    fn next<'a>(
+        &mut self,
+        map: &mut json::MapVisitor<'a, '_>,
+    ) -> Result<Option<json::KeyRef<'a, Self::Text>>, E> {
+        map.next_key_with_buffer(|length| (self.reserve)(length).map(CellKeyBuffer))
+    }
+}
+
+/// Parse exact current and optional original undo values without constructing a Cell.
+///
+/// The tuple is `(current, undo)`. This is the same first-release grammar used by
+/// [`CellSeeded`]: both `blocks` and `revert` are required, and a present predecessor
+/// is exactly `{ "value": V }`, including when `V` itself is null. No payload is
+/// cloned and no untracked Cell, publication identity or EBR owner is created.
+///
+/// `reserve_key` is called only for escaped keys, after the original Norito string
+/// checks and logical decode reservation. It must return an initialized destination
+/// of exactly the requested length. Both outer and undo-wrapper keys use it.
+/// `parse_value` receives the same original parser and must consume one value.
+/// The caller retains the source, admission pool and typed value custody and funds
+/// complete Cell initialization before parsing; it may compare canonical bytes
+/// before moving these values into the admitted Cell owner.
+///
+/// # Errors
+/// Preserves original JSON and typed callback failures. Rejects missing, duplicate,
+/// unknown and retired unwrapped undo forms with allocation-free schema errors.
+/// Document completion and canonical comparison remain the enclosing caller's job.
+pub fn parse_cell_values_with<'a, V, E, B>(
+    parser: &mut json::Parser<'a>,
+    mut parse_value: impl FnMut(&mut json::Parser<'a>) -> Result<V, E>,
+    reserve_key: impl FnMut(usize) -> Result<B, E>,
+) -> Result<(V, Option<V>), E>
+where
+    E: From<json::Error>,
+    B: AsMut<[u8]> + AsRef<[u8]>,
+{
+    parse_cell_values(
+        parser,
+        &mut parse_value,
+        &mut BufferedCellKeys {
+            reserve: reserve_key,
+            marker: PhantomData,
+        },
+    )
+}
+
+fn parse_cell_values<'a, V, D: CellKeyDestination>(
+    parser: &mut json::Parser<'a>,
+    parse_value: &mut impl FnMut(&mut json::Parser<'a>) -> Result<V, D::Error>,
+    keys: &mut D,
+) -> Result<(V, Option<V>), D::Error> {
+    let mut map = json::MapVisitor::new(parser)?;
+    let mut revert = None;
+    let mut blocks = None;
+    while let Some(key) = keys.next(&mut map)? {
+        match cell_key_text(&key)? {
+            "revert" => {
+                if revert.is_some() {
+                    return Err(cell_field_error("duplicate Cell revert field").into());
+                }
+                revert = Some(map.parse_value_with_parser_typed(|parser| {
+                    parser.skip_ws();
+                    if parser.try_consume_null()? {
+                        Ok(None)
+                    } else {
+                        parse_present_undo_with(parser, parse_value, keys).map(Some)
+                    }
+                })?);
+            }
+            "blocks" => {
+                if blocks.is_some() {
+                    return Err(cell_field_error("duplicate Cell blocks field").into());
+                }
+                blocks = Some(map.parse_value_with_parser_typed(&mut *parse_value)?);
+            }
+            _ => return Err(cell_field_error("unknown Cell field").into()),
+        }
+    }
+    map.finish()?;
+    let revert = revert.ok_or_else(|| cell_field_error("missing Cell revert field"))?;
+    let blocks = blocks.ok_or_else(|| cell_field_error("missing Cell blocks field"))?;
+    Ok((blocks, revert))
 }
 
 /// Deserialize `Storage<K, V>` using custom key/value seeds.
@@ -315,39 +477,11 @@ where
         parser: &mut json::Parser<'_>,
         charges: CellAllocationCharges<Charge>,
     ) -> Result<Cell<S::Value, Charge>, json::Error> {
-        let mut map = json::MapVisitor::new(parser)?;
-        let mut revert: Option<Option<S::Value>> = None;
-        let mut blocks: Option<S::Value> = None;
-        while let Some(key) = map.next_key()? {
-            match key.as_str() {
-                "revert" => {
-                    if revert.is_some() {
-                        return Err(json::MapVisitor::duplicate_field("revert"));
-                    }
-                    revert = Some(map.parse_value_with_parser(|parser| {
-                        parser.skip_ws();
-                        if parser.try_consume_null()? {
-                            Ok(None)
-                        } else {
-                            parse_present_undo(&self.seed, parser).map(Some)
-                        }
-                    })?);
-                }
-                "blocks" => {
-                    if blocks.is_some() {
-                        return Err(json::MapVisitor::duplicate_field("blocks"));
-                    }
-                    blocks =
-                        Some(map.parse_value_with_parser(|parser| self.seed.parse_parser(parser))?);
-                }
-                other => {
-                    return Err(json::MapVisitor::unknown_field(other));
-                }
-            }
-        }
-        map.finish()?;
-        let revert = revert.ok_or_else(|| json::MapVisitor::missing_field("revert"))?;
-        let blocks = blocks.ok_or_else(|| json::MapVisitor::missing_field("blocks"))?;
+        let (blocks, revert) = parse_cell_values(
+            parser,
+            &mut |parser| self.seed.parse_parser(parser),
+            &mut OrdinaryCellKeys,
+        )?;
         Ok(Cell::from_values_charged(blocks, revert, charges))
     }
 }
@@ -535,7 +669,7 @@ where
     fn json_serialize_to(&self, out: &mut dyn JsonWriteSink) -> Result<(), BoundedJsonError> {
         let revert = self.revert.read();
         let blocks = self.blocks.read();
-        write_original_cell_to(revert.deref(), blocks.deref(), out)
+        write_cell_values_to(revert.deref(), blocks.deref(), out)
     }
 }
 impl<V, Charge> JsonSerialize for CellBlock<'_, V, Charge>
@@ -547,7 +681,7 @@ where
         write_original_cell(self.original_undo(), self.get(), out);
     }
     fn json_serialize_to(&self, out: &mut dyn JsonWriteSink) -> Result<(), BoundedJsonError> {
-        write_original_cell_to(self.original_undo(), self.get(), out)
+        write_cell_values_to(self.original_undo(), self.get(), out)
     }
 }
 impl<V, A, Charge> JsonSerialize for crate::cell::Detached<V, A, Charge>
@@ -559,7 +693,7 @@ where
         write_original_cell(self.original_undo(), self.get(), out);
     }
     fn json_serialize_to(&self, out: &mut dyn JsonWriteSink) -> Result<(), BoundedJsonError> {
-        write_original_cell_to(self.original_undo(), self.get(), out)
+        write_cell_values_to(self.original_undo(), self.get(), out)
     }
 }
 
@@ -647,7 +781,15 @@ where
     })
 }
 
-fn write_original_cell_to<V: JsonSerialize>(
+/// Write the canonical Cell snapshot directly from borrowed original values.
+///
+/// Uses the same writer as attached and detached Cells, without cloning payloads
+/// or constructing a Cell. This permits bounded canonical comparison before EBR
+/// initialization; `undo` preserves explicit presence even for a null payload.
+///
+/// # Errors
+/// Returns the original bounded sink or nested serialization failure.
+pub fn write_cell_values_to<V: JsonSerialize>(
     undo: &Option<V>,
     current: &V,
     out: &mut dyn JsonWriteSink,
@@ -727,6 +869,10 @@ fn write_blocks<K, V, M: MapMode + NodeCloning<K, V>>(
     }
     out.push('}');
 }
+#[cfg(test)]
+#[path = "json/cell_values_tests.rs"]
+mod cell_values_tests;
+
 #[cfg(test)]
 #[path = "json/strict_undo_tests.rs"]
 mod strict_undo_tests;

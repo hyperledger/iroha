@@ -30,7 +30,8 @@
 //! consumers.
 use super::{
     BgvError, BgvProfile, CiphertextShape, NoiseBound, PublicKey, SecretKey,
-    coins::{CoinPurpose, Coins, EntropySource, OsEntropy, small_residue},
+    coins::{EntropySource, OsEntropy, small_residue},
+    encryption_witness::EncryptionWitness,
     fault::{self, FaultPoint},
     poly::{RnsPoly, extend_le_bytes, words_from_le_bytes},
 };
@@ -485,25 +486,7 @@ impl PublicKey {
         plaintext: &Plaintext,
         entropy: &mut dyn EntropySource,
     ) -> Result<Ciphertext, BgvError> {
-        self.check_profile(profile)?;
-        plaintext.check_profile(profile)?;
-        let mut coins = Coins::draw(entropy)?;
-        let degree = profile.degree();
-        let eta = profile.parameters().error_eta;
-        let identity = profile.identity();
-        let mut mask = Zeroizing::new(vec![0_i64; degree]);
-        coins
-            .stream(identity, CoinPurpose::EncryptionMask, 0, 0)
-            .ternary(&mut mask);
-        let mut error0 = Zeroizing::new(vec![0_i64; degree]);
-        coins
-            .stream(identity, CoinPurpose::EncryptionError0, 0, 0)
-            .centered_binomial(eta, &mut error0);
-        let mut error1 = Zeroizing::new(vec![0_i64; degree]);
-        coins
-            .stream(identity, CoinPurpose::EncryptionError1, 0, 0)
-            .centered_binomial(eta, &mut error1);
-        self.encrypt_from_coins(profile, plaintext, &mask, &error0, &error1)
+        EncryptionWitness::sample(profile, self, plaintext, entropy)?.encrypt()
     }
 
     /// Encrypt with an explicit ternary mask and explicit errors.

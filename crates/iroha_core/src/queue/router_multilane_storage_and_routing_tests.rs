@@ -12,7 +12,7 @@ use iroha_config::{
     kura::FsyncMode,
     parameters::{
         actual::{
-            Crypto, Kura as KuraConfig, LaneConfig as LaneDerivedConfig, LaneRoutingMatcher,
+            Kura as KuraConfig, LaneConfig as LaneDerivedConfig, LaneRoutingMatcher,
             LaneRoutingPolicy, LaneRoutingRule,
         },
         defaults,
@@ -248,13 +248,16 @@ fn build_tx(
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = Crypto::default();
     AcceptedTransaction::accept(
         tx,
         &network_id,
         Duration::from_secs(30),
         params,
-        &crypto_cfg,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("transaction should be accepted")
 }

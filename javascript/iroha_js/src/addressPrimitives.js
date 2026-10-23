@@ -66,7 +66,7 @@ export function curveIdFromAlgorithm(algorithm) {
   const entry = getCurveEntryByAlgorithm(algorithm);
   if (!entry) {
     throw new AccountAddressError(
-      AccountAddressErrorCode.UNSUPPORTED_ALGORITHM,
+      AccountAddressErrorCode.UNKNOWN_ALGORITHM,
       `unsupported signing algorithm: ${algorithm}`,
       { details: { algorithm } },
     );

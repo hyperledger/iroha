@@ -25,16 +25,20 @@ fn setup_world_with_account(algo: Algorithm) -> (State, AccountId, NetworkId, Ke
     let domain = Domain::new(domain_id.clone()).build(&account_id);
     let account = Account::new(account_id.clone()).build(&account_id);
     let world = World::with([domain], [account], std::iter::empty::<AssetDefinition>());
+    {
+        let mut block = world.block();
+        let policy =
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![algo])
+                .unwrap();
+        block
+            .parameters
+            .set_parameter(policy.into_parameter().unwrap())
+            .unwrap();
+        block.commit();
+    }
     let state =
         State::new_with_chain_for_testing(world, kura, query_handle, ChainId::from("chain"));
     let network_id = *state.network_id_ref();
-    let mut crypto_cfg = iroha_config::parameters::actual::Crypto::default();
-    if !crypto_cfg.allowed_signing.contains(&algo) {
-        crypto_cfg.allowed_signing.push(algo);
-        crypto_cfg.allowed_signing.sort();
-        crypto_cfg.allowed_signing.dedup();
-    }
-    state.set_crypto(crypto_cfg);
     (state, account_id, network_id, kp)
 }
 fn checked_signature_of<T: norito::codec::Encode>(

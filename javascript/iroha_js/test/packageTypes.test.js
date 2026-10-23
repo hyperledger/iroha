@@ -17,6 +17,7 @@ const TSC = fileURLToPath(
 const PACKAGE_NAME = "@iroha/iroha-js";
 const PORTABLE_RECIPES = [
   "recipes/iso_bridge_builder.mjs",
+  "recipes/iso_bridge_context.mjs",
   "recipes/nexus_app_transfer.mjs",
 ];
 

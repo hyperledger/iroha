@@ -1794,3 +1794,29 @@ pub(crate) fn configure_future_created_autoscale_route_for_test(
     );
     (future_lane, future_dataspace)
 }
+
+/// Author the selected Ed25519/secp256k1 policy for initialized Torii fixtures.
+/// An already authored policy is preserved, including negative-test policies.
+/// Pristine-State readiness controls deliberately do not call this helper.
+#[cfg(test)]
+pub(crate) fn author_ready_fixture_crypto_policy(world: &mut iroha_core::state::World) {
+    use iroha_core::state::WorldReadOnly as _;
+    use iroha_crypto::Algorithm;
+    use iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1;
+    if world
+        .view()
+        .parameters()
+        .custom()
+        .contains_key(&CryptoAdmissionPolicyV1::parameter_id())
+    {
+        return;
+    }
+    let policy = CryptoAdmissionPolicyV1::new(vec![Algorithm::Ed25519, Algorithm::Secp256k1])
+        .expect("explicit Torii fixture signing policy");
+    let mut block = world.block();
+    block
+        .parameters
+        .set_parameter(policy.into_parameter().expect("canonical fixture policy"))
+        .expect("initialize fixture policy projection");
+    block.commit();
+}

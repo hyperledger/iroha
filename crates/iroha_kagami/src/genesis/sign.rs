@@ -1432,8 +1432,19 @@ pub mod tests {
         let key = KeyPair::try_from_seed(vec![0x7D; 32], Algorithm::Ed25519).unwrap();
         config.genesis.public_key = key.public_key().clone();
         let topology = valid_test_topology_entries(4);
-        let builder = GenesisBuilder::new_without_executor(config.common.chain.clone(), ".")
-            .set_topology_for_test(topology.clone());
+        let builder = GenesisBuilder::new_without_executor(
+            config.common.chain.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(topology.clone());
         let raw = instructions
             .into_iter()
             .fold(builder, GenesisBuilder::append_instruction)
@@ -2349,11 +2360,22 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let genesis_key_pair = KeyPair::try_from_seed(vec![0x6D; 32], Algorithm::Ed25519)
             .expect("derive deterministic genesis key");
         config.genesis.public_key = genesis_key_pair.public_key().clone();
-        let mut raw = GenesisBuilder::new_without_executor(config.common.chain.clone(), ".")
-            .set_topology_for_test(valid_test_topology_entries(4))
-            .build_raw()
-            .expect("complete staging fixture")
-            .with_consensus_mode(SumeragiConsensusMode::Permissioned);
+        let mut raw = GenesisBuilder::new_without_executor(
+            config.common.chain.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("complete staging fixture")
+        .with_consensus_mode(SumeragiConsensusMode::Permissioned);
         let mut unbound_parameters = raw.sumeragi_context_parameters();
         unbound_parameters.nexus_amx_context_hash = Hash::new(b"unbound-nexus-amx").into();
         unbound_parameters.execution_policy_hash = Hash::new(b"unbound-execution-policy").into();
@@ -2416,11 +2438,22 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let genesis_key_pair = KeyPair::try_from_seed(vec![0x6D; 32], Algorithm::Ed25519)
             .expect("derive deterministic genesis key");
         config.genesis.public_key = genesis_key_pair.public_key().clone();
-        let mut raw = GenesisBuilder::new_without_executor(config.common.chain.clone(), ".")
-            .set_topology_for_test(valid_test_topology_entries(4))
-            .build_raw()
-            .expect("complete restaging parity fixture")
-            .with_consensus_mode(SumeragiConsensusMode::Permissioned);
+        let mut raw = GenesisBuilder::new_without_executor(
+            config.common.chain.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("complete restaging parity fixture")
+        .with_consensus_mode(SumeragiConsensusMode::Permissioned);
         let mut unbound_parameters = raw.sumeragi_context_parameters();
         unbound_parameters.nexus_amx_context_hash = Hash::new(b"unbound-nexus-amx").into();
         unbound_parameters.execution_policy_hash = Hash::new(b"unbound-execution-policy").into();
@@ -3941,7 +3974,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("topology-override"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .append_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
         ))
@@ -4003,7 +4044,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("sign-direct-manifest-regression"),
             ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .append_parameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(100)))
         .append_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             NonZeroU64::new(512).expect("non-zero"),
@@ -4280,7 +4329,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             GenesisBuilder::new_without_executor(
                 ChainId::from("explicit-xor-allocation-test"),
                 PathBuf::from("."),
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    iroha_crypto::Algorithm::Ed25519,
+                    iroha_crypto::Algorithm::Secp256k1,
+                    iroha_crypto::Algorithm::BlsNormal,
+                ])
+                .expect("explicit canonical genesis producer policy"),
             )
+            .with_staking_policy(crate::genesis::test_staking_policy())
+            .expect("explicit fixture staking policy")
             .complete_for_test()
         };
         let mut registrations = BootstrapRegistrations {
@@ -4324,7 +4381,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("sccp-sign-order"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture account and validator controller policy"),
         )
+        .with_staking_policy(crate::genesis::resolve_test_staking_policy(None, true).unwrap())
+        .expect("explicit fixture staking policy")
         .append_parameter(Parameter::Custom(
             SumeragiNposParameters {
                 max_validators: 4,
@@ -5180,11 +5245,24 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
     fn peer_config_chain_must_match_manifest() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut config = checked_in_config(&root.join("defaults/nexus/config.toml"));
-        let manifest = GenesisBuilder::new_without_executor(config.common.chain.clone(), ".")
-            .set_topology_for_test(valid_test_topology_entries(4))
-            .build_raw()
-            .expect("build complete config-aligned genesis")
-            .with_chain_discriminant(*config.common.chain_discriminant.value());
+        let _author_context =
+            ChainDiscriminantGuard::enter(*config.common.chain_discriminant.value());
+        let manifest = GenesisBuilder::new_without_executor(
+            config.common.chain.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("build complete config-aligned genesis")
+        .with_chain_discriminant(*config.common.chain_discriminant.value());
         ensure_peer_config_matches_manifest(&config, &manifest)
             .expect("baseline config and manifest match");
         config.common.chain = ChainId::from("concurrently-replaced-chain");
@@ -5200,11 +5278,24 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
     fn peer_config_discriminant_must_match_manifest() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut config = checked_in_config(&root.join("defaults/nexus/config.toml"));
-        let manifest = GenesisBuilder::new_without_executor(config.common.chain.clone(), ".")
-            .set_topology_for_test(valid_test_topology_entries(4))
-            .build_raw()
-            .expect("build complete config-aligned genesis")
-            .with_chain_discriminant(*config.common.chain_discriminant.value());
+        let _author_context =
+            ChainDiscriminantGuard::enter(*config.common.chain_discriminant.value());
+        let manifest = GenesisBuilder::new_without_executor(
+            config.common.chain.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("build complete config-aligned genesis")
+        .with_chain_discriminant(*config.common.chain_discriminant.value());
         *config.common.chain_discriminant.value_mut() = manifest
             .chain_discriminant()
             .checked_add(1)
@@ -5236,14 +5327,27 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let config_path =
             fs::canonicalize(config_file.path()).expect("canonical private config path");
         let config = load_peer_config(&config_path).expect("load private policy fixture");
-        let manifest = GenesisBuilder::new_without_executor(config.common.chain.clone(), ".")
-            .set_topology_for_test(valid_test_topology_entries(4))
-            .build_raw()
-            .expect("complete policy fixture genesis")
-            .with_chain_discriminant(*config.common.chain_discriminant.value())
-            .with_consensus_mode(SumeragiConsensusMode::Permissioned)
-            .with_consensus_meta()
-            .expect("valid fixture consensus parameters");
+        let _author_context =
+            ChainDiscriminantGuard::enter(*config.common.chain_discriminant.value());
+        let manifest = GenesisBuilder::new_without_executor(
+            config.common.chain.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("complete policy fixture genesis")
+        .with_chain_discriminant(*config.common.chain_discriminant.value())
+        .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+        .with_consensus_meta()
+        .expect("valid fixture consensus parameters");
         let genesis_file = tempfile::NamedTempFile::new().expect("policy fixture genesis");
         fs::write(
             genesis_file.path(),
@@ -5308,9 +5412,12 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
     #[test]
     fn staged_manifest_registry_reenters_genesis_discriminant() {
         let discriminant = crate::genesis::profile::TAIRA_CHAIN_DISCRIMINANT;
-        let genesis = RawGenesisTransaction::from_path(minimal_genesis_file())
-            .expect("parse minimal genesis")
-            .with_chain_discriminant(discriminant);
+        let genesis = {
+            let _author_context = ChainDiscriminantGuard::enter(discriminant);
+            RawGenesisTransaction::from_path(minimal_genesis_file())
+                .expect("parse minimal genesis")
+                .with_chain_discriminant(discriminant)
+        };
         let directory = tempfile::tempdir().expect("manifest directory");
         fs::write(
             directory.path().join("governance.manifest.json"),
@@ -5363,14 +5470,24 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             .prefix("kagami-genesis-test-")
             .tempfile()
             .expect("create temp genesis file");
-        let manifest =
-            GenesisBuilder::new_without_executor(ChainId::from("test-chain"), PathBuf::from("."))
-                .set_topology_for_test(valid_test_topology_entries(4))
-                .build_raw()
-                .expect("complete minimal signing fixture")
-                .with_consensus_mode(SumeragiConsensusMode::Permissioned)
-                .with_consensus_meta()
-                .expect("valid fixture consensus parameters");
+        let manifest = GenesisBuilder::new_without_executor(
+            ChainId::from("test-chain"),
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("complete minimal signing fixture")
+        .with_consensus_mode(SumeragiConsensusMode::Permissioned)
+        .with_consensus_meta()
+        .expect("valid fixture consensus parameters");
         let genesis_json = norito::json::to_json_pretty(&manifest).expect("serialize genesis");
         fs::write(genesis_file.path(), genesis_json).expect("write genesis json");
         let (_file, path) = genesis_file.keep().expect("persist temp genesis");
@@ -5399,22 +5516,65 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             .prefix("kagami-npos-genesis-")
             .tempfile()
             .expect("create temp genesis file");
-        let manifest =
-            GenesisBuilder::new_without_executor(ChainId::from("npos-sign"), PathBuf::from("."))
-                .append_parameter(Parameter::Custom(
-                    SumeragiNposParameters::default().into_custom_parameter(),
-                ))
-                .set_topology_for_test(valid_test_topology_entries(4))
-                .build_raw()
-                .expect("complete NPoS signing fixture")
-                .with_consensus_mode(SumeragiConsensusMode::Npos)
-                .with_consensus_meta()
-                .expect("valid fixture consensus parameters");
+        let manifest = GenesisBuilder::new_without_executor(
+            ChainId::from("npos-sign"),
+            PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
+        .append_parameter(Parameter::Custom(
+            SumeragiNposParameters::default().into_custom_parameter(),
+        ))
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("complete NPoS signing fixture")
+        .with_consensus_mode(SumeragiConsensusMode::Npos)
+        .with_consensus_meta()
+        .expect("valid fixture consensus parameters");
         let manifest = with_explicit_test_xor_allocations(manifest, &valid_test_topology(4).0);
         let json = norito::json::to_json_pretty(&manifest).expect("serialize genesis manifest");
         fs::write(genesis_file.path(), json).expect("write genesis json");
         let (_file, path) = genesis_file.keep().expect("persist temp genesis");
         path
+    }
+
+    #[test]
+    fn alias_fixture_monetary_policies_share_the_original_asset_author() {
+        use iroha_data_model::block::consensus::{PublicLaneStakingPolicy, RootFeePolicy};
+
+        for path in [
+            alias_backed_npos_genesis_file(),
+            public_taira_alias_backed_npos_genesis_file(),
+            public_taira_conflicting_xor_alias_npos_genesis_file(),
+        ] {
+            let manifest = RawGenesisTransaction::from_path(path).unwrap();
+            let _author = ChainDiscriminantGuard::enter(manifest.chain_discriminant());
+            let parameters = manifest.effective_parameters().unwrap();
+            let staking = PublicLaneStakingPolicy::from_parameters(&parameters).unwrap();
+            let npos = parameters
+                .custom()
+                .get(&SumeragiNposParameters::parameter_id())
+                .map(SumeragiNposParameters::from_custom_parameter)
+                .transpose()
+                .unwrap()
+                .flatten()
+                .unwrap();
+            let fees = RootFeePolicy::from_parameters(&parameters)
+                .unwrap()
+                .unwrap();
+            let expected: AssetDefinitionId = crate::genesis::TAIRA_XOR_ASSET_DEFINITION_ID
+                .parse()
+                .unwrap();
+            assert_eq!(staking.stake_asset_id, expected);
+            assert_eq!(npos.xor_asset_definition_id, expected);
+            assert_eq!(fees.fee_asset_id, expected);
+        }
     }
     fn alias_backed_npos_genesis_file() -> PathBuf {
         let genesis_file = tempfile::Builder::new()
@@ -5425,10 +5585,25 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             .parse()
             .expect("valid canonical asset id");
         let alias: AssetDefinitionAlias = "xor#universal".parse().expect("valid alias");
+        let npos = SumeragiNposParameters {
+            xor_asset_definition_id: asset_definition_id.clone(),
+            ..Default::default()
+        };
         let manifest = GenesisBuilder::new_without_executor(
             ChainId::from("npos-sign-alias"),
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(
+            crate::genesis::resolve_test_staking_policy(Some(&asset_definition_id), false)
+                .expect("fixture policy must use its authored XOR definition"),
+        )
+        .expect("explicit fixture staking policy")
         .append_instruction(Register::asset_definition(
             AssetDefinition::new(
                 asset_definition_id.clone(),
@@ -5444,9 +5619,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             alias,
             None,
         ))
-        .append_parameter(Parameter::Custom(
-            SumeragiNposParameters::default().into_custom_parameter(),
-        ))
+        .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
         .complete_for_test()
         .build_raw()
         .expect("complete alias-backed NPoS fixture")
@@ -5459,6 +5632,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         path
     }
     fn public_taira_alias_backed_npos_genesis_file() -> PathBuf {
+        let _author_context =
+            ChainDiscriminantGuard::enter(crate::genesis::profile::TAIRA_CHAIN_DISCRIMINANT);
         let genesis_file = tempfile::Builder::new()
             .prefix("kagami-public-taira-npos-alias-genesis-")
             .tempfile()
@@ -5469,10 +5644,25 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let alias: AssetDefinitionAlias = crate::genesis::PUBLIC_XOR_ALIAS
             .parse()
             .expect("valid alias");
+        let npos = SumeragiNposParameters {
+            xor_asset_definition_id: asset_definition_id.clone(),
+            ..Default::default()
+        };
         let manifest = GenesisBuilder::new_without_executor(
             crate::genesis::profile_defaults(crate::genesis::GenesisProfile::Iroha3Taira).chain_id,
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(
+            crate::genesis::resolve_test_staking_policy(Some(&asset_definition_id), false)
+                .expect("fixture policy must use its authored XOR definition"),
+        )
+        .expect("explicit fixture staking policy")
         .append_instruction(Register::asset_definition(
             AssetDefinition::new(
                 asset_definition_id.clone(),
@@ -5488,9 +5678,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             alias,
             None,
         ))
-        .append_parameter(Parameter::Custom(
-            SumeragiNposParameters::default().into_custom_parameter(),
-        ))
+        .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
         .complete_for_test()
         .build_raw()
         .expect("complete public Taira NPoS fixture")
@@ -5504,6 +5692,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         path
     }
     fn public_nexus_npos_genesis_file_without_xor_alias() -> PathBuf {
+        let _author_context =
+            ChainDiscriminantGuard::enter(crate::genesis::profile::NEXUS_CHAIN_DISCRIMINANT);
         let genesis_file = tempfile::Builder::new()
             .prefix("kagami-public-nexus-npos-genesis-")
             .tempfile()
@@ -5511,7 +5701,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let manifest = GenesisBuilder::new_without_executor(
             crate::genesis::profile_defaults(crate::genesis::GenesisProfile::Iroha3Nexus).chain_id,
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(crate::genesis::test_staking_policy())
+        .expect("explicit fixture staking policy")
         .append_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
         ))
@@ -5528,6 +5726,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         path
     }
     fn public_taira_conflicting_xor_alias_npos_genesis_file() -> PathBuf {
+        let _author_context =
+            ChainDiscriminantGuard::enter(crate::genesis::profile::TAIRA_CHAIN_DISCRIMINANT);
         let genesis_file = tempfile::Builder::new()
             .prefix("kagami-public-taira-conflicting-xor-genesis-")
             .tempfile()
@@ -5541,10 +5741,25 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let alias: AssetDefinitionAlias = crate::genesis::PUBLIC_XOR_ALIAS
             .parse()
             .expect("valid alias");
+        let npos = SumeragiNposParameters {
+            xor_asset_definition_id: canonical_xor.clone(),
+            ..Default::default()
+        };
         let manifest = GenesisBuilder::new_without_executor(
             crate::genesis::profile_defaults(crate::genesis::GenesisProfile::Iroha3Taira).chain_id,
             PathBuf::from("."),
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
         )
+        .with_staking_policy(
+            crate::genesis::resolve_test_staking_policy(Some(&canonical_xor), false)
+                .expect("fixture policy must use its authored XOR definition"),
+        )
+        .expect("explicit fixture staking policy")
         .append_instruction(Register::asset_definition(
             AssetDefinition::new(
                 canonical_xor.clone(),
@@ -5571,9 +5786,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             None,
         ))
         .append_instruction(SetAssetDefinitionAlias::bind(wrong_xor, alias, None))
-        .append_parameter(Parameter::Custom(
-            SumeragiNposParameters::default().into_custom_parameter(),
-        ))
+        .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
         .complete_for_test()
         .build_raw()
         .expect("complete conflicting Taira XOR fixture")

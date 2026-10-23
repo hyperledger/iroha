@@ -121,13 +121,6 @@ impl FinalizedFastpqSource {
         self.witness.manifest()
     }
     /// Every original source position, including empty and rejected entries.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "TODO: connect durable complete-effect artifact admission before dispatch; retain the authenticated original witness and its admitted archive"
-        )
-    )]
     pub(crate) fn entries(&self) -> &[FastpqSourceExecutionEntryV1] {
         self.witness.source_entries()
     }
@@ -152,6 +145,17 @@ impl FinalizedFastpqSource {
         self.witness.quantity_entry(statement_index)
     }
 }
+
+// TODO(P.1): connect a production consumer of physical observations without
+// granting settlement authority or requiring optional archive admission.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "TODO(P.1): current physical-observation consumer integration remains open"
+    )
+)]
+pub(crate) mod physical_transfer;
 
 #[cfg(test)]
 mod tests;

@@ -40,6 +40,20 @@ pub fn validate(algorithm: Algorithm, payload: &[u8]) -> Result<(), Error> {
         }
         #[cfg(feature = "sm")]
         Algorithm::Sm2 => super::sm::verification::BorrowedKey::parse(payload).is_ok(),
+        #[cfg(not(feature = "bls"))]
+        Algorithm::BlsNormal | Algorithm::BlsSmall => {
+            return Err(Error::UnsupportedFeature(algorithm.as_static_str()));
+        }
+        #[cfg(not(feature = "gost"))]
+        Algorithm::Gost3410_2012_256ParamSetA
+        | Algorithm::Gost3410_2012_256ParamSetB
+        | Algorithm::Gost3410_2012_256ParamSetC
+        | Algorithm::Gost3410_2012_512ParamSetA
+        | Algorithm::Gost3410_2012_512ParamSetB => {
+            return Err(Error::UnsupportedFeature(algorithm.as_static_str()));
+        }
+        #[cfg(not(feature = "sm"))]
+        Algorithm::Sm2 => return Err(Error::UnsupportedFeature(algorithm.as_static_str())),
     };
     valid.then_some(()).ok_or_else(invalid_key)
 }
@@ -184,7 +198,8 @@ impl PublicKey {
     /// # Errors
     ///
     /// Returns a decode-resource error when the active budget or allocator
-    /// rejects the compact destination, and a fixed parse error otherwise.
+    /// rejects the compact destination, a fixed parse error for invalid encoding,
+    /// or `UnsupportedFeature` when the known algorithm lacks a local parser.
     #[doc(hidden)]
     pub fn from_bytes_for_decode(
         algorithm: Algorithm,

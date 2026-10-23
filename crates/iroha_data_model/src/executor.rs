@@ -568,11 +568,11 @@ mod tests {
         use crate::parameter::{CustomParameter, CustomParameterId};
         use core::str::FromStr as _;
         use iroha_model_base::name::Name;
-        use std::collections::{BTreeMap, BTreeSet};
+        use std::collections::BTreeSet;
         let id = CustomParameterId::new(Name::from_str("bounded").expect("valid name"));
         let parameter = CustomParameter::new(id.clone(), Json::new(vec![1_u64, 2, 3]));
         let data_model = ExecutorDataModel::new(
-            BTreeMap::from([(id, parameter)]),
+            [parameter].into_iter().collect(),
             BTreeSet::from([String::from("instruction")]),
             BTreeSet::from([String::from("permission")]),
             Json::new(norito::json!({"nested": [true, false]})),

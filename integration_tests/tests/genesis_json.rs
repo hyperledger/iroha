@@ -59,7 +59,24 @@ fn load_raw_genesis_transaction() -> RawGenesisTransaction {
 }
 fn fallback_raw_genesis_from_json() -> RawGenesisTransaction {
     let chain = iroha_test_network::chain_id();
-    let mut builder = GenesisBuilder::new_without_executor(chain, PathBuf::from("."));
+    let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    let staking = iroha_test_network::genesis_support::staking_policy(
+        fees.fee_asset_id,
+        fees.fee_sink_account_id.clone(),
+        fees.fee_sink_account_id,
+    );
+    let mut builder = GenesisBuilder::new_without_executor(
+        chain,
+        PathBuf::from("."),
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(staking)
+    .expect("explicit fixture staking policy");
     builder = builder
         .domain(DomainId::try_new("wonderland", "universal").expect("domain"))
         .account(ALICE_KEYPAIR.public_key().clone())

@@ -25,7 +25,7 @@ fn key_rejection_preserves_exact_diagnostics_and_precedence() {
             .verify(&malformed, b"")
             .unwrap_err();
         assert!(
-            matches!(error, Error::Parse(ParseError(ref text)) if text == "invalid ML-DSA public key length")
+            matches!(error, Error::Parse(ParseError::Invalid(ref text)) if text == "invalid ML-DSA public key length")
         );
     }
     let zero = [0; ML_DSA_65_PUBLIC_KEY_BYTES];
@@ -35,12 +35,12 @@ fn key_rejection_preserves_exact_diagnostics_and_precedence() {
         Err(Rejection::Key(KeyRejection::AllZero))
     );
     assert_eq!(
-        KeyRejection::AllZero.into_parse_error().0,
+        KeyRejection::AllZero.into_parse_error().to_string(),
         "invalid ML-DSA public key: all-zero material"
     );
     #[cfg(feature = "pqc")]
     assert_eq!(
-        KeyRejection::Encoding.into_parse_error().0,
+        KeyRejection::Encoding.into_parse_error().to_string(),
         "invalid ML-DSA public key"
     );
     assert!(matches!(
@@ -66,10 +66,19 @@ fn canonical_mldsa_material_borrows_original_bytes_and_never_enters_cache() {
             panic!("ML-DSA must remain borrowed")
         };
         assert!(core::ptr::eq(borrowed.as_ptr(), key.to_bytes().1.as_ptr()));
-        assert!(matches!(
-            Signature::from_bytes(&[]).verify(&key, b""),
-            Err(Error::BadSignature)
-        ));
+        let result = Signature::from_bytes(&[]).verify(&key, b"");
+        #[cfg(feature = "pqc")]
+        assert_eq!(result, Err(Error::BadSignature));
+        #[cfg(not(feature = "pqc"))]
+        assert_eq!(
+            result,
+            Err(Error::UnsupportedImplementation(
+                UnsupportedImplementation {
+                    algorithm: Algorithm::MlDsa,
+                    operation: CryptoOperation::VerifySignature,
+                }
+            ))
+        );
         assert_eq!(
             super::super::PUBLIC_KEY_FULL_CACHE.with(|cache| cache.borrow().len()),
             0
@@ -83,7 +92,7 @@ fn malformed_key_is_rejected_before_keypair_algorithm_mismatch() {
     let malformed = PublicKey(PublicKeyCompact::new(Algorithm::MlDsa, &[]));
     let error = crate::KeyPair::new(malformed, pair.private_key().clone()).unwrap_err();
     assert!(
-        matches!(error, Error::Parse(ParseError(ref text)) if text == "invalid ML-DSA public key length")
+        matches!(error, Error::Parse(ParseError::Invalid(ref text)) if text == "invalid ML-DSA public key length")
     );
 }
 
@@ -91,11 +100,29 @@ fn malformed_key_is_rejected_before_keypair_algorithm_mismatch() {
 fn signature_geometry_and_batch_errors_remain_deterministic() {
     let key = [0x51; ML_DSA_65_PUBLIC_KEY_BYTES];
     for signature in [&[][..], &[0x51][..], &[0; 3309][..], &[0x51; 3310][..]] {
-        assert_eq!(verify(&key, signature, b""), Err(Rejection::Signature));
-        assert!(matches!(
-            crate::pqc_verify_batch_deterministic(&[b""], &[signature], &[&key], [0; 32]),
-            Err(Error::BadSignature)
-        ));
+        #[cfg(feature = "pqc")]
+        {
+            assert_eq!(verify(&key, signature, b""), Err(Rejection::Signature));
+            assert_eq!(
+                crate::pqc_verify_batch_deterministic(&[b""], &[signature], &[&key], [0; 32]),
+                Err(Error::BadSignature)
+            );
+        }
+        #[cfg(not(feature = "pqc"))]
+        {
+            let original = UnsupportedImplementation {
+                algorithm: Algorithm::MlDsa,
+                operation: CryptoOperation::VerifySignature,
+            };
+            assert_eq!(
+                verify(&key, signature, b""),
+                Err(Rejection::UnsupportedImplementation(original))
+            );
+            assert_eq!(
+                crate::pqc_verify_batch_deterministic(&[b""], &[signature], &[&key], [0; 32]),
+                Err(Error::UnsupportedImplementation(original))
+            );
+        }
     }
     assert!(matches!(
         crate::pqc_verify_batch_deterministic(&[], &[], &[], [0; 32]),

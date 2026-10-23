@@ -705,14 +705,20 @@ impl NativeMusubiPinCoordinatorV1 {
         // retain it and must not expose the envelope to ordinary admission or Queue.
         let signed = slot.into_exposed_transaction()?;
         authorization.check_effect_boundary(clock, deadline)?;
-        let (drift, limits) = self.state.transaction_admission_limits();
+        let parameters = self.state.transaction_admission_parameters();
+        let admission_policy = parameters.require_crypto_policy().map_err(|_| {
+            iroha_core::execution_attempt::ExecutionDeferred::from(
+                ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable,
+            )
+        })?;
         let accepted = AcceptedTransaction::accept(
             signed,
             self.state.network_id_ref(),
-            drift,
-            limits,
-            self.state.crypto().as_ref(),
+            parameters.sumeragi().max_clock_drift(),
+            parameters.transaction(),
+            admission_policy,
         )?;
+        drop(parameters);
         // Ordinary admission can perform expensive verification. Recheck the same originals
         // after that work, immediately before the only Queue call; never replace the marker.
         authorization.check_effect_boundary(clock, deadline)?;

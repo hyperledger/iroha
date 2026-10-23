@@ -18,11 +18,22 @@ fn signed(fees: &[RootFeePolicy], scope: SumeragiRootScope) -> SignedBlock {
     let mut initial = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
     initial.base_fee = 1_u32.into();
     initial.per_gas_unit_fee = 1_u32.into();
-    let mut manifest = GenesisBuilder::new_without_executor(ChainId::from("signed-root-fees"), ".")
-        .with_sumeragi_context_parameters(context)
-        .append_parameter(Parameter::Custom(initial.into_custom_parameter().unwrap()))
-        .build_raw()
-        .unwrap();
+    let mut manifest = GenesisBuilder::new_without_executor(
+        ChainId::from("signed-root-fees"),
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+    .expect("explicit fixture staking policy")
+    .with_sumeragi_context_parameters(context)
+    .append_parameter(Parameter::Custom(initial.into_custom_parameter().unwrap()))
+    .build_raw()
+    .unwrap();
     manifest.transactions.first_mut().unwrap().topology =
         deterministic_test_genesis_topology_entries();
     let manifest = manifest.with_consensus_meta().unwrap();
@@ -116,10 +127,21 @@ fn manifest_fee_policy_uses_declared_account_context_and_restores_caller() {
     let _caller = ChainDiscriminantGuard::enter(753);
     let manifest = {
         let _author = ChainDiscriminantGuard::enter(369);
-        GenesisBuilder::new_without_executor(ChainId::from("declared-root-fee-context"), ".")
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .build_raw()
-            .expect("complete authored genesis")
+        GenesisBuilder::new_without_executor(
+            ChainId::from("declared-root-fee-context"),
+            ".",
+            CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit policy for the current genesis regression"),
+        )
+        .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+        .expect("explicit fixture staking policy")
+        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+        .build_raw()
+        .expect("complete authored genesis")
     };
     assert_eq!(manifest.chain_discriminant(), 369);
     let parameters = manifest.effective_parameters().unwrap();

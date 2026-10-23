@@ -15,10 +15,9 @@ use iroha::{
         isi::{
             Grant, InstructionBox, Mint, Register, SetParameter,
             privacy::{
-                BootstrapPrivacyPgcAccountsV1, BootstrapPrivacyProofManagedPoolV1,
-                RegisterPrivacyBootleLanternIssuerPolicyV1, RegisterPrivacyProtocolActivationV1,
-                RotatePrivacyBootleLanternIssuerPolicyV1, SubmitPrivacyProofV1,
-                TransitionPrivacyProtocolLifecycleV1,
+                BootstrapPrivacyProofManagedPoolV1, RegisterPrivacyBootleLanternIssuerPolicyV1,
+                RegisterPrivacyProtocolActivationV1, RotatePrivacyBootleLanternIssuerPolicyV1,
+                SubmitPrivacyProofV1, TransitionPrivacyProtocolLifecycleV1,
             },
         },
         parameter::{Parameter, TransactionParameter},
@@ -902,6 +901,7 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             creation_time + Duration::from_millis(1),
             201,
         );
+        let pgc_bootstrap_context = action_context(&client, genesis_hash, creation_time + Duration::from_millis(12), 212);
         let pgc_context = action_context(
             &client,
             genesis_hash,
@@ -989,18 +989,18 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             );
             let pgc = build_privacy_release_anonymous_pgc_network_action_v1(
                 pgc_context,
+                pgc_bootstrap_context.clone(),
                 pgc_asset_for_builder.clone(),
                 pgc_pool,
-                0,
                 [0x41; 32],
                 &signing_key,
             )
             .map_err(|error| eyre!("build canonical Anonymous-PGC action: {error:?}"))?;
             let pgc_replay = build_privacy_release_anonymous_pgc_network_action_v1(
                 pgc_replay_context,
+                pgc_bootstrap_context,
                 pgc_asset_for_builder,
                 pgc_pool,
-                0,
                 [0x41; 32],
                 &signing_key,
             )
@@ -1107,8 +1107,7 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             .map_err(|_| eyre!("retained exact-12 proving exceeded {PROVER_TIMEOUT:?}"))?
             .map_err(|error| eyre!("retained exact-12 prover task failed: {error}"))??;
         ensure!(
-            pgc.bootstrap == pgc_replay.bootstrap
-                && pgc.bootstrap_proof == pgc_replay.bootstrap_proof
+            pgc.bootstrap_transaction == pgc_replay.bootstrap_transaction
                 && pgc.statement.account_state_root == pgc_replay.statement.account_state_root
                 && pgc.statement.next_account_state_root
                     == pgc_replay.statement.next_account_state_root,
@@ -1217,15 +1216,9 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             "register authoritative Bootle/Lantern policy",
         )
         .await?;
-        submit_instructions(
+        submit_signed_transaction(
             &client,
-            vec![
-                BootstrapPrivacyPgcAccountsV1::new(
-                    pgc.bootstrap.clone(),
-                    pgc.bootstrap_proof.clone(),
-                )
-                .into(),
-            ],
+            &pgc.bootstrap_transaction,
             "bootstrap authoritative Anonymous-PGC account table",
         )
         .await?;

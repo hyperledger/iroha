@@ -65,6 +65,8 @@ macro_rules! schema_types {
             iroha_data_model::nexus::PrivateSettlementContextsProofV1,
             iroha_data_model::nexus::PrivateSettlementContextRequestV1,
             iroha_data_model::nexus::PrivateSettlementProofIntentV1,
+            // The one ordinary crypto policy carried by authenticated genesis and Parameters.
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1,
             // Independent private roots and body-free parent anchoring.
             iroha_data_model::block::consensus::SumeragiRootScope,
             iroha_data_model::block::consensus::RootFeePolicy,
@@ -322,6 +324,7 @@ mod tests {
     use iroha_schema::{MetaMap, Metadata};
     mod amx_approval;
     mod bond;
+    mod crypto_admission_policy;
     mod final_promotion;
     mod final_promotion_account_custody;
     mod musubi;

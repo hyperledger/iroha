@@ -20,7 +20,7 @@ pub use super::privacy_outer_hash::{PrivacyOuterDigestV1, PrivacyOuterProofFamil
 use super::privacy_outer_hash::{
     PrivacyOuterDomainPrefixV1, PrivacyOuterDomainV1, PrivacyOuterFrameV1,
 };
-use iroha_data_model::privacy::{PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1, PrivacyProtocolIdV1};
+use iroha_data_model::privacy::{PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1, PrivacyProtocolIdV1};
 use rand::TryRngCore;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -91,13 +91,13 @@ impl TransparentStarkDigestContextV1 {
     pub(crate) fn maximum_proof_bytes_v1(self) -> usize {
         iroha_data_model::privacy::TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1 as usize
     }
-    pub(crate) fn catalog_v1(self) -> [u8; 48] {
+    pub(crate) fn catalog_v1(self) -> [u8; 32] {
         exact12_catalog_commitment_bytes_v1()
     }
     /// Borrow a checked canonical domain while its catalog backing remains alive.
     pub(crate) fn domain_v1<'a>(
         self,
-        catalog: &'a [u8; 48],
+        catalog: &'a [u8; 32],
         role: &'a [u8],
         phase: &'a [u8],
         level: u64,
@@ -1478,10 +1478,8 @@ pub fn masked_trace_lde_column_v1<R: TryRngCore>(
         mask.coefficients(),
     )
 }
-fn exact12_catalog_commitment_bytes_v1() -> [u8; 48] {
-    fastpq_isi::GoldilocksDigest384V1::new(PRIVACY_EXACT12_CATALOG_COMMITMENT_WORDS_V1)
-        .expect("the pinned Exact12 catalog commitment is canonical")
-        .to_le_bytes()
+fn exact12_catalog_commitment_bytes_v1() -> [u8; 32] {
+    PRIVACY_EXACT12_CATALOG_COMMITMENT_BYTES_V1
 }
 
 /// Hash one fully typed native-STARK frame with the opaque SHA3-384 digest.

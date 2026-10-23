@@ -1,27 +1,33 @@
-//! Sequential physical gossip work with cooperative draining of the original envelope.
-use super::{RetainedGossip, TransactionGossip, TransactionGossiperStartError};
+//! Sequential gossip work retaining the original envelope through local retry.
+use super::{ExecutionDeferred, RetainedGossip, TransactionGossip, TransactionGossiperStartError};
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::RuntimeFlavor, sync::mpsc};
 
-/// One actor-owned physical step; steps never run concurrently.
-pub(super) enum Work {
-    /// Perform the next periodic queue fanout.
-    Tick,
-    /// Validate and admit one bounded incoming message.
-    Incoming(RetainedGossip<Arc<TransactionGossip>>),
+/// One actor owns periodic fanout and the borrowed original incoming attempt.
+pub(super) trait Handler: Send + 'static {
+    /// Perform periodic outgoing queue fanout.
+    fn tick(&mut self);
+    /// Complete admission or return its exact unfinished local cause.
+    fn incoming(
+        &mut self,
+        message: &RetainedGossip<Arc<TransactionGossip>>,
+    ) -> Result<(), ExecutionDeferred>;
+}
+
+/// Original source, transport owner and refusal, held without a second allocation.
+struct PendingIncoming {
+    message: RetainedGossip<Arc<TransactionGossip>>,
+    original: ExecutionDeferred,
 }
 
 /// Start on a runtime capable of handing off a blocked executor core.
-pub(super) fn start<F>(
+pub(super) fn start<H: Handler>(
     period: Duration,
     messages: mpsc::Receiver<RetainedGossip<Arc<TransactionGossip>>>,
     shutdown: ShutdownSignal,
-    handle: F,
-) -> Result<Child, TransactionGossiperStartError>
-where
-    F: FnMut(Work) + Send + 'static,
-{
+    handle: H,
+) -> Result<Child, TransactionGossiperStartError> {
     if period.is_zero() {
         return Err(TransactionGossiperStartError::ZeroPeriod);
     }
@@ -36,33 +42,54 @@ where
     ))
 }
 
-async fn run<F>(
+fn attempt<H: Handler>(
+    message: RetainedGossip<Arc<TransactionGossip>>,
+    handle: &mut H,
+) -> Option<PendingIncoming> {
+    match handle.incoming(&message) {
+        Ok(()) => None,
+        Err(original) => Some(PendingIncoming { message, original }),
+    }
+}
+
+async fn run<H: Handler>(
     period: Duration,
     mut messages: mpsc::Receiver<RetainedGossip<Arc<TransactionGossip>>>,
     shutdown: ShutdownSignal,
-    mut handle: F,
-) where
-    F: FnMut(Work),
-{
+    mut handle: H,
+) {
     let mut timer = tokio::time::interval(period);
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // This inline slot exists before the first physical attempt. A refused
+    // attempt neither allocates retry storage nor emits a transaction verdict.
+    let mut pending: Option<PendingIncoming> = None;
     loop {
-        let work = tokio::select! {
+        tokio::select! {
             biased;
             () = shutdown.receive() => break,
-            work = async {
-                tokio::select! {
-                    _ = timer.tick() => Work::Tick,
-                    Some(message) = messages.recv() => Work::Incoming(message),
-                }
-            } => work,
-        };
-        // No detached writer. The same transport credit and envelope survive physical return,
-        // then shutdown can retire the original mailbox without waiting on a future G height.
-        tokio::task::block_in_place(|| handle(work));
+            _ = timer.tick() => {
+                tokio::task::block_in_place(|| {
+                    if let Some(PendingIncoming { message, original }) = pending.take() {
+                        // Keep the old cause until the same source actually starts its
+                        // next physical attempt; no fabricated pool/release wait exists.
+                        drop(original);
+                        pending = attempt(message, &mut handle);
+                    }
+                    handle.tick();
+                });
+            }
+            Some(message) = messages.recv(), if pending.is_none() => {
+                pending = tokio::task::block_in_place(|| attempt(message, &mut handle));
+            }
+        }
         tokio::task::yield_now().await;
     }
-    iroha_logger::debug!("Shutting down transactions gossiper after draining current work");
+    // Shutdown explicitly cancels the one pending source and its original cause.
+    // The mailbox is dropped after active physical work has naturally returned.
+    drop(pending);
+    iroha_logger::debug!(
+        "Shutting down transactions gossiper after cancelling pending retry and draining current work"
+    );
 }
 
 #[cfg(test)]

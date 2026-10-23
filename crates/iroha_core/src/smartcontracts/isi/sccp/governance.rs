@@ -567,13 +567,13 @@ fn release_stranded(
         .stranded
         .checked_sub(action.amount)
         .ok_or_else(|| refuse(format_args!("only {} is stranded", route.stranded)))?;
-    let registered = match recipients::classify_account(state_transaction, action.recipient.clone())
-    {
-        SccpRecipientClassV1::Creditable { registered, .. } => registered,
-        SccpRecipientClassV1::Uncreditable { .. } | SccpRecipientClassV1::Undecodable => {
-            return Err(refuse("the recipient cannot be credited"));
-        }
-    };
+    let registered =
+        match recipients::classify_account(state_transaction, action.recipient.clone())? {
+            SccpRecipientClassV1::Creditable { registered, .. } => registered,
+            SccpRecipientClassV1::Uncreditable { .. } | SccpRecipientClassV1::Undecodable => {
+                return Err(refuse("the recipient cannot be credited"));
+            }
+        };
     if !registered {
         recipients::register_recipient(state_transaction, &action.recipient, network, None)?;
     }

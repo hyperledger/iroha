@@ -587,7 +587,14 @@ def list_repository_files(root: Path) -> list[str]:
             return sorted(name for name in set(names) if (root / name).is_file())
     names = []
     for directory, subdirectories, files in os.walk(root):
-        subdirectories[:] = sorted(name for name in subdirectories if name not in _WALK_SKIP)
+        # Evidence captures are source inputs even when their recorded paths
+        # contain build-directory names. Keep the Git and directory-walk scan
+        # contracts equal for every file under docs/validation.
+        relative = Path(directory).relative_to(root)
+        evidence_capture = relative.parts[:2] == ("docs", "validation")
+        subdirectories[:] = sorted(
+            name for name in subdirectories if evidence_capture or name not in _WALK_SKIP
+        )
         for name in files:
             names.append((Path(directory) / name).relative_to(root).as_posix())
     return sorted(names)

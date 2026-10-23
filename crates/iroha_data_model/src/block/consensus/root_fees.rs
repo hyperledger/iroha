@@ -1,13 +1,14 @@
 //! One committed monetary fee policy for Global and independent data space roots.
 
-use std::collections::BTreeSet;
+mod exemptions;
+pub use exemptions::RootFeeExemptions;
 
 use iroha_primitives::numeric::Quantity;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize,
+    DeriveJsonSerialize,
     account::AccountId,
     asset::AssetDefinitionId,
     block::consensus::SumeragiRootScope,
@@ -28,7 +29,6 @@ use crate::{
     Decode,
     IntoSchema,
     DeriveJsonSerialize,
-    DeriveJsonDeserialize,
     norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::block::consensus::RootFeePolicy")]
@@ -41,7 +41,7 @@ pub struct RootFeePolicy {
     /// Exact custody account of isolated public sponsor-program vault balances.
     pub sponsor_vault_custody_account_id: AccountId,
     /// Authorities permitted to claim public XOR without a successful-claim fee.
-    pub successful_claim_fee_exempt_authorities: BTreeSet<AccountId>,
+    pub successful_claim_fee_exempt_authorities: RootFeeExemptions,
     /// Charge applied to every ordinary transaction (positive on data space roots).
     pub base_fee: Quantity,
     /// Charge for each byte of the signed transaction payload.
@@ -50,6 +50,14 @@ pub struct RootFeePolicy {
     pub per_instruction_fee: Quantity,
     /// Multiplier applied to measured execution gas (positive on data space roots).
     pub per_gas_unit_fee: Quantity,
+}
+
+impl norito::json::JsonDeserialize for RootFeePolicy {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        super::monetary_json::decode_fees_ordinary(parser)
+    }
 }
 
 /// Why a committed root fee parameter cannot be used.
@@ -156,7 +164,7 @@ mod tests {
             ),
             fee_sink_account_id: account.clone(),
             sponsor_vault_custody_account_id: account,
-            successful_claim_fee_exempt_authorities: BTreeSet::new(),
+            successful_claim_fee_exempt_authorities: RootFeeExemptions::new(),
             base_fee: "0.01".parse().unwrap(),
             per_byte_fee: Quantity::zero(),
             per_instruction_fee: "0.002".parse().unwrap(),
@@ -201,7 +209,8 @@ mod tests {
         let mut expected = policy();
         expected
             .successful_claim_fee_exempt_authorities
-            .insert(expected.fee_sink_account_id.clone());
+            .try_insert(expected.fee_sink_account_id.clone())
+            .unwrap();
         let bytes = norito::encode_canonical(&expected).unwrap();
         assert_eq!(
             norito::decode_canonical::<RootFeePolicy>(&bytes).unwrap(),
@@ -247,7 +256,8 @@ mod tests {
                 .unwrap();
         }
         fees.successful_claim_fee_exempt_authorities
-            .insert(fees.fee_sink_account_id.clone());
+            .try_insert(fees.fee_sink_account_id.clone())
+            .unwrap();
         assert_eq!(
             fees.validate_for_scope(&private_scope()),
             Err(RootFeePolicyError::PrivateExemption)

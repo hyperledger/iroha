@@ -1608,11 +1608,11 @@ mod tests {
         assert_eq!(round.receipt.public_beacon, oracle_beacon);
         assert_eq!(
             oracle_beacon,
-            hex!("0dd63a13f73d4c478de71426fe51f51ad23d970a4697316e3d17d32e3e321819")
+            hex!("053ac797d8743d758abd9cc78987b34a4684ccf8f2f9b8c58cda209a68f28c0d")
         );
         assert_eq!(
             round.receipt.receipt_digest(),
-            hex!("d52a9d3678d91216504ab2f870b7c42c971e2508f47814f9ce601d644b71797c")
+            hex!("4084283cdd0195d2f1495c7dd69dbeefc655f09b8cc067d0a1892490d570933e")
         );
         eprintln!(
             "freshness public beacon KAT: {}",

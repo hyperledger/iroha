@@ -416,9 +416,10 @@ impl<'a> norito::core::DecodeFromSlice<'a> for Hash {
 impl FromStr for Hash {
     type Err = ParseError;
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let hash = decode_hash_hex(key).map_err(|error| ParseError(error.to_string()))?;
-        Hash::from_marked_bytes(hash)
-            .ok_or_else(|| ParseError("expect least significant bit of hash to be 1".to_owned()))
+        let hash = decode_hash_hex(key).map_err(|error| ParseError::Invalid(error.to_string()))?;
+        Hash::from_marked_bytes(hash).ok_or_else(|| {
+            ParseError::Invalid("expect least significant bit of hash to be 1".to_owned())
+        })
     }
 }
 impl IntoSchema for Hash {

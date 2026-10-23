@@ -774,8 +774,22 @@ fn private_genesis(
     let domain = DomainId::parse_fully_qualified(&format!("app.{}", spec.dataspace_alias))?;
     let mut context = SumeragiGenesisContextParameters::recommended();
     context.root_scope = spec.scope();
-    let mut builder = GenesisBuilder::new_without_executor(chain.parse()?, PathBuf::from("."))
-        .with_sumeragi_context_parameters(context);
+    let mut builder = GenesisBuilder::new_without_executor(
+        chain.parse()?,
+        PathBuf::from("."),
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::genesis::default_staking_policy(
+        private_fee_asset(spec)?,
+        gas.clone(),
+        gas.clone(),
+    ))?
+    .with_sumeragi_context_parameters(context);
     let mut parameters = Parameters::default();
     parameters.set_parameter(localnet_gas_custody_parameter(gas));
     parameters.set_parameter(Parameter::Custom(
@@ -891,7 +905,7 @@ fn private_genesis(
         SumeragiConsensusMode::Permissioned,
     )?;
     let genesis = append_peer_pop(genesis, peers)?;
-    apply_localnet_crypto_overrides(genesis)?.with_consensus_meta()
+    validate_localnet_crypto_policy(genesis)?.with_consensus_meta()
 }
 
 #[cfg(test)]
@@ -937,6 +951,59 @@ mod tests {
         wrong = spec;
         wrong.dataspace_id = DataSpaceId::UNIVERSAL;
         assert!(wrong.validate().is_err());
+    }
+
+    #[test]
+    fn private_genesis_authors_local_staking_once_without_public_currency() {
+        let _author = ChainDiscriminantGuard::enter(753);
+        let spec = spec();
+        let signer =
+            iroha_crypto::KeyPair::from_seed(vec![0x6d; 32], iroha_crypto::Algorithm::Ed25519);
+        let owner = AccountId::new(signer.public_key().clone());
+        let gas = localnet_gas_account_id(signer.public_key());
+        let peers = build_peers(4, Some(b"private-staking-policy"), 12000, 13000).unwrap();
+        let manifest = private_genesis(
+            &spec,
+            "private-staking-policy",
+            signer.public_key(),
+            &owner,
+            &gas,
+            &peers,
+        )
+        .unwrap();
+        let expected = crate::genesis::default_staking_policy(
+            private_fee_asset(&spec).unwrap(),
+            gas.clone(),
+            gas,
+        );
+        let parameters = manifest.effective_parameters().unwrap();
+        let actual = iroha_data_model::block::consensus::PublicLaneStakingPolicy::from_parameters(
+            &parameters,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(
+            manifest.sumeragi_context_parameters().root_scope,
+            spec.scope()
+        );
+        assert_eq!(manifest.chain_discriminant(), 753);
+        assert_ne!(
+            actual.stake_asset_id,
+            iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+                .parse::<AssetDefinitionId>()
+                .unwrap(),
+        );
+        let duplicate = manifest
+            .into_builder()
+            .with_staking_policy(actual)
+            .unwrap()
+            .build_raw()
+            .unwrap_err();
+        assert!(duplicate.to_string().contains("staking"));
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            753
+        );
     }
 
     #[test]
@@ -1211,6 +1278,18 @@ mod tests {
         );
         let (projected, fees) = {
             let _child_profile = ChainDiscriminantGuard::enter(manifest.chain_discriminant());
+            assert_eq!(
+                iroha_data_model::block::consensus::PublicLaneStakingPolicy::from_parameters(
+                    &manifest.effective_parameters().unwrap(),
+                )
+                .unwrap(),
+                crate::genesis::default_staking_policy(
+                    private_fee_asset(&spec).unwrap(),
+                    localnet_gas_account_id(client.key_pair.public_key()),
+                    localnet_gas_account_id(client.key_pair.public_key()),
+                ),
+                "signed private staking retains its local asset and original custody",
+            );
             (
                 iroha_core::state::StateParameters::try_from(
                     manifest.effective_parameters().unwrap(),

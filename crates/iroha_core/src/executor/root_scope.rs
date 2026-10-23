@@ -8,8 +8,8 @@ use iroha_data_model::{
 use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
 
 use crate::{
-    state::{RootScopeDecodeRefusal, StateReadOnly, StateStorageAdmissionError, StateTransaction},
-    sumeragi::lanes::routing::read_committed_root_scope,
+    state::{StateReadOnly, StateStorageAdmissionError, StateTransaction},
+    sumeragi::lanes::routing::read_routing_root_scope,
 };
 
 /// Read execution authority from the original genesis capability or immutable committed metadata.
@@ -27,46 +27,26 @@ pub(crate) fn execution_root_scope(
             "genesis instruction execution requires its authenticated source capability",
         ));
     }
-    match read_committed_root_scope(&state.world) {
+    match read_routing_root_scope(&state.world) {
         Ok(Some(scope)) => Ok(scope),
         Ok(None) => Err(denied(
             "instruction execution requires immutable root scope",
         )),
-        Err(error) => {
-            let refusal = match error {
-                norito::json::Error::DecodeResourceLimit
-                | norito::json::Error::DecodeResource(
-                    norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
-                ) => RootScopeDecodeRefusal::Budget,
-                norito::json::Error::AllocationFailed
-                | norito::json::Error::DecodeResource(
-                    norito::core::DecodeResourceError::AllocationFailed { .. },
-                ) => RootScopeDecodeRefusal::Allocator,
-                // Intrinsic malformed/depth errors are not a local retry policy.
-                _ => {
-                    return Err(denied(
-                        "instruction execution requires immutable root scope",
-                    ));
-                }
-            };
+        Err(refusal) => {
             if cfg!(all(test, sumeragi_core_mutation = "HC27")) {
                 return Err(ValidationFail::InternalError(
                     "local execution-root read did not complete".into(),
                 ));
             }
-            state.arm_local_storage_refusal(StateStorageAdmissionError::RootScopeDecode(refusal));
-            Err(state.defer_execution(match refusal {
-                RootScopeDecodeRefusal::Budget => {
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                }
-                RootScopeDecodeRefusal::Allocator => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable
-                }
-            }))
+            // The canonical root reader returns only original decoder refusals.
+            // Retain its opaque scope and exact resource values in both existing
+            // non-wire latches; never reconstruct a cause from its reason.
+            let original = refusal
+                .decode_refusal()
+                .expect("canonical root reader retains its original decoder refusal")
+                .clone();
+            state.arm_local_storage_refusal(StateStorageAdmissionError::RootScopeDecode(original));
+            Err(state.defer_execution(refusal))
         }
     }
 }
@@ -146,25 +126,10 @@ pub(crate) fn ensure_committed_contract_scope(
     address: &iroha_data_model::smart_contract::ContractAddress,
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     use crate::execution_attempt::ExecutionAttemptError;
-    let scope = match read_committed_root_scope(world) {
+    let scope = match read_routing_root_scope(world) {
         Ok(Some(scope)) => scope,
-        Err(error) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
-            let reason = match error {
-                norito::json::Error::DecodeResourceLimit
-                | norito::json::Error::DecodeResource(
-                    norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
-                ) => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
-                norito::json::Error::AllocationFailed
-                | norito::json::Error::DecodeResource(
-                    norito::core::DecodeResourceError::AllocationFailed { .. },
-                ) => ivm::error::ExecutionDeferral::AllocationUnavailable,
-                _ => return Err(denied("contract execution requires immutable root scope").into()),
-            };
-            return Err(ExecutionAttemptError::Deferred(reason.into()));
+        Err(refusal) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
+            return Err(ExecutionAttemptError::Deferred(refusal));
         }
         Ok(None) | Err(_) => {
             return Err(denied("contract execution requires immutable root scope").into());
@@ -180,9 +145,9 @@ pub(crate) fn ensure_committed_artifact_scope(
     artifact: &iroha_data_model::smart_contract::ContractArtifactId,
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     use crate::execution_attempt::ExecutionAttemptError;
-    let scope = match crate::sumeragi::lanes::routing::read_routing_root_scope(world) {
+    let scope = match read_routing_root_scope(world) {
         Ok(Some(scope)) => scope,
-        Err(original)
+        Err(refusal)
             if !cfg!(all(
                 test,
                 any(
@@ -191,7 +156,7 @@ pub(crate) fn ensure_committed_artifact_scope(
                 )
             )) =>
         {
-            return Err(ExecutionAttemptError::Deferred(original));
+            return Err(ExecutionAttemptError::Deferred(refusal));
         }
         Ok(None) | Err(_) => {
             return Err(denied("artifact access requires immutable root scope").into());

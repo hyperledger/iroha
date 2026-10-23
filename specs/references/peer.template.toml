@@ -278,15 +278,14 @@ expected_hash_file = "genesis.expected_hash"
 # feature_bits = 0b11
 
 [crypto]
-# Toggle Chinese SM2/SM3/SM4 support (verification only unless admission is configured for SM signatures).
-# Default hash algorithm fall-back when callers omit one (switch to `sm3-256` alongside SM rollouts).
+# Local generation defaults and implementation choices; no admission authority.
 # default_hash = "blake2b-256"
-# Signing algorithms permitted during transaction admission (must include `ed25519`; append `sm2` once enabled).
-# allowed_signing = ["ed25519"]
-# Default SM2 distinguishing identifier when clients omit `distid`. The node seeds
-# `Sm2PublicKey::default_distid()` with this value during startup, so adjustments take
-# effect before any transactions execute; update it to match your PKI profile.
 # sm2_distid_default = "1234567812345678"
+# The IVM omitted SM2 DistID operand uses the fixed protocol constant.
+# sm_intrinsics = "auto"
+# enable_sm_openssl_preview = false
+# Signed genesis must author exactly one explicit crypto_admission_policy_v1.
+# That committed algorithm set governs every ordinary signature/controller family.
 
 ## Hardware acceleration (optional; defaults enable all available backends)
 ## These settings do not change outputs; they only affect performance by allowing

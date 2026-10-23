@@ -447,7 +447,7 @@ seiyaku OwnerPermission { permission write; permission touch_caller;
             .unwrap()
     );
     let denied = super::Executor::Initial
-        .execute_transaction(&mut tx, &authority, call.clone(), &mut cache)
+        .execute_transaction(&mut tx, &authority, &call, &mut cache)
         .expect_err("ownership alone must not authorize invocation");
     assert!(
         denied
@@ -469,14 +469,14 @@ seiyaku OwnerPermission { permission write; permission touch_caller;
     tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     super::Executor::Initial
-        .execute_transaction(&mut tx, &authority, grant, &mut cache)
+        .execute_transaction(&mut tx, &authority, &grant, &mut cache)
         .expect("ordinary owner self-grant executes without global permission");
     tx.apply();
     let mut tx = block.transaction_for_fastpq_testing(Hash::from(call.hash_as_entrypoint()));
     tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     super::Executor::Initial
-        .execute_transaction(&mut tx, &authority, call.clone(), &mut cache)
+        .execute_transaction(&mut tx, &authority, &call, &mut cache)
         .expect("exact self-grant authorizes guarded mutable call");
     let state_key: StatePath = format!(
         "sc/{}/owner_authorized",
@@ -526,7 +526,7 @@ seiyaku OwnerPermission { permission write; permission touch_caller;
     tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     let denied = super::Executor::Initial
-        .execute_transaction(&mut tx, &authority, forbidden_body, &mut cache)
+        .execute_transaction(&mut tx, &authority, &forbidden_body, &mut cache)
         .expect_err("scoped invocation does not grant caller metadata authority");
     assert!(
         denied
@@ -548,7 +548,7 @@ seiyaku OwnerPermission { permission write; permission touch_caller;
     tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     assert!(
         super::Executor::Initial
-            .execute_transaction(&mut tx, &authority, call, &mut cache)
+            .execute_transaction(&mut tx, &authority, &call, &mut cache)
             .is_err()
     );
     assert!(

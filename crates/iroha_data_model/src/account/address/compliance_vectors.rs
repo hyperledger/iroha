@@ -269,7 +269,6 @@ fn policy_error_to_string(err: MultisigPolicyError) -> &'static str {
         MultisigPolicyError::DuplicateMember => "DuplicateMember",
         MultisigPolicyError::ThresholdExceedsTotal { .. } => "ThresholdExceedsTotal",
         MultisigPolicyError::UnsupportedVersion(_) => "UnsupportedVersion",
-        MultisigPolicyError::UnsupportedCurve(_) => "UnsupportedCurve",
         MultisigPolicyError::MalformedPublicKey => "MalformedPublicKey",
     }
 }

@@ -266,7 +266,10 @@ mod tests {
         let state = State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test());
         if !with_policy {
             let mut parameters = state.world.parameters.block();
-            parameters.remove_custom_parameter(&RootFeePolicy::parameter_id());
+            parameters
+                .remove_custom_parameter(&RootFeePolicy::parameter_id())
+                .expect("root fee policy removal is permitted")
+                .expect("fixture authors the removed root fee policy");
             parameters.commit();
         }
         (state, ds, asset)
@@ -300,7 +303,9 @@ mod tests {
         tx.world
             .parameters
             .get_mut()
-            .remove_custom_parameter(&RootFeePolicy::parameter_id());
+            .remove_custom_parameter(&RootFeePolicy::parameter_id())
+            .expect("root fee policy removal is permitted")
+            .expect("fixture authors the removed root fee policy");
         assert!(sponsor_vault_custody(&tx).is_err());
         assert_eq!(tx.nexus.fees, frozen);
     }

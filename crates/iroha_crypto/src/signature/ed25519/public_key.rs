@@ -17,7 +17,7 @@ impl KeyRejection {
     pub(crate) fn into_parse_error(self) -> ParseError {
         let message = match self {
             Self::Length(length) => {
-                return ParseError(format!(
+                return ParseError::Invalid(format!(
                     "the payload size is incorrect: expected 32, but got {length}"
                 ));
             }
@@ -27,7 +27,7 @@ impl KeyRejection {
             Self::SmallOrder => "ed25519 public key is small-order (weak); rejected",
             Self::Torsion => "ed25519 public key is outside the prime-order subgroup; rejected",
         };
-        ParseError(message.to_owned())
+        ParseError::Invalid(message.to_owned())
     }
 }
 

@@ -113,7 +113,6 @@ fn adversarial_transactions_rejected_without_state_mutation() {
         .sumeragi()
         .max_clock_drift();
     let tx_params = state.view().world().parameters().transaction();
-    let crypto = state.crypto.read().clone();
     let mut state_block = state.block(BlockHeader::new(
         NonZeroU64::new(chain.height() + 1).expect("successor height"),
         state.view().latest_block_hash(),
@@ -144,7 +143,11 @@ fn adversarial_transactions_rejected_without_state_mutation() {
         &network_id,
         max_clock_drift,
         tx_params,
-        crypto.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("admission should pass for forged transfer");
     let missing_burn = TransactionBuilder::new(
@@ -159,7 +162,11 @@ fn adversarial_transactions_rejected_without_state_mutation() {
         &network_id,
         max_clock_drift,
         tx_params,
-        crypto.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("admission should pass for missing-asset burn");
     let valid_transfer = TransactionBuilder::new(
@@ -178,7 +185,11 @@ fn adversarial_transactions_rejected_without_state_mutation() {
         &network_id,
         max_clock_drift,
         tx_params,
-        crypto.as_ref(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .expect("admission should pass for valid transfer");
     let forged_result = iroha_core::tx::execute_component_transaction_for_testing(

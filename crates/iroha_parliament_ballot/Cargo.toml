@@ -26,7 +26,7 @@ sha3 = { version = "0.10.8", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 # Structural block construction for genuine-ballot wire/result roundtrip tests.
-iroha_data_model = { workspace = true, features = ["transparent_api"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api"] }
 # Explicit native stack, arena mapping and shared fatal page of the diagnostic example.
 libc = "0.2.177"
 # The fixture generator diagnoses its deliberately late-invalid proof through the backend.

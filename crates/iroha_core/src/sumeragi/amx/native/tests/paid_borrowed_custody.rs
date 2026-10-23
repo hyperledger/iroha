@@ -402,12 +402,15 @@ fn paid_original_relay() -> (Roots, AcceptedTransaction<'static>, ProofPointers,
     let (_, clock) = TimeSource::new_mock(Duration::from_millis(5_000));
     let accepted = {
         let view = roots.global.state().view();
+        let parameters = view.world().transaction_admission_parameters();
         AcceptedTransaction::accept_with_time_source(
             signed,
             &roots.global.network_id(),
             Duration::from_secs(1),
-            view.world().parameters().transaction(),
-            &view.crypto(),
+            parameters.transaction(),
+            parameters
+                .require_crypto_policy()
+                .expect("original fixture policy"),
             &clock,
         )
         .expect("ordinary original network/signature/TTL/NTS transaction admission")
@@ -451,20 +454,24 @@ fn native_amx_persisted_paid_borrowed_prepared_proof_clone_retains_original_grap
         let original_hash = accepted.hash_as_entrypoint();
         let entrypoint = accepted.into_entrypoint();
         let source_pointer = std::ptr::from_ref(&entrypoint);
-        let borrowed =
-            {
-                let view = roots.global.state().view();
-                AcceptedTransaction::accept_borrowed_entrypoint_at_time(
-            &entrypoint,
-            &roots.global.network_id(),
-            Duration::from_secs(1),
-            view.world().parameters().transaction(),
-            &view.crypto(),
-            Duration::from_millis(5_000),
-            false,
-        )
-        .expect("the original paid source passes actual borrowed envelope/signature/TTL admission")
-            };
+        let borrowed = {
+            let view = roots.global.state().view();
+            let parameters = view.world().transaction_admission_parameters();
+            AcceptedTransaction::accept_borrowed_entrypoint_at_time(
+                &entrypoint,
+                &roots.global.network_id(),
+                Duration::from_secs(1),
+                parameters.transaction(),
+                parameters
+                    .require_crypto_policy()
+                    .expect("original fixture policy"),
+                Duration::from_millis(5_000),
+                false,
+            )
+            .expect(
+                "the original paid source passes actual borrowed envelope/signature/TTL admission",
+            )
+        };
         assert_eq!(std::ptr::from_ref(borrowed.entrypoint()), source_pointer);
         assert_eq!(proof_pointers(retained_relay(&borrowed)), original);
         assert_eq!(borrowed.hash_as_entrypoint(), original_hash);
@@ -514,12 +521,13 @@ fn native_amx_persisted_paid_borrowed_prepared_proof_clone_retains_original_grap
         drop(clone);
         let owned = {
             let view = roots.global.state().view();
+            let parameters = view.world().transaction_admission_parameters();
             AcceptedTransaction::accept_entrypoint_at_time(
             entrypoint,
             &roots.global.network_id(),
             Duration::from_secs(1),
-            view.world().parameters().transaction(),
-            &view.crypto(),
+            parameters.transaction(),
+            parameters.require_crypto_policy().expect("original fixture policy"),
             Duration::from_millis(5_000),
         )
         .expect(

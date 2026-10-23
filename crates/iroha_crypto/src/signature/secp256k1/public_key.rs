@@ -14,11 +14,11 @@ impl KeyRejection {
     pub(crate) fn into_parse_error(self) -> ParseError {
         match self {
             Self::AllZero => {
-                ParseError("secp256k1 public key material must not be all zero".to_owned())
+                ParseError::Invalid("secp256k1 public key material must not be all zero".to_owned())
             }
-            Self::Encoding(error) => ParseError(error.to_string()),
+            Self::Encoding(error) => ParseError::Invalid(error.to_string()),
             Self::NonCanonical => {
-                ParseError("non-canonical secp256k1 public key encoding".to_owned())
+                ParseError::Invalid("non-canonical secp256k1 public key encoding".to_owned())
             }
         }
     }

@@ -12,7 +12,14 @@ fn network() -> NetworkId {
 }
 
 fn capabilities() -> AccountCapabilitiesV1 {
-    AccountCapabilitiesV1::from_admission(network(), 369, &[Algorithm::Ed25519]).unwrap()
+    AccountCapabilitiesV1::from_policy(
+        network(),
+        369,
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+        ])
+        .unwrap(),
+    )
 }
 
 #[derive(Debug)]
@@ -150,7 +157,9 @@ fn rejects_unusable_or_noncanonical_signing_policy() {
     bad.network_prefix = 0;
     assert!(validate_capabilities(&bad).is_err());
     let mut bad = valid.clone();
-    bad.default_signing = "secp256k1".into();
+    bad.allowed_signing = vec!["secp256k1".into()];
+    validate_capabilities(&bad).expect("explicit policy need not admit Ed25519");
+    bad.allowed_signing = vec!["secp256k1".into(), "ed25519".into()];
     assert!(validate_capabilities(&bad).is_err());
     let mut bad = valid.clone();
     bad.allowed_signing.clear();
@@ -411,4 +420,17 @@ async fn faucet_discovery_requires_exact_canonical_v1_fields() {
         .unwrap()
         .insert("schema_version".to_owned(), Value::from(2_u64));
     assert!(discover(&invalid).await.is_err());
+}
+
+#[test]
+fn capabilities_accept_every_canonical_identity_in_tag_order_without_backend_filtering() {
+    let policy = iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(
+        Algorithm::ALL.to_vec(),
+    )
+    .unwrap();
+    let capability = AccountCapabilitiesV1::from_policy(network(), 369, &policy);
+    validate_capabilities(&capability).unwrap();
+    let mut noncanonical = capability;
+    noncanonical.allowed_signing.sort();
+    assert!(validate_capabilities(&noncanonical).is_err());
 }

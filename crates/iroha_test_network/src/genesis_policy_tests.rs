@@ -46,7 +46,7 @@ fn fixture_with_instructions(
         entries,
         SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
         config::chain_id(),
-        None,
+        config::test_network_crypto_admission_policy(),
         None,
         None,
         None,
@@ -54,6 +54,7 @@ fn fixture_with_instructions(
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
         None,
+        default_test_network_staking_policy(),
     )
 }
 

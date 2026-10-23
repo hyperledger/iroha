@@ -36,6 +36,27 @@ class PrivacyCapabilitiesV1Test {
     private val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
 
     @Test
+    fun catalogOwnerPinsRaw32AndRetainsIndependentBytes() {
+        val canonical = "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0".chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val source = canonical.copyOf()
+        val owner = PrivacyExact12CatalogCommitmentV1(source)
+        source[0] = 0
+        val exported = owner.bytes()
+        exported[31] = 0
+        assertTrue(owner.bytes().contentEquals(canonical))
+        assertEquals(32, owner.bytes().size)
+        val hostile = listOf(
+            canonical.copyOf(31), canonical + byteArrayOf(0), canonical.copyOf(48),
+            "e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff".chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+        ) + canonical.indices.map { index ->
+            canonical.copyOf().also { it[index] = (it[index].toInt() xor 1).toByte() }
+        }
+        for (bytes in hostile) {
+            assertFailsWith<IllegalArgumentException> { PrivacyExact12CatalogCommitmentV1(bytes) }
+        }
+    }
+
+    @Test
     fun configuredClientUsesExactNoritoRouteAndRejectsLegacySnapshot() {
         val response = TransportResponse.builder()
             .setStatusCode(200)

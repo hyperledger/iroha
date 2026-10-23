@@ -162,6 +162,9 @@ fn approval_read_future_keeps_authenticated_cuts_off_the_stack() {
 }
 
 async fn assert_amx_approval_async_read(base: &str, route_prefix: &str) {
+    use iroha_torii_shared::amx_approval_read::{
+        AmxApprovalReadFailureV1, AmxApprovalReadReasonV1,
+    };
     // The entire configured URL is a provider directory. A literal terminal `v1`
     // belongs to that directory and cannot be removed from the signed target.
     let mut client = client_with_base_url(base.parse().unwrap());
@@ -234,9 +237,6 @@ async fn assert_amx_approval_async_read(base: &str, route_prefix: &str) {
 
     // A non-success observation is never a successful proof. Only its exact
     // request-bound classification can allow the caller to schedule another read.
-    use iroha_torii_shared::amx_approval_read::{
-        AmxApprovalReadFailureV1, AmxApprovalReadReasonV1,
-    };
     for reason in [
         AmxApprovalReadReasonV1::CutChanged,
         AmxApprovalReadReasonV1::Capacity,
@@ -250,7 +250,7 @@ async fn assert_amx_approval_async_read(base: &str, route_prefix: &str) {
         )
         .unwrap();
         for corrupt_binding in [false, true] {
-            let mut sent = failure.clone();
+            let mut sent = failure;
             if corrupt_binding {
                 sent.requested_height += 1;
             }

@@ -2164,8 +2164,8 @@ fn encrypted_sparse_equations_6_7_and_9_11_match_independent_two_party_scalar_or
     assert_eq!(
         kat_digest,
         [
-            86, 24, 103, 190, 161, 236, 131, 110, 113, 93, 98, 108, 202, 60, 80, 241, 15, 3, 33,
-            157, 107, 124, 136, 39, 251, 96, 88, 180, 76, 161, 161, 81,
+            242, 127, 136, 118, 107, 156, 76, 92, 2, 149, 119, 90, 133, 150, 128, 21, 98, 6, 195,
+            35, 201, 86, 90, 199, 150, 248, 159, 46, 227, 19, 172, 186,
         ],
         "the independently checked two-party encrypted Phase-II/III KAT drifted"
     );

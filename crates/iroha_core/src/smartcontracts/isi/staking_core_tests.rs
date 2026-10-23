@@ -58,7 +58,8 @@ fn new_block_with_height_and_time(
     .unpack(|_| {})
 }
 
-fn setup_state() -> State {
+// Construct original business rows and routing inputs before any policy is installed.
+fn staking_fixture_world_and_nexus() -> (World, iroha_config::parameters::actual::Nexus) {
     let mut nexus = iroha_config::parameters::actual::Nexus {
         ..Default::default()
     };
@@ -81,15 +82,58 @@ fn setup_state() -> State {
             .collect(),
     )
     .expect("staking test dataspace catalog should match its lanes");
+    // Signed-genesis preparation reapplies this original configuration after
+    // constructing State, so its immutable baselines must already be complete.
+    nexus.lane_config =
+        iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
+    nexus.configured_lane_catalog = nexus.lane_catalog.clone();
+    nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
     let world = World::with([], [Account::new(ALICE_ID.clone()).build(&ALICE_ID)], []);
+    (world, nexus)
+}
+
+fn setup_state() -> State {
+    let (world, nexus) = staking_fixture_world_and_nexus();
     let mut parameters = world.parameters.block();
     parameters
         .set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
         ))
         .expect("valid fixture parameters");
+    // Ordinary account creation requires an explicit fixture-owned policy.
+    // Authoring this value grants no signed-genesis or publication capability.
+    parameters
+        .set_parameter(
+            crate::sumeragi::test_chain::crypto_fixture_policy()
+                .into_parameter()
+                .expect("canonical fixture crypto policy"),
+        )
+        .expect("install the component's original crypto policy");
+    // Explicit component policy. This author grants no signed-genesis authority.
+    parameters
+        .set_parameter(Parameter::Custom(
+            committed_staking_fixture_policy()
+                .into_custom_parameter()
+                .expect("valid fixture monetary policy"),
+        ))
+        .expect("install the component's original monetary policy");
     parameters.commit();
     State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test())
+}
+#[test]
+fn staking_component_fixture_owns_crypto_without_committed_genesis() {
+    let state = setup_state();
+    assert_eq!(state.committed_height(), 0);
+    assert_eq!(state.kura().blocks_count(), 0);
+    assert_eq!(
+        state
+            .view()
+            .world()
+            .parameters()
+            .require_crypto_policy()
+            .unwrap(),
+        &crate::sumeragi::test_chain::crypto_fixture_policy(),
+    );
 }
 pub(crate) fn staking_test_lane_catalog() -> LaneCatalog {
     // Each fixture lane represents a distinct staking authority. Provision only
@@ -242,27 +286,27 @@ fn clear_consensus_keys_for_peer(
         }
     }
 }
-fn set_epoch_length(state: &mut State, epoch_length_blocks: u64) {
+fn staking_fixture_npos_policy(epoch_length_blocks: u64) -> SumeragiNposParameters {
     assert!(
         epoch_length_blocks >= 3,
         "signed NPoS fixtures need disjoint commit/reveal windows before the epoch cutoff"
     );
-    let mut wb = state.world.block();
-    {
-        let params = wb.parameters.get_mut();
-        params
-            .set_parameter(Parameter::Custom(
-                SumeragiNposParameters {
-                    epoch_length_blocks: NonZeroU64::new(epoch_length_blocks)
-                        .expect("staking test epoch length must be non-zero"),
-                    evidence_horizon_blocks: 1,
-                    slashing_delay_blocks: 1,
-                    ..SumeragiNposParameters::default()
-                }
-                .into_custom_parameter(),
-            ))
-            .expect("valid fixture parameters");
+    SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(epoch_length_blocks)
+            .expect("staking test epoch length must be non-zero"),
+        evidence_horizon_blocks: 1,
+        slashing_delay_blocks: 1,
+        ..SumeragiNposParameters::default()
     }
+}
+fn set_epoch_length(state: &mut State, epoch_length_blocks: u64) {
+    let mut wb = state.world.block();
+    wb.parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            staking_fixture_npos_policy(epoch_length_blocks).into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     wb.commit();
 }
 fn set_test_npos_penalty_windows(
@@ -537,7 +581,8 @@ fn genesis_monetary_context_requires_initial_height_and_exact_expiry() {
     stx.world
         .parameters
         .get_mut()
-        .remove_custom_parameter(&SumeragiNposParameters::parameter_id());
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id())
+        .expect("optional fixture parameter removal");
     assert!(
         stx.world
             .sumeragi_npos_parameters()
@@ -609,6 +654,7 @@ fn genesis_staking_requires_committed_xor_and_preserves_exact_transfer_and_custo
         .parameters
         .get_mut()
         .remove_custom_parameter(&SumeragiNposParameters::parameter_id())
+        .expect("optional fixture parameter removal")
         .expect("fixture pins the actual network XOR definition");
     assert!(
         stx.world

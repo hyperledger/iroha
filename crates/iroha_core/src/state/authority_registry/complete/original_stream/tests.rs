@@ -554,6 +554,19 @@ fn validated_original_with_crypto_source(
             fees.into_custom_parameter().unwrap(),
         ))
         .unwrap();
+    let crypto_policy =
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .unwrap();
+    block
+        .world
+        .parameters
+        .get_mut()
+        .set_parameter(crypto_policy.into_parameter().unwrap())
+        .unwrap();
     let budget = state.ivm_execution_budget();
     let occupied = budget
         .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
@@ -898,24 +911,37 @@ fn original_static_input_survives_prepublication_foreign_source_and_deferred_cut
     let owner = std::ptr::from_ref(block.runtime_policy.static_inputs());
     let mut cut = OriginalCut::new(&block, limits(), CaptureIntent::Complete).unwrap();
     cut.advance().unwrap();
-    let field = find(&cut.collector, "state.crypto");
-    assert!(field.undo.as_slice().is_empty());
+    assert!(
+        cut.collector
+            .fields
+            .as_slice()
+            .iter()
+            .all(|field| field.id != "state.crypto"),
+        "local implementation settings are excluded from the canonical cut"
+    );
+    let field = find(&cut.collector, "world.parameters");
+    let (current, before) = block.world.parameters.frozen_values().unwrap();
+    assert!(current.require_crypto_policy().is_ok());
+    assert!(
+        before.crypto_policy().is_none(),
+        "genesis retains its actual uninitialized undo"
+    );
     let bytes = field.current.as_slice()[0]
         .value
         .as_ref()
         .unwrap()
         .bytes()
         .to_vec();
-    let expected_policy =
-        crate::state::authority_registry::crypto_policy::CryptoAdmissionPolicyV1::from_actual(
-            &expected,
-        );
-    assert_eq!(bytes, norito::codec::encode_adaptive(&expected_policy));
-    let foreign_policy =
-        crate::state::authority_registry::crypto_policy::CryptoAdmissionPolicyV1::from_actual(
-            &state.crypto(),
-        );
-    assert_ne!(bytes, norito::codec::encode_adaptive(&foreign_policy));
+    assert_eq!(bytes, norito::codec::encode_adaptive(current));
+    assert_eq!(
+        field.undo.as_slice().len(),
+        1,
+        "physical parameter touch retains its preimage"
+    );
+    assert_eq!(
+        field.undo.as_slice()[0].value.as_ref().unwrap().bytes(),
+        norito::codec::encode_adaptive(before)
+    );
     assert!(std::sync::Arc::ptr_eq(&block.crypto, &expected));
     assert_ne!(
         state.crypto().sm2_distid_default,
@@ -927,7 +953,7 @@ fn original_static_input_survives_prepublication_foreign_source_and_deferred_cut
         owner
     );
     assert_eq!(
-        find(&cut.collector, "state.crypto").current.as_slice()[0]
+        find(&cut.collector, "world.parameters").current.as_slice()[0]
             .value
             .as_ref()
             .unwrap()
@@ -941,9 +967,13 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
     let state = state();
     {
         let mut original = state.world.smart_contract_state.block();
-        for n in 0..80 {
+        // Count mandatory SNS rows as part of the exact original 80-row source.
+        let seeded_rows = original.len();
+        assert!(seeded_rows <= 80);
+        for n in seeded_rows..80 {
             original.insert(path(&format!("physical/{n}")), vec![1]);
         }
+        assert_eq!(original.len(), 80);
         original.commit();
     }
     let mut block = state.block(header(1));
@@ -959,7 +989,7 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
         "all seeded rows and authoritative defaults remain"
     );
     let mut bound = limits();
-    bound.max_source_visits = 100;
+    bound.max_source_visits = native_visits + 10;
     assert!(native_visits + 10 <= bound.max_source_visits);
     assert!(native_visits + 20 > bound.max_source_visits);
     let mut output =
@@ -1043,3 +1073,163 @@ include!("changes_tests.rs");
 include!("membership_delta_tests.rs");
 
 include!("cell_policy_delta_tests.rs");
+
+#[test]
+fn frame_writer_refuses_swallowed_measure_and_write_overflow() {
+    for measured_overflow in [true, false] {
+        let budget = AllocationBudget::new(1024);
+        let calls = std::cell::Cell::new(0);
+        let result = Frame::from_writer(1, &budget, |writer| {
+            let pass = calls.get();
+            calls.set(pass + 1);
+            writer.write_all(b"a")?;
+            if measured_overflow || pass == 1 {
+                // The retained prefix still equals the measured bytes. A discarded
+                // writer refusal must never turn this attempt into a complete frame.
+                assert!(writer.write_all(b"b").is_err());
+            }
+            Ok(())
+        });
+        if measured_overflow {
+            assert!(matches!(result, Err(CaptureError::PayloadLimit)));
+            assert_eq!(calls.get(), 1);
+        } else {
+            assert!(matches!(result, Err(CaptureError::EncodingChanged)));
+            assert_eq!(calls.get(), 2);
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn frame_writer_preserves_propagated_second_pass_write_refusal() {
+    let budget = AllocationBudget::new(1024);
+    let calls = std::cell::Cell::new(0);
+    let result = Frame::from_writer(1, &budget, |writer| {
+        let pass = calls.get();
+        calls.set(pass + 1);
+        writer.write_all(b"a")?;
+        if pass == 1 {
+            writer.write_all(b"b")?;
+        }
+        Ok(())
+    });
+    assert!(
+        matches!(result, Err(CaptureError::Codec(norito::Error::Io(original)))
+        if original.kind() == std::io::ErrorKind::InvalidInput
+            && original.get_ref().is_none()
+            && original.raw_os_error().is_none())
+    );
+    assert_eq!(calls.get(), 2);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn frame_writer_retains_nested_codec_owner_after_scope_retirement() {
+    use norito::core::{
+        DecodeAttemptErrorKind, DecodeLimits, classify_decode_attempt, with_decode_limits_scope,
+    };
+    let budget = AllocationBudget::new(1024);
+    let calls = std::cell::Cell::new(0);
+    let original = std::cell::RefCell::new(None);
+    let result = with_decode_limits_scope(
+        DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || {
+            Frame::from_writer(1, &budget, |writer| {
+                let pass = calls.get();
+                calls.set(pass + 1);
+                writer.write_all(b"a")?;
+                if pass == 1 {
+                    assert!(writer.write_all(b"b").is_err());
+                    let failure =
+                        classify_decode_attempt(|| norito::core::reserve_decode_allocation(1))
+                            .unwrap_err();
+                    original.replace(failure.local_refusal());
+                    return Err(failure.into_error());
+                }
+                Ok(())
+            })
+        },
+    );
+    let CaptureError::Codec(actual) = result.err().expect("original nested codec refusal") else {
+        panic!("a sticky writer failure must not replace the propagated codec owner");
+    };
+    let expected = original
+        .take()
+        .expect("real enclosing allocation refusal")
+        .into_error();
+    let (
+        norito::Error::ScopedDecodeResource(actual_owner),
+        norito::Error::ScopedDecodeResource(expected_owner),
+    ) = (&actual, &expected)
+    else {
+        panic!("retain opaque original scope ownership after scope retirement");
+    };
+    assert_eq!(actual_owner, expected_owner);
+    assert_eq!(calls.get(), 2);
+    assert_eq!(budget.reserved_bytes(), 0);
+    // Retention preserves the old cause; it cannot grant a fresh attempt authority.
+    let replay = classify_decode_attempt(|| Err::<(), _>(actual)).unwrap_err();
+    assert_eq!(replay.kind(), DecodeAttemptErrorKind::Invalid);
+}
+
+#[test]
+fn frame_writer_unwind_refunds_partial_backing_and_retries_same_pool() {
+    let budget = AllocationBudget::new(1024);
+    let calls = std::cell::Cell::new(0);
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = Frame::from_writer(3, &budget, |writer| {
+            let pass = calls.get();
+            calls.set(pass + 1);
+            if pass == 1 {
+                assert_eq!(budget.reserved_bytes(), 3);
+                writer.write_all(b"a")?;
+                panic!("deliberate original frame second-pass unwind");
+            }
+            writer.write_all(b"abc")?;
+            Ok(())
+        });
+    }));
+    assert!(panic.is_err());
+    assert_eq!(calls.get(), 2);
+    assert_eq!(budget.reserved_bytes(), 0);
+    let retried = Frame::from_writer(3, &budget, |writer| {
+        writer.write_all(b"abc")?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(retried.bytes(), b"abc");
+    assert_eq!(budget.reserved_bytes(), 3);
+    drop(retried);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn frame_writer_allocation_refusal_preserves_original_pool_and_exact_retry() {
+    let budget = AllocationBudget::new(1024);
+    let occupied = budget.try_reserve_bytes(budget.limit_bytes()).unwrap();
+    let expected = budget.try_reserve_bytes(3).unwrap_err();
+    let calls = std::cell::Cell::new(0);
+    let encode = |writer: &mut dyn std::io::Write| -> Result<(), norito::Error> {
+        calls.set(calls.get() + 1);
+        writer.write_all(b"abc")?;
+        Ok(())
+    };
+    let result = Frame::from_writer(3, &budget, encode);
+    let CaptureError::Allocation(ChargedBufferError::Admission(actual)) =
+        result.err().expect("original pool is occupied")
+    else {
+        panic!("retain the actual enclosing frame admission refusal");
+    };
+    assert_eq!(actual, expected);
+    assert_eq!(calls.get(), 1, "refusal precedes the funded write pass");
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    drop(occupied);
+    assert_eq!(budget.reserved_bytes(), 0);
+    let retried = Frame::from_writer(3, &budget, encode).unwrap();
+    assert_eq!(calls.get(), 3);
+    assert_eq!(retried.bytes(), b"abc");
+    assert_eq!(budget.reserved_bytes(), 3);
+    drop(retried);
+    assert_eq!(budget.reserved_bytes(), 0);
+}

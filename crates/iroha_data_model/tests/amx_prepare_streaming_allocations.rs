@@ -161,12 +161,17 @@ impl PhysicalSnapshot {
     pub(crate) fn single_live_pointer(&self, layout: Layout) -> Option<usize> {
         assert!(!self.overflow, "physical allocation observation overflow");
         let mut result = None;
-        for event in &self.events[..self.count] {
-            if event.route < 2
+        for (index, event) in self.events[..self.count].iter().enumerate() {
+            // A reused address is a distinct physical lifetime. Only retirement
+            // events after this allocation can end this generation. Route 4 is
+            // the successful destination of a realloc request (not a new request).
+            if matches!(event.route, 0 | 1 | 4)
                 && event.pointer != 0
                 && event.size == layout.size()
                 && event.align == layout.align()
-                && self.retirements(event.pointer) == 0
+                && !self.events[index + 1..self.count]
+                    .iter()
+                    .any(|later| later.retired && later.pointer == event.pointer)
             {
                 if result.is_some() {
                     return None;
@@ -292,6 +297,13 @@ unsafe impl GlobalAlloc for TrackingAllocator {
                 unsafe { System.realloc(pointer, layout, size) }
             };
         record_physical(2, pointer, layout, !replacement.is_null());
+        if !replacement.is_null() {
+            // GlobalAlloc's valid realloc contract guarantees this destination
+            // layout. The event records ownership without adding a second request.
+            if let Ok(destination) = Layout::from_size_align(size, layout.align()) {
+                record_physical(4, replacement, destination, false);
+            }
+        }
         replacement
     }
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
@@ -399,6 +411,53 @@ fn graph_pointers(transaction: &AmxTransactionV1) -> (usize, [usize; MAX_AMX_PAR
 }
 
 #[test]
+fn physical_observer_distinguishes_reused_and_in_place_reallocated_generations() {
+    // Deterministic allocator-event control: no OS allocator is required to reuse
+    // an address, and these illustrative addresses are never dereferenced.
+    let layout = Layout::from_size_align(32, 8).unwrap();
+    let pointer = 0x1000;
+    let event = |route, retired| PhysicalEvent {
+        route,
+        pointer,
+        size: layout.size(),
+        align: layout.align(),
+        retired,
+    };
+    let mut observed = PhysicalSnapshot::EMPTY;
+    observed.events[0] = event(0, false);
+    observed.count = 1;
+    assert_eq!(observed.single_live_pointer(layout), Some(pointer));
+    observed.events[1] = event(3, true);
+    observed.count = 2;
+    assert_eq!(observed.single_live_pointer(layout), None);
+    observed.events[2] = event(1, false);
+    observed.count = 3;
+    assert_eq!(observed.single_live_pointer(layout), Some(pointer));
+    assert_eq!(
+        observed.retirements(pointer),
+        1,
+        "the old lifetime remains recorded"
+    );
+    // Successful realloc can retain the same address while retiring the old
+    // generation and establishing one new destination generation.
+    observed.events[3] = event(2, true);
+    observed.events[4] = event(4, false);
+    observed.count = 5;
+    assert_eq!(observed.single_live_pointer(layout), Some(pointer));
+    assert_eq!(observed.retirements(pointer), 2);
+    assert_eq!(observed.requests(), [1, 1, 1]);
+    // A failed realloc preserves the original destination exactly.
+    observed.events[5] = event(2, false);
+    observed.count = 6;
+    assert_eq!(observed.single_live_pointer(layout), Some(pointer));
+    assert_eq!(observed.retirements(pointer), 2);
+    observed.events[6] = event(3, true);
+    observed.count = 7;
+    assert_eq!(observed.single_live_pointer(layout), None);
+    assert_eq!(observed.retirements(pointer), 3);
+}
+
+#[test]
 fn physical_observer_tracks_original_layout_and_retirement_without_allocating() {
     let observation = PhysicalObservation::start();
     let before = observation.checkpoint();
@@ -430,7 +489,16 @@ fn physical_observer_tracks_original_layout_and_retirement_without_allocating() 
         }
         assert_eq!(observation.since(before).requests(), [0, 1, 1]);
         assert_eq!(observation.since(before).retirements(zero as usize), 1);
-        std::alloc::dealloc(grown, Layout::from_size_align(31, 8).unwrap());
+        let grown_layout = Layout::from_size_align(31, 8).unwrap();
+        assert_eq!(
+            observation.since(before).single_live_pointer(grown_layout),
+            Some(grown as usize)
+        );
+        std::alloc::dealloc(grown, grown_layout);
+        assert_eq!(
+            observation.since(before).single_live_pointer(grown_layout),
+            None
+        );
     }
     let before_original = observation.checkpoint();
     let original = vec![7_u8; 23];

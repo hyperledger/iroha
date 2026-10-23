@@ -51,14 +51,17 @@ fn transaction_height_expiry_is_exclusive_when_height_expiry_is_optional() {
             default_limits.max_metadata_depth(),
         )
         .with_ingress_enforcement(false, false);
-        let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
         let time_source = TimeSource::new_fixed(tx.creation_time());
         let accepted = AcceptedTransaction::accept_with_time_source(
             tx,
             &chain.network_id(),
             Duration::from_secs(0),
             limits,
-            &crypto_cfg,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time_source,
         )
         .expect("stateless checks accept optional but present height expiry");

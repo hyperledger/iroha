@@ -3,9 +3,7 @@
 //! These canonical data-model types are serialized into transactions and are executed by the
 //! corresponding core governance paths. They also define the exact CLI and Torii draft surfaces;
 //! endpoint-local aliases are not part of the instruction format.
-#[cfg(not(feature = "governance"))]
-pub use self::at_window_placeholder::AtWindow;
-#[cfg(feature = "governance")]
+
 pub use crate::governance::types::AtWindow;
 #[cfg(test)]
 use crate::governance::types::GlobalDataTriggerPermissionGovernanceActionV1;
@@ -29,31 +27,6 @@ use std::{string::String, vec::Vec};
 pub mod parliament;
 pub use parliament::*;
 
-#[cfg(not(feature = "governance"))]
-mod at_window_placeholder {
-    use super::*;
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Encode,
-        Decode,
-        iroha_schema::IntoSchema,
-        crate :: DeriveJsonSerialize,
-        crate :: DeriveJsonDeserialize,
-    )]
-    /// Inclusive governance enactment window expressed in block heights.
-    pub struct AtWindow {
-        /// Lower bound (inclusive) of the enactment window.
-        pub lower: u64,
-        /// Upper bound (inclusive) of the enactment window.
-        pub upper: u64,
-    }
-}
 /// Propose deployment of an IVM bytecode (`.to`) by hash
 #[derive(
     Clone,
@@ -1130,6 +1103,21 @@ mod tests {
 #[cfg(test)]
 mod frame_owner_identity_tests {
     //! Frame roots observed in the original codec before the identity cutover.
+
+    #[test]
+    fn canonical_governance_window_uses_the_single_protocol_type() {
+        use crate::governance::types::AtWindow;
+        use std::any::TypeId;
+        assert_eq!(TypeId::of::<super::AtWindow>(), TypeId::of::<AtWindow>());
+        let value = AtWindow { lower: 3, upper: 9 };
+        let frame = norito::encode_canonical(&value).expect("canonical window frame");
+        let decoded: super::AtWindow = norito::decode_canonical(&frame).expect("same window codec");
+        assert_eq!(decoded, value);
+        assert_eq!(
+            norito::encode_canonical(&decoded).expect("same frame"),
+            frame
+        );
+    }
 
     #[test]
     fn captured_frame_owner_identities() {

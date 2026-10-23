@@ -829,13 +829,15 @@ fn queue_instruction_skeleton(harness: &GovHarness, tx_instructions: &[TxInstr])
     )
     .with_instructions(instructions)
     .sign(harness.authority_keypair.private_key());
-    let params = harness.state.view().world().parameters().clone();
+    let params = harness.state.transaction_admission_parameters();
     let accepted = iroha_core::tx::AcceptedTransaction::accept(
         tx,
         harness.state.network_id_ref(),
         params.sumeragi().max_clock_drift(),
         params.transaction(),
-        harness.state.crypto().as_ref(),
+        params
+            .require_crypto_policy()
+            .expect("initialized governance fixture policy"),
     )
     .expect("accepted governance instruction skeleton");
     harness
@@ -858,13 +860,15 @@ fn queue_governance_proposal_instruction_skeleton(
     )
     .with_instructions(instructions)
     .sign(harness.authority_keypair.private_key());
-    let params = harness.state.view().world().parameters().clone();
+    let params = harness.state.transaction_admission_parameters();
     let accepted = iroha_core::tx::AcceptedTransaction::accept(
         tx,
         harness.state.network_id_ref(),
         params.sumeragi().max_clock_drift(),
         params.transaction(),
-        harness.state.crypto().as_ref(),
+        params
+            .require_crypto_policy()
+            .expect("initialized governance fixture policy"),
     )
     .expect("accepted governance proposal instruction skeleton");
     harness
@@ -925,13 +929,15 @@ async fn citizen_status_reports_registered_record() {
     )
     .with_instructions([instruction])
     .sign(harness.authority_keypair.private_key());
-    let params = harness.state.view().world().parameters().clone();
+    let params = harness.state.transaction_admission_parameters();
     let accepted = iroha_core::tx::AcceptedTransaction::accept(
         tx,
         harness.state.network_id_ref(),
         params.sumeragi().max_clock_drift(),
         params.transaction(),
-        harness.state.crypto().as_ref(),
+        params
+            .require_crypto_policy()
+            .expect("initialized governance fixture policy"),
     )
     .expect("accepted register citizen transaction");
     harness
@@ -977,13 +983,15 @@ async fn citizen_count_reports_exact_registry_total() {
     )
     .with_instructions([instruction])
     .sign(harness.authority_keypair.private_key());
-    let params = harness.state.view().world().parameters().clone();
+    let params = harness.state.transaction_admission_parameters();
     let accepted = iroha_core::tx::AcceptedTransaction::accept(
         tx,
         harness.state.network_id_ref(),
         params.sumeragi().max_clock_drift(),
         params.transaction(),
-        harness.state.crypto().as_ref(),
+        params
+            .require_crypto_policy()
+            .expect("initialized governance fixture policy"),
     )
     .expect("accepted register citizen transaction");
     harness

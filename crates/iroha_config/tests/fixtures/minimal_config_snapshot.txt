@@ -2021,15 +2021,7 @@ Root {
         enable_sm_openssl_preview: false,
         sm_intrinsics: Auto,
         default_hash: "blake2b-256",
-        allowed_signing: [
-            Ed25519,
-            Secp256k1,
-        ],
         sm2_distid_default: "1234567812345678",
-        allowed_curve_ids: [
-            1,
-            4,
-        ],
     },
     settlement: Settlement {
         router: Router {

@@ -10,8 +10,7 @@ const CAPABILITIES = Object.freeze({
   schema_version: 1,
   network_id: NETWORK_ID,
   network_prefix: 369,
-  allowed_signing: ["secp256k1", "ed25519"],
-  default_signing: "ed25519",
+  allowed_signing: ["ed25519", "secp256k1"],
 });
 const json = (value) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
 const CLIENTS = [["Node", ToriiClient], ["browser", ToriiBrowserClient]];
@@ -57,7 +56,7 @@ for (const [name, Client] of CLIENTS) {
       { ...CAPABILITIES, network_id: ` ${NETWORK_ID}` }, { ...CAPABILITIES, network_id: {} },
       { ...CAPABILITIES, network_prefix: "369" }, { ...CAPABILITIES, network_prefix: -1 },
       { ...CAPABILITIES, network_prefix: 65536 }, { ...CAPABILITIES, network_prefix: 0.5 },
-      { ...CAPABILITIES, allowed_signing: [] }, { ...CAPABILITIES, allowed_signing: ["secp256k1"] },
+      { ...CAPABILITIES, allowed_signing: [] }, { ...CAPABILITIES, allowed_signing: ["secp256k1", "ed25519"] },
       { ...CAPABILITIES, allowed_signing: ["ed25519", "ed25519"] },
       { ...CAPABILITIES, allowed_signing: ["ed25519", "Ed25519"] },
       { ...CAPABILITIES, allowed_signing: ["ed25519", "future-algorithm"] },
@@ -167,4 +166,11 @@ test("browser account capability timeout covers stalled response bodies", { time
   });
   await assert.rejects(client.getAccountCapabilities(), /timed out/u);
   assert.equal(cancelled, true);
+});
+
+test("account capabilities preserve canonical tag order without an implicit signer", () => {
+  for (const allowed_signing of [["secp256k1"], ["bls_normal", "bls_small", "ml-dsa"]]) {
+    assert.deepEqual(normalizeAccountCapabilitiesV1({ ...CAPABILITIES, allowed_signing }).allowed_signing, allowed_signing);
+  }
+  assert.throws(() => normalizeAccountCapabilitiesV1({ ...CAPABILITIES, allowed_signing: ["ml-dsa", "bls_normal"] }));
 });

@@ -10,7 +10,7 @@ public sealed class ConfidentialProverNativeTests
     [Fact]
     public void NativeContractUsesCanonicalFirstReleaseRevisions()
     {
-        Assert.Equal(30U, ConfidentialWalletNative.Abi());
+        Assert.Equal(31U, ConfidentialWalletNative.Abi());
         Assert.Equal(1U, ConfidentialWalletNative.Revision());
         Assert.Equal(1U, ConfidentialWalletNative.DerivationRevision());
         ConfidentialWalletNative.RequireAvailable();
@@ -22,7 +22,7 @@ public sealed class ConfidentialProverNativeTests
         var key = RandomNumberGenerator.GetBytes(32);
         try
         {
-            Assert.Equal(30u, ConfidentialWalletNative.Abi());
+            Assert.Equal(31u, ConfidentialWalletNative.Abi());
             Assert.Equal(1u, ConfidentialWalletNative.Revision());
             Assert.Equal(1u, ConfidentialWalletNative.DerivationRevision());
             var diversifier = ConfidentialNotes.DefaultDiversifier();

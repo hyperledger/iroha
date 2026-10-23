@@ -13,6 +13,40 @@ import kotlin.test.assertTrue
 
 class AccountAddressTest {
     @Test
+    fun canonicalIdentityRecognitionIsIndependentOfNativeAvailability() {
+        for (algorithm in listOf("ed25519", "secp256k1", "bls_normal", "bls_small", "ml-dsa",
+            "gost3410-2012-256-paramset-a", "gost3410-2012-256-paramset-b",
+            "gost3410-2012-256-paramset-c", "gost3410-2012-512-paramset-a",
+            "gost3410-2012-512-paramset-b", "sm2")) {
+            val curve = curveIdForAlgorithm(algorithm).toInt() and 0xff
+            assertEquals(algorithm, algorithmForCurveId(curve), algorithm)
+        }
+        for (alias in listOf("ed", "ED25519", "secp", "SECP256K1", "bls-normal", "bls-small", "gost256a", "gost512b", "sm-2", "SM2")) {
+            val error = assertFailsWith<AccountAddressException> { AccountAddress.fromAccount(byteArrayOf(1), alias) }
+            assertEquals(AccountAddressErrorCode.UNKNOWN_ALGORITHM, error.code, alias)
+        }
+    }
+
+    @Test
+    fun nativeAddressCategoriesAndCauseSurviveUnrelatedDiagnosticText() {
+        for (category in listOf(AccountAddressErrorCode.DECODE_RESOURCE_LIMIT,
+            AccountAddressErrorCode.UNSUPPORTED_IMPLEMENTATION,
+            AccountAddressErrorCode.UNKNOWN_CURVE, AccountAddressErrorCode.INVALID_PUBLIC_KEY)) {
+            val original = AccountAddressNativeException(category.code, "arbitrary text, not a code",
+                "bls_normal", "public-key parsing")
+            val mapped = original.toAccountAddressException()
+            assertEquals(category, mapped.code)
+            assertTrue(mapped.cause === original)
+            assertEquals("bls_normal", original.algorithm)
+            assertEquals("public-key parsing", original.operation)
+        }
+        assertEquals(AccountAddressErrorCode.NATIVE_BRIDGE_UNAVAILABLE,
+            AccountAddressNativeException("ERR_UNKNOWN_NATIVE_CODE", "invalid", "", "").toAccountAddressException().code)
+        val unknown = assertFailsWith<AccountAddressException> { AccountAddressNative.requireSingleSize(255, 32) }
+        assertEquals(AccountAddressErrorCode.UNKNOWN_CURVE, unknown.code)
+    }
+
+    @Test
     fun multisigConstructionMatchesFullRustPoliciesForEveryMemberOrder() {
         val path = "fixtures/account/address_vectors.json"
         val file = generateSequence(File(".").canonicalFile) { it.parentFile }
@@ -145,7 +179,7 @@ class AccountAddressTest {
             AccountAddress.fromAccount(ByteArray(48) { 0xff.toByte() }, "bls_normal")
         }
 
-        val blsAddress = AccountAddress.fromAccount(blsKey, "bls-normal")
+        val blsAddress = AccountAddress.fromAccount(blsKey, "bls_normal")
         assertEquals(0x03, blsAddress.singleKeyPayload()?.curveId)
 
         val encoded = encodePublicKeyMultihash(0x04, secpKey)
@@ -161,27 +195,15 @@ class AccountAddressTest {
     }
 
     @Test
-    fun protocolMlDsa65AliasesAreExactAndCaseInsensitive() {
+    fun protocolMlDsa65UsesOnlyCanonicalIdentity() {
         val key = ByteArray(MlDsaPublicKeyAdmission.PUBLIC_KEY_LENGTH) { 0x02 }
 
-        for (algorithm in listOf(
-            "ml-dsa",
-            "mldsa",
-            "ml_dsa",
-            "mldsa65",
-            "MLDSA65",
-            "ml-dsa-65",
-            "ML-DSA-65",
-            "ml_dsa_65",
-            "ML_DSA_65",
-            "ml_dsa-65",
-            "ML_DSA-65",
-        )) {
-            val address = AccountAddress.fromAccount(key, algorithm)
-            assertEquals(0x02, address.singleKeyPayload()?.curveId)
-        }
+        val address = AccountAddress.fromAccount(key, "ml-dsa")
+        assertEquals(0x02, address.singleKeyPayload()?.curveId)
 
         for (algorithm in listOf(
+            "mldsa", "ml_dsa", "mldsa65", "MLDSA65", "ml-dsa-65", "ML-DSA-65",
+            "ml_dsa_65", "ML_DSA_65", "ml_dsa-65", "ML_DSA-65",
             "mldsa44",
             "ml-dsa-44",
             "ml_dsa_44",
@@ -196,7 +218,7 @@ class AccountAddressTest {
             val error = assertFailsWith<AccountAddressException> {
                 AccountAddress.fromAccount(key, algorithm)
             }
-            assertEquals(AccountAddressErrorCode.UNSUPPORTED_ALGORITHM, error.code)
+            assertEquals(AccountAddressErrorCode.UNKNOWN_ALGORITHM, error.code)
         }
     }
 
@@ -216,7 +238,7 @@ class AccountAddressTest {
             val error = assertFailsWith<AccountAddressException> {
                 AccountAddress.fromAccount(key, algorithm)
             }
-            assertEquals(AccountAddressErrorCode.UNSUPPORTED_ALGORITHM, error.code)
+            assertEquals(AccountAddressErrorCode.UNKNOWN_ALGORITHM, error.code)
         }
     }
 
@@ -234,7 +256,7 @@ class AccountAddressTest {
             val error = assertFailsWith<AccountAddressException> {
                 AccountAddress.fromAccount(key, algorithm)
             }
-            assertEquals(AccountAddressErrorCode.UNSUPPORTED_ALGORITHM, error.code)
+            assertEquals(AccountAddressErrorCode.UNKNOWN_ALGORITHM, error.code)
         }
     }
 

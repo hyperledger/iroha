@@ -374,13 +374,16 @@ async fn push_expired_tx_already_in_blockchain() {
     tx.set_ttl(Duration::from_millis(100));
     let tx = tx.sign(alice_keypair.private_key());
     let tx = {
-        let crypto_cfg = state.crypto();
         AcceptedTransaction::accept_with_time_source(
             tx,
             state.network_id_ref(),
             max_clock_drift,
             tx_limits,
-            &crypto_cfg,
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
             &time_source,
         )
         .expect("Failed to accept Transaction.")

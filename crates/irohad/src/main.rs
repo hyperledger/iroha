@@ -121,14 +121,12 @@ use iroha_core::{block::ValidBlock, sumeragi::network_topology::Topology};
 use iroha_crypto::Algorithm;
 use iroha_data_model::{
     isi::RegisterPeerWithPop,
-    parameter::system::{
-        ConsensusHandshakeMetadata, confidential_metadata, consensus_metadata, crypto_metadata,
-    },
+    parameter::system::{ConsensusHandshakeMetadata, confidential_metadata, consensus_metadata},
 };
 use iroha_data_model::{prelude::*, transaction::Executable};
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal, Supervisor};
 use iroha_genesis::{
-    GenesisBlock, ManifestCrypto, RawGenesisTransaction, compute_genesis_vk_set_hash,
+    GenesisBlock, RawGenesisTransaction, compute_genesis_vk_set_hash,
     init_instruction_registry as init_genesis_instruction_registry,
 };
 use iroha_logger::actor::LoggerHandle;
@@ -242,26 +240,122 @@ fn parse_handshake_meta_str(raw: &str) -> Result<ConsensusHandshakeMeta, norito:
         .map_err(|error| norito::Error::Message(error.clone()))?;
     Ok(metadata)
 }
-fn parse_manifest_crypto_str(raw: &str) -> Result<ManifestCrypto, norito::Error> {
-    norito::json::from_str(raw).map_err(norito::Error::from)
+
+/// Required verifier implementations are a local participation condition, not policy validity.
+fn require_crypto_verification_implementations(
+    policy: &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1,
+) -> Result<(), iroha_crypto::UnsupportedImplementation> {
+    for algorithm in policy.allowed_algorithms() {
+        algorithm.require_implementation(iroha_crypto::CryptoOperation::VerifySignature)?;
+    }
+    Ok(())
 }
+
+fn require_authenticated_genesis_crypto_implementations(
+    source: &iroha_data_model::block::SignedBlock,
+    configured_root: &iroha_crypto::PublicKey,
+) -> ReportResult<(), MainError> {
+    // Configured root trust is purpose-specific and precedes ordinary policy extraction.
+    // A node without that verifier cannot authenticate the source at all.
+    configured_root
+        .try_algorithm()
+        .map_err(Report::new)
+        .change_context(MainError::Config)?
+        .require_implementation(iroha_crypto::CryptoOperation::VerifySignature)
+        .map_err(Report::new)
+        .change_context(MainError::Config)?;
+    iroha_core::with_authenticated_genesis_crypto_policy(
+        source,
+        &AccountId::new(configured_root.clone()),
+        require_crypto_verification_implementations,
+    )
+    .map_err(Report::new)
+    .change_context(MainError::Config)?
+    .map_err(Report::new)
+    .change_context(MainError::Config)
+}
+
+#[cfg(test)]
+fn daemon_fixture_crypto_policy()
+-> iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1 {
+    iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+        iroha_crypto::Algorithm::Ed25519,
+        iroha_crypto::Algorithm::Secp256k1,
+        iroha_crypto::Algorithm::BlsNormal,
+    ])
+    .expect("daemon fixture explicitly authors its ordinary signing algorithms")
+}
+
+#[cfg(test)]
+fn daemon_fixture_staking_policy() -> iroha_data_model::block::consensus::PublicLaneStakingPolicy {
+    let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    iroha_deploy::genesis::default_staking_policy(
+        fees.fee_asset_id,
+        fees.fee_sink_account_id.clone(),
+        fees.fee_sink_account_id,
+    )
+}
+
+#[cfg(test)]
+mod explicit_staking_fixture_tests {
+    use super::*;
+    use iroha_data_model::block::consensus::{
+        PublicLaneStakingPolicy, PublicLaneStakingPolicyError,
+    };
+
+    #[test]
+    fn context_completion_leaves_staking_authorship_required() {
+        let builder = iroha_genesis::GenesisBuilder::new_without_executor(
+            "explicit-daemon-staking".parse().unwrap(),
+            ".",
+            daemon_fixture_crypto_policy(),
+        );
+        let error = complete_test_genesis_builder(builder)
+            .build_raw()
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<PublicLaneStakingPolicyError>(),
+            Some(PublicLaneStakingPolicyError::MissingParameter)
+        ));
+    }
+
+    #[test]
+    fn explicit_daemon_staking_retains_typed_custody_and_cannot_be_assigned_twice() {
+        let _author = iroha_data_model::account::address::ChainDiscriminantGuard::enter(369);
+        let expected = daemon_fixture_staking_policy();
+        let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        assert_eq!(expected.stake_asset_id, fees.fee_asset_id);
+        assert_eq!(expected.stake_escrow_account_id, fees.fee_sink_account_id);
+        assert_eq!(expected.slash_sink_account_id, fees.fee_sink_account_id);
+        let builder = iroha_genesis::GenesisBuilder::new_without_executor(
+            "explicit-daemon-staking".parse().unwrap(),
+            ".",
+            daemon_fixture_crypto_policy(),
+        )
+        .with_staking_policy(expected.clone())
+        .unwrap();
+        let manifest = complete_test_genesis_builder(builder).build_raw().unwrap();
+        assert_eq!(
+            PublicLaneStakingPolicy::from_parameters(&manifest.effective_parameters().unwrap())
+                .unwrap(),
+            expected
+        );
+        let error = manifest
+            .into_builder()
+            .with_staking_policy(expected)
+            .unwrap()
+            .build_raw()
+            .unwrap_err();
+        assert!(error.to_string().contains("staking"), "{error}");
+    }
+}
+
 fn parse_confidential_registry_meta_str(
     raw: &str,
 ) -> Result<ConfidentialRegistryMeta, norito::Error> {
     norito::json::from_str(raw).map_err(norito::Error::from)
 }
-fn decode_crypto_manifest_meta(payload: &Json) -> Result<ManifestCrypto, norito::Error> {
-    match parse_manifest_crypto_str(payload.get()) {
-        Ok(meta) => Ok(meta),
-        Err(error) => {
-            let preview: String = payload.get().chars().take(256).collect();
-            tracing::warn!(?error, preview = %preview, "failed to decode crypto_manifest_meta payload");
-            Err(norito::Error::Message(
-                "failed to decode crypto_manifest_meta payload".to_string(),
-            ))
-        }
-    }
-}
+
 fn decode_confidential_registry_meta(
     payload: &Json,
 ) -> Result<ConfidentialRegistryMeta, norito::Error> {
@@ -446,14 +540,19 @@ fn complete_test_genesis_builder(
 #[cfg(test)]
 mod handshake_payload_tests {
     use super::*;
-    use iroha_genesis::{GenesisBuilder, ManifestCrypto};
+    use iroha_genesis::GenesisBuilder;
     use std::path::PathBuf;
     fn handshake_payload_from_genesis() -> Json {
         let chain = iroha_model_base::chain::ChainId::from("handshake-meta-test");
-        let manifest = complete_test_genesis_builder(GenesisBuilder::new_without_executor(
-            chain,
-            PathBuf::from("."),
-        ))
+        let manifest = complete_test_genesis_builder(
+            GenesisBuilder::new_without_executor(
+                chain,
+                PathBuf::from("."),
+                daemon_fixture_crypto_policy(),
+            )
+            .with_staking_policy(crate::daemon_fixture_staking_policy())
+            .expect("explicit fixture staking policy"),
+        )
         .build_raw()
         .expect("build complete handshake metadata test genesis")
         .with_consensus_meta()
@@ -529,45 +628,7 @@ mod handshake_payload_tests {
             "unexpected error: {err}"
         );
     }
-    #[test]
-    fn decode_crypto_manifest_meta_rejects_nested_json_string_payload() {
-        let manifest = ManifestCrypto::default();
-        let payload = Json::new(manifest.clone());
-        let decoded = decode_crypto_manifest_meta(&payload).expect("decode normal payload");
-        assert_eq!(decoded, manifest);
-        let stringified =
-            Json::new(norito::json::to_json(&payload).expect("stringify manifest payload"));
-        let err = decode_crypto_manifest_meta(&stringified)
-            .expect_err("nested string payload must be rejected");
-        assert!(
-            err.to_string().contains("failed to decode"),
-            "unexpected error: {err}"
-        );
-    }
-    #[test]
-    fn decode_crypto_manifest_meta_rejects_raw_quoted_legacy_payload() {
-        let raw = r#""{"allowed_curve_ids":[1,3,4],"allowed_signing":["ed25519","secp256k1","bls_normal"],"default_hash":"blake2b-256","sm2_distid_default":"1234567812345678","sm_openssl_preview":false}""#;
-        assert!(
-            Json::from_raw_json(raw.to_owned()).is_err(),
-            "raw-quoted compatibility payload must be rejected at construction"
-        );
-    }
-    #[test]
-    fn decode_crypto_manifest_meta_rejects_backslash_escaped_object_payload() {
-        let raw = r#"{\"allowed_curve_ids\":[1,3,4],\"allowed_signing\":[\"ed25519\",\"secp256k1\",\"bls_normal\"],\"default_hash\":\"blake2b-256\",\"sm2_distid_default\":\"1234567812345678\",\"sm_openssl_preview\":false}"#;
-        assert!(
-            Json::from_raw_json(raw.to_owned()).is_err(),
-            "backslash-escaped compatibility payload must be rejected at construction"
-        );
-    }
-    #[test]
-    fn decode_crypto_manifest_meta_rejects_mangled_key_value_separators() {
-        let raw = r#"{"allowed_curve_ids""[1,3,4],"allowed_signing""["ed25519","secp256k1","bls_normal"],"default_hash""blake2b-256","sm2_distid_default""1234567812345678","sm_openssl_preview"false}"#;
-        assert!(
-            Json::from_raw_json(raw.to_owned()).is_err(),
-            "mangled compatibility payload must be rejected at construction"
-        );
-    }
+
     #[test]
     fn decode_confidential_registry_meta_handles_normal_json() {
         let hash = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -702,68 +763,7 @@ fn nexus_topology_is_custom(nexus: &iroha_config::parameters::actual::Nexus) -> 
     nexus.uses_multilane_catalogs()
 }
 mod startup_root_topology;
-fn ensure_manifest_crypto_matches(
-    manifest: &RawGenesisTransaction,
-    config: &Config,
-) -> Result<(), String> {
-    ensure_crypto_snapshot_matches_config(manifest.crypto(), config)
-}
-fn ensure_crypto_snapshot_matches_config(
-    manifest_crypto: &ManifestCrypto,
-    config: &Config,
-) -> Result<(), String> {
-    manifest_crypto
-        .validate()
-        .map_err(|err| format!("Invalid crypto section in genesis manifest: {err:?}"))?;
-    let mut manifest_allowed = manifest_crypto.allowed_signing.clone();
-    manifest_allowed.sort();
-    manifest_allowed.dedup();
-    let mut config_allowed = config.crypto.allowed_signing.clone();
-    config_allowed.sort();
-    config_allowed.dedup();
-    let hashes_match = manifest_crypto
-        .default_hash
-        .eq_ignore_ascii_case(&config.crypto.default_hash);
-    let distid_match = manifest_crypto.sm2_distid_default == config.crypto.sm2_distid_default;
-    let manifest_sm_helpers = manifest_crypto
-        .allowed_signing
-        .iter()
-        .any(|algo| algo.as_static_str().eq_ignore_ascii_case("sm2"));
-    let config_sm_helpers = config.crypto.sm_helpers_enabled();
-    let preview_match =
-        manifest_crypto.sm_openssl_preview == config.crypto.enable_sm_openssl_preview;
-    let mut manifest_curves =
-        iroha_config::parameters::actual::Crypto::from(manifest_crypto.clone()).allowed_curve_ids;
-    manifest_curves.sort_unstable();
-    manifest_curves.dedup();
-    let mut config_curves = config.crypto.allowed_curve_ids.clone();
-    config_curves.sort_unstable();
-    config_curves.dedup();
-    if !hashes_match
-        || manifest_allowed != config_allowed
-        || !distid_match
-        || manifest_sm_helpers != config_sm_helpers
-        || !preview_match
-        || manifest_curves != config_curves
-    {
-        return Err(format!(
-            "Genesis manifest crypto mismatch: manifest {{ sm_helpers_enabled: {}, sm_openssl_preview: {}, default_hash: {}, allowed_signing: {:?}, allowed_curve_ids: {:?}, sm2_distid_default: {} }} != config {{ sm_helpers_enabled: {}, sm_openssl_preview: {}, default_hash: {}, allowed_signing: {:?}, allowed_curve_ids: {:?}, sm2_distid_default: {} }}",
-            manifest_sm_helpers,
-            manifest_crypto.sm_openssl_preview,
-            manifest_crypto.default_hash,
-            manifest_allowed,
-            manifest_curves,
-            manifest_crypto.sm2_distid_default,
-            config_sm_helpers,
-            config.crypto.enable_sm_openssl_preview,
-            config.crypto.default_hash,
-            config_allowed,
-            config_curves,
-            config.crypto.sm2_distid_default,
-        ));
-    }
-    Ok(())
-}
+
 /// Ensure operator signature policy includes the node identity when requested by config.
 fn ensure_operator_node_key_allowlisted(config: &mut Config) {
     if !config.torii.operator_signatures.allow_node_key {
@@ -2787,7 +2787,7 @@ impl Iroha {
             fingerprint=%format!("0x{}", hex::encode(consensus_caps.consensus_fingerprint)),
             "Consensus handshake caps"
         );
-        // If a genesis manifest JSON is provided via CLI, validate its crypto and consensus mode.
+        // An optional unsigned manifest can describe consensus mode; it cannot install ordinary crypto policy.
         let cfg_manifest = config
             .genesis
             .manifest_json
@@ -2795,11 +2795,6 @@ impl Iroha {
             .map(WithOrigin::resolve_relative_path);
         if !emergency_fast && let Some(json_path) = cfg_manifest {
             let manifest = read_genesis_manifest(&json_path)?;
-            if let Err(err) = ensure_manifest_crypto_matches(&manifest, &config) {
-                return Err(Report::new(StartError::InitKura).attach(format!(
-                    "Genesis manifest crypto settings do not match node configuration: {err}"
-                )));
-            }
             let got =
                 iroha_data_model::parameter::system::ConsensusMode::from(manifest.consensus_mode());
             if got != signed_consensus_mode {
@@ -2818,7 +2813,9 @@ impl Iroha {
             features: Some(confidential_handshake_policy_digest(confidential_features)),
         };
         let crypto_caps = iroha_p2p::CryptoHandshakeCaps {
-            sm_enabled: config.crypto.sm_helpers_enabled(),
+            sm_enabled: iroha_crypto::Algorithm::Sm2
+                .require_implementation(iroha_crypto::CryptoOperation::VerifySignature)
+                .is_ok(),
             sm_openssl_preview: config.crypto.enable_sm_openssl_preview,
             require_sm_handshake_match: config.network.require_sm_handshake_match,
             require_sm_openssl_preview_match: config.network.require_sm_openssl_preview_match,
@@ -2861,7 +2858,7 @@ impl Iroha {
         streaming
             .apply_codec_config(&config.streaming.codec)
             .map_err(|err| Report::new(err).change_context(StartError::StartP2p))?;
-        streaming.apply_crypto_config(&config.crypto);
+        streaming.apply_crypto_capabilities();
         streaming.apply_sync_config(&config.streaming.sync);
         #[cfg(feature = "telemetry")]
         if let Some(ref telemetry_handle) = streaming_telemetry {
@@ -5273,10 +5270,15 @@ mod genesis_key_tests {
     use iroha_model_base::chain::ChainId;
     use std::path::PathBuf;
     fn prepared_genesis_proposal(keypair: &KeyPair) -> GenesisBlock {
-        let proposal = complete_test_genesis_builder(GenesisBuilder::new_without_executor(
-            ChainId::from("configured-genesis-trust-anchor-test"),
-            PathBuf::from("."),
-        ))
+        let proposal = complete_test_genesis_builder(
+            GenesisBuilder::new_without_executor(
+                ChainId::from("configured-genesis-trust-anchor-test"),
+                PathBuf::from("."),
+                daemon_fixture_crypto_policy(),
+            )
+            .with_staking_policy(crate::daemon_fixture_staking_policy())
+            .expect("explicit fixture staking policy"),
+        )
         .build_raw()
         .expect("build complete prepared genesis manifest")
         .build_and_sign(keypair)
@@ -5289,7 +5291,10 @@ mod genesis_key_tests {
             GenesisBuilder::new_without_executor(
                 ChainId::from("configured-genesis-trust-anchor-test"),
                 PathBuf::from("."),
+                daemon_fixture_crypto_policy(),
             )
+            .with_staking_policy(crate::daemon_fixture_staking_policy())
+            .expect("explicit fixture staking policy")
             .append_instruction(iroha_data_model::isi::Log::new(
                 iroha_data_model::Level::INFO,
                 marker.to_owned(),
@@ -5317,10 +5322,15 @@ mod genesis_key_tests {
     #[test]
     fn derives_genesis_pubkey_from_block_authority() {
         let chain = ChainId::from("derive-genesis-pubkey-test");
-        let manifest = complete_test_genesis_builder(GenesisBuilder::new_without_executor(
-            chain,
-            PathBuf::from("."),
-        ))
+        let manifest = complete_test_genesis_builder(
+            GenesisBuilder::new_without_executor(
+                chain,
+                PathBuf::from("."),
+                daemon_fixture_crypto_policy(),
+            )
+            .with_staking_policy(crate::daemon_fixture_staking_policy())
+            .expect("explicit fixture staking policy"),
+        )
         .build_raw()
         .expect("build complete genesis public-key derivation manifest");
         let keypair = iroha_crypto::KeyPair::random();
@@ -8495,6 +8505,7 @@ fn validate_available_genesis_inputs(
     iroha_core::validate_genesis_block(&genesis.0, &genesis_account)
         .map_err(Report::new)
         .change_context(MainError::Config)?;
+    require_authenticated_genesis_crypto_implementations(&genesis.0, configured_key)?;
     let (signed_mode, signed_parameters) = signed_genesis_context_metadata(&genesis.0)
         .map_err(|error| Report::new(MainError::Config).attach(error))?;
     let config_caps =
@@ -9076,31 +9087,6 @@ fn verify_genesis_metadata(
         params.set_parameter(set_param.inner().clone());
     }
     params.sumeragi.block_cadence_ms = matched_meta.block_cadence_ms;
-    let crypto_manifest_payload = instructions
-        .iter()
-        .filter_map(|instr| instr.as_any().downcast_ref::<SetParameter>())
-        .find_map(|set| {
-            if let Parameter::Custom(custom) = set.inner()
-                && custom.id() == &crypto_metadata::manifest_meta_id()
-            {
-                Some(custom.payload())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| {
-            Report::new(MainError::Config).attach(
-                "genesis block missing crypto_manifest_meta parameter; regenerate genesis with crypto metadata populated",
-            )
-        })?;
-    let manifest_crypto: ManifestCrypto = decode_crypto_manifest_meta(crypto_manifest_payload)
-        .map_err(|err| {
-            Report::new(MainError::Config).attach(format!(
-                "failed to decode crypto_manifest_meta payload: {err}"
-            ))
-        })?;
-    ensure_crypto_snapshot_matches_config(&manifest_crypto, config)
-        .map_err(|err| Report::new(MainError::Config).attach(err))?;
     let mode = if mode_tag == iroha_core::sumeragi::consensus::NPOS_TAG {
         iroha_data_model::block::consensus::ConsensusMode::Npos
     } else {
@@ -10982,13 +10968,32 @@ mod tests {
     mod manifest_crypto_checks {
         use super::*;
         use iroha_config::base::toml::TomlSource;
-        use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry, ManifestCrypto};
+        use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
         use iroha_model_base::chain::ChainId;
+        #[test]
+        fn explicit_policy_verifier_readiness_has_no_ed25519_or_signing_requirement() {
+            use iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1;
+            for algorithm in iroha_crypto::Algorithm::ALL {
+                let policy = CryptoAdmissionPolicyV1::new(vec![*algorithm]).unwrap();
+                let expected = algorithm
+                    .require_implementation(iroha_crypto::CryptoOperation::VerifySignature);
+                assert_eq!(
+                    require_crypto_verification_implementations(&policy),
+                    expected
+                );
+                assert_eq!(policy.allowed_algorithms(), &[*algorithm]);
+            }
+        }
         fn sample_manifest() -> RawGenesisTransaction {
-            complete_test_genesis_builder(GenesisBuilder::new_without_executor(
-                ChainId::from("test-chain"),
-                PathBuf::from("."),
-            ))
+            complete_test_genesis_builder(
+                GenesisBuilder::new_without_executor(
+                    ChainId::from("test-chain"),
+                    PathBuf::from("."),
+                    daemon_fixture_crypto_policy(),
+                )
+                .with_staking_policy(crate::daemon_fixture_staking_policy())
+                .expect("explicit fixture staking policy"),
+            )
             .build_raw()
             .expect("build complete sample genesis manifest")
         }
@@ -11197,130 +11202,7 @@ mod tests {
             config.snapshot.signing_private_key = None;
             assert!(snapshot_signing_key(&config).is_err());
         }
-        #[test]
-        fn manifest_crypto_matches_config() {
-            let manifest = sample_manifest();
-            let config = sample_config();
-            ensure_manifest_crypto_matches(&manifest, &config)
-                .expect("expected manifest and config to match");
-        }
-        #[test]
-        fn detects_hash_mismatch() {
-            let manifest = sample_manifest();
-            let mut config = sample_config();
-            config.crypto.default_hash = "sm3-256".to_owned();
-            let err = ensure_manifest_crypto_matches(&manifest, &config)
-                .expect_err("hash mismatch should be detected");
-            assert!(
-                err.contains("default_hash"),
-                "error should mention hash: {err}"
-            );
-        }
-        #[test]
-        fn detects_allowed_signing_mismatch() {
-            let mut manifest = sample_manifest();
-            let crypto = ManifestCrypto {
-                allowed_signing: vec![Algorithm::Ed25519],
-                allowed_curve_ids: vec![iroha_data_model::account::curve::CurveId::ED25519.as_u8()],
-                ..Default::default()
-            };
-            crypto
-                .validate()
-                .expect("mismatched manifest policy must be valid");
-            manifest = manifest
-                .into_builder()
-                .with_crypto(crypto)
-                .build_raw()
-                .expect("rebuild complete sample genesis manifest");
-            let config = sample_config();
-            let err = ensure_manifest_crypto_matches(&manifest, &config)
-                .expect_err("allowed signing mismatch should be detected");
-            assert!(
-                err.contains("allowed_signing"),
-                "error should mention allowed_signing mismatch: {err}"
-            );
-        }
-        #[test]
-        fn detects_allowed_curve_ids_mismatch() {
-            let manifest = sample_manifest();
-            let mut config = sample_config();
-            config.crypto.allowed_curve_ids =
-                vec![iroha_data_model::account::curve::CurveId::ED25519.as_u8()];
-            let err = ensure_manifest_crypto_matches(&manifest, &config)
-                .expect_err("curve id mismatch should be detected");
-            assert!(
-                err.contains("allowed_curve_ids"),
-                "error should mention allowed_curve_ids mismatch: {err}"
-            );
-        }
-        #[test]
-        fn verify_genesis_metadata_rejects_crypto_mismatch_in_block() -> eyre::Result<()> {
-            let _registry_guard = instruction_registry_test_guard();
-            iroha_genesis::init_instruction_registry();
-            let mut config = sample_config();
-            let genesis_keys = config.common.key_pair.clone();
-            let chain = config.common.chain.clone();
-            let manifest = complete_test_genesis_builder(GenesisBuilder::new_without_executor(
-                chain.clone(),
-                PathBuf::from("."),
-            ))
-            .build_raw()
-            .expect("build complete crypto-mismatch genesis manifest")
-            .with_consensus_meta()?;
-            let genesis_block = manifest.build_and_sign(&genesis_keys)?;
-            let mut instructions = Vec::new();
-            for tx in genesis_block.0.external_transactions() {
-                if let Executable::Instructions(batch) = tx.instructions() {
-                    instructions.extend(batch.iter().cloned());
-                }
-            }
-            let handshake_meta = instructions
-                .iter()
-                .filter_map(|instr| instr.as_any().downcast_ref::<SetParameter>())
-                .find_map(|set| {
-                    if let Parameter::Custom(custom) = set.inner()
-                        && custom.id() == &consensus_metadata::handshake_meta_id()
-                    {
-                        decode_consensus_handshake_meta(custom.payload()).ok()
-                    } else {
-                        None
-                    }
-                })
-                .expect("handshake meta should be present in genesis");
-            let (mode, mode_tag) = match handshake_meta.mode {
-                iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned => (
-                    iroha_data_model::block::consensus::ConsensusMode::Permissioned,
-                    iroha_core::sumeragi::consensus::PERMISSIONED_TAG.to_string(),
-                ),
-                iroha_data_model::parameter::system::SumeragiConsensusMode::Npos => (
-                    iroha_data_model::block::consensus::ConsensusMode::Npos,
-                    iroha_core::sumeragi::consensus::NPOS_TAG.to_string(),
-                ),
-            };
-            let proto = handshake_meta.wire_protocol_version;
-            let consensus_fingerprint = handshake_meta.consensus_fingerprint.into_bytes();
-            let config_caps = build_consensus_config_caps(&config.nexus, None, None)
-                .map_err(|err| eyre::eyre!(format!("{err:?}")))?;
-            let consensus_caps = iroha_p2p::ConsensusHandshakeCaps {
-                mode,
-                proto_version: proto,
-                consensus_fingerprint,
-                config: config_caps,
-            };
-            config.genesis.public_key = genesis_keys.public_key().clone();
-            config.common.chain = chain;
-            config.common.key_pair = genesis_keys.clone();
-            config.crypto.allowed_signing = vec![Algorithm::Ed25519];
-            let err =
-                verify_genesis_metadata(&genesis_block, &config, &consensus_caps, &mode_tag, proto)
-                    .expect_err("crypto mismatch should be detected");
-            let report = format!("{err:?}");
-            assert!(
-                report.contains("crypto manifest") || report.contains("crypto mismatch"),
-                "unexpected error: {report}"
-            );
-            Ok(())
-        }
+
         #[test]
         fn genesis_validation_accepts_bls_controllers_when_crypto_config_applied() {
             let _registry_guard = instruction_registry_test_guard();
@@ -11377,35 +11259,10 @@ mod tests {
             let authority = AccountId::new(genesis_authority.public_key().clone());
             config.common.chain = chain_id.clone();
             config.genesis.public_key = genesis_authority.public_key().clone();
-            if !config
-                .crypto
-                .allowed_signing
-                .contains(&Algorithm::BlsNormal)
-            {
-                config.crypto.allowed_signing.push(Algorithm::BlsNormal);
-            }
-            config.crypto.allowed_curve_ids = config
-                .crypto
-                .allowed_signing
-                .iter()
-                .filter_map(|algorithm| {
-                    iroha_data_model::account::curve::CurveId::try_from_algorithm(*algorithm).ok()
-                })
-                .map(iroha_data_model::account::curve::CurveId::as_u8)
-                .collect();
-            config.crypto.allowed_curve_ids.sort_unstable();
-            config.crypto.allowed_curve_ids.dedup();
             let base_genesis = complete_test_genesis_builder_for_topology(
-                // Sign the actual policy installed in the staging and target State, including
-                // the BLS controllers required by this fixture's four-validator roster.
-                GenesisBuilder::new_without_executor(chain_id, ".").with_crypto(ManifestCrypto {
-                    sm_openssl_preview: config.crypto.enable_sm_openssl_preview,
-                    sm_intrinsics: config.crypto.sm_intrinsics.as_str().to_owned(),
-                    default_hash: config.crypto.default_hash.clone(),
-                    allowed_signing: config.crypto.allowed_signing.clone(),
-                    sm2_distid_default: config.crypto.sm2_distid_default.clone(),
-                    allowed_curve_ids: config.crypto.allowed_curve_ids.clone(),
-                }),
+                GenesisBuilder::new_without_executor(chain_id, ".", daemon_fixture_crypto_policy())
+                    .with_staking_policy(crate::daemon_fixture_staking_policy())
+                    .expect("explicit fixture staking policy"),
                 topology,
             );
             let base_raw = base_genesis
@@ -12037,18 +11894,30 @@ mod tests {
             let genesis_keys = config.common.key_pair.clone();
             let chain = config.common.chain.clone();
             let permissioned_genesis = complete_test_genesis_builder(
-                GenesisBuilder::new_without_executor(chain.clone(), PathBuf::from(".")),
+                GenesisBuilder::new_without_executor(
+                    chain.clone(),
+                    PathBuf::from("."),
+                    daemon_fixture_crypto_policy(),
+                )
+                .with_staking_policy(crate::daemon_fixture_staking_policy())
+                .expect("explicit fixture staking policy"),
             )
             .build_raw()
             .expect("build complete permissioned genesis manifest")
             .with_consensus_meta()?
             .build_and_sign(&genesis_keys)?;
             let npos_genesis = complete_test_genesis_builder(
-                GenesisBuilder::new_without_executor(chain.clone(), PathBuf::from("."))
-                    .append_parameter(Parameter::Custom(
-                        iroha_data_model::parameter::system::SumeragiNposParameters::default()
-                            .into_custom_parameter(),
-                    )),
+                GenesisBuilder::new_without_executor(
+                    chain.clone(),
+                    PathBuf::from("."),
+                    daemon_fixture_crypto_policy(),
+                )
+                .with_staking_policy(crate::daemon_fixture_staking_policy())
+                .expect("explicit fixture staking policy")
+                .append_parameter(Parameter::Custom(
+                    iroha_data_model::parameter::system::SumeragiNposParameters::default()
+                        .into_custom_parameter(),
+                )),
             )
             .build_raw()
             .expect("build complete NPoS genesis manifest")
@@ -12078,7 +11947,13 @@ mod tests {
             let genesis_keys = config.common.key_pair.clone();
             let chain = config.common.chain.clone();
             let genesis_block = complete_test_genesis_builder(
-                GenesisBuilder::new_without_executor(chain, PathBuf::from(".")),
+                GenesisBuilder::new_without_executor(
+                    chain,
+                    PathBuf::from("."),
+                    daemon_fixture_crypto_policy(),
+                )
+                .with_staking_policy(crate::daemon_fixture_staking_policy())
+                .expect("explicit fixture staking policy"),
             )
             .build_raw()
             .expect("build complete fingerprint-mismatch genesis manifest")
@@ -12107,7 +11982,7 @@ mod tests {
         }
         #[cfg(feature = "sm")]
         #[test]
-        fn manifest_crypto_cannot_override_config_without_signed_genesis() -> eyre::Result<()> {
+        fn unsigned_manifest_policy_cannot_initialize_node_admission() -> eyre::Result<()> {
             let genesis_keys = KeyPair::random();
             let mut config_table = sample_config_table();
             iroha_config::base::toml::Writer::new(&mut config_table)
@@ -12124,21 +11999,19 @@ mod tests {
             {
                 genesis_table.remove("file");
             }
-            let mut manifest_crypto = ManifestCrypto::default();
-            manifest_crypto.default_hash = "sm3-256".to_owned();
-            manifest_crypto.allowed_signing = vec![Algorithm::Ed25519, Algorithm::Sm2];
-            manifest_crypto.allowed_curve_ids =
-                iroha_config::parameters::defaults::crypto::derive_curve_ids_from_algorithms(
-                    &manifest_crypto.allowed_signing,
-                );
-            manifest_crypto.sm2_distid_default = "CN1234567812345678".to_owned();
-            manifest_crypto.validate()?;
+            let authored_policy =
+                iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    Algorithm::Sm2,
+                ])?;
             let manifest = complete_test_genesis_builder(
                 GenesisBuilder::new_without_executor(
                     ChainId::from("test-chain"),
                     PathBuf::from("."),
+                    daemon_fixture_crypto_policy(),
                 )
-                .with_crypto(manifest_crypto),
+                .with_staking_policy(crate::daemon_fixture_staking_policy())
+                .expect("explicit fixture staking policy")
+                .with_crypto_admission_policy(authored_policy.clone()),
             )
             .build_raw()
             .expect("build complete SM manifest crypto fixture");
@@ -12173,16 +12046,11 @@ mod tests {
             })
             .map_err(|report| eyre::eyre!("{report:?}"))?;
             assert!(genesis.is_none());
-            // An unsigned manifest is a consistency input, not an alternate
-            // authority for node crypto parameters before signed genesis.
-            assert!(
-                config
-                    .crypto
-                    .default_hash
-                    .eq_ignore_ascii_case("blake2b-256")
+            // Retaining an unsigned manifest creates no State or initialized admission owner.
+            assert_eq!(
+                config.crypto.default_hash,
+                iroha_config::parameters::defaults::crypto::DEFAULT_HASH
             );
-            assert!(!config.crypto.allowed_signing.contains(&Algorithm::Sm2));
-            assert_ne!(config.crypto.sm2_distid_default, "CN1234567812345678");
             let selected_manifest = config
                 .genesis
                 .manifest_json
@@ -12191,16 +12059,20 @@ mod tests {
                 .resolve_relative_path();
             let retained_manifest = read_genesis_manifest(&selected_manifest)
                 .map_err(|error| eyre::eyre!("{error:?}"))?;
-            assert!(
-                retained_manifest
-                    .crypto()
-                    .default_hash
-                    .eq_ignore_ascii_case("sm3-256")
+            assert_eq!(
+                retained_manifest.crypto_admission_policy(),
+                &authored_policy
+            );
+            let state = State::new(
+                World::new(),
+                Kura::blank_kura_for_testing(),
+                LiveQueryStore::start_test(),
             );
             assert!(
-                ensure_manifest_crypto_matches(&retained_manifest, &config)
-                    .expect_err("unsigned crypto substitution must fail startup consistency")
-                    .contains("crypto mismatch")
+                state
+                    .transaction_admission_parameters()
+                    .require_crypto_policy()
+                    .is_err()
             );
             Ok(())
         }
@@ -12316,10 +12188,15 @@ mod tests {
             F: FnMut(&mut toml::Table, &KeyPair),
         {
             let genesis_key_pair = KeyPair::random();
-            let raw = complete_test_genesis_builder(GenesisBuilder::new_without_executor(
-                ChainId::from("chain"),
-                ".",
-            ))
+            let raw = complete_test_genesis_builder(
+                GenesisBuilder::new_without_executor(
+                    ChainId::from("chain"),
+                    ".",
+                    daemon_fixture_crypto_policy(),
+                )
+                .with_staking_policy(crate::daemon_fixture_staking_policy())
+                .expect("explicit fixture staking policy"),
+            )
             .build_raw()
             .expect("build complete configuration fixture genesis manifest");
             iroha_genesis::init_instruction_registry();

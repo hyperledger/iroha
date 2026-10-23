@@ -8,6 +8,32 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
     private let featureMasks: [UInt8] = [0, 6, 1, 2, 2, 2, 0, 2, 7, 2, 7, 31]
     private let networkBytes = Data(repeating: 0xd1, count: 32)
 
+    func testSecurityClaimCanonicalArchiveMatchesCurrentRustOwner() throws {
+        // Exact canonical archive re-emitted by the current ABI31 Rust source.
+        let claim = securityClaim(protocolId: .zkAcePqAuthorizationV1, digestByte: 0x31)
+        XCTAssertEqual(exact12CatalogCommitment().count, 32)
+        let expected = try XCTUnwrap(Data(hexString:
+            "4e525430000087368b9da35faa6d2dee8dd5dbdf70cf00b900000000000000d355b690039f4e5b02205bcf366f" +
+            "b18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb00400000000040000000002800002800021" +
+            "203131313131313131313131313131313131313131313131313131313131313131212031313131313131313131" +
+            "313131313131313131313131313131313131313131312120e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1" +
+            "e1e1e1e1e1e1e1e1e1e1e12120e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2"
+        ))
+        XCTAssertEqual(
+            noritoEncode(
+                typeName: "iroha_data_model::privacy::PrivacySecurityClaimV1",
+                payload: claim.claim,
+                flags: NoritoHeader.compactLen,
+                payloadAlignment: 2
+            ),
+            expected
+        )
+        XCTAssertEqual(
+            claim.digest,
+            try XCTUnwrap(Data(hexString: "fdfe96fbb683002b794b5ad83d6ce637359d145b6e8aea5275a82cfe6ab89efd"))
+        )
+    }
+
     func testManagedProjectionPreservesFieldsWithoutGrantingNativeQualification() throws {
         let fixture = makeFixture(includePendingState: true)
         let manifest = try PrivacyExact12CapabilityManifestCodecV1.decode(
@@ -74,7 +100,7 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
             exact12CatalogCommitment()
         )
         let expectedClaimDigest = try XCTUnwrap(Data(
-            hexString: "810fdc49f332423016cb7dbb7383dd03ccae74bf605202e0b8de7101439878a2"
+            hexString: "fdfe96fbb683002b794b5ad83d6ce637359d145b6e8aea5275a82cfe6ab89efd"
         ))
         XCTAssertEqual(
             releaseBinding.securityClaimDigest,
@@ -372,6 +398,30 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
         }
     }
 
+    func testReleaseAndSecurityClaimRequireTheExactNativeCatalog() throws {
+        let canonical = exact12CatalogCommitment()
+        XCTAssertEqual(canonical.count, 32)
+        var hostile = [
+            Data(canonical.dropLast()), canonical + Data([0]), canonical + Data(repeating: 0, count: 16),
+            Data([0xe0, 0x37, 0xf1, 0x39, 0x04, 0xa0, 0x30, 0x7c, 0x00, 0xdb, 0x15, 0xd8, 0x5c, 0xfb, 0x40, 0x6b, 0xd7, 0x97, 0x72, 0xd2, 0x01, 0x44, 0xa9, 0x49, 0xde, 0xf0, 0xf3, 0xfd, 0xa7, 0x8e, 0x34, 0x2e, 0x74, 0x7f, 0x65, 0x78, 0x7c, 0xbf, 0xbf, 0xfa, 0xc9, 0x4f, 0x11, 0xc3, 0x69, 0xe2, 0xbb, 0xff]),
+        ]
+        for index in canonical.indices {
+            var changed = canonical
+            changed[index] ^= 1
+            hostile.append(changed)
+        }
+        for value in hostile {
+            for fixture in [
+                makeFixture(releaseCatalogCommitment: value),
+                makeFixture(claimCatalogCommitment: value),
+            ] {
+                XCTAssertThrowsError(try PrivacyExact12CapabilityManifestCodecV1.decode(
+                    fixture.manifest, nativeCatalogArchive: fixture.catalog
+                ))
+            }
+        }
+    }
+
     func testCatalogSubstitutionAndDigestShellsFailClosed() throws {
         let fixture = makeFixture()
         let substituted = makeFixture(catalogDigestByte: 0x32)
@@ -477,11 +527,25 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
             fixture.manifest, nativeCatalogArchive: fixture.catalog
         )
         let expected = try NetworkId(bytes: networkBytes)
-        for index in 0..<48 {
+        for index in 0..<32 {
             var catalog = exact12CatalogCommitment()
             catalog[index] ^= 1
             XCTAssertThrowsError(try PrivacyExact12CapabilityManifestCodecV1.requireSubmitProofInstruction(
                 submitProofInstruction(catalogCommitment: catalog),
+                row: manifest.row(for: .zkAcePqAuthorizationV1),
+                consensusLimits: manifest.consensusPolicy.currentLimits,
+                expectedNetworkId: expected
+            ))
+        }
+        let canonical = exact12CatalogCommitment()
+        XCTAssertEqual(canonical.count, 32)
+        for hostile in [
+            Data(canonical.dropLast()), canonical + Data([0]),
+            canonical + Data(repeating: 0, count: 16),
+            Data([0xe0, 0x37, 0xf1, 0x39, 0x04, 0xa0, 0x30, 0x7c, 0x00, 0xdb, 0x15, 0xd8, 0x5c, 0xfb, 0x40, 0x6b, 0xd7, 0x97, 0x72, 0xd2, 0x01, 0x44, 0xa9, 0x49, 0xde, 0xf0, 0xf3, 0xfd, 0xa7, 0x8e, 0x34, 0x2e, 0x74, 0x7f, 0x65, 0x78, 0x7c, 0xbf, 0xbf, 0xfa, 0xc9, 0x4f, 0x11, 0xc3, 0x69, 0xe2, 0xbb, 0xff]),
+        ] {
+            XCTAssertThrowsError(try PrivacyExact12CapabilityManifestCodecV1.requireSubmitProofInstruction(
+                submitProofInstruction(catalogCommitment: hostile),
                 row: manifest.row(for: .zkAcePqAuthorizationV1),
                 consensusLimits: manifest.consensusPolicy.currentLimits,
                 expectedNetworkId: expected
@@ -744,7 +808,9 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
         protocolSchedule: (UInt64, UInt64) = (2, 302),
         opaqueProofArtifacts: Data? = nil,
         deploymentNetworkBytes: Data? = nil,
-        deploymentGenesisBytes: Data? = nil
+        deploymentGenesisBytes: Data? = nil,
+        releaseCatalogCommitment: Data? = nil,
+        claimCatalogCommitment: Data? = nil
     ) -> Fixture {
         var profiles = (0..<12).map { _ in enumValue(1, enumValue(0)) }
         profiles[0] = availableProfile(
@@ -842,7 +908,9 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
                 convergenceHeight: qualificationConvergenceHeight,
                 opaqueProofArtifacts: opaqueProofArtifacts,
                 deploymentNetworkBytes: deploymentNetworkBytes ?? networkBytes,
-                deploymentGenesisBytes: deploymentGenesisBytes ?? networkBytes
+                deploymentGenesisBytes: deploymentGenesisBytes ?? networkBytes,
+                releaseCatalogCommitment: releaseCatalogCommitment,
+                claimCatalogCommitment: claimCatalogCommitment
             )
             : nil
         if let embeddedDigest {
@@ -911,11 +979,12 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
     private func securityClaim(
         protocolId: PrivacyProtocolIdV1,
         digestByte: UInt8,
-        corruptDigest: Bool = false
+        corruptDigest: Bool = false,
+        catalogCommitment: Data? = nil
     ) -> (claim: Data, digest: Data) {
         let bindingDigest = structure(Data(repeating: digestByte, count: 32))
         let claim = structure(
-            exact12CatalogCommitment(),
+            catalogCommitment ?? exact12CatalogCommitment(),
             enumValue(protocolId.noritoDiscriminant),
             enumValue(securityModelTag(protocolId)),
             u16(128),
@@ -926,7 +995,7 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
             structure(Data(repeating: 0xe2, count: 32))
         )
         let canonicalClaim = noritoEncode(
-            typeName: "iroha_data_model::privacy::protocol::PrivacySecurityClaimV1",
+            typeName: "iroha_data_model::privacy::PrivacySecurityClaimV1",
             payload: claim,
             flags: NoritoHeader.compactLen,
             payloadAlignment: 2
@@ -947,14 +1016,17 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
         convergenceHeight: UInt64,
         opaqueProofArtifacts: Data?,
         deploymentNetworkBytes: Data,
-        deploymentGenesisBytes: Data
+        deploymentGenesisBytes: Data,
+        releaseCatalogCommitment: Data?,
+        claimCatalogCommitment: Data?
     ) -> Data {
         let releaseDigest = Data(repeating: 0xe3, count: 32)
         let releaseBindings = PrivacyProtocolIdV1.allCases.enumerated().map { index, protocolId in
             releaseBinding(
                 protocolId,
                 digestByte: profileDigestByte(index),
-                corruptSecurityClaimDigest: corruptSecurityClaimDigest && index == 0
+                corruptSecurityClaimDigest: corruptSecurityClaimDigest && index == 0,
+                catalogCommitment: claimCatalogCommitment
             )
         }
         let source = structure(
@@ -967,7 +1039,7 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
         let release = structure(
             u16(1),
             compactString("iroha-privacy-exact12-v1"),
-            exact12CatalogCommitment(),
+            releaseCatalogCommitment ?? exact12CatalogCommitment(),
             source,
             u16(1),
             structure(Data(repeating: 0xa4, count: 32)),
@@ -1013,13 +1085,15 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
     private func releaseBinding(
         _ protocolId: PrivacyProtocolIdV1,
         digestByte: UInt8,
-        corruptSecurityClaimDigest: Bool
+        corruptSecurityClaimDigest: Bool,
+        catalogCommitment: Data?
     ) -> Data {
         let digest = structure(Data(repeating: digestByte, count: 32))
         let claim = securityClaim(
             protocolId: protocolId,
             digestByte: digestByte,
-            corruptDigest: corruptSecurityClaimDigest
+            corruptDigest: corruptSecurityClaimDigest,
+            catalogCommitment: catalogCommitment
         )
         return structure(
             enumValue(protocolId.noritoDiscriminant),
@@ -1055,17 +1129,12 @@ final class PrivacyExact12CapabilityManifestV1Tests: XCTestCase {
     }
 
     private func exact12CatalogCommitment() -> Data {
-        let words: [UInt64] = [
-            0x7c30_a004_39f1_37e0,
-            0x6b40_fb5c_d815_db00,
-            0x49a9_4401_d272_97d7,
-            0x2e34_8ea7_fdf3_f0de,
-            0xfabf_bf7c_7865_7f74,
-            0xffbb_e269_c311_4fc9,
-        ]
-        return words.reduce(into: Data()) { output, word in
-            output.append(u64(word))
-        }
+        Data([
+            0x5b, 0xcf, 0x36, 0x6f, 0xb1, 0x8d, 0x2e, 0x43,
+            0x61, 0x48, 0x6c, 0x01, 0x5d, 0xa5, 0xb4, 0x1a,
+            0x3f, 0xb0, 0x0e, 0xdf, 0x05, 0x61, 0x10, 0x42,
+            0xcc, 0xc4, 0x52, 0x12, 0x0d, 0x17, 0x6e, 0xb0,
+        ])
     }
 
     private func submitProofInstruction(

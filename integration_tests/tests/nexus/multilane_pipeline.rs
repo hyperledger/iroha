@@ -4,7 +4,7 @@ use iroha_config::{
     kura::FsyncMode,
     parameters::{
         actual::{
-            Crypto, Kura as KuraConfig, LaneConfig as LaneDerivedConfig, LaneRoutingMatcher,
+            Kura as KuraConfig, LaneConfig as LaneDerivedConfig, LaneRoutingMatcher,
             LaneRoutingPolicy, LaneRoutingRule,
         },
         defaults,
@@ -67,13 +67,18 @@ fn sample_transaction(
         default_limits.max_decompressed_bytes(),
         default_limits.max_metadata_depth(),
     );
-    let crypto_cfg = Crypto::default();
+    let crypto_policy =
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("explicit fixture admission policy");
     AcceptedTransaction::accept(
         tx,
         &test_network_id(),
         Duration::from_secs(30),
         params,
-        &crypto_cfg,
+        &crypto_policy,
     )
     .expect("transaction should be accepted")
 }

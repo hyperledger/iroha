@@ -18202,6 +18202,27 @@ pub mod isi {
                         })
                         .map_err(invalid_smart_contract_parameter)?;
                 }
+                if state_transaction._curr_block.is_genesis()
+                    && custom.id() == &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::parameter_id()
+                {
+                    let selected = norito::core::classify_decode_attempt(|| {
+                        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::from_payload(custom.payload())
+                    }).map_err(|error| {
+                        state_transaction.attempt_error_to_instruction_error(
+                            crate::execution_attempt::canonical_decode_attempt_error(error, |error| invalid_smart_contract_parameter(error.to_string())),
+                        )
+                    })?;
+                    if state_transaction.world.parameters.get().crypto_policy() != Some(&selected) {
+                        return Err(invalid_smart_contract_parameter("genesis instruction changes or invents its authenticated initial crypto policy"));
+                    }
+                }
+                if state_transaction._curr_block.is_genesis()
+                    && custom.id() == &iroha_data_model::block::consensus::PublicLaneStakingPolicy::parameter_id()
+                {
+                    state_transaction
+                        .require_genesis_staking_parameter(custom)
+                        .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
+                }
                 if custom.id()
                     == &iroha_data_model::private_dataspace::PrivateDataspaceAdmissionPolicy::parameter_id()
                 {

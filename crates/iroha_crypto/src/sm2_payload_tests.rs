@@ -25,23 +25,21 @@ fn split_borrows_exact_empty_unicode_and_maximum_identifiers() {
 fn split_preserves_validation_precedence_and_exact_errors() {
     for bytes in [&[][..], &[0x01][..]] {
         assert_eq!(
-            split_sm2_payload(bytes).unwrap_err().0,
-            "SM2 payload missing distid length prefix"
+            split_sm2_payload(bytes).unwrap_err(),
+            ParseError::Invalid("SM2 payload missing distid length prefix".into())
         );
     }
     assert_eq!(
-        split_sm2_payload(&[0x00, 0x02, 0xff]).unwrap_err().0,
-        "SM2 payload truncated distid"
+        split_sm2_payload(&[0x00, 0x02, 0xff]).unwrap_err(),
+        ParseError::Invalid("SM2 payload truncated distid".into())
     );
     assert_eq!(
-        split_sm2_payload(&[0x00, 0x01, 0xff]).unwrap_err().0,
-        "SM2 distid must be valid UTF-8"
+        split_sm2_payload(&[0x00, 0x01, 0xff]).unwrap_err(),
+        ParseError::Invalid("SM2 distid must be valid UTF-8".into())
     );
     assert_eq!(
-        split_sm2_payload(&payload(&"a".repeat(8192), &[]))
-            .unwrap_err()
-            .0,
-        "SM2 distinguishing identifier exceeds 65535 bits"
+        split_sm2_payload(&payload(&"a".repeat(8192), &[])).unwrap_err(),
+        ParseError::Invalid("SM2 distinguishing identifier exceeds 65535 bits".into())
     );
 }
 
@@ -61,14 +59,14 @@ fn public_payload_keeps_canonical_uncompressed_point_and_identifier() {
 
     let compressed = payload(distid, &public.to_sec1_bytes(true));
     assert_eq!(
-        decode_sm2_public_key_payload(&compressed).unwrap_err().0,
-        "SM2 public key payload must be 65 bytes"
+        decode_sm2_public_key_payload(&compressed).unwrap_err(),
+        ParseError::Invalid("SM2 public key payload must be 65 bytes".into())
     );
     let mut extra = envelope;
     extra.push(0);
     assert_eq!(
-        decode_sm2_public_key_payload(&extra).unwrap_err().0,
-        "SM2 public key payload must be 65 bytes"
+        decode_sm2_public_key_payload(&extra).unwrap_err(),
+        ParseError::Invalid("SM2 public key payload must be 65 bytes".into())
     );
     assert!(decode_sm2_public_key_payload(&payload(distid, &[0; 65])).is_err());
 }
@@ -89,16 +87,14 @@ fn private_payload_retains_owned_identity_after_borrowed_envelope_drops() {
         assert_eq!(
             decode_sm2_private_key_payload(&payload(distid, material))
                 .err()
-                .expect("wrong private material length must fail")
-                .0,
-            "SM2 private key payload must be 32 bytes"
+                .expect("wrong private material length must fail"),
+            ParseError::Invalid("SM2 private key payload must be 32 bytes".into())
         );
     }
     assert_eq!(
         decode_sm2_private_key_payload(&payload(distid, &[0; 32]))
             .err()
-            .expect("zero private material must fail")
-            .0,
-        "SM2 private key material must not be all zero"
+            .expect("zero private material must fail"),
+        ParseError::Invalid("SM2 private key material must not be all zero".into())
     );
 }

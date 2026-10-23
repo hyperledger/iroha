@@ -8,7 +8,7 @@ use ivm::{IVM, PointerType, ProgramMetadata};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
 use std::collections::BTreeMap;
 fn new_sm_host() -> ivm::host::DefaultHost {
-    ivm::host::DefaultHost::new().with_sm_enabled(true)
+    ivm::host::DefaultHost::new()
 }
 fn make_tlv(pointer_type: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(7 + payload.len() + 32);

@@ -14,7 +14,7 @@ use crate::{
     state::contract_event_journal::DrainedContractEvents,
     state::network_policy_routes::CapturedNetworkPolicyRoute,
     tx::{
-        AcceptedTransaction, execution_rejection_from_admission_failure,
+        AcceptedTransaction, execution_attempt_from_admission_failure,
         rejected_transaction_gas_is_accountable,
     },
 };
@@ -156,26 +156,34 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
                     signed,
                     parameters.sumeragi().max_clock_drift(),
                     account,
-                    &self.state.crypto,
                     validation_time,
                 )
                 .map(|()| AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(input)))
-                .map_err(execution_rejection_from_admission_failure)
+                .map_err(execution_attempt_from_admission_failure)
             } else {
                 AcceptedTransaction::accept_borrowed_entrypoint_at_time(
                     input,
                     &self.state.network_id,
                     parameters.sumeragi().max_clock_drift(),
                     parameters.transaction(),
-                    &self.state.crypto,
+                    self.state.crypto_admission_policy().map_err(|_| {
+                        ExecutionAttemptError::Deferred(
+                            ivm::error::ExecutionDeferral::LocalInvariantViolation.into(),
+                        )
+                    })?,
                     validation_time,
                     signatures_prechecked,
                 )
-                .map_err(execution_rejection_from_admission_failure)
+                .map_err(execution_attempt_from_admission_failure)
             };
+            // A local refusal has no transaction verdict and must leave before
+            // time/fraud filtering can replace it or any Network row can be stored.
             let admission = match admission {
                 Ok(accepted) => Ok(accepted),
-                Err(rejection) => Err(rejection.map_err(ExecutionAttemptError::Deferred)?),
+                Err(ExecutionAttemptError::Rejected(completed)) => Err(completed),
+                Err(ExecutionAttemptError::Deferred(original)) => {
+                    return Err(ExecutionAttemptError::Deferred(original));
+                }
             };
             let admission = if genesis_account.is_none() {
                 if let Some(signed) = signed_source(input) {

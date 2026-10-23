@@ -274,6 +274,7 @@ fn executed_genesis_requires_committed_fee_policy_without_defaults() {
         let mut parameters = world.parameters.block();
         let policy = parameters
             .remove_custom_parameter(&RootFeePolicy::parameter_id())
+            .expect("root fee policy removal is permitted")
             .expect("registered world has a committed fee policy");
         parameters.commit();
         policy

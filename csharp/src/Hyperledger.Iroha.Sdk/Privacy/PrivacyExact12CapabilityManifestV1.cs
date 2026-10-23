@@ -589,8 +589,7 @@ internal static class PrivacyExact12CapabilityManifestCodecV1
         Encoding.UTF8.GetBytes("iroha:privacy:security-claim:v1");
 
     private static readonly byte[] Exact12CatalogCommitment = Convert.FromHexString(
-        "E037F13904A0307C00DB15D85CFB406BD79772D20144A949" +
-        "DEF0F3FDA78E342E747F65787CBFBFFAC94F11C369E2BBFF");
+        "5BCF366FB18D2E4361486C015DA5B41A3FB00EDF05611042CCC452120D176EB0");
 
     private static readonly PrivacyExecutionModeV1[] ExpectedExecutionModes =
     [

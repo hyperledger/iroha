@@ -22,19 +22,12 @@
     "nexus_amx_context_hash": "E9B61F86F63F556C0A8460B3EE54C1A4DBC3FE0F0097819D99C724C68B148EAB",
     "execution_policy_hash": "3F947453758F8EE90B2C66437A128FC22D93C4D2E0CA60C261D828B7E0B897C3"
   },
-  "crypto": {
-    "allowed_curve_ids": [
-      1,
-      3,
-      4
-    ],
-    "allowed_signing": [
+  "crypto_admission_policy": {
+    "allowed_algorithms": [
       "ed25519",
       "secp256k1",
       "bls_normal"
-    ],
-    "default_hash": "blake2b-256",
-    "sm2_distid_default": "1234567812345678"
+    ]
   },
   "executor": null,
   "ivm_dir": ".",
@@ -471,6 +464,19 @@
               "per_instruction_fee": "0.001",
               "per_gas_unit_fee": "0.00005"
             }
+          },
+          "public_lane_staking_v1": {
+            "id": "public_lane_staking_v1",
+            "payload": {
+              "min_validator_stake": "1",
+              "max_stake_shares_per_validator": 256,
+              "max_pending_unbonds_per_share": 8,
+              "unbonding_delay_ms": 1814400000,
+              "max_slash_bps": 10000,
+              "stake_asset_id": null,
+              "stake_escrow_account_id": "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "slash_sink_account_id": "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
+            }
           }
         },
         "executor": {
@@ -489,8 +495,8 @@
         },
         "sumeragi": {
           "block_cadence_ms": 4000,
-          "max_clock_drift_ms": 1000,
-          "due_work_max_lag_ms": 60000
+          "due_work_max_lag_ms": 60000,
+          "max_clock_drift_ms": 1000
         },
         "transaction": {
           "ivm_bytecode_size": 4194304,

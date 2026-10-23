@@ -11,6 +11,31 @@ use norito::codec::{Decode, Encode};
 
 use crate::parameter::{CustomParameter, CustomParameterId};
 
+mod json_admission;
+pub use json_admission::{AdmittedFraudAdmissionPolicy, FraudPolicyJsonAdmissionError};
+
+impl norito::json::JsonDeserialize for FraudRiskBandV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        json_admission::decode_ordinary_band(parser)
+    }
+}
+impl norito::json::JsonDeserialize for FraudAdmissionAttesterV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        json_admission::decode_ordinary_attester(parser)
+    }
+}
+impl norito::json::JsonDeserialize for FraudAdmissionPolicyV1 {
+    fn json_deserialize(
+        parser: &mut norito::json::Parser<'_>,
+    ) -> Result<Self, norito::json::Error> {
+        json_admission::decode_ordinary_policy(parser)
+    }
+}
+
 /// Maximum number of distinct assessment engines in one policy.
 pub const MAX_FRAUD_ATTESTERS_V1: usize = 256;
 /// Maximum UTF-8 byte length of one canonical engine identifier.
@@ -29,7 +54,6 @@ pub const MAX_FRAUD_ENGINE_ID_BYTES_V1: usize = 128;
     Decode,
     IntoSchema,
     crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
     norito::NoritoSchema,
 )]
 #[norito(tag = "band", content = "value", rename_all = "snake_case")]
@@ -85,7 +109,6 @@ impl core::str::FromStr for FraudRiskBandV1 {
     Decode,
     IntoSchema,
     crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
     norito::NoritoSchema,
 )]
 #[norito(deny_unknown_fields)]
@@ -115,7 +138,6 @@ impl FraudAdmissionAttesterV1 {
     Decode,
     IntoSchema,
     crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
     norito::NoritoSchema,
 )]
 #[norito(deny_unknown_fields)]

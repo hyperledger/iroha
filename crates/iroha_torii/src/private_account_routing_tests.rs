@@ -135,7 +135,8 @@ async fn account_routes_require_valid_root_metadata_and_preserve_explicit_global
         let mut block = app.state.world.block();
         block
             .parameters
-            .remove_custom_parameter(&consensus_metadata::handshake_meta_id());
+            .remove_custom_parameter(&consensus_metadata::handshake_meta_id())
+            .expect("optional handshake fixture parameter removal");
         if malformed {
             block
                 .parameters

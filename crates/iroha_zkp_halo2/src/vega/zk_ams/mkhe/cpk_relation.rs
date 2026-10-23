@@ -4695,7 +4695,22 @@ mod tests {
         assert!(!common_a.contains("Vec::new"));
         assert!(lease.contains("fn acquire_zk_ams_t256_cpk_workspace_v1()"));
         assert!(lease.contains("T256MembershipWorkspaceRoleV1::Commitment"));
-        assert_eq!(profile.matches("try_exact_capacity_vec_v1(").count(), 3);
+        // Profile identities stream bounded fields into three native hash owners;
+        // they must not restore the former three buffered frame allocations.
+        assert_eq!(profile.matches("try_exact_capacity_vec_v1(").count(), 0);
+        assert_eq!(
+            profile
+                .matches("let mut hash = native_outer_identity_v1(")
+                .count(),
+            3
+        );
+        assert_eq!(
+            profile
+                .matches("NativeOuterIdentityRoleV1::Parameter,")
+                .count(),
+            3
+        );
+        assert_eq!(profile.matches(".finish()").count(), 3);
         assert!(!profile.contains("Vec::with_capacity"));
         assert_eq!(multiply.matches("try_exact_capacity_vec_v1(").count(), 2);
         assert!(multiply.contains("left_twisted.capacity() != left.len()"));

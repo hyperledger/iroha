@@ -280,17 +280,17 @@ mod tests {
                 work.index_frame.words_per_lane,
                 work.node_frame.words_per_lane
             ],
-            [950, 96, 94]
+            [948, 94, 92]
         );
-        assert_eq!(work.all_payload_permutations, 1_793_064_678);
-        assert_eq!(work.one_payload_permutations, 298_846_728);
-        assert_eq!(work.all_payload_field_operations, 3_032_072_370_498);
-        assert_eq!(work.one_payload_field_operations, 505_349_817_048);
+        assert_eq!(work.all_payload_permutations, 1_783_627_500);
+        assert_eq!(work.one_payload_permutations, 292_555_272);
+        assert_eq!(work.all_payload_field_operations, 3_016_114_102_500);
+        assert_eq!(work.one_payload_field_operations, 494_710_964_952);
         let structural_floor = work.index_node_floor_field_operations().unwrap();
-        assert_eq!(structural_floor, 505_344_997_698);
+        assert_eq!(structural_floor, 494_706_155_748);
         let index_only = work.leaves
             * (work.index_frame.field_multiplications + work.index_frame.field_additions);
-        assert_eq!(index_only, 255_332_450_304);
+        assert_eq!(index_only, 250_013_024_256);
         assert!(index_only > ZK_AMS_MKHE_RNS_NATIVE_WORK_MAX_V1);
         assert_eq!(
             work.all_payload_field_operations - structural_floor,
@@ -316,9 +316,9 @@ mod tests {
             RnsNativeOracleV1::Fri { layer: 17 },
         ] {
             let other = RnsNativeTreeWorkV1::for_oracle(parameter(), oracle).unwrap();
-            assert_eq!(other.payload_frame.words_per_lane, 950);
-            assert_eq!(other.index_frame.words_per_lane, 96);
-            assert_eq!(other.node_frame.words_per_lane, 94);
+            assert_eq!(other.payload_frame.words_per_lane, 948);
+            assert_eq!(other.index_frame.words_per_lane, 94);
+            assert_eq!(other.node_frame.words_per_lane, 92);
             assert_eq!(other.internal_nodes + 1, other.leaves);
         }
         let terminal =

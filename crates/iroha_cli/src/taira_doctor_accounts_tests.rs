@@ -8,12 +8,14 @@ mod doctor_account_tests {
     }
     pub(super) fn capability_response() -> MockResponse {
         let capabilities =
-            iroha_torii_shared::account_capabilities::AccountCapabilitiesV1::from_admission(
+            iroha_torii_shared::account_capabilities::AccountCapabilitiesV1::from_policy(
                 network(),
                 DEFAULT_CHAIN_DISCRIMINANT,
-                &[Algorithm::Ed25519],
-            )
-            .unwrap();
+                &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                    Algorithm::Ed25519,
+                ])
+                .unwrap(),
+            );
         MockResponse::json(200, json::to_value(&capabilities).unwrap())
     }
     pub(super) fn faucet_response() -> MockResponse {

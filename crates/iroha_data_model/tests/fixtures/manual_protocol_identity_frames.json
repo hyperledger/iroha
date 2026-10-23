@@ -150,25 +150,25 @@
     {
       "actual_type_name": "iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1",
       "alignment_padding_length": 0,
-      "bare_hex": "e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+      "bare_hex": "5bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
       "case": "privacy_exact12_catalog_commitment/root_0",
       "deserialize_schema_hash_hex": "1a33abf4ede7599f47f0cda855585b91",
-      "frame_hex": "4e52543000001a33abf4ede7599f47f0cda855585b91003000000000000000e710c6a0a228ba7500e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+      "frame_hex": "4e52543000001a33abf4ede7599f47f0cda855585b9100200000000000000027b49fd67b60a0fe005bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
       "header_flags": 0,
       "header_schema_hash_hex": "1a33abf4ede7599f47f0cda855585b91",
-      "payload_length": 48,
+      "payload_length": 32,
       "serialize_schema_hash_hex": "1a33abf4ede7599f47f0cda855585b91"
     },
     {
       "actual_type_name": "core::option::Option<iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1>",
       "alignment_padding_length": 0,
-      "bare_hex": "0130e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+      "bare_hex": "01205bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
       "case": "privacy_exact12_catalog_commitment/option_0",
       "deserialize_schema_hash_hex": "b04a60c95a5859dcea38d40156762bb9",
-      "frame_hex": "4e5254300000b04a60c95a5859dcea38d40156762bb90032000000000000005bfad3822038e737020130e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+      "frame_hex": "4e5254300000b04a60c95a5859dcea38d40156762bb9002200000000000000d86470f55d65e1c80201205bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
       "header_flags": 2,
       "header_schema_hash_hex": "b04a60c95a5859dcea38d40156762bb9",
-      "payload_length": 50,
+      "payload_length": 34,
       "serialize_schema_hash_hex": "b04a60c95a5859dcea38d40156762bb9"
     },
     {
@@ -198,13 +198,13 @@
     {
       "actual_type_name": "alloc::vec::Vec<iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1>",
       "alignment_padding_length": 0,
-      "bare_hex": "010000000000000030e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+      "bare_hex": "0100000000000000205bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
       "case": "privacy_exact12_catalog_commitment/vec_all",
       "deserialize_schema_hash_hex": "2d1275994c4e15671cc231a33a5c3972",
-      "frame_hex": "4e52543000002d1275994c4e15671cc231a33a5c39720039000000000000000b6715afa11d65d602010000000000000030e037f13904a0307c00db15d85cfb406bd79772d20144a949def0f3fda78e342e747f65787cbfbffac94f11c369e2bbff",
+      "frame_hex": "4e52543000002d1275994c4e15671cc231a33a5c3972002900000000000000681d0bf82e088d44020100000000000000205bcf366fb18d2e4361486c015da5b41a3fb00edf05611042ccc452120d176eb0",
       "header_flags": 2,
       "header_schema_hash_hex": "2d1275994c4e15671cc231a33a5c3972",
-      "payload_length": 57,
+      "payload_length": 41,
       "serialize_schema_hash_hex": "2d1275994c4e15671cc231a33a5c3972"
     },
     {

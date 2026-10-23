@@ -98,7 +98,11 @@ fn governance_manifest_checks_share_signed_body_for_external_and_sealed_reveal()
                     &queue_test_network_id(),
                     Duration::ZERO,
                     TransactionParameters::default(),
-                    &iroha_config::parameters::actual::Crypto::default(),
+                    &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                        iroha_crypto::Algorithm::Ed25519,
+                        iroha_crypto::Algorithm::Secp256k1,
+                    ])
+                    .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
                     signed.creation_time(),
                 )
                 .expect("real signed Network entrypoint stateless admission"),
@@ -227,7 +231,11 @@ fn governed_queue_push_preserves_sealed_commitment_without_signed_body() {
         &state.network_id,
         Duration::ZERO,
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         signed.creation_time(),
     )
     .expect("real signed commitment passes stateless admission");

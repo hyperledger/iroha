@@ -37,7 +37,7 @@ impl KeyRejection {
     pub(crate) fn into_parse_error(self) -> ParseError {
         // TODO: fund these public diagnostic Strings, including any subsequent
         // Norito Message conversion, before materializing them.
-        ParseError(match self {
+        ParseError::Invalid(match self {
             Self::Unsupported(algorithm) => {
                 format!("algorithm {algorithm:?} is not a supported GOST parameter set")
             }

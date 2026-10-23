@@ -227,14 +227,6 @@ pub(crate) use complete::original_stream;
     )
 )]
 mod content_policy;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TODO: consume the cryptographic admission projection in the complete State root owner"
-    )
-)]
-mod crypto_policy;
 mod domain_ownership;
 pub(crate) mod policy_borrowed;
 

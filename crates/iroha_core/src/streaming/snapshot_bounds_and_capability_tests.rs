@@ -348,37 +348,15 @@ fn snapshot_session_key_derivation_is_deterministic() {
     assert_ne!(first.payload(), other.payload());
 }
 #[test]
-fn apply_crypto_config_sets_sm_feature_bit_from_build() {
+fn apply_crypto_capabilities_reports_actual_backend_independent_of_chain_admission() {
     let mut handle = StreamingHandle::new().with_capabilities(CapabilityFlags::from_bits(0b1));
-    let cfg = actual::Crypto::default();
-    handle.apply_crypto_config(&cfg);
-    #[cfg(feature = "sm")]
-    assert!(
-        !handle
-            .capabilities()
-            .contains(CapabilityFlags::FEATURE_SM_TRANSACTIONS),
-        "SM feature bit should be cleared when SM support is disabled in config"
-    );
-    #[cfg(not(feature = "sm"))]
-    assert!(
-        !handle
-            .capabilities()
-            .contains(CapabilityFlags::FEATURE_SM_TRANSACTIONS),
-        "SM feature bit should be absent when the build lacks SM support"
-    );
-    #[cfg(feature = "sm")]
-    {
-        let cfg_enabled = actual::Crypto {
-            allowed_signing: vec![Algorithm::Ed25519, Algorithm::Sm2],
-            ..Default::default()
-        };
-        handle.apply_crypto_config(&cfg_enabled);
-    }
-    #[cfg(feature = "sm")]
-    assert!(
+    handle.apply_crypto_capabilities();
+    assert_eq!(
         handle
             .capabilities()
             .contains(CapabilityFlags::FEATURE_SM_TRANSACTIONS),
-        "SM feature bit should be present when both build and config enable SM support"
+        Algorithm::Sm2
+            .require_implementation(iroha_crypto::CryptoOperation::VerifySignature)
+            .is_ok(),
     );
 }

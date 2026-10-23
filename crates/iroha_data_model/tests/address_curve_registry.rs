@@ -33,6 +33,7 @@ fn curve_registry_aligns_with_runtime() {
     let registry: Registry =
         json::from_str(&payload).expect("curve registry JSON must be well-formed");
     assert!(registry.version >= 1, "unexpected registry version");
+    assert_eq!(registry.entries.len(), Algorithm::ALL.len());
     let mut seen_ids = BTreeSet::new();
     for entry in registry.entries {
         assert!(
@@ -49,28 +50,20 @@ fn curve_registry_aligns_with_runtime() {
         );
         if let Some(feature) = entry.feature.as_deref() {
             match feature {
-                "ml-dsa" | "gost" | "sm" | "bls" => {}
+                "pqc" | "gost" | "sm" | "bls" => {}
                 other => panic!("unknown feature gate '{other}' in curve registry"),
             }
         }
-        match CurveId::try_from(entry.id) {
-            Ok(curve_id) => {
-                let algorithm = curve_id.algorithm();
-                assert_eq!(
-                    algorithm_name(algorithm),
-                    entry.algorithm,
-                    "algorithm label mismatch for curve id {}",
-                    entry.id
-                );
-            }
-            Err(_) => {
-                assert!(
-                    entry.feature.is_some(),
-                    "ungated curve {} should decode successfully",
-                    entry.id
-                );
-            }
-        }
+        let curve_id =
+            CurveId::try_from(entry.id).expect("every registered identity is unconditional");
+        let algorithm = curve_id.algorithm();
+        assert_eq!(
+            algorithm_name(algorithm),
+            entry.algorithm,
+            "algorithm label mismatch for curve id {}",
+            entry.id
+        );
+        assert_eq!(CurveId::from_algorithm(algorithm), curve_id);
         if let Some(validation) = entry.validation.as_ref() {
             if let Some(bytes) = validation.public_key_bytes {
                 assert!(

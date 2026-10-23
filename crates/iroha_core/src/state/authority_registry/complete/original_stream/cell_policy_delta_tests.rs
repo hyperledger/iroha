@@ -228,6 +228,16 @@ fn frozen_policy_block(
                 fees.into_custom_parameter().unwrap(),
             ))
             .unwrap();
+        // These projection controls start with a complete original policy cut;
+        // the separate genesis-undo controls retain their genuinely absent policy.
+        parameters
+            .get_mut()
+            .set_parameter(
+                crate::sumeragi::test_chain::crypto_fixture_policy()
+                    .into_parameter()
+                    .expect("canonical original projection crypto policy"),
+            )
+            .expect("install the projection fixture's original crypto policy");
         parameters.commit();
     }
     let mut block = state.block(header(1));
@@ -259,7 +269,18 @@ fn unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool(
     let (state, _) = crate::state::publication::musubi_materializer_test_support::fixture();
     let block = frozen_policy_block(&state, false, false, false);
     let fields = block.fields.as_ref().unwrap();
-    assert!(!fields.crypto.allowed_signing.is_empty());
+    assert!(
+        !fields
+            .world
+            .parameters
+            .frozen_values()
+            .unwrap()
+            .0
+            .crypto_policy()
+            .expect("original committed admission policy")
+            .allowed_algorithms()
+            .is_empty()
+    );
     let budget = state.ivm_execution_budget();
     let initial = budget.reserved_bytes();
     let mut bound = limits();
@@ -280,8 +301,23 @@ fn unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool(
         (0, 0, 0)
     );
     assert_eq!(budget.reserved_bytes(), original_limit);
-    assert_eq!(delta.fields.as_slice().len(), 11);
-    for field in delta.fields.as_slice() {
+    // The committed crypto policy belongs to world.parameters; the local
+    // execution snapshot must not create a second canonical state.crypto cell.
+    let expected_fields = [
+        "state.oracle",
+        "state.gov",
+        "state.settlement",
+        "state.content",
+        "state.pipeline",
+        "state.zk",
+        "runtime.lanes",
+        "state.lane_compliance",
+        "state.lane_manifests",
+        "state.nexus",
+    ];
+    assert_eq!(delta.fields.as_slice().len(), expected_fields.len());
+    for (field, expected_id) in delta.fields.as_slice().iter().zip(expected_fields) {
+        assert_eq!(field.id, expected_id);
         assert!(
             field.seen && field.current.as_slice().is_empty() && field.undo.as_slice().is_empty()
         );
@@ -307,7 +343,6 @@ fn unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool(
     drop(delta);
     assert_eq!(budget.reserved_bytes(), initial);
 }
-
 #[test]
 fn runtime_catalog_touch_keeps_manifest_preimage_and_refuses_foreign_binding() {
     for change_catalog in [false, true] {

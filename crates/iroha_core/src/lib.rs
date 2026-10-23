@@ -158,6 +158,26 @@ pub fn validate_genesis_block(
 ) -> Result<(), block::InvalidGenesisError> {
     block::check_genesis_block(block, genesis_account)
 }
+/// Inspect the sole initial crypto policy only after authenticating its original genesis source.
+///
+/// The callback borrows the policy selected by the same configured-root capability used by
+/// native bootstrap. It receives no installation authority, and its return value is retained
+/// unchanged, so a missing local implementation need not become a protocol rejection.
+///
+/// # Errors
+/// Returns the original genesis validation or local decode refusal before calling the inspector.
+pub fn with_authenticated_genesis_crypto_policy<R>(
+    source: &iroha_data_model::block::SignedBlock,
+    configured_genesis_account: &iroha_data_model::account::AccountId,
+    inspect: impl FnOnce(&iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1) -> R,
+) -> Result<R, block::BlockValidationError> {
+    let authenticated =
+        block::authenticate_genesis_block_intents(source, configured_genesis_account)?;
+    Ok(authenticated
+        .initial_crypto_policy(source)?
+        .inspect(inspect))
+}
+
 use gossiper::TransactionGossip;
 use iroha_data_model::{events::EventBox, prelude::*};
 use iroha_primitives::unique_vec::UniqueVec;

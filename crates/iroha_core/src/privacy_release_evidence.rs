@@ -172,7 +172,7 @@ use crate::privacy_engines::{
 };
 use crate::{
     privacy_profiles::{CompiledPrivacyProfileV1, compiled_privacy_profile_v1},
-    privacy_state::{PrivacyZkX509AuthoritativeStateV1, compute_privacy_pgc_account_state_root_v1},
+    privacy_state::{PrivacyZkX509AuthoritativeStateV1, derive_privacy_pgc_account_state_root_v1},
     privacy_verifier::{
         PrivacyVerificationContextV1, PrivacyVerificationErrorV1, PrivacyZkX509VerificationStateV1,
         VerifiedPrivacyLedgerEffectsV1, validate_vega_authoritative_issuer_binding_v1,
@@ -2171,7 +2171,7 @@ fn run_anonymous_pgc_stage_v1(
         .initial_epoch
         .checked_add(1)
         .ok_or(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    let successor_root = compute_privacy_pgc_account_state_root_v1(
+    let successor_root = derive_privacy_pgc_account_state_root_v1(
         bootstrap.namespace,
         successor_epoch,
         total_supply,
@@ -2357,7 +2357,7 @@ fn anonymous_pgc_bootstrap_material_v1(
         }),
     );
     let accounts = anonymous_pgc_account_table_v1(public_keys, encrypted_balances)?;
-    let initial_root = compute_privacy_pgc_account_state_root_v1(
+    let initial_root = derive_privacy_pgc_account_state_root_v1(
         namespace,
         PGC_BOOTSTRAP_INITIAL_EPOCH_V1,
         total_supply,
@@ -2426,7 +2426,7 @@ fn anonymous_pgc_bootstrap_material_v1(
     let bootstrap_proof_digest = proof
         .digest()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    let recomputed_root = compute_privacy_pgc_account_state_root_v1(
+    let recomputed_root = derive_privacy_pgc_account_state_root_v1(
         bootstrap.namespace,
         bootstrap.initial_epoch,
         bootstrap.total_supply,

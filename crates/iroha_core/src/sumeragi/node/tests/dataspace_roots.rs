@@ -152,41 +152,54 @@ impl DataspaceChain {
         };
         let mut context = SumeragiGenesisContextParameters::recommended();
         context.root_scope = scope;
-        let builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
-            .append_parameter(Parameter::Custom(
-                RootFeePolicy {
-                    fee_asset_id: fee_asset.clone(),
-                    base_fee: 1_u32.into(),
-                    per_byte_fee: Quantity::zero(),
-                    per_instruction_fee: Quantity::zero(),
-                    per_gas_unit_fee: 1_u32.into(),
-                    ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
-                }
-                .into_custom_parameter()
-                .unwrap(),
-            ))
-            .append_parameter(Parameter::Sumeragi(
-                SumeragiParameter::PayloadRetryIntervalMs(200_u64.try_into().unwrap()),
-            ))
-            .append_instruction(Register::account(Account::new(ALICE_ID.clone())))
-            .append_instruction(Register::domain(Domain::new(owning_domain.clone())))
-            .append_instruction(Register::asset_definition(AssetDefinition::numeric(
+        let builder = GenesisBuilder::new_without_executor(
+            chain_id.clone(),
+            ".",
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+                iroha_crypto::Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical genesis producer policy"),
+        )
+        .with_staking_policy(crate::sumeragi::test_chain::staking_fixture_policy(
+            fee_asset.clone(),
+        ))
+        .expect("explicit fixture staking author")
+        .append_parameter(Parameter::Custom(
+            RootFeePolicy {
+                fee_asset_id: fee_asset.clone(),
+                base_fee: 1_u32.into(),
+                per_byte_fee: Quantity::zero(),
+                per_instruction_fee: Quantity::zero(),
+                per_gas_unit_fee: 1_u32.into(),
+                ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
+            }
+            .into_custom_parameter()
+            .unwrap(),
+        ))
+        .append_parameter(Parameter::Sumeragi(
+            SumeragiParameter::PayloadRetryIntervalMs(200_u64.try_into().unwrap()),
+        ))
+        .append_instruction(Register::account(Account::new(ALICE_ID.clone())))
+        .append_instruction(Register::domain(Domain::new(owning_domain.clone())))
+        .append_instruction(Register::asset_definition(AssetDefinition::numeric(
+            fee_asset.clone(),
+            "private fee",
+            AssetBalancePolicy::DataspaceRestricted,
+            Some(owning_domain),
+        )))
+        .append_instruction(Mint::asset_quantity(
+            10_000_u32,
+            AssetId::with_scope(
                 fee_asset.clone(),
-                "private fee",
-                AssetBalancePolicy::DataspaceRestricted,
-                Some(owning_domain),
-            )))
-            .append_instruction(Mint::asset_quantity(
-                10_000_u32,
-                AssetId::with_scope(
-                    fee_asset.clone(),
-                    ALICE_ID.clone(),
-                    AssetBalanceScope::Dataspace(id),
-                ),
-            ))
-            .with_block_cadence_ms(100_u64.try_into().unwrap())
-            .set_topology(entries)
-            .with_sumeragi_context_parameters(context);
+                ALICE_ID.clone(),
+                AssetBalanceScope::Dataspace(id),
+            ),
+        ))
+        .with_block_cadence_ms(100_u64.try_into().unwrap())
+        .set_topology(entries)
+        .with_sumeragi_context_parameters(context);
         let builder = crate::pipeline_gas_policy::parameters_for_testing(gas)
             .into_iter()
             .fold(builder, GenesisBuilder::append_parameter);
@@ -393,7 +406,11 @@ impl DataspaceChain {
             &network,
             Duration::from_secs(10),
             TransactionParameters::default(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         )
         .unwrap();
         let hash = accepted.hash_as_entrypoint();
@@ -513,7 +530,11 @@ fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage(
             &network,
             Duration::from_secs(10),
             TransactionParameters::default(),
-            &iroha_config::parameters::actual::Crypto::default(),
+            &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                iroha_crypto::Algorithm::Ed25519,
+                iroha_crypto::Algorithm::Secp256k1,
+            ])
+            .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
         )
     };
     assert!(accept(NetworkId::from_genesis_hash(first.chain.genesis.hash())).is_ok());
@@ -656,7 +677,11 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
         state.network_id_ref(),
         Duration::from_secs(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     );
     let Err(crate::tx::AcceptTransactionFail::TransactionDomainMismatch(mismatch)) = rejected
     else {
@@ -672,7 +697,11 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
         &NetworkId::from_genesis_hash(foreign_root.chain.genesis.hash()),
         Duration::from_secs(10),
         TransactionParameters::default(),
-        &iroha_config::parameters::actual::Crypto::default(),
+        &iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+        ])
+        .expect("this stateless fixture explicitly selects Ed25519 and Secp256k1"),
     )
     .unwrap();
     let foreign_hash = foreign.hash_as_entrypoint();

@@ -14,16 +14,8 @@ use crate::privacy_verifier::VerifiedProofManagedPoolLedgerEffectTestPartsV1;
 use crate::{
     privacy::{validate_privacy_lifecycle_transition_v1, validate_privacy_registration_v1},
     privacy_engines::{
-        anonymous_pgc::{
-            AnonymousPgcParametersV1, TwistedElGamalCiphertextV1, TwistedElGamalPublicKeyV1,
-            bootstrap::{
-                AnonymousPgcBootstrapStatementV1, MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1,
-                verify_bootstrap_encoded,
-            },
-        },
-        p256::{CompressedPointV1, TranscriptBindingV1},
-        proof_managed_pool_initial_root_v1,
-        zk_ams::zk_ams_registry_transition_root_v1,
+        anonymous_pgc::bootstrap::MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1, p256::CompressedPointV1,
+        proof_managed_pool_initial_root_v1, zk_ams::zk_ams_registry_transition_root_v1,
     },
     privacy_profiles::validate_compiled_privacy_activation_v1,
     privacy_state::{
@@ -34,7 +26,7 @@ use crate::{
         PrivacyProofManagedPoolSnapshotV1, PrivacyPublicReserveOwnerV1, PrivacyRootHeadKeyV1,
         PrivacyRootHeadRecordV1, PrivacyRootKeyV1, PrivacyRootProvenanceV1,
         PrivacyRootRetentionAnchorV1, PrivacyStateItemRecordV1, PrivacyVegaIssuerRegistryFactsV1,
-        compute_privacy_pgc_account_state_root_v1, load_privacy_bootle_lantern_issuer_policy_v1,
+        derive_privacy_pgc_account_state_root_v1, load_privacy_bootle_lantern_issuer_policy_v1,
         load_privacy_orchard_pool_snapshot_v1, load_privacy_pgc_pool_snapshot_v1,
         load_privacy_proof_managed_pool_snapshot_v1, load_privacy_vega_issuer_v1,
         load_privacy_zk_ace_policy_v1, load_privacy_zk_ams_registry_snapshot_v1,
@@ -149,11 +141,42 @@ fn role_statement_invariant_v1(role: PrivacyActionRoleV1) -> Error {
         format!("resolved action role {role} disagrees with its typed statement").into(),
     )
 }
-fn privacy_verification_error(error: PrivacyVerificationErrorV1) -> Error {
+fn privacy_verification_error(
+    error: PrivacyVerificationErrorV1,
+) -> crate::execution_attempt::ExecutionAttemptError<Error> {
+    use crate::execution_attempt::ExecutionAttemptError;
+    let error = match error {
+        PrivacyVerificationErrorV1::AnonymousPgcRoot { code, source } => {
+            return pgc_root_attempt_error(source, |source| {
+                Error::InvariantViolation(
+                    format!("trusted Anonymous PGC root derivation {code:?}: {source}").into(),
+                )
+            });
+        }
+        PrivacyVerificationErrorV1::NativeAnonymousPgc(source) => {
+            use crate::privacy_engines::anonymous_pgc::AnonymousPgcReadError;
+            return match *source {
+                AnonymousPgcReadError::Codec(original) => {
+                    crate::execution_attempt::canonical_decode_attempt_error(original, |error| {
+                        invalid_privacy_parameter(format!(
+                            "privacy PGC payment canonical decoding failed: {error}"
+                        ))
+                    })
+                }
+                AnonymousPgcReadError::Relation(original) => {
+                    ExecutionAttemptError::Rejected(invalid_privacy_parameter(format!(
+                        "privacy PGC payment verification failed: {original}"
+                    )))
+                }
+            };
+        }
+        original => original,
+    };
     let message = format!("privacy proof admission rejected: {error}");
     let invariant = match &error {
         PrivacyVerificationErrorV1::CompiledActivation(_)
-        | PrivacyVerificationErrorV1::CanonicalEncoding(_) => true,
+        | PrivacyVerificationErrorV1::CanonicalEncoding(_)
+        | PrivacyVerificationErrorV1::AnonymousPgcRoot { .. } => true,
         PrivacyVerificationErrorV1::Context(detail) => {
             detail.code == PrivacyVerificationContextFailureCodeV1::ZeroGenesisHash
         }
@@ -222,11 +245,11 @@ fn privacy_verification_error(error: PrivacyVerificationErrorV1) -> Error {
         #[cfg(feature = "zk-stark")]
         PrivacyVerificationErrorV1::NativeZkAce(_) => false,
     };
-    if invariant {
+    ExecutionAttemptError::Rejected(if invariant {
         Error::InvariantViolation(message.into())
     } else {
         invalid_privacy_parameter(message)
-    }
+    })
 }
 type PreparedProofManagedNoteApplyV1 = (
     Vec<PrivacyNullifierKeyV1>,
@@ -1473,308 +1496,340 @@ impl Execute for BootstrapPrivacyZkAmsRegistryV1 {
 impl Execute for BootstrapPrivacyPgcAccountsV1 {
     fn execute(
         self,
-        authority: &AccountId,
-        state_transaction: &mut StateTransaction<'_, '_>,
+        _authority: &AccountId,
+        _state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::canonical_frame_len(&self)
-            .ok()
-            .and_then(|length| u64::try_from(length).ok())
-            .ok_or_else(|| {
-                Error::InvariantViolation("privacy PGC bootstrap canonical encoding failed".into())
-            })?;
-        let expected_action_index = state_transaction.next_privacy_action_index();
-        state_transaction.preflight_privacy_action(expected_action_index, encoded_action_bytes)?;
-        self.bootstrap.validate().map_err(|error| {
-            invalid_privacy_parameter(format!("privacy PGC account bootstrap rejected: {error}"))
-        })?;
-        self.proof.validate().map_err(|error| {
-            invalid_privacy_parameter(format!("privacy PGC bootstrap proof rejected: {error}"))
-        })?;
-        let native_proof_cap = u32::try_from(MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1).map_err(|_| {
-            Error::InvariantViolation(
-                "native PGC bootstrap proof cap cannot be represented by consensus".into(),
-            )
-        })?;
-        if native_proof_cap != TAIRA_PRIVACY_MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1 {
-            return Err(Error::InvariantViolation(
-                "native and data-model PGC bootstrap proof caps differ".into(),
-            ));
+        Err(invalid_privacy_parameter(
+            "PGC bootstrap requires its original signed invocation context",
+        ))
+    }
+}
+fn pgc_root_attempt_error(
+    error: crate::privacy_state::PrivacyPgcAccountStateRootErrorV1,
+    rejected: impl FnOnce(crate::privacy_state::PrivacyPgcAccountStateRootErrorV1) -> Error,
+) -> crate::execution_attempt::ExecutionAttemptError<Error> {
+    use crate::execution_attempt::{ExecutionAttemptError, canonical_decode_attempt_error};
+    use crate::privacy_state::PrivacyPgcAccountStateRootErrorV1;
+    match error {
+        PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(original) => {
+            canonical_decode_attempt_error(original, |original| {
+                rejected(PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(
+                    original,
+                ))
+            })
         }
-        let current_height = state_transaction._curr_block.height().get();
-        let activation_key = PrivacyActivationKeyV1::new(self.bootstrap.namespace.protocol_id());
-        let activation = state_transaction
-            .world
-            .privacy_activations
-            .get(&activation_key)
-            .copied()
-            .ok_or_else(|| {
-                invalid_privacy_parameter("Anonymous PGC privacy protocol is not registered")
-            })?;
-        validate_compiled_privacy_activation_v1(&activation).map_err(|error| {
-            Error::InvariantViolation(
-                format!("registered Anonymous PGC activation is not executable: {error}").into(),
-            )
-        })?;
-        activation.validate().map_err(|error| {
-            invalid_privacy_parameter(format!(
-                "registered Anonymous PGC activation is invalid: {error}"
+        original => ExecutionAttemptError::Rejected(rejected(original)),
+    }
+}
+fn pgc_account_root_error(
+    state: &mut StateTransaction<'_, '_>,
+    error: crate::privacy_state::PrivacyPgcAccountStateRootErrorV1,
+) -> Error {
+    let attempt = pgc_root_attempt_error(error, |error| {
+        invalid_privacy_parameter(format!("privacy PGC account-state root rejected: {error}"))
+    });
+    state.attempt_error_to_instruction_error(attempt)
+}
+fn privacy_state_validation_error(
+    error: crate::privacy_state::PrivacyStateValidationErrorV1,
+) -> crate::execution_attempt::ExecutionAttemptError<Error> {
+    use crate::execution_attempt::ExecutionAttemptError;
+    use crate::privacy_state::PrivacyStateValidationErrorV1;
+    match error {
+        PrivacyStateValidationErrorV1::PgcAccountRoot(original) => {
+            pgc_root_attempt_error(original, |original| {
+                Error::InvariantViolation(
+                    format!("trusted Anonymous PGC pool state failed validation: {original}")
+                        .into(),
+                )
+            })
+        }
+        PrivacyStateValidationErrorV1::Invalid(message) => {
+            ExecutionAttemptError::Rejected(Error::InvariantViolation(
+                format!("trusted Anonymous PGC pool state failed validation: {message}").into(),
             ))
-        })?;
-        let PrivacyProtocolLifecycleV1::Active(active) = activation.lifecycle else {
-            return Err(invalid_privacy_parameter(
-                "cannot bootstrap accounts before the Anonymous PGC protocol is active",
-            ));
-        };
-        if current_height < active.state_since_height {
-            return Err(invalid_privacy_parameter(format!(
-                "Anonymous PGC activation is not effective until block {}",
-                active.state_since_height
-            )));
         }
-        let head_key =
-            PrivacyRootHeadKeyV1::new(self.bootstrap.namespace, PrivacyRootRoleV1::PgcAccountState)
-                .map_err(invalid_privacy_parameter)?;
-        let invariant_key = PrivacyPgcPoolInvariantKeyV1::new(self.bootstrap.namespace)
+    }
+}
+fn pgc_attachment_error(
+    state: &mut StateTransaction<'_, '_>,
+    error: crate::executor::attachment_custody::pgc_bootstrap::BootstrapError,
+) -> Error {
+    use crate::execution_attempt::{ExecutionAttemptError, canonical_decode_attempt_error};
+    use crate::executor::attachment_custody::{CustodyError, pgc_bootstrap::BootstrapError};
+    let attempt = match error {
+        BootstrapError::Root(original) => return pgc_account_root_error(state, original),
+        BootstrapError::Custody(CustodyError::Declaration(
+            iroha_data_model::transaction::signed_attachments::SignedAttachmentErrorV1::LocalResource(original),
+        )) => ExecutionAttemptError::Deferred(original.into()),
+        BootstrapError::Custody(CustodyError::Signature(
+            iroha_data_model::transaction::signed::TransactionSignatureError::UnsupportedImplementation(original),
+        )) => ExecutionAttemptError::Deferred(ivm::error::ExecutionDeferral::CryptoImplementationUnavailable(original).into()),
+        BootstrapError::NativeRead(crate::privacy_engines::anonymous_pgc::AnonymousPgcReadError::Codec(original)) => canonical_decode_attempt_error(original, |error| invalid_privacy_parameter(format!("privacy PGC bootstrap proof verification failed: original canonical decoding: {error}"))),
+        BootstrapError::Encoding(original) => canonical_decode_attempt_error(original, |error| invalid_privacy_parameter(format!("privacy PGC canonical encoding failed: {error}"))),
+        original => ExecutionAttemptError::Rejected(invalid_privacy_parameter(format!("privacy PGC bootstrap proof verification failed: {original}"))),
+    };
+    state.attempt_error_to_instruction_error(attempt)
+}
+/// Apply a governed PGC bootstrap through its original signed attachment owner.
+/// All permission, current-State and budget checks remain in this single handler.
+/// A detached instruction or a guest reference alone cannot invoke this route.
+pub(crate) fn execute_pgc_bootstrap(
+    instruction: &BootstrapPrivacyPgcAccountsV1,
+    authority: &AccountId,
+    state_transaction: &mut StateTransaction<'_, '_>,
+    invocation: &mut crate::executor::attachment_custody::Invocation<'_, '_>,
+) -> Result<(), Error> {
+    ensure_privacy_governance(authority, state_transaction)?;
+    let encoded_action_bytes =
+        norito::core::classify_decode_attempt(|| norito::canonical_frame_len(instruction))
+            .map_err(|original| {
+                state_transaction.attempt_error_to_instruction_error(
+                    crate::execution_attempt::canonical_decode_attempt_error(original, |error| {
+                        Error::InvariantViolation(
+                            format!("privacy PGC bootstrap canonical encoding failed: {error}")
+                                .into(),
+                        )
+                    }),
+                )
+            })?;
+    let encoded_action_bytes = u64::try_from(encoded_action_bytes)
+        .map_err(|_| invalid_privacy_parameter("PGC request byte length exceeds u64"))?;
+    let (proof_handle, proof_bytes) = invocation
+        .open_pgc_bootstrap(instruction)
+        .map_err(|error| pgc_attachment_error(state_transaction, error))?;
+    let encoded_action_bytes = encoded_action_bytes
+        .checked_add(proof_bytes)
+        .ok_or_else(|| {
+            invalid_privacy_parameter("PGC request and original proof byte length overflow")
+        })?;
+    // The resource counter is separate from the signed global action ordinal.
+    let expected_action_index = state_transaction.next_privacy_action_index();
+    state_transaction.preflight_privacy_action(expected_action_index, encoded_action_bytes)?;
+    instruction.bootstrap.validate().map_err(|error| {
+        invalid_privacy_parameter(format!("privacy PGC account bootstrap rejected: {error}"))
+    })?;
+    let native_proof_cap = u32::try_from(MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1).map_err(|_| {
+        Error::InvariantViolation(
+            "native PGC bootstrap proof cap cannot be represented by consensus".into(),
+        )
+    })?;
+    if native_proof_cap != TAIRA_PRIVACY_MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1 {
+        return Err(Error::InvariantViolation(
+            "native and data-model PGC bootstrap proof caps differ".into(),
+        ));
+    }
+    let current_height = state_transaction._curr_block.height().get();
+    let activation_key = PrivacyActivationKeyV1::new(instruction.bootstrap.namespace.protocol_id());
+    let activation = state_transaction
+        .world
+        .privacy_activations
+        .get(&activation_key)
+        .copied()
+        .ok_or_else(|| {
+            invalid_privacy_parameter("Anonymous PGC privacy protocol is not registered")
+        })?;
+    validate_compiled_privacy_activation_v1(&activation).map_err(|error| {
+        Error::InvariantViolation(
+            format!("registered Anonymous PGC activation is not executable: {error}").into(),
+        )
+    })?;
+    activation.validate().map_err(|error| {
+        invalid_privacy_parameter(format!(
+            "registered Anonymous PGC activation is invalid: {error}"
+        ))
+    })?;
+    let PrivacyProtocolLifecycleV1::Active(active) = activation.lifecycle else {
+        return Err(invalid_privacy_parameter(
+            "cannot bootstrap accounts before the Anonymous PGC protocol is active",
+        ));
+    };
+    if current_height < active.state_since_height {
+        return Err(invalid_privacy_parameter(format!(
+            "Anonymous PGC activation is not effective until block {}",
+            active.state_since_height
+        )));
+    }
+    let head_key = PrivacyRootHeadKeyV1::new(
+        instruction.bootstrap.namespace,
+        PrivacyRootRoleV1::PgcAccountState,
+    )
+    .map_err(invalid_privacy_parameter)?;
+    let invariant_key = PrivacyPgcPoolInvariantKeyV1::new(instruction.bootstrap.namespace)
+        .map_err(invalid_privacy_parameter)?;
+    if state_transaction
+        .world
+        .privacy_root_heads
+        .get(&head_key)
+        .is_some()
+    {
+        return Err(invalid_privacy_parameter(
+            "Anonymous PGC account state is already initialized",
+        ));
+    }
+    if state_transaction
+        .world
+        .privacy_pgc_pool_invariants
+        .get(&invariant_key)
+        .is_some()
+    {
+        return Err(Error::InvariantViolation(
+            "Anonymous PGC pool invariant exists without a current head".into(),
+        ));
+    }
+    if state_transaction
+        .world
+        .privacy_roots
+        .range(PrivacyRootKeyV1::history_range(
+            instruction.bootstrap.namespace,
+            PrivacyRootRoleV1::PgcAccountState,
+        ))
+        .next()
+        .is_some()
+    {
+        return Err(Error::InvariantViolation(
+            "Anonymous PGC root history exists without a current head".into(),
+        ));
+    }
+    if state_transaction
+        .world
+        .privacy_pgc_accounts
+        .range(PrivacyPgcAccountKeyV1::pool_range(
+            instruction.bootstrap.namespace,
+        ))
+        .next()
+        .is_some()
+    {
+        return Err(Error::InvariantViolation(
+            "Anonymous PGC accounts exist without a current head".into(),
+        ));
+    }
+    let computed_root = crate::privacy_state::derive_privacy_pgc_account_state_root_v1(
+        instruction.bootstrap.namespace,
+        instruction.bootstrap.initial_epoch,
+        instruction.bootstrap.total_supply,
+        &instruction.bootstrap.accounts,
+    )
+    .map_err(|error| pgc_account_root_error(state_transaction, error))?;
+    if computed_root != instruction.bootstrap.initial_root {
+        return Err(invalid_privacy_parameter(
+            "privacy PGC bootstrap root does not match the canonical account table",
+        ));
+    }
+    let bootstrap_digest = norito::core::classify_decode_attempt(|| instruction.bootstrap.digest())
+        .map_err(|original| {
+            state_transaction.attempt_error_to_instruction_error(
+                crate::execution_attempt::canonical_decode_attempt_error(original, |error| {
+                    Error::InvariantViolation(
+                        format!("privacy PGC bootstrap canonical encoding failed: {error}").into(),
+                    )
+                }),
+            )
+        })?;
+    let genesis_hash = state_transaction
+        .block_hashes()
+        .first()
+        .map(|hash| *hash.as_ref())
+        .ok_or_else(|| {
+            Error::InvariantViolation(
+                "privacy PGC bootstrap requires a committed genesis block".into(),
+            )
+        })?;
+    let bootstrap_proof_digest = invocation
+        .consume_pgc_bootstrap(
+            instruction.proof_ref.action_index,
+            &instruction.bootstrap,
+            proof_handle,
+            crate::executor::attachment_custody::pgc_bootstrap::BootstrapContext {
+                network_id: &state_transaction.network_id,
+                genesis_hash,
+                activation: &activation,
+            },
+        )
+        .map_err(|error| pgc_attachment_error(state_transaction, error))?;
+    let pool_invariant = PrivacyPgcPoolInvariantV1::new(
+        instruction.bootstrap.total_supply,
+        instruction.bootstrap.initial_root,
+        bootstrap_digest,
+        bootstrap_proof_digest,
+    )
+    .map_err(invalid_privacy_parameter)?;
+    let account_provenance = PrivacyPgcAccountProvenanceV1::bootstrap(
+        bootstrap_digest,
+        bootstrap_proof_digest,
+        current_height,
+    )
+    .map_err(invalid_privacy_parameter)?;
+    let mut account_updates = Vec::with_capacity(instruction.bootstrap.accounts.len());
+    for account in &instruction.bootstrap.accounts {
+        let key = PrivacyPgcAccountKeyV1::new(instruction.bootstrap.namespace, account.public_key)
             .map_err(invalid_privacy_parameter)?;
-        if state_transaction
+        let state = PrivacyPgcAccountStateV1::new(
+            account.encrypted_balance,
+            instruction.bootstrap.initial_epoch,
+            account_provenance,
+        )
+        .map_err(invalid_privacy_parameter)?;
+        account_updates.push((key, state));
+    }
+    let root_provenance = PrivacyRootProvenanceV1::verified_bootstrap(
+        bootstrap_digest,
+        bootstrap_proof_digest,
+        current_height,
+    )
+    .map_err(invalid_privacy_parameter)?;
+    let root_key = PrivacyRootKeyV1::new(
+        instruction.bootstrap.namespace,
+        PrivacyRootRoleV1::PgcAccountState,
+        instruction.bootstrap.initial_epoch,
+        instruction.bootstrap.initial_root,
+    )
+    .map_err(invalid_privacy_parameter)?;
+    let root_head = PrivacyRootHeadRecordV1::new(
+        instruction.bootstrap.initial_epoch,
+        instruction.bootstrap.initial_root,
+        root_provenance.clone(),
+        None,
+    )
+    .map_err(invalid_privacy_parameter)?;
+    let removals = plan_privacy_root_history_update_v1(
+        &state_transaction.world.privacy_roots,
+        &[root_key],
+        state_transaction
             .world
-            .privacy_root_heads
-            .get(&head_key)
-            .is_some()
-        {
-            return Err(invalid_privacy_parameter(
-                "Anonymous PGC account state is already initialized",
-            ));
-        }
-        if state_transaction
-            .world
-            .privacy_pgc_pool_invariants
-            .get(&invariant_key)
-            .is_some()
-        {
-            return Err(Error::InvariantViolation(
-                "Anonymous PGC pool invariant exists without a current head".into(),
-            ));
-        }
-        if state_transaction
-            .world
-            .privacy_roots
-            .range(PrivacyRootKeyV1::history_range(
-                self.bootstrap.namespace,
-                PrivacyRootRoleV1::PgcAccountState,
-            ))
-            .next()
-            .is_some()
-        {
-            return Err(Error::InvariantViolation(
-                "Anonymous PGC root history exists without a current head".into(),
-            ));
-        }
-        if state_transaction
+            .privacy_consensus_policy
+            .get()
+            .current_limits
+            .retained_root_count,
+    )
+    .map_err(|error| {
+        invalid_privacy_parameter(format!("privacy PGC bootstrap root rejected: {error}"))
+    })?;
+    if !removals.is_empty() {
+        return Err(Error::InvariantViolation(
+            "new Anonymous PGC root history unexpectedly requires pruning".into(),
+        ));
+    }
+    state_transaction.reserve_privacy_action(expected_action_index, encoded_action_bytes)?;
+    state_transaction
+        .world
+        .privacy_pgc_pool_invariants
+        .insert(invariant_key, pool_invariant);
+    for (key, state) in account_updates {
+        state_transaction
             .world
             .privacy_pgc_accounts
-            .range(PrivacyPgcAccountKeyV1::pool_range(self.bootstrap.namespace))
-            .next()
-            .is_some()
-        {
-            return Err(Error::InvariantViolation(
-                "Anonymous PGC accounts exist without a current head".into(),
-            ));
-        }
-        let computed_root = compute_privacy_pgc_account_state_root_v1(
-            self.bootstrap.namespace,
-            self.bootstrap.initial_epoch,
-            self.bootstrap.total_supply,
-            &self.bootstrap.accounts,
-        )
-        .map_err(invalid_privacy_parameter)?;
-        if computed_root != self.bootstrap.initial_root {
-            return Err(invalid_privacy_parameter(
-                "privacy PGC bootstrap root does not match the canonical account table",
-            ));
-        }
-        let bootstrap_digest = self.bootstrap.digest().map_err(|error| {
-            Error::InvariantViolation(
-                format!("privacy PGC bootstrap canonical encoding failed: {error}").into(),
-            )
-        })?;
-        let namespace_encoding =
-            norito::encode_canonical(&self.bootstrap.namespace).map_err(|error| {
-                Error::InvariantViolation(
-                    format!("privacy PGC namespace canonical encoding failed: {error}").into(),
-                )
-            })?;
-        let native_public_keys = self
-            .bootstrap
-            .accounts
-            .iter()
-            .map(|account| {
-                TwistedElGamalPublicKeyV1::from_sec1_bytes(account.public_key.as_bytes())
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                invalid_privacy_parameter(format!(
-                    "privacy PGC bootstrap public key rejected: {error}"
-                ))
-            })?;
-        let native_balances = self
-            .bootstrap
-            .accounts
-            .iter()
-            .map(|account| {
-                TwistedElGamalCiphertextV1::from_sec1_bytes(
-                    account.encrypted_balance.left.as_bytes(),
-                    account.encrypted_balance.right.as_bytes(),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                invalid_privacy_parameter(format!(
-                    "privacy PGC bootstrap ciphertext rejected: {error}"
-                ))
-            })?;
-        let genesis_hash = state_transaction
-            .block_hashes()
-            .first()
-            .map(|hash| *hash.as_ref())
-            .ok_or_else(|| {
-                Error::InvariantViolation(
-                    "privacy PGC bootstrap requires a committed genesis block".into(),
-                )
-            })?;
-        let parameters = AnonymousPgcParametersV1::get().map_err(|error| {
-            Error::InvariantViolation(
-                format!("native Anonymous PGC parameters are unavailable: {error}").into(),
-            )
-        })?;
-        let native_statement = AnonymousPgcBootstrapStatementV1::new(
-            &namespace_encoding,
-            *self.bootstrap.initial_root.as_bytes(),
-            self.bootstrap.initial_epoch,
-            self.bootstrap.total_supply,
-            &native_public_keys,
-            &native_balances,
-            TranscriptBindingV1 {
-                network_id: state_transaction.network_id.as_bytes(),
-                genesis_hash,
-                action_index: expected_action_index,
-                statement_digest: *bootstrap_digest.as_bytes(),
-                parameter_id: *activation.parameter_id.as_bytes(),
-                parameter_digest: *activation.parameter_digest.as_bytes(),
-                verifier_digest: *activation.verifier_digest.as_bytes(),
-                statement_schema_digest: *activation.statement_schema_digest.as_bytes(),
-                engine_manifest_digest: *activation.engine_manifest_digest.as_bytes(),
-                generator_digest: parameters.generator_digest(),
-            },
-        )
-        .map_err(|error| {
-            invalid_privacy_parameter(format!("privacy PGC bootstrap statement rejected: {error}"))
-        })?;
-        let verified = verify_bootstrap_encoded(&native_statement, self.proof.as_bytes()).map_err(
-            |error| {
-                invalid_privacy_parameter(format!(
-                    "privacy PGC bootstrap proof verification failed: {error}"
-                ))
-            },
-        )?;
-        if verified.total_supply() != self.bootstrap.total_supply
-            || verified.account_count() != self.bootstrap.accounts.len()
-            || verified.bootstrap_table_digest() != native_statement.bootstrap_table_digest()
-        {
-            return Err(Error::InvariantViolation(
-                "native PGC bootstrap verifier returned inconsistent effects".into(),
-            ));
-        }
-        let bootstrap_proof_digest = self.proof.digest().map_err(|error| {
-            Error::InvariantViolation(
-                format!("verified PGC bootstrap proof digest failed: {error}").into(),
-            )
-        })?;
-        let pool_invariant = PrivacyPgcPoolInvariantV1::new(
-            self.bootstrap.total_supply,
-            self.bootstrap.initial_root,
-            bootstrap_digest,
-            bootstrap_proof_digest,
-        )
-        .map_err(invalid_privacy_parameter)?;
-        let account_provenance = PrivacyPgcAccountProvenanceV1::bootstrap(
-            bootstrap_digest,
-            bootstrap_proof_digest,
-            current_height,
-        )
-        .map_err(invalid_privacy_parameter)?;
-        let mut account_updates = Vec::with_capacity(self.bootstrap.accounts.len());
-        for account in &self.bootstrap.accounts {
-            let key = PrivacyPgcAccountKeyV1::new(self.bootstrap.namespace, account.public_key)
-                .map_err(invalid_privacy_parameter)?;
-            let state = PrivacyPgcAccountStateV1::new(
-                account.encrypted_balance,
-                self.bootstrap.initial_epoch,
-                account_provenance,
-            )
-            .map_err(invalid_privacy_parameter)?;
-            account_updates.push((key, state));
-        }
-        let root_provenance = PrivacyRootProvenanceV1::verified_bootstrap(
-            bootstrap_digest,
-            bootstrap_proof_digest,
-            current_height,
-        )
-        .map_err(invalid_privacy_parameter)?;
-        let root_key = PrivacyRootKeyV1::new(
-            self.bootstrap.namespace,
-            PrivacyRootRoleV1::PgcAccountState,
-            self.bootstrap.initial_epoch,
-            self.bootstrap.initial_root,
-        )
-        .map_err(invalid_privacy_parameter)?;
-        let root_head = PrivacyRootHeadRecordV1::new(
-            self.bootstrap.initial_epoch,
-            self.bootstrap.initial_root,
-            root_provenance.clone(),
-            None,
-        )
-        .map_err(invalid_privacy_parameter)?;
-        let removals = plan_privacy_root_history_update_v1(
-            &state_transaction.world.privacy_roots,
-            &[root_key],
-            state_transaction
-                .world
-                .privacy_consensus_policy
-                .get()
-                .current_limits
-                .retained_root_count,
-        )
-        .map_err(|error| {
-            invalid_privacy_parameter(format!("privacy PGC bootstrap root rejected: {error}"))
-        })?;
-        if !removals.is_empty() {
-            return Err(Error::InvariantViolation(
-                "new Anonymous PGC root history unexpectedly requires pruning".into(),
-            ));
-        }
-        state_transaction.reserve_privacy_action(expected_action_index, encoded_action_bytes)?;
-        state_transaction
-            .world
-            .privacy_pgc_pool_invariants
-            .insert(invariant_key, pool_invariant);
-        for (key, state) in account_updates {
-            state_transaction
-                .world
-                .privacy_pgc_accounts
-                .insert(key, state);
-        }
-        state_transaction
-            .world
-            .privacy_roots
-            .insert(root_key, root_provenance);
-        state_transaction
-            .world
-            .privacy_root_heads
-            .insert(head_key, root_head);
-        Ok(())
+            .insert(key, state);
     }
+    state_transaction
+        .world
+        .privacy_roots
+        .insert(root_key, root_provenance);
+    state_transaction
+        .world
+        .privacy_root_heads
+        .insert(head_key, root_head);
+    Ok(())
 }
 fn validate_zk_ace_policy_references(
     policy: &iroha_data_model::privacy::PrivacyZkAcePolicyRecordV1,
@@ -3765,10 +3820,8 @@ impl PreparedPrivacySubmissionV1 {
                     &state_transaction.world.privacy_root_heads,
                 )
                 .map_err(|error| {
-                    Error::InvariantViolation(
-                        format!("trusted Anonymous PGC pool state failed validation: {error}")
-                            .into(),
-                    )
+                    state_transaction
+                        .attempt_error_to_instruction_error(privacy_state_validation_error(error))
                 })?,
             )
         } else {
@@ -4649,7 +4702,9 @@ impl PreparedPrivacySubmissionV1 {
                 vega_issuer_record: vega_issuer_record.as_ref(),
             },
         )
-        .map_err(privacy_verification_error)?;
+        .map_err(|error| {
+            state_transaction.attempt_error_to_instruction_error(privacy_verification_error(error))
+        })?;
         if effects.role() != role
             || effects.protocol_id() != self.envelope.protocol_id
             || effects.statement_digest() != self.envelope.statement_digest
@@ -5770,10 +5825,9 @@ impl PreparedPrivacySubmissionV1 {
                         "verified ZK-AMS provisioning target account already exists",
                     ));
                 }
-                super::domain::isi::ensure_controller_capabilities(
+                super::domain::isi::ensure_controller_policy(
                     effect.account_id.controller(),
-                    &state_transaction.crypto.allowed_signing,
-                    &state_transaction.crypto.allowed_curve_ids,
+                    state_transaction.crypto_admission_policy().map_err(|message| iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(message.into()))?,
                 )?;
                 let item_provenance = PrivacyStateItemRecordV1::zk_ams_verified_proof(
                     snapshot.bootstrap_digest(),
@@ -5821,17 +5875,22 @@ impl PreparedPrivacySubmissionV1 {
                             .into(),
                     ));
                 }
-                let computed_next_root = compute_privacy_pgc_account_state_root_v1(
+                let computed_next_root = derive_privacy_pgc_account_state_root_v1(
                     effect.namespace(),
                     effect.next_epoch(),
                     effect.total_supply(),
                     effect.accounts(),
                 )
                 .map_err(|error| {
-                    Error::InvariantViolation(
-                        format!("verified Anonymous PGC successor table is not canonical: {error}")
+                    let attempt = pgc_root_attempt_error(error, |error| {
+                        Error::InvariantViolation(
+                            format!(
+                                "verified Anonymous PGC successor table is not canonical: {error}"
+                            )
                             .into(),
-                    )
+                        )
+                    });
+                    state_transaction.attempt_error_to_instruction_error(attempt)
                 })?;
                 if computed_next_root != effect.next_root() {
                     return Err(Error::InvariantViolation(
@@ -5951,8 +6010,12 @@ mod tests {
         kura::Kura,
         privacy_engines::{
             anonymous_pgc::{
-                AnonymousPgcPoolInvariantV1, TwistedElGamalKeyPairV1, add_ciphertexts,
-                bootstrap::{AnonymousPgcBootstrapWitnessV1, prove_bootstrap},
+                AnonymousPgcParametersV1, AnonymousPgcPoolInvariantV1, TwistedElGamalCiphertextV1,
+                TwistedElGamalKeyPairV1, add_ciphertexts,
+                bootstrap::{
+                    AnonymousPgcBootstrapStatementV1, AnonymousPgcBootstrapWitnessV1,
+                    prove_bootstrap,
+                },
                 encrypt_with_randomness,
                 payment::{
                     AnonymousPgcPaymentStatementV1, AnonymousPgcPaymentWitnessV1,
@@ -5960,7 +6023,7 @@ mod tests {
                 },
             },
             ivm_private_note::private_note_statement_fixture_v1,
-            p256::SecretScalarV1,
+            p256::{SecretScalarV1, TranscriptBindingV1},
             pq_masp::relation::test_fixtures::valid_fixture as pq_masp_fixture,
         },
         privacy_profiles::{CompiledPrivacyProfileErrorV1, compiled_privacy_profile_v1},
@@ -6243,114 +6306,226 @@ mod tests {
         SecretScalarV1::from_bytes(bytes).expect("canonical non-zero scalar")
     }
     include!("privacy/active_lifecycle_helper.rs");
-    fn valid_bootstrap_instruction() -> BootstrapPrivacyPgcAccountsV1 {
-        static INSTRUCTION: OnceLock<BootstrapPrivacyPgcAccountsV1> = OnceLock::new();
+    /// Actual signed request producer; proof bytes are exclusively in its signed occurrence.
+    #[derive(Clone)]
+    struct PgcBootstrapFixture {
+        network_id: NetworkId,
+        request: BootstrapPrivacyPgcAccountsV1,
+        proof: PrivacyPgcBootstrapProofBytesV1,
+    }
+    impl PgcBootstrapFixture {
+        fn signed_source(&self) -> iroha_data_model::transaction::SignedTransaction {
+            use iroha_data_model::transaction::{
+                FeePaymentIntent, TransactionBuilder,
+                signed_attachments::{
+                    ActionAuthorityBindingV1, ActionInvocationBindingV1, ActionOperationV1,
+                    ActionPublicInputsDigestV1, ActionRoleV1, AttachmentKindV1, AttachmentRoleV1,
+                    PlannedActionV1, PlannedAttachmentV1, SignedAttachmentPlanV1,
+                },
+            };
+            let mut plan = SignedAttachmentPlanV1::new();
+            plan.push_action(PlannedActionV1 {
+                operation: ActionOperationV1::NativeInstruction(
+                    BootstrapPrivacyPgcAccountsV1::WIRE_ID.to_owned(),
+                ),
+                role: ActionRoleV1::Administrative,
+                authority: ActionAuthorityBindingV1::TransactionAuthority,
+                invocation: ActionInvocationBindingV1::Direct {
+                    instruction_index: 0,
+                },
+                public_inputs_digest: ActionPublicInputsDigestV1::new(
+                    *self
+                        .request
+                        .bootstrap
+                        .digest()
+                        .expect("bootstrap digest")
+                        .as_bytes(),
+                ),
+                attachments: vec![PlannedAttachmentV1 {
+                    kind: AttachmentKindV1::Proof,
+                    role: AttachmentRoleV1::ActionProof,
+                    bytes: self.proof.as_bytes().to_vec(),
+                }],
+            });
+            let mut builder = TransactionBuilder::new(
+                self.network_id,
+                ALICE_ID.clone(),
+                FeePaymentIntent::authority(vec![], None),
+            )
+            .with_instructions([self.request.clone()])
+            .with_signed_attachments(plan.declare());
+            builder.set_creation_time(std::time::Duration::from_millis(1234));
+            builder.set_nonce(std::num::NonZeroU32::new(1).unwrap());
+            builder.sign(iroha_test_samples::ALICE_KEYPAIR.private_key())
+        }
+        fn execute_signed(
+            self,
+            authority: &AccountId,
+            state: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
+            execute_signed_pgc_source(&self.signed_source(), authority, state)
+        }
+    }
+    fn execute_signed_pgc_source(
+        source: &iroha_data_model::transaction::SignedTransaction,
+        authority: &AccountId,
+        state: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        use crate::executor::attachment_custody::{
+            AttachmentCustody, CustodyError, pgc_bootstrap::BootstrapError,
+        };
+        #[derive(Debug, thiserror::Error)]
+        enum FixtureError {
+            #[error(transparent)]
+            Custody(#[from] CustodyError),
+            #[error(transparent)]
+            Native(#[from] Error),
+        }
+        let iroha_data_model::transaction::Executable::Instructions(instructions) =
+            source.instructions()
+        else {
+            panic!("original direct request");
+        };
+        let original = instructions[0]
+            .as_any()
+            .downcast_ref::<BootstrapPrivacyPgcAccountsV1>()
+            .expect("exact original request");
+        let mut custody = AttachmentCustody::new(source)
+            .map_err(|error| pgc_attachment_error(state, BootstrapError::Custody(error)))?;
+        let result: Result<(), FixtureError> = custody.direct(0, authority, |invocation| {
+            execute_pgc_bootstrap(original, authority, state, invocation).map_err(Into::into)
+        });
+        result.map_err(|error| match error {
+            FixtureError::Custody(error) => {
+                pgc_attachment_error(state, BootstrapError::Custody(error))
+            }
+            FixtureError::Native(error) => error,
+        })?;
+        custody
+            .finish()
+            .map_err(|error| pgc_attachment_error(state, BootstrapError::Custody(error)))
+    }
+    fn valid_bootstrap_fixture() -> PgcBootstrapFixture {
+        static INSTRUCTION: OnceLock<PgcBootstrapFixture> = OnceLock::new();
         INSTRUCTION
-            .get_or_init(|| {
-                let namespace = PrivacyNamespaceV1::new(
-                    PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1,
-                    PrivacyNamespaceScopeV1::Pool(PrivacyPoolNamespaceV1 {
-                        pool_id: PrivacyPoolIdV1::new([0xA1; 32]),
-                    }),
-                );
-                let balances = vec![100_u32; 16];
-                let total_supply = balances.iter().copied().sum();
-                let mut key_pairs = (2_u64..18)
-                    .map(|value| {
-                        TwistedElGamalKeyPairV1::from_secret(secret(value)).expect("PGC key pair")
-                    })
-                    .collect::<Vec<_>>();
-                key_pairs.sort_by_key(TwistedElGamalKeyPairV1::public_key);
-                let public_keys = key_pairs
-                    .iter()
-                    .map(TwistedElGamalKeyPairV1::public_key)
-                    .collect::<Vec<_>>();
-                let randomness = (0_u64..16)
-                    .map(|index| secret(200 + index))
-                    .collect::<Vec<_>>();
-                let encrypted_balances = public_keys
-                    .iter()
-                    .copied()
-                    .zip(&balances)
-                    .zip(&randomness)
-                    .map(|((public_key, balance), randomness)| {
-                        encrypt_with_randomness(public_key, *balance, randomness)
-                            .expect("PGC encrypted balance")
-                    })
-                    .collect::<Vec<_>>();
-                let accounts = public_keys
-                    .iter()
-                    .zip(&encrypted_balances)
-                    .map(|(public_key, encrypted_balance)| PrivacyPgcAccountV1 {
-                        public_key: PrivacyP256PointV1::new(*public_key.as_point().as_bytes()),
-                        encrypted_balance: PrivacyP256CiphertextV1 {
-                            left: PrivacyP256PointV1::new(*encrypted_balance.left().as_bytes()),
-                            right: PrivacyP256PointV1::new(*encrypted_balance.right().as_bytes()),
-                        },
-                    })
-                    .collect::<Vec<_>>();
-                let initial_epoch = 1;
-                let initial_root = compute_privacy_pgc_account_state_root_v1(
-                    namespace,
-                    initial_epoch,
-                    total_supply,
-                    &accounts,
-                )
-                .expect("canonical PGC root");
-                let bootstrap = PrivacyPgcAccountBootstrapV1 {
-                    namespace,
-                    initial_root,
-                    initial_epoch,
-                    total_supply,
-                    accounts,
-                };
-                let bootstrap_digest = bootstrap.digest().expect("bootstrap digest");
-                let namespace_encoding = norito::to_bytes(&namespace).expect("namespace encoding");
-                let compiled =
-                    compiled_privacy_profile_v1(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1)
-                        .expect("compiled Anonymous PGC profile");
-                let parameters = AnonymousPgcParametersV1::get().expect("Anonymous PGC parameters");
-                let statement = AnonymousPgcBootstrapStatementV1::new(
-                    &namespace_encoding,
-                    *initial_root.as_bytes(),
-                    initial_epoch,
-                    total_supply,
-                    &public_keys,
-                    &encrypted_balances,
-                    TranscriptBindingV1 {
-                        network_id: &TEST_GENESIS_HASH,
-                        genesis_hash: TEST_GENESIS_HASH,
-                        action_index: 0,
-                        statement_digest: *bootstrap_digest.as_bytes(),
-                        parameter_id: *compiled.parameter_id.as_bytes(),
-                        parameter_digest: *compiled.parameter_digest.as_bytes(),
-                        verifier_digest: *compiled.verifier_digest.as_bytes(),
-                        statement_schema_digest: *compiled.statement_schema_digest.as_bytes(),
-                        engine_manifest_digest: *compiled.engine_manifest_digest.as_bytes(),
-                        generator_digest: parameters.generator_digest(),
-                    },
-                )
-                .expect("native bootstrap statement");
-                let witness = AnonymousPgcBootstrapWitnessV1 {
-                    balances: &balances,
-                    randomness: &randomness,
-                };
-                let proof = prove_bootstrap(&statement, &witness, &mut KatRng::new([0xB7; 32]))
-                    .expect("native bootstrap proof")
-                    .encode();
-                BootstrapPrivacyPgcAccountsV1::new(
-                    bootstrap,
-                    PrivacyPgcBootstrapProofBytesV1::new(proof),
-                )
-            })
+            .get_or_init(|| bootstrap_fixture_for_network(test_network_id()))
             .clone()
+    }
+    fn bootstrap_fixture_for_network(network_id: NetworkId) -> PgcBootstrapFixture {
+        let namespace = PrivacyNamespaceV1::new(
+            PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1,
+            PrivacyNamespaceScopeV1::Pool(PrivacyPoolNamespaceV1 {
+                pool_id: PrivacyPoolIdV1::new([0xA1; 32]),
+            }),
+        );
+        let balances = vec![100_u32; 16];
+        let total_supply = balances.iter().copied().sum();
+        let mut key_pairs = (2_u64..18)
+            .map(|value| TwistedElGamalKeyPairV1::from_secret(secret(value)).expect("PGC key pair"))
+            .collect::<Vec<_>>();
+        key_pairs.sort_by_key(TwistedElGamalKeyPairV1::public_key);
+        let public_keys = key_pairs
+            .iter()
+            .map(TwistedElGamalKeyPairV1::public_key)
+            .collect::<Vec<_>>();
+        let randomness = (0_u64..16)
+            .map(|index| secret(200 + index))
+            .collect::<Vec<_>>();
+        let encrypted_balances = public_keys
+            .iter()
+            .copied()
+            .zip(&balances)
+            .zip(&randomness)
+            .map(|((public_key, balance), randomness)| {
+                encrypt_with_randomness(public_key, *balance, randomness)
+                    .expect("PGC encrypted balance")
+            })
+            .collect::<Vec<_>>();
+        let accounts = public_keys
+            .iter()
+            .zip(&encrypted_balances)
+            .map(|(public_key, encrypted_balance)| PrivacyPgcAccountV1 {
+                public_key: PrivacyP256PointV1::new(*public_key.as_point().as_bytes()),
+                encrypted_balance: PrivacyP256CiphertextV1 {
+                    left: PrivacyP256PointV1::new(*encrypted_balance.left().as_bytes()),
+                    right: PrivacyP256PointV1::new(*encrypted_balance.right().as_bytes()),
+                },
+            })
+            .collect::<Vec<_>>();
+        let initial_epoch = 1;
+        let initial_root = derive_privacy_pgc_account_state_root_v1(
+            namespace,
+            initial_epoch,
+            total_supply,
+            &accounts,
+        )
+        .expect("canonical PGC root");
+        let bootstrap = PrivacyPgcAccountBootstrapV1 {
+            namespace,
+            initial_root,
+            initial_epoch,
+            total_supply,
+            accounts,
+        };
+        let mut fixture = PgcBootstrapFixture {
+            network_id,
+            request: BootstrapPrivacyPgcAccountsV1::new(
+                bootstrap,
+                iroha_data_model::transaction::signed_attachments::ActionAttachmentRefV1 {
+                    action_index: 0,
+                    slot_index: 0,
+                },
+            ),
+            proof: PrivacyPgcBootstrapProofBytesV1::new(vec![1]),
+        };
+        let signed = fixture.signed_source();
+        let statement_digest = signed
+            .attachments()
+            .expect("signed attachments")
+            .action(0)
+            .expect("signed action")
+            .statement_digest;
+        let namespace_encoding = norito::to_bytes(&namespace).expect("namespace encoding");
+        let compiled = compiled_privacy_profile_v1(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1)
+            .expect("compiled Anonymous PGC profile");
+        let parameters = AnonymousPgcParametersV1::get().expect("Anonymous PGC parameters");
+        let statement = AnonymousPgcBootstrapStatementV1::new(
+            &namespace_encoding,
+            *initial_root.as_bytes(),
+            initial_epoch,
+            total_supply,
+            &public_keys,
+            &encrypted_balances,
+            TranscriptBindingV1 {
+                network_id: network_id.as_bytes(),
+                genesis_hash: *network_id.as_bytes(),
+                action_index: 0,
+                statement_digest: *statement_digest.as_bytes(),
+                parameter_id: *compiled.parameter_id.as_bytes(),
+                parameter_digest: *compiled.parameter_digest.as_bytes(),
+                verifier_digest: *compiled.verifier_digest.as_bytes(),
+                statement_schema_digest: *compiled.statement_schema_digest.as_bytes(),
+                engine_manifest_digest: *compiled.engine_manifest_digest.as_bytes(),
+                generator_digest: parameters.generator_digest(),
+            },
+        )
+        .expect("native bootstrap statement");
+        let witness = AnonymousPgcBootstrapWitnessV1 {
+            balances: &balances,
+            randomness: &randomness,
+        };
+        let proof = prove_bootstrap(&statement, &witness, &mut KatRng::new([0xB7; 32]))
+            .expect("native bootstrap proof")
+            .encode();
+        fixture.proof = PrivacyPgcBootstrapProofBytesV1::new(proof);
+        fixture
     }
     fn valid_payment_instruction() -> SubmitPrivacyProofV1 {
         static INSTRUCTION: OnceLock<SubmitPrivacyProofV1> = OnceLock::new();
         INSTRUCTION
             .get_or_init(|| {
-                let bootstrap_instruction = valid_bootstrap_instruction();
-                let bootstrap = &bootstrap_instruction.bootstrap;
+                let bootstrap_instruction = valid_bootstrap_fixture();
+                let bootstrap = &bootstrap_instruction.request.bootstrap;
                 let compiled =
                     compiled_privacy_profile_v1(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1)
                         .expect("compiled Anonymous PGC profile");
@@ -6429,7 +6604,7 @@ mod tests {
                     })
                     .collect::<Vec<_>>();
                 let next_epoch = bootstrap.initial_epoch + 1;
-                let next_root = compute_privacy_pgc_account_state_root_v1(
+                let next_root = derive_privacy_pgc_account_state_root_v1(
                     bootstrap.namespace,
                     next_epoch,
                     bootstrap.total_supply,
@@ -8665,13 +8840,13 @@ mod tests {
     }
     #[test]
     fn pgc_bootstrap_rejects_authority_inactive_and_future_activation_without_mutation() {
-        let instruction = valid_bootstrap_instruction();
+        let instruction = valid_bootstrap_fixture();
         let state = state_with_activation(active_lifecycle());
         let mut block = state.block(test_header());
         let mut transaction = block.transaction();
         let error = instruction
             .clone()
-            .execute(&ALICE_ID, &mut transaction)
+            .execute_signed(&ALICE_ID, &mut transaction)
             .expect_err("authority without exact governance permission");
         assert!(error.to_string().contains("CanEnactGovernance"), "{error}");
         assert_empty_and_unbudgeted(&transaction);
@@ -8691,7 +8866,7 @@ mod tests {
             grant_governance(&mut transaction);
             let error = instruction
                 .clone()
-                .execute(&ALICE_ID, &mut transaction)
+                .execute_signed(&ALICE_ID, &mut transaction)
                 .expect_err("inactive or future activation");
             assert!(
                 smart_contract_parameter_message(&error).contains("before")
@@ -8703,7 +8878,7 @@ mod tests {
     }
     #[test]
     fn pgc_bootstrap_cap_and_action_budget_rejections_are_non_mutating() {
-        let mut oversized = valid_bootstrap_instruction();
+        let mut oversized = valid_bootstrap_fixture();
         oversized.proof = PrivacyPgcBootstrapProofBytesV1::new(vec![
             1;
             usize::try_from(
@@ -8717,7 +8892,7 @@ mod tests {
         let mut transaction = block.transaction();
         grant_governance(&mut transaction);
         let error = oversized
-            .execute(&ALICE_ID, &mut transaction)
+            .execute_signed(&ALICE_ID, &mut transaction)
             .expect_err("oversized bootstrap proof");
         assert!(
             smart_contract_parameter_message(&error).contains("exceeding maximum"),
@@ -8732,8 +8907,8 @@ mod tests {
             .reserve_privacy_action(0, 64)
             .expect("consume the sole transaction action");
         let budget_before = transaction.privacy_budget_for_testing();
-        let error = valid_bootstrap_instruction()
-            .execute(&ALICE_ID, &mut transaction)
+        let error = valid_bootstrap_fixture()
+            .execute_signed(&ALICE_ID, &mut transaction)
             .expect_err("exhausted action budget");
         assert!(
             smart_contract_parameter_message(&error)
@@ -8745,35 +8920,35 @@ mod tests {
     }
     #[test]
     fn altered_pgc_bootstrap_fields_and_proof_leave_all_state_unchanged() {
-        let mut altered_root = valid_bootstrap_instruction();
-        altered_root.bootstrap.initial_root = PrivacyRootV1::new([0xD1; 32]);
+        let mut altered_root = valid_bootstrap_fixture();
+        altered_root.request.bootstrap.initial_root = PrivacyRootV1::new([0xD1; 32]);
         let state = state_with_activation(active_lifecycle());
         let mut block = state.block(test_header());
         let mut transaction = block.transaction();
         grant_governance(&mut transaction);
         let error = altered_root
-            .execute(&ALICE_ID, &mut transaction)
+            .execute_signed(&ALICE_ID, &mut transaction)
             .expect_err("altered public bootstrap root");
         assert!(
             smart_contract_parameter_message(&error).contains("root does not match"),
             "{error:?}"
         );
         assert_empty_and_unbudgeted(&transaction);
-        let mut altered_supply = valid_bootstrap_instruction();
-        altered_supply.bootstrap.total_supply += 1;
+        let mut altered_supply = valid_bootstrap_fixture();
+        altered_supply.request.bootstrap.total_supply += 1;
         let state = state_with_activation(active_lifecycle());
         let mut block = state.block(test_header());
         let mut transaction = block.transaction();
         grant_governance(&mut transaction);
         let error = altered_supply
-            .execute(&ALICE_ID, &mut transaction)
+            .execute_signed(&ALICE_ID, &mut transaction)
             .expect_err("altered public aggregate supply");
         assert!(
             smart_contract_parameter_message(&error).contains("root does not match"),
             "{error:?}"
         );
         assert_empty_and_unbudgeted(&transaction);
-        let mut altered_proof = valid_bootstrap_instruction();
+        let mut altered_proof = valid_bootstrap_fixture();
         let middle = altered_proof.proof.bytes.len() / 2;
         altered_proof.proof.bytes[middle] ^= 1;
         let state = state_with_activation(active_lifecycle());
@@ -8781,7 +8956,7 @@ mod tests {
         let mut transaction = block.transaction();
         grant_governance(&mut transaction);
         let error = altered_proof
-            .execute(&ALICE_ID, &mut transaction)
+            .execute_signed(&ALICE_ID, &mut transaction)
             .expect_err("altered native proof");
         assert!(
             smart_contract_parameter_message(&error).contains("proof verification failed"),
@@ -8798,8 +8973,12 @@ mod tests {
             Root,
             Head,
         }
-        let instruction = valid_bootstrap_instruction();
-        let bootstrap_digest = instruction.bootstrap.digest().expect("bootstrap digest");
+        let instruction = valid_bootstrap_fixture();
+        let bootstrap_digest = instruction
+            .request
+            .bootstrap
+            .digest()
+            .expect("bootstrap digest");
         let proof_digest = instruction.proof.digest().expect("proof digest");
         let root_provenance =
             PrivacyRootProvenanceV1::verified_bootstrap(bootstrap_digest, proof_digest, 9)
@@ -8807,40 +8986,43 @@ mod tests {
         let account_provenance =
             PrivacyPgcAccountProvenanceV1::bootstrap(bootstrap_digest, proof_digest, 9)
                 .expect("account provenance");
-        let invariant_key = PrivacyPgcPoolInvariantKeyV1::new(instruction.bootstrap.namespace)
-            .expect("invariant key");
+        let invariant_key =
+            PrivacyPgcPoolInvariantKeyV1::new(instruction.request.bootstrap.namespace)
+                .expect("invariant key");
         let invariant = PrivacyPgcPoolInvariantV1::new(
-            instruction.bootstrap.total_supply,
-            instruction.bootstrap.initial_root,
+            instruction.request.bootstrap.total_supply,
+            instruction.request.bootstrap.initial_root,
             bootstrap_digest,
             proof_digest,
         )
         .expect("invariant");
-        let first_account = &instruction.bootstrap.accounts[0];
-        let account_key =
-            PrivacyPgcAccountKeyV1::new(instruction.bootstrap.namespace, first_account.public_key)
-                .expect("account key");
+        let first_account = &instruction.request.bootstrap.accounts[0];
+        let account_key = PrivacyPgcAccountKeyV1::new(
+            instruction.request.bootstrap.namespace,
+            first_account.public_key,
+        )
+        .expect("account key");
         let account_state = PrivacyPgcAccountStateV1::new(
             first_account.encrypted_balance,
-            instruction.bootstrap.initial_epoch,
+            instruction.request.bootstrap.initial_epoch,
             account_provenance,
         )
         .expect("account state");
         let root_key = PrivacyRootKeyV1::new(
-            instruction.bootstrap.namespace,
+            instruction.request.bootstrap.namespace,
             PrivacyRootRoleV1::PgcAccountState,
-            instruction.bootstrap.initial_epoch,
-            instruction.bootstrap.initial_root,
+            instruction.request.bootstrap.initial_epoch,
+            instruction.request.bootstrap.initial_root,
         )
         .expect("root key");
         let head_key = PrivacyRootHeadKeyV1::new(
-            instruction.bootstrap.namespace,
+            instruction.request.bootstrap.namespace,
             PrivacyRootRoleV1::PgcAccountState,
         )
         .expect("head key");
         let head = PrivacyRootHeadRecordV1::new(
-            instruction.bootstrap.initial_epoch,
-            instruction.bootstrap.initial_root,
+            instruction.request.bootstrap.initial_epoch,
+            instruction.request.bootstrap.initial_root,
             root_provenance.clone(),
             None,
         )
@@ -8884,8 +9066,8 @@ mod tests {
             let counts_before = privacy_map_counts(&transaction);
             let budget_before = transaction.privacy_budget_for_testing();
             assert!(
-                valid_bootstrap_instruction()
-                    .execute(&ALICE_ID, &mut transaction)
+                valid_bootstrap_fixture()
+                    .execute_signed(&ALICE_ID, &mut transaction)
                     .is_err(),
                 "{orphan:?} must reject"
             );
@@ -8903,13 +9085,14 @@ mod tests {
     }
     #[test]
     fn successful_pgc_bootstrap_is_atomic_and_double_bootstrap_rejects() {
-        let instruction = valid_bootstrap_instruction();
+        let instruction = valid_bootstrap_fixture();
         let encoded_action_bytes = u64::try_from(
-            norito::to_bytes(&instruction)
+            norito::to_bytes(&instruction.request)
                 .expect("instruction encoding")
                 .len(),
         )
-        .expect("encoded length");
+        .expect("encoded length")
+            + u64::try_from(instruction.proof.as_bytes().len()).expect("original proof length");
         let state = state_with_activation(active_lifecycle());
         let mut block = state.block(test_header());
         {
@@ -8917,7 +9100,7 @@ mod tests {
             grant_governance(&mut transaction);
             instruction
                 .clone()
-                .execute(&ALICE_ID, &mut transaction)
+                .execute_signed(&ALICE_ID, &mut transaction)
                 .expect("complete native bootstrap");
             assert_eq!(privacy_map_counts(&transaction), (1, 16, 1, 1));
             assert_eq!(
@@ -8931,7 +9114,7 @@ mod tests {
             let counts_before = privacy_map_counts(&transaction);
             let budget_before = transaction.privacy_budget_for_testing();
             let error = instruction
-                .execute(&ALICE_ID, &mut transaction)
+                .execute_signed(&ALICE_ID, &mut transaction)
                 .expect_err("double bootstrap");
             assert!(
                 smart_contract_parameter_message(&error).contains("already initialized"),
@@ -8939,6 +9122,454 @@ mod tests {
             );
             assert_eq!(privacy_map_counts(&transaction), counts_before);
             assert_eq!(transaction.privacy_budget_for_testing(), budget_before);
+        }
+    }
+    #[test]
+    fn detached_pgc_reference_cannot_apply_even_with_governance_permission() {
+        let fixture = valid_bootstrap_fixture();
+        let state = state_with_activation(active_lifecycle());
+        let mut block = state.block(test_header());
+        let mut transaction = block.transaction();
+        grant_governance(&mut transaction);
+        let error = fixture
+            .request
+            .execute(&ALICE_ID, &mut transaction)
+            .unwrap_err();
+        assert!(smart_contract_parameter_message(&error).contains("original signed invocation"));
+        assert_empty_and_unbudgeted(&transaction);
+    }
+    #[test]
+    fn rebound_nonce_with_original_pgc_proof_fails_before_state_or_budget() {
+        let fixture = valid_bootstrap_fixture();
+        let original = fixture.signed_source();
+        let mut payload = original.payload().clone();
+        payload.nonce = std::num::NonZeroU32::new(2);
+        payload.bind_attachment_statements_v1().unwrap();
+        let changed = iroha_data_model::transaction::TransactionBuilder::from_payload(payload)
+            .unwrap()
+            .sign(iroha_test_samples::ALICE_KEYPAIR.private_key());
+        assert_ne!(
+            original.ordered_intent_digest_v1().unwrap(),
+            changed.ordered_intent_digest_v1().unwrap()
+        );
+        assert_eq!(
+            original.attachments().unwrap().occurrences()[0].bytes,
+            changed.attachments().unwrap().occurrences()[0].bytes
+        );
+        let state = state_with_activation(active_lifecycle());
+        let mut block = state.block(test_header());
+        let mut transaction = block.transaction();
+        grant_governance(&mut transaction);
+        let error = execute_signed_pgc_source(&changed, &ALICE_ID, &mut transaction).unwrap_err();
+        assert!(smart_contract_parameter_message(&error).contains("proof verification failed"));
+        assert_empty_and_unbudgeted(&transaction);
+    }
+    #[test]
+    fn verified_signed_pgc_publication_rolls_back_when_transaction_overlay_is_dropped() {
+        let fixture = valid_bootstrap_fixture();
+        let state = state_with_activation(active_lifecycle());
+        let mut block = state.block(test_header());
+        {
+            let mut transaction = block.transaction();
+            grant_governance(&mut transaction);
+            fixture.execute_signed(&ALICE_ID, &mut transaction).unwrap();
+            assert_eq!(privacy_map_counts(&transaction), (1, 16, 1, 1));
+        }
+        let transaction = block.transaction();
+        assert_empty_and_unbudgeted(&transaction);
+    }
+    fn executor_pgc_state_and_source() -> (State, iroha_data_model::transaction::SignedTransaction)
+    {
+        let state = activation_execution_state();
+        let fixture = bootstrap_fixture_for_network(state.network_id);
+        let mut world = state.world.block();
+        world.privacy_activations.insert(
+            PrivacyActivationKeyV1::new(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1),
+            compiled_privacy_profile_v1(PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1)
+                .unwrap()
+                .activation_record(active_lifecycle()),
+        );
+        world.commit();
+        (state, fixture.signed_source())
+    }
+    fn original_pgc_instruction(
+        source: &iroha_data_model::transaction::SignedTransaction,
+    ) -> &iroha_data_model::isi::InstructionBox {
+        let iroha_data_model::transaction::Executable::Instructions(instructions) =
+            source.instructions()
+        else {
+            panic!("direct fixture source");
+        };
+        &instructions[0]
+    }
+    #[test]
+    fn original_direct_pgc_runs_after_initial_and_installed_executor_approval() {
+        use crate::executor::{Executor, attachment_custody::AttachmentCustody};
+        for executor in [
+            Executor::Initial,
+            crate::executor::allowing_executor_for_testing(),
+        ] {
+            let (state, source) = executor_pgc_state_and_source();
+            let mut block = state.block(activation_execution_header(&state));
+            {
+                let mut transaction = block.transaction();
+                grant_governance(&mut transaction);
+                let mut custody = AttachmentCustody::new(&source).unwrap();
+                executor
+                    .execute_original_direct_instruction(
+                        &mut transaction,
+                        &ALICE_ID,
+                        original_pgc_instruction(&source),
+                        0,
+                        Some(&mut custody),
+                    )
+                    .expect("actual approved native State dispatch");
+                custody.finish().expect("one original proof consumed");
+                assert_eq!(privacy_map_counts(&transaction), (1, 16, 1, 1));
+                assert_eq!(transaction.privacy_budget_for_testing().0, 1);
+                // Do not publish the State overlay: verified native effects must still roll back.
+            }
+            assert_empty_and_unbudgeted(&block.transaction());
+        }
+    }
+    #[test]
+    fn installed_executor_rejection_precedes_native_pgc_consumption_and_state() {
+        use crate::executor::attachment_custody::{AttachmentCustody, CustodyError};
+        let (state, source) = executor_pgc_state_and_source();
+        let mut block = state.block(activation_execution_header(&state));
+        let mut transaction = block.transaction();
+        grant_governance(&mut transaction);
+        let mut custody = AttachmentCustody::new(&source).unwrap();
+        let error =
+            crate::executor::denying_executor_for_testing("PGC denied by installed executor")
+                .execute_original_direct_instruction(
+                    &mut transaction,
+                    &ALICE_ID,
+                    original_pgc_instruction(&source),
+                    0,
+                    Some(&mut custody),
+                )
+                .unwrap_err();
+        assert!(
+            matches!(error, iroha_data_model::ValidationFail::NotPermitted(ref message) if message == "PGC denied by installed executor")
+        );
+        assert_eq!(custody.finish(), Err(CustodyError::FailedAttempt));
+        assert_empty_and_unbudgeted(&transaction);
+    }
+    #[test]
+    fn direct_pgc_cannot_replace_the_original_instruction_with_an_equal_clone() {
+        use crate::executor::{
+            Executor,
+            attachment_custody::{AttachmentCustody, CustodyError},
+        };
+        let (state, source) = executor_pgc_state_and_source();
+        let mut block = state.block(activation_execution_header(&state));
+        let mut transaction = block.transaction();
+        grant_governance(&mut transaction);
+        let original = original_pgc_instruction(&source);
+        let clone = original.clone();
+        assert_eq!(
+            norito::encode_canonical(original).unwrap(),
+            norito::encode_canonical(&clone).unwrap()
+        );
+        assert!(!core::ptr::eq(original, &clone));
+        let mut custody = AttachmentCustody::new(&source).unwrap();
+        let error = Executor::Initial
+            .execute_original_direct_instruction(
+                &mut transaction,
+                &ALICE_ID,
+                &clone,
+                0,
+                Some(&mut custody),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, iroha_data_model::ValidationFail::NotPermitted(ref message) if message.contains("another original owner"))
+        );
+        assert_eq!(custody.finish(), Err(CustodyError::FailedAttempt));
+        assert_empty_and_unbudgeted(&transaction);
+    }
+    #[test]
+    fn approved_direct_pgc_still_requires_current_governance_permission() {
+        use crate::executor::{
+            Executor,
+            attachment_custody::{AttachmentCustody, CustodyError},
+        };
+        let (state, source) = executor_pgc_state_and_source();
+        let mut block = state.block(activation_execution_header(&state));
+        let mut transaction = block.transaction();
+        let mut custody = AttachmentCustody::new(&source).unwrap();
+        let error = Executor::Initial
+            .execute_original_direct_instruction(
+                &mut transaction,
+                &ALICE_ID,
+                original_pgc_instruction(&source),
+                0,
+                Some(&mut custody),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                iroha_data_model::ValidationFail::InstructionFailed(_)
+            ),
+            "{error:?}"
+        );
+        assert_eq!(custody.finish(), Err(CustodyError::FailedAttempt));
+        assert_empty_and_unbudgeted(&transaction);
+    }
+    #[test]
+    fn original_direct_pgc_local_refusal_keeps_source_cause_and_fresh_state_retry() {
+        use crate::executor::{
+            Executor,
+            attachment_custody::{AttachmentCustody, CustodyError},
+        };
+        let (state, source) = executor_pgc_state_and_source();
+        let bytes = &source.attachments().unwrap().occurrences()[0].bytes;
+        let original_pointer = bytes.as_ptr();
+        let original_bytes = bytes.clone();
+        let mut block = state.block(activation_execution_header(&state));
+        {
+            let mut transaction = block.transaction();
+            grant_governance(&mut transaction);
+            let mut custody = AttachmentCustody::new(&source).unwrap();
+            let result = norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+                || {
+                    Executor::Initial.execute_original_direct_instruction(
+                        &mut transaction,
+                        &ALICE_ID,
+                        original_pgc_instruction(&source),
+                        0,
+                        Some(&mut custody),
+                    )
+                },
+            );
+            assert!(result.is_err());
+            let retained = transaction
+                .take_execution_deferral()
+                .expect("actual local codec refusal, not proof invalidity");
+            assert_eq!(
+                retained.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            let original = retained
+                .decode_refusal()
+                .expect("original codec scope survives handler");
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert!(
+                retained.allocation_refusal().is_none(),
+                "no fabricated pool release source"
+            );
+            assert!(transaction.take_execution_deferral().is_none());
+            assert_eq!(custody.finish(), Err(CustodyError::FailedAttempt));
+            assert_empty_and_unbudgeted(&transaction);
+        }
+        assert_eq!(
+            source.attachments().unwrap().occurrences()[0]
+                .bytes
+                .as_ptr(),
+            original_pointer
+        );
+        assert_eq!(
+            source.attachments().unwrap().occurrences()[0].bytes,
+            original_bytes
+        );
+        let mut retry = block.transaction();
+        grant_governance(&mut retry);
+        let mut custody = AttachmentCustody::new(&source).unwrap();
+        Executor::Initial
+            .execute_original_direct_instruction(
+                &mut retry,
+                &ALICE_ID,
+                original_pgc_instruction(&source),
+                0,
+                Some(&mut custody),
+            )
+            .expect("new State attempt consumes the unchanged original source");
+        custody.finish().unwrap();
+        assert_eq!(privacy_map_counts(&retry), (1, 16, 1, 1));
+    }
+    #[test]
+    fn pgc_root_original_encoding_refusal_reaches_state_and_same_input_retry() {
+        use crate::executor::attachment_custody::pgc_bootstrap::BootstrapError;
+        use crate::privacy_state::{
+            PrivacyPgcAccountStateRootErrorV1, derive_privacy_pgc_account_state_root_v1,
+        };
+        let (state, source) = executor_pgc_state_and_source();
+        let request = original_pgc_instruction(&source)
+            .as_any()
+            .downcast_ref::<BootstrapPrivacyPgcAccountsV1>()
+            .unwrap();
+        let accounts = &request.bootstrap.accounts;
+        let pointer = accounts.as_ptr();
+        let derive = || {
+            derive_privacy_pgc_account_state_root_v1(
+                request.bootstrap.namespace,
+                request.bootstrap.initial_epoch,
+                request.bootstrap.total_supply,
+                accounts,
+            )
+        };
+        let original = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            derive,
+        )
+        .unwrap_err();
+        let PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(ref original_codec) = original
+        else {
+            panic!("actual root namespace encoding refused")
+        };
+        let expected = original_codec.local_refusal().unwrap();
+        let mut block = state.block(activation_execution_header(&state));
+        let mut tx = block.transaction();
+        let _error = pgc_attachment_error(&mut tx, BootstrapError::Root(original));
+        let retained = tx
+            .take_execution_deferral()
+            .expect("root origin reaches original State owner");
+        assert_eq!(retained.decode_refusal(), Some(&expected));
+        assert_eq!(
+            retained.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(
+            retained.allocation_refusal().is_none(),
+            "no fabricated pool allocation cause"
+        );
+        assert!(tx.take_execution_deferral().is_none());
+        assert_empty_and_unbudgeted(&tx);
+        drop(tx);
+        assert_eq!(accounts.as_ptr(), pointer);
+        assert_eq!(derive().unwrap(), request.bootstrap.initial_root);
+        let mut retry = block.transaction();
+        let _invalid =
+            pgc_account_root_error(&mut retry, PrivacyPgcAccountStateRootErrorV1::ZeroEpoch);
+        assert!(
+            !retry.is_execution_deferred(),
+            "intrinsic invalidity is not a local retry"
+        );
+        assert_empty_and_unbudgeted(&retry);
+    }
+    #[test]
+    fn pgc_native_read_projection_keeps_original_retry_and_intrinsic_rejection() {
+        use crate::execution_attempt::ExecutionAttemptError;
+        use crate::privacy_engines::anonymous_pgc::{AnonymousPgcError, AnonymousPgcReadError};
+        let bytes = norito::codec::encode_adaptive(&vec![7_u8; 32]);
+        let codec = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            || {
+                norito::core::classify_decode_attempt(|| {
+                    norito::codec::decode_exact_from_slice::<Vec<u8>>(&bytes)
+                })
+            },
+        )
+        .unwrap_err();
+        let owner = codec.local_refusal().expect("actual local decoder scope");
+        let ExecutionAttemptError::Deferred(deferred) =
+            privacy_verification_error(PrivacyVerificationErrorV1::NativeAnonymousPgc(Box::new(
+                AnonymousPgcReadError::Codec(codec),
+            )))
+        else {
+            panic!("native original local cause must defer")
+        };
+        assert_eq!(deferred.decode_refusal(), Some(&owner));
+        let malformed = norito::core::classify_decode_attempt(|| {
+            norito::codec::decode_exact_from_slice::<u64>(&[])
+        })
+        .unwrap_err();
+        assert!(malformed.local_refusal().is_none());
+        for cause in [
+            AnonymousPgcReadError::Codec(malformed),
+            AnonymousPgcReadError::Relation(AnonymousPgcError::InvalidPaymentProofShape),
+        ] {
+            assert!(matches!(
+                privacy_verification_error(PrivacyVerificationErrorV1::NativeAnonymousPgc(
+                    Box::new(cause)
+                )),
+                ExecutionAttemptError::Rejected(_)
+            ));
+        }
+    }
+    #[test]
+    fn pgc_payment_snapshot_and_successor_root_owners_reach_original_state_attempt() {
+        use crate::execution_attempt::ExecutionAttemptError;
+        use crate::privacy_state::{
+            PrivacyPgcAccountStateRootErrorV1, PrivacyStateValidationErrorV1,
+            derive_privacy_pgc_account_state_root_v1,
+        };
+        let (state, source) = executor_pgc_state_and_source();
+        let request = original_pgc_instruction(&source)
+            .as_any()
+            .downcast_ref::<BootstrapPrivacyPgcAccountsV1>()
+            .unwrap();
+        let derive = || {
+            derive_privacy_pgc_account_state_root_v1(
+                request.bootstrap.namespace,
+                request.bootstrap.initial_epoch,
+                request.bootstrap.total_supply,
+                &request.bootstrap.accounts,
+            )
+        };
+        let mut block = state.block(activation_execution_header(&state));
+        for owner in 0..4 {
+            let original = norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+                derive,
+            )
+            .unwrap_err();
+            let PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(ref codec) = original else {
+                panic!("actual original root encoding refusal");
+            };
+            let expected = codec.local_refusal().unwrap();
+            let attempt = match owner {
+                0 | 1 => privacy_verification_error(PrivacyVerificationErrorV1::AnonymousPgcRoot {
+                    code: if owner == 0 {
+                        PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootRecomputationFailed
+                    } else {
+                        PrivacyAnonymousPgcStateFailureCodeV1::NextRootRecomputationFailed
+                    },
+                    source: original,
+                }),
+                2 => privacy_state_validation_error(PrivacyStateValidationErrorV1::PgcAccountRoot(
+                    original,
+                )),
+                _ => pgc_root_attempt_error(original, |_| {
+                    panic!("local successor failure became invariant rejection")
+                }),
+            };
+            let mut tx = block.transaction();
+            let _error = tx.attempt_error_to_instruction_error(attempt);
+            let deferred = tx
+                .take_execution_deferral()
+                .expect("original State keeps local cause");
+            assert_eq!(deferred.decode_refusal(), Some(&expected));
+            assert!(
+                deferred.allocation_refusal().is_none(),
+                "no invented pool wake source"
+            );
+            assert!(tx.take_execution_deferral().is_none());
+            assert_empty_and_unbudgeted(&tx);
+        }
+        assert_eq!(derive().unwrap(), request.bootstrap.initial_root);
+        for attempt in [
+            privacy_verification_error(PrivacyVerificationErrorV1::AnonymousPgcRoot {
+                code: PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootRecomputationFailed,
+                source: PrivacyPgcAccountStateRootErrorV1::ZeroEpoch,
+            }),
+            privacy_state_validation_error(PrivacyStateValidationErrorV1::Invalid(
+                "orphan table".to_owned(),
+            )),
+        ] {
+            assert!(
+                matches!(
+                    attempt,
+                    ExecutionAttemptError::Rejected(Error::InvariantViolation(_))
+                ),
+                "malformed trusted state remains an invariant failure"
+            );
         }
     }
     include!("privacy_pgc_payment_tests.rs");

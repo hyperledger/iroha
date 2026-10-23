@@ -336,29 +336,6 @@ pub const OPEN_SEMANTICS: &[OpenSemantic] = &[
         )],
     },
     OpenSemantic {
-        id: "sm_syscall_local_switch",
-        subject: "syscalls:SM3_HASH,SM2_VERIFY,SM4_GCM_SEAL,SM4_GCM_OPEN,SM4_CCM_SEAL,SM4_CCM_OPEN",
-        reason: "SM helper syscalls are gated by the host-local `sm_enabled` switch, which Core sets from `Crypto::sm_helpers_enabled`: false without the `sm` Cargo feature and otherwise true only when node configuration `allowed_signing` lists SM2. Their result or trap therefore varies with a build feature and with local configuration and is not yet one deterministic semantic; all three switches must go",
-        evidence: &[
-            evidence(
-                "crates/ivm/src/core_host.rs",
-                "if is_sm_syscall(number) && !self.sm_enabled",
-            ),
-            evidence(
-                "crates/iroha_config/src/parameters/actual.rs",
-                "#[cfg(not(feature = \"sm\"))]",
-            ),
-            evidence(
-                "crates/iroha_config/src/parameters/actual.rs",
-                ".any(|algo| matches!(algo, Algorithm::Sm2))",
-            ),
-            evidence(
-                CORE_HOST,
-                "set_sm_enabled(self.crypto.sm_helpers_enabled())",
-            ),
-        ],
-    },
-    OpenSemantic {
         id: "soracloud_host_split",
         subject: "syscalls:SORACLOUD_*",
         reason: "SoraCloud syscalls return a metered NotImplemented trap under the ledger host and a response under the SoraCloud host; the proved semantic per invocation kind is unselected",

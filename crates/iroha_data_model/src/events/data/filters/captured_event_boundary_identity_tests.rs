@@ -67,7 +67,6 @@ const CASES: &[fn()] = &[
             "a1d49ab4519fcd22b584cb1dfb156cbe",
         )
     },
-    #[cfg(feature = "governance")]
     || {
         check::<super::GovernanceEventFilter>(
             "iroha_data_model::events::data::filters::model::GovernanceEventFilter",

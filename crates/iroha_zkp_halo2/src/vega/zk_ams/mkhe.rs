@@ -5,9 +5,15 @@
 //! only after every modulus/root, byte bound, work bound, and decryption-noise
 //! inequality has been checked.  In particular, none of these routines fall
 //! back to plaintext execution when an evaluated key or decryption share is absent.
+//!
+//! Outer parameter, release and source-receipt identities use the canonical
+//! native BLAKE3 frame and retain every payload field. Proof challenges, entropy
+//! expansion and the fixed SHAKE packing-root derivation have separate owners.
+//! TODO: qualify current source-bound estimator and packing evidence for these
+//! native identities before release admission; historical evidence stays frozen.
 #[cfg(test)]
-use super::super::sponge::shake256;
-use super::super::{VEGA_T256_SCALAR_MODULUS_BE_V1, VegaT256ScalarV1 as Scalar, sponge::keccak256};
+use super::super::sponge::{keccak256, shake256};
+use super::super::{VEGA_T256_SCALAR_MODULUS_BE_V1, VegaT256ScalarV1 as Scalar};
 #[cfg(test)]
 use super::super::{
     VegaT256PointV1, derive_t256_generators_v1,
@@ -15,6 +21,7 @@ use super::super::{
 };
 #[cfg(test)]
 use super::MaskedRelaxedRandomSourceV1;
+#[cfg(test)]
 use crate::generalized_bulletproof::try_exact_capacity_vec_v1;
 #[cfg(test)]
 use core::cmp::Ordering;
@@ -23,6 +30,59 @@ use core::fmt;
 #[cfg(test)]
 use once_cell::sync::Lazy;
 use thiserror::Error;
+
+/// Semantic roles of native outer identities, separate from proof transcripts.
+#[derive(Clone, Copy)]
+pub(super) enum NativeOuterIdentityRoleV1 {
+    /// Algebraic parameters, resource policies and packing layouts.
+    Parameter,
+    /// Release descriptors and their evidence/readiness identities.
+    Release,
+    /// Source binding, arena context and source receipts.
+    SourceReceipt,
+}
+
+/// Begin an exact native frame after the producer has admitted its fixed schema.
+/// Every phase is a static producer domain; no release digest is used as the
+/// catalog label, which would make parameter/profile construction circular.
+pub(super) fn native_outer_identity_v1(
+    role: NativeOuterIdentityRoleV1,
+    phase: &'static [u8],
+    field_count: usize,
+) -> iroha_crypto::native_commitment::NativeCommitmentBuilderV1 {
+    use iroha_crypto::native_commitment::{NativeCommitmentBuilderV1, NativeCommitmentDomainV1};
+    let role: &[u8] = match role {
+        NativeOuterIdentityRoleV1::Parameter => b"parameter-identity",
+        NativeOuterIdentityRoleV1::Release => b"release-identity",
+        NativeOuterIdentityRoleV1::SourceReceipt => b"source-receipt-identity",
+    };
+    NativeCommitmentBuilderV1::new(
+        NativeCommitmentDomainV1 {
+            catalog: b"iroha.zk-ams.v1.mkhe",
+            protocol: b"iroha.zk-ams.v1",
+            role,
+            phase,
+            level: 0,
+            index: 0,
+            counter: 0,
+        },
+        field_count,
+    )
+    .expect("MKHE native identity has a fixed bounded domain and admitted field count")
+}
+
+/// Bind one fixed algebra/equation descriptor under its distinct release phase.
+pub(super) fn native_outer_schema_v1(phase: &'static [u8], schema: &'static [u8]) -> [u8; 32] {
+    let mut identity = native_outer_identity_v1(NativeOuterIdentityRoleV1::Release, phase, 1);
+    identity
+        .push_field(schema)
+        .expect("fixed bounded MKHE algebra descriptor");
+    *identity
+        .finish()
+        .expect("one complete MKHE algebra descriptor")
+        .as_bytes()
+}
+
 /// Fixed-size entropy owner erased on success, error, and unwind.
 ///
 /// Callers borrow the fixed array during decoding so no unmanaged array copy
@@ -127,6 +187,8 @@ mod global_lookup_statement_v1;
 mod manifest;
 #[path = "mkhe/noise.rs"]
 mod noise;
+#[path = "mkhe/noise_feasibility.rs"]
+mod noise_feasibility;
 #[path = "mkhe/packing.rs"]
 mod packing;
 #[path = "mkhe/persistent_decryption_equality.rs"]
@@ -491,6 +553,12 @@ pub use manifest::{
 };
 #[cfg(test)]
 pub use noise::ZkAmsMkheNoiseCertificateV1;
+pub use noise_feasibility::{
+    ZkAmsMkheCksNoiseInputV1, ZkAmsMkheFailureAllocationV1, ZkAmsMkheNoiseAccountingV1,
+    ZkAmsMkheNoiseAdmissionV1, ZkAmsMkheNoiseConstructionV1, ZkAmsMkheNoiseFeasibilityV1,
+    ZkAmsMkhePhaseNoiseBoundsV1, ZkAmsMkheSmudgePurposeV1, ZkAmsMkheSmudgeQueriesV1,
+    ZkAmsMkheTerminalFeasibilityV1, zk_ams_mkhe_noise_feasibility_v1,
+};
 #[cfg(test)]
 pub use packing::{
     ZK_AMS_T256_GALOIS_KEY_COUNT_V1, ZK_AMS_T256_GALOIS_KEY_SCHEDULE_DIGEST_V1,
@@ -1191,56 +1259,79 @@ impl BgvProfile {
     }
     fn digest(&self) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
         self.validate()?;
-        let mut frame = try_exact_capacity_vec_v1(256 + self.moduli.len() * 16)
-            .map_err(|_| ZkAmsMkheErrorV1::ResourceCeilingExceeded)?;
-        frame.extend_from_slice(b"iroha.zk-ams.v1.mkhe.rns-bgv-profile");
-        frame.extend_from_slice(&self.profile_id);
-        frame.extend_from_slice(
+        let mut hash = native_outer_identity_v1(
+            NativeOuterIdentityRoleV1::Parameter,
+            b"iroha.zk-ams.v1.mkhe.rns-bgv-profile",
+            14 + 2 * self.moduli.len(),
+        );
+        hash.push_field(&self.profile_id)
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u32::try_from(self.ring_degree)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.push(u8::try_from(self.moduli.len()).map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?);
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[
+            u8::try_from(self.moduli.len()).map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
+        ])
+        .expect("fixed bounded MKHE identity field");
         for (&modulus, &root) in self.moduli.iter().zip(self.negacyclic_roots) {
-            frame.extend_from_slice(&modulus.to_be_bytes());
-            frame.extend_from_slice(&root.to_be_bytes());
+            hash.push_field(&modulus.to_be_bytes())
+                .expect("fixed bounded MKHE identity field");
+            hash.push_field(&root.to_be_bytes())
+                .expect("fixed bounded MKHE identity field");
         }
-        frame.extend_from_slice(&self.plaintext_modulus.digest_bytes());
-        frame.push(self.error_eta);
-        frame.push(self.hybrid_rns_decomposition.into());
-        frame.push(self.gadget_base_log);
-        frame.extend_from_slice(
+        hash.push_field(&self.plaintext_modulus.digest_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[self.error_eta])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[self.hybrid_rns_decomposition.into()])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[self.gadget_base_log])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u16::try_from(self.gadget_digits)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.extend_from_slice(
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u64::try_from(self.max_ciphertext_bytes)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.extend_from_slice(
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u64::try_from(self.max_evaluated_key_bytes)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.extend_from_slice(
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u64::try_from(self.max_round_bytes)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.extend_from_slice(
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u64::try_from(self.max_share_bytes)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.extend_from_slice(
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u64::try_from(self.max_workspace_bytes)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.extend_from_slice(&self.max_work_units.to_be_bytes());
-        Ok(keccak256(&frame))
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(&self.max_work_units.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
+        Ok(*hash
+            .finish()
+            .expect("exact MKHE outer identity field count")
+            .as_bytes())
     }
     /// Digest only the algebraic and distribution parameters consumed by the
     /// concrete RLWE security analysis.
@@ -1250,38 +1341,58 @@ impl BgvProfile {
     /// wire/profile identity remains [`Self::digest`].
     fn security_parameters_digest(&self) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
         self.validate()?;
-        let mut frame = try_exact_capacity_vec_v1(192 + self.moduli.len() * 16)
-            .map_err(|_| ZkAmsMkheErrorV1::ResourceCeilingExceeded)?;
-        frame.extend_from_slice(b"iroha.zk-ams.v1.mkhe.rns-bgv-security-parameters");
-        frame.extend_from_slice(&self.profile_id);
-        frame.extend_from_slice(
+        let mut hash = native_outer_identity_v1(
+            NativeOuterIdentityRoleV1::Parameter,
+            b"iroha.zk-ams.v1.mkhe.rns-bgv-security-parameters",
+            8 + 2 * self.moduli.len(),
+        );
+        hash.push_field(&self.profile_id)
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u32::try_from(self.ring_degree)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        frame.push(u8::try_from(self.moduli.len()).map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?);
+        )
+        .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[
+            u8::try_from(self.moduli.len()).map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
+        ])
+        .expect("fixed bounded MKHE identity field");
         for (&modulus, &root) in self.moduli.iter().zip(self.negacyclic_roots) {
-            frame.extend_from_slice(&modulus.to_be_bytes());
-            frame.extend_from_slice(&root.to_be_bytes());
+            hash.push_field(&modulus.to_be_bytes())
+                .expect("fixed bounded MKHE identity field");
+            hash.push_field(&root.to_be_bytes())
+                .expect("fixed bounded MKHE identity field");
         }
-        frame.extend_from_slice(&self.plaintext_modulus.digest_bytes());
-        frame.push(self.error_eta);
-        frame.push(self.hybrid_rns_decomposition.into());
-        frame.push(self.gadget_base_log);
-        frame.extend_from_slice(
+        hash.push_field(&self.plaintext_modulus.digest_bytes())
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[self.error_eta])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[self.hybrid_rns_decomposition.into()])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(&[self.gadget_base_log])
+            .expect("fixed bounded MKHE identity field");
+        hash.push_field(
             &u16::try_from(self.gadget_digits)
                 .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                 .to_be_bytes(),
-        );
-        Ok(keccak256(&frame))
+        )
+        .expect("fixed bounded MKHE identity field");
+        Ok(*hash
+            .finish()
+            .expect("exact MKHE outer identity field count")
+            .as_bytes())
     }
     /// Digest only the governed deployment resource ceilings.
     fn resource_policy_digest(&self) -> Result<[u8; 32], ZkAmsMkheErrorV1> {
         self.validate()?;
-        let mut frame = try_exact_capacity_vec_v1(128)
-            .map_err(|_| ZkAmsMkheErrorV1::ResourceCeilingExceeded)?;
-        frame.extend_from_slice(b"iroha.zk-ams.v1.mkhe.resource-policy");
-        frame.extend_from_slice(&self.profile_id);
+        let mut hash = native_outer_identity_v1(
+            NativeOuterIdentityRoleV1::Parameter,
+            b"iroha.zk-ams.v1.mkhe.resource-policy",
+            7,
+        );
+        hash.push_field(&self.profile_id)
+            .expect("fixed bounded MKHE identity field");
         for ceiling in [
             self.max_ciphertext_bytes,
             self.max_evaluated_key_bytes,
@@ -1289,14 +1400,19 @@ impl BgvProfile {
             self.max_share_bytes,
             self.max_workspace_bytes,
         ] {
-            frame.extend_from_slice(
+            hash.push_field(
                 &u64::try_from(ceiling)
                     .map_err(|_| ZkAmsMkheErrorV1::InvalidProfile)?
                     .to_be_bytes(),
-            );
+            )
+            .expect("fixed bounded MKHE identity field");
         }
-        frame.extend_from_slice(&self.max_work_units.to_be_bytes());
-        Ok(keccak256(&frame))
+        hash.push_field(&self.max_work_units.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
+        Ok(*hash
+            .finish()
+            .expect("exact MKHE outer identity field count")
+            .as_bytes())
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3971,6 +4087,151 @@ mod tests {
             max_work_units: 1 << 20,
         }
     }
+
+    #[test]
+    fn native_outer_tiny_profile_matches_independent_full_frame_kats() {
+        // Expected full32 values use independent Python BLAKE3 and complete labelled frames.
+        // These tiny arithmetic cases do not qualify the retained release/security evidence.
+        let profile = test_profile();
+        assert_eq!(
+            profile.digest().unwrap(),
+            [
+                0x4c, 0x2e, 0xa8, 0x22, 0x02, 0xea, 0xad, 0x19, 0x02, 0x61, 0x2b, 0x48, 0x18, 0xd5,
+                0x60, 0xeb, 0x13, 0x7a, 0x89, 0x2e, 0x61, 0xbd, 0xcc, 0xd9, 0x4b, 0x2c, 0xa9, 0x84,
+                0x8d, 0x31, 0x22, 0xce
+            ]
+        );
+        assert_eq!(
+            profile.security_parameters_digest().unwrap(),
+            [
+                0xd5, 0x4e, 0x33, 0xcd, 0xd7, 0xa7, 0xe5, 0x60, 0xd4, 0x99, 0x91, 0x84, 0xee, 0x32,
+                0xe4, 0xb9, 0x89, 0x2d, 0x01, 0x34, 0x46, 0xfe, 0x9f, 0xb3, 0x28, 0xc8, 0x6c, 0x32,
+                0xf8, 0x7e, 0xb5, 0x42
+            ]
+        );
+        assert_eq!(
+            profile.resource_policy_digest().unwrap(),
+            [
+                0x76, 0x19, 0x5e, 0x27, 0x13, 0x43, 0xc1, 0xe3, 0x65, 0x72, 0xda, 0xc8, 0xc3, 0x84,
+                0x54, 0x69, 0x95, 0x7e, 0x8f, 0xed, 0x43, 0x87, 0x9d, 0xc8, 0xd7, 0x87, 0x9a, 0xe6,
+                0x3d, 0xa8, 0x98, 0x9a
+            ]
+        );
+        for resource in 0..6 {
+            let mut changed = profile.clone();
+            match resource {
+                0 => changed.max_ciphertext_bytes += 1,
+                1 => changed.max_evaluated_key_bytes += 1,
+                2 => changed.max_round_bytes += 1,
+                3 => changed.max_share_bytes += 1,
+                4 => changed.max_workspace_bytes += 1,
+                5 => changed.max_work_units += 1,
+                _ => unreachable!("six resource fields"),
+            }
+            assert_ne!(changed.digest().unwrap(), profile.digest().unwrap());
+            assert_ne!(
+                changed.resource_policy_digest().unwrap(),
+                profile.resource_policy_digest().unwrap()
+            );
+            assert_eq!(
+                changed.security_parameters_digest().unwrap(),
+                profile.security_parameters_digest().unwrap()
+            );
+        }
+        for index in 0..32 {
+            let mut changed = profile.clone();
+            changed.profile_id[index] ^= 1;
+            assert_ne!(changed.digest().unwrap(), profile.digest().unwrap());
+            assert_ne!(
+                changed.security_parameters_digest().unwrap(),
+                profile.security_parameters_digest().unwrap()
+            );
+            assert_ne!(
+                changed.resource_policy_digest().unwrap(),
+                profile.resource_policy_digest().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn native_outer_role_and_schema_domains_match_independent_full_frame_kats() {
+        let word = 0x0102_0304_0506_0708_u64.to_be_bytes();
+        let fields: [&[u8]; 3] = [b"\0\xff", b"", &word];
+        let roles = [
+            (
+                NativeOuterIdentityRoleV1::Parameter,
+                [
+                    0x41, 0xde, 0x2b, 0x86, 0x83, 0x68, 0x87, 0x69, 0x5f, 0xdc, 0x9a, 0xca, 0x79,
+                    0x9c, 0xc3, 0x0b, 0x35, 0x74, 0xf5, 0x9b, 0x1e, 0x47, 0xca, 0x03, 0xe8, 0x41,
+                    0xd0, 0x93, 0x1b, 0x36, 0x6f, 0x00,
+                ],
+            ),
+            (
+                NativeOuterIdentityRoleV1::Release,
+                [
+                    0x5a, 0xbc, 0xbc, 0x46, 0xca, 0xa1, 0x71, 0xcc, 0x3a, 0xa7, 0x04, 0xa5, 0x75,
+                    0xa8, 0x40, 0xe5, 0xda, 0xc0, 0xa4, 0x13, 0x7f, 0x46, 0x70, 0x94, 0x21, 0x33,
+                    0x00, 0x38, 0x0c, 0xaf, 0x45, 0xfe,
+                ],
+            ),
+            (
+                NativeOuterIdentityRoleV1::SourceReceipt,
+                [
+                    0xbf, 0x19, 0xb6, 0xd2, 0xa1, 0x08, 0x13, 0xc6, 0xf6, 0x30, 0x2a, 0x51, 0x38,
+                    0x9d, 0x51, 0x5c, 0xd3, 0xfc, 0xdc, 0xae, 0x89, 0xc9, 0xea, 0xfb, 0x94, 0x2c,
+                    0xd2, 0x88, 0xde, 0xbe, 0x0e, 0x09,
+                ],
+            ),
+        ];
+        for (role, expected) in roles {
+            let mut identity = native_outer_identity_v1(
+                role,
+                b"iroha.zk-ams.v1.mkhe.resource-policy",
+                fields.len(),
+            );
+            for field in fields {
+                identity.push_field(field).unwrap();
+            }
+            assert_eq!(*identity.finish().unwrap().as_bytes(), expected);
+            let mut changed = native_outer_identity_v1(
+                role,
+                b"iroha.zk-ams.v1.mkhe.resource-policy-altered",
+                fields.len(),
+            );
+            for field in fields {
+                changed.push_field(field).unwrap();
+            }
+            assert_ne!(*changed.finish().unwrap().as_bytes(), expected);
+        }
+        let schema =
+            b"T=(AZ_acc)*(BZ_i)+(AZ_i)*(BZ_acc)-u_acc*(CZ_i)-u_i*(CZ_acc):componentwise:t256";
+        let phase = b"iroha.zk-ams.v1.phase23.equation-6-schema";
+        assert_eq!(
+            native_outer_schema_v1(phase, schema),
+            [
+                0x18, 0x64, 0x7c, 0x90, 0xd8, 0x60, 0xb9, 0xe0, 0x05, 0x7d, 0x5e, 0x58, 0x0a, 0x7a,
+                0xcb, 0xaf, 0xcb, 0x24, 0x66, 0xfa, 0xab, 0x1d, 0x45, 0x72, 0xb0, 0xfd, 0x3a, 0x26,
+                0xbf, 0x4b, 0xef, 0x54
+            ]
+        );
+        assert_ne!(
+            native_outer_schema_v1(b"iroha.zk-ams.v1.phase23.equation-7-schema", schema),
+            [
+                0x18, 0x64, 0x7c, 0x90, 0xd8, 0x60, 0xb9, 0xe0, 0x05, 0x7d, 0x5e, 0x58, 0x0a, 0x7a,
+                0xcb, 0xaf, 0xcb, 0x24, 0x66, 0xfa, 0xab, 0x1d, 0x45, 0x72, 0xb0, 0xfd, 0x3a, 0x26,
+                0xbf, 0x4b, 0xef, 0x54
+            ]
+        );
+        assert_ne!(
+            native_outer_schema_v1(phase, b"T=(AZ_acc)*(BZ_i)"),
+            [
+                0x18, 0x64, 0x7c, 0x90, 0xd8, 0x60, 0xb9, 0xe0, 0x05, 0x7d, 0x5e, 0x58, 0x0a, 0x7a,
+                0xcb, 0xaf, 0xcb, 0x24, 0x66, 0xfa, 0xab, 0x1d, 0x45, 0x72, 0xb0, 0xfd, 0x3a, 0x26,
+                0xbf, 0x4b, 0xef, 0x54
+            ]
+        );
+    }
+
     struct KatRandom {
         state: [u8; 32],
         counter: u64,

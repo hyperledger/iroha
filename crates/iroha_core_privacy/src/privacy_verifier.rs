@@ -16,7 +16,7 @@ use crate::{
     privacy_dispatch::{PrivacyUnsupportedOperationV1, require_supported_privacy_action_role_v1},
     privacy_engines::{
         anonymous_pgc::{
-            AnonymousPgcError, AnonymousPgcParametersV1, AnonymousPgcPoolInvariantV1,
+            AnonymousPgcParametersV1, AnonymousPgcPoolInvariantV1, AnonymousPgcReadError,
             TwistedElGamalCiphertextV1, TwistedElGamalPublicKeyV1,
             payment::{AnonymousPgcPaymentStatementV1, verify_payment_encoded},
         },
@@ -66,7 +66,7 @@ use crate::{
     privacy_state::{
         PrivacyFcmpAccumulatorStateV1, PrivacyOrchardPoolSnapshotV1, PrivacyOrchardPoolStateV1,
         PrivacyProofManagedAccumulatorStateV1, PrivacyProofManagedPoolSnapshotV1,
-        PrivacyZkX509AuthoritativeStateV1, compute_privacy_pgc_account_state_root_v1,
+        PrivacyZkX509AuthoritativeStateV1, derive_privacy_pgc_account_state_root_v1,
         validate_privacy_zk_x509_statement_state_v1,
     },
 };
@@ -1717,25 +1717,22 @@ fn verify_anonymous_pgc_payment_v1(
             PrivacyAnonymousPgcStateFailureCodeV1::AccountTableMismatch,
         ));
     }
-    let computed_current_root = compute_privacy_pgc_account_state_root_v1(
+    let computed_current_root = derive_privacy_pgc_account_state_root_v1(
         state.namespace,
         state.current_epoch,
         state.total_supply,
         state.accounts,
     )
-    .map_err(|_| {
-        pgc_state_error(PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootRecomputationFailed)
+    .map_err(|source| PrivacyVerificationErrorV1::AnonymousPgcRoot {
+        code: PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootRecomputationFailed,
+        source,
     })?;
     if computed_current_root != state.current_root {
         return Err(pgc_state_error(
             PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootMismatch,
         ));
     }
-    let parameters = AnonymousPgcParametersV1::get().map_err(|source| {
-        PrivacyVerificationErrorV1::NativeAnonymousPgc(Box::new(
-            PrivacyAnonymousPgcVerificationFailureV1 { source },
-        ))
-    })?;
+    let parameters = AnonymousPgcParametersV1::get().map_err(native_pgc_error)?;
     let pool_invariant = AnonymousPgcPoolInvariantV1::new(
         state.total_supply,
         *state.bootstrap_digest.as_bytes(),
@@ -1813,14 +1810,15 @@ fn verify_anonymous_pgc_payment_v1(
             },
         })
         .collect::<Vec<_>>();
-    let computed_next_root = compute_privacy_pgc_account_state_root_v1(
+    let computed_next_root = derive_privacy_pgc_account_state_root_v1(
         state.namespace,
         statement.next_account_state_root_epoch,
         state.total_supply,
         &accounts,
     )
-    .map_err(|_| {
-        pgc_state_error(PrivacyAnonymousPgcStateFailureCodeV1::NextRootRecomputationFailed)
+    .map_err(|source| PrivacyVerificationErrorV1::AnonymousPgcRoot {
+        code: PrivacyAnonymousPgcStateFailureCodeV1::NextRootRecomputationFailed,
+        source,
     })?;
     if computed_next_root != statement.next_account_state_root {
         return Err(pgc_state_error(
@@ -1839,10 +1837,8 @@ fn verify_anonymous_pgc_payment_v1(
         },
     ))
 }
-fn native_pgc_error(source: AnonymousPgcError) -> PrivacyVerificationErrorV1 {
-    PrivacyVerificationErrorV1::NativeAnonymousPgc(Box::new(
-        PrivacyAnonymousPgcVerificationFailureV1 { source },
-    ))
+fn native_pgc_error(source: impl Into<AnonymousPgcReadError>) -> PrivacyVerificationErrorV1 {
+    PrivacyVerificationErrorV1::NativeAnonymousPgc(Box::new(source.into()))
 }
 fn pgc_state_error(code: PrivacyAnonymousPgcStateFailureCodeV1) -> PrivacyVerificationErrorV1 {
     PrivacyVerificationErrorV1::AnonymousPgcState(Box::new(PrivacyAnonymousPgcStateFailureV1 {
@@ -1851,10 +1847,15 @@ fn pgc_state_error(code: PrivacyAnonymousPgcStateFailureCodeV1) -> PrivacyVerifi
 }
 /// Exhaustive privacy-verification failure.
 ///
-/// Every variant boxes a uniformly sized detail so adding a diagnostic cannot
-/// silently inflate consensus execution stack frames.
+/// Ordinary diagnostics retain their boxed details. The original PGC root/codec
+/// refusal stays inline so reporting a local capacity failure needs no new
+/// allocation.
 #[derive(Debug, Error)]
 #[doc(hidden)]
+#[expect(
+    variant_size_differences,
+    reason = "retain original root/codec refusal without allocating on failure"
+)]
 pub enum PrivacyVerificationErrorV1 {
     /// The execution context differs from the statement or is incomplete.
     #[error(transparent)]
@@ -1926,9 +1927,18 @@ pub enum PrivacyVerificationErrorV1 {
     /// Trusted persisted Anonymous-PGC state was absent or inconsistent.
     #[error(transparent)]
     AnonymousPgcState(Box<PrivacyAnonymousPgcStateFailureV1>),
+    /// Canonical trusted PGC root derivation failed without losing its allocation owner.
+    #[error("trusted Anonymous-PGC root derivation {code:?}: {source}")]
+    AnonymousPgcRoot {
+        /// Whether the current or verified successor root was being derived.
+        code: PrivacyAnonymousPgcStateFailureCodeV1,
+        /// Original typed structural or local encoding failure.
+        #[source]
+        source: crate::privacy_state::PrivacyPgcAccountStateRootErrorV1,
+    },
     /// Native Anonymous-PGC decoding or verification failed.
-    #[error(transparent)]
-    NativeAnonymousPgc(Box<PrivacyAnonymousPgcVerificationFailureV1>),
+    #[error("native Anonymous-PGC verification failed: {0}")]
+    NativeAnonymousPgc(#[source] Box<AnonymousPgcReadError>),
     /// Trusted Bootle/Lantern issuer policy was absent, invalid, or revoked.
     #[error(transparent)]
     BootleLanternState(Box<PrivacyBootleLanternStateFailureV1>),
@@ -2283,11 +2293,6 @@ pub enum PrivacyAnonymousPgcStateFailureCodeV1 {
 pub struct PrivacyAnonymousPgcStateFailureV1 {
     /// Exact stable failure category.
     pub code: PrivacyAnonymousPgcStateFailureCodeV1,
-}
-#[derive(Debug, Error, Clone, Copy)]
-#[error("native Anonymous-PGC verification failed: {source}")]
-pub struct PrivacyAnonymousPgcVerificationFailureV1 {
-    source: AnonymousPgcError,
 }
 /// Stable trusted-state failure for a Bootle/Lantern presentation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3178,7 +3183,7 @@ mod tests {
                     encrypted_balance: pgc_ciphertext_wire(encrypted_balance),
                 })
                 .collect::<Vec<_>>();
-            let current_root = compute_privacy_pgc_account_state_root_v1(
+            let current_root = derive_privacy_pgc_account_state_root_v1(
                 namespace,
                 current_epoch,
                 total_supply,
@@ -3222,7 +3227,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let next_epoch = current_epoch + 1;
-            let next_root = compute_privacy_pgc_account_state_root_v1(
+            let next_root = derive_privacy_pgc_account_state_root_v1(
                 namespace,
                 next_epoch,
                 total_supply,
@@ -3586,6 +3591,121 @@ mod tests {
         assert_eq!(effects.encoded_action_bytes(), canonical_bytes);
     }
     #[test]
+    fn pgc_payment_native_decoder_retains_original_refusal_through_verifier() {
+        let fixture = PgcFixture::new();
+        let PrivacyStatementV1::AnonymousPgcKOutOfNV1(statement) = &fixture.envelope.statement
+        else {
+            panic!("PGC statement")
+        };
+        let PrivacyProofV1::AnonymousPgcKOutOfNV1(proof) = &fixture.envelope.proof else {
+            panic!("PGC proof")
+        };
+        let context = fixture.verification_context();
+        let state = context.pgc_state.expect("trusted PGC state");
+        let unbounded =
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128);
+        let (root, usage) = norito::core::with_decode_limits_measured(unbounded, || {
+            derive_privacy_pgc_account_state_root_v1(
+                state.namespace,
+                state.current_epoch,
+                state.total_supply,
+                state.accounts,
+            )
+        });
+        root.expect("current root");
+        let limits = norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usage.total_allocated_bytes(),
+            128,
+        );
+        let verify =
+            || verify_anonymous_pgc_payment_v1(statement, proof, &fixture.envelope, &context);
+        let refusal = norito::with_decode_limits_scope(limits, verify).unwrap_err();
+        assert!(
+            std::error::Error::source(&refusal)
+                .expect("native read remains the standard error source")
+                .downcast_ref::<AnonymousPgcReadError>()
+                .is_some()
+        );
+        let PrivacyVerificationErrorV1::NativeAnonymousPgc(read) = refusal else {
+            panic!("quota permits current root but refuses the actual native payment decoder");
+        };
+        let AnonymousPgcReadError::Codec(original) = *read else {
+            panic!("original decoder")
+        };
+        let owner = original
+            .local_refusal()
+            .expect("original scope survives verification boundary");
+        assert_eq!(
+            owner.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(
+            owner.resource_error(),
+            original.error().decode_resource_error().unwrap()
+        );
+        verify().expect("the original unchanged payment retries after local scope retires");
+    }
+    #[test]
+    fn pgc_payment_current_and_successor_root_refusals_keep_original_owner() {
+        let fixture = PgcFixture::new();
+        let PrivacyStatementV1::AnonymousPgcKOutOfNV1(statement) = &fixture.envelope.statement
+        else {
+            panic!("PGC statement");
+        };
+        let PrivacyProofV1::AnonymousPgcKOutOfNV1(proof) = &fixture.envelope.proof else {
+            panic!("PGC proof");
+        };
+        let context = fixture.verification_context();
+        let verify =
+            || verify_anonymous_pgc_payment_v1(statement, proof, &fixture.envelope, &context);
+        let unbounded =
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128);
+        let (baseline, usage) = norito::core::with_decode_limits_measured(unbounded, verify);
+        baseline.expect("actual valid native payment");
+        let allocation = usage.total_allocated_bytes();
+        assert!(
+            allocation > 0,
+            "both canonical roots charge their namespace frame"
+        );
+        for (limit, expected_code) in [
+            (
+                0,
+                PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootRecomputationFailed,
+            ),
+            (
+                allocation - 1,
+                PrivacyAnonymousPgcStateFailureCodeV1::NextRootRecomputationFailed,
+            ),
+        ] {
+            let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 128);
+            let original = norito::with_decode_limits_scope(limits, verify).unwrap_err();
+            let PrivacyVerificationErrorV1::AnonymousPgcRoot {
+                code,
+                source:
+                    crate::privacy_state::PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(original),
+            } = original
+            else {
+                panic!("the actual selected root must retain its original local encoding cause");
+            };
+            assert_eq!(code, expected_code);
+            let origin = original
+                .local_refusal()
+                .expect("original enclosing budget owner");
+            assert_eq!(
+                origin.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(
+                origin.resource_error(),
+                original.error().decode_resource_error().unwrap()
+            );
+        }
+        verify().expect("unchanged original payment retries after local scopes retire");
+    }
+    #[test]
     fn verified_pgc_effect_is_complete_exact_and_replay_becomes_stale() {
         let fixture = PgcFixture::new();
         let effects =
@@ -3625,7 +3745,7 @@ mod tests {
                 .all(|(next, current)| next.public_key == current.public_key)
         );
         assert_eq!(
-            compute_privacy_pgc_account_state_root_v1(
+            derive_privacy_pgc_account_state_root_v1(
                 effect.namespace(),
                 effect.next_epoch(),
                 effect.total_supply(),

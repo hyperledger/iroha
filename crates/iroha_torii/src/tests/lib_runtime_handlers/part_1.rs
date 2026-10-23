@@ -2191,6 +2191,8 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id_and_nexus(
             iroha_data_model::block::consensus::SumeragiRootScope::Global,
         );
     }
+    // This shared app fixture models initialized ordinary admission, explicitly.
+    crate::test_utils::author_ready_fixture_crypto_policy(&mut world);
     // Minimal core state
     let _ = &push;
     let query_handle = LiveQueryStore::start_test();

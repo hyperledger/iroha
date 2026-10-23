@@ -29,7 +29,8 @@
   "C.2": "established the destination: primitives now name crates/iroha_fhe as canonical source; function_assignment records the adapters left in each consumer file",
   "C.3": "built iroha_fhe::bgv on the shared kernels and added iroha_fhe::natural, ::ntt_plan and ::rns_chain; primitives, protocol_logic (rns_bgv), test_only_references and function_assignment record them. The retained BFV entries are unchanged and are not renamed into the RNS-BGV candidate.",
   "C.5": "primitives, test_only_references and function_assignment for ZK-AMS, protocol_logic (bgv_mkhe), zk_ams_distinct",
-  "R.6": "hkdf, current_state, file_groups, generated_consumers"
+  "R.6": "hkdf, current_state, file_groups, generated_consumers",
+  "C.4": "Adds offline dealer-assisted sharing of an existing RNS-BGV key across the main and special prime fields, explicit public context and sharing-instance identities, move-only clearing custody and independent interpolation/refusal tests. No threshold decryption, DKG, malicious-party proof or qualified parameter claim."
  },
  "scan": {
   "patterns": ["basis_conversion", "bfv", "bgv", "fhe", "hkdf", "hkdf_ram_lfe", "mkhe", "negacyclic", "ntt", "ram_lfe", "rns"],
@@ -54,7 +55,7 @@
   {
    "crate": "crates/iroha_fhe",
    "feature": "bgv-test-fixtures",
-   "note": "Enabled only from the dev-dependencies of iroha_fhe itself; crates/iroha_fhe/tests/bgv_surface.rs fails when another manifest names it. cfg(any(test, feature = \"bgv-test-fixtures\")) therefore counts as test-only."
+   "note": "Enabled only from exact dev-dependencies of iroha_fhe and iroha_crypto; crates/iroha_fhe/tests/bgv_surface.rs checks those two edges and refuses all other manifests and production edges. cfg(any(test, feature = \"bgv-test-fixtures\")) therefore counts as test-only."
   }
  ],
  "crates": [
@@ -1581,6 +1582,7 @@
       "crates/iroha_fhe/src/bgv/cipher.rs": ["PublicKey::encrypt_from_coins"],
       "crates/iroha_fhe/src/bgv/keys.rs": ["SwitchingKey::from_coins"],
       "crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::add_assign"],
+      "crates/iroha_fhe/src/bgv/threshold.rs": ["DealerKeyShares::take_share"],
       "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::add"],
       "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::forward", "NegacyclicPlan::inverse", "NegacyclicPlan::pointwise_mul_add_assign"],
       "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::digits_to_target"]
@@ -1620,6 +1622,7 @@
       "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["ApplicationPolynomialV1::scale_centered", "ProofPolynomialV1::scale_canonical_unchecked", "multiply_negacyclic_crt_ntt_v1"],
       "crates/iroha_fhe/src/bgv/cipher.rs": ["PublicKey::encrypt_from_coins"],
       "crates/iroha_fhe/src/bgv/keys.rs": ["SwitchingKey::from_coins", "masked_error"],
+      "crates/iroha_fhe/src/bgv/threshold.rs": ["DealerKeyShares::take_share"],
       "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::mul", "FixedModulus::power"],
       "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new", "NegacyclicPlan::pointwise_mul_add_assign", "NegacyclicPlan::pointwise_mul_assign"]
      }
@@ -3284,7 +3287,12 @@
    "executes": [],
    "note": "Distinct BGV multi-key noise semantics; stays with ZK-AMS.",
    "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/noise.rs",
-   "symbols": [{"symbol": "derive_noise_certificate_v1"}, {"symbol": "derive_ingress_error_bounds_v1"}, {"symbol": "validate_ingress_error_bounds_v1"}]
+   "symbols": [
+    {"symbol": "derive_noise_certificate_v1"},
+    {"symbol": "derive_ingress_error_bounds_v1"},
+    {"symbol": "validate_ingress_error_bounds_v1"},
+    {"symbol": "derive_noise_path_v1"}
+   ]
   },
   {
    "id": "mkhe.resource_and_wire_certificates",
@@ -3364,7 +3372,12 @@
    "executes": [],
    "note": "Both entry points call `require_mkhe_release_ready_v1` before proving or verifying. The readiness gates are open (the crate's tests assert `!is_ready()`), so both return ReleaseUnavailable.",
    "path": "crates/iroha_zkp_halo2/src/vega/zk_ams.rs",
-   "symbols": [{"symbol": "prove_zk_ams_admission_relation_v1"}, {"symbol": "verify_zk_ams_admission_relation_v1"}, {"symbol": "require_mkhe_release_ready_v1"}]
+   "symbols": [
+    {"symbol": "prove_zk_ams_admission_relation_v1"},
+    {"symbol": "verify_zk_ams_admission_relation_v1"},
+    {"symbol": "require_mkhe_release_ready_v1"},
+    {"symbol": "profile_digest"}
+   ]
   },
   {
    "id": "mkhe.phase23_certificates_and_audits",
@@ -3545,6 +3558,59 @@
    "note": "In a production build `reached` compiles to nothing; `arm` and `disarm` exist only with the fixture feature.",
    "path": "crates/iroha_fhe/src/bgv/fault.rs",
    "symbols": []
+  },
+  {
+   "id": "rns_bgv.offline_threshold_custody",
+   "scheme": "rns_bgv",
+   "component": "Offline dealer-assisted Shamir sharing of an existing key and opaque secret-share custody",
+   "tasks": ["C.4"],
+   "executes": ["ring_arithmetic"],
+   "note": "Consumes a complete key, samples independent polynomials per main and special prime, and evaluates shares through the canonical FixedModulus owner. Public metadata binds profile, key context, epoch, threshold, roster and fresh sharing instance; selection validates metadata only. No public reconstruction, share codec, threshold decryption, DKG, malicious-party proof or network integration; no profile is qualified.",
+   "path": "crates/iroha_fhe/src/bgv/threshold.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.encryption_witness",
+   "scheme": "rns_bgv",
+   "component": "Internal non-cloneable clearing encryption coins borrowing the exact original profile, complete public key and plaintext",
+   "tasks": ["R.11"],
+   "executes": ["encryption"],
+   "note": "Ordinary encryption samples the same one seed and three domain-separated streams, then delegates to the sole PublicKey::encrypt_from_coins arithmetic owner. No raw witness export, codec, admission route or profile qualification.",
+   "path": "crates/iroha_fhe/src/bgv/encryption_witness.rs",
+   "symbols": []
+  },
+  {
+   "id": "mkhe.native_outer_identity",
+   "scheme": "bgv_mkhe",
+   "component": "MKHE native outer identity framing",
+   "tasks": ["C.5", "F.5"],
+   "executes": [],
+   "note": "Uses the canonical fixed V1 NativeCommitmentBuilderV1 to frame parameter, release and source-receipt roles as raw32 BLAKE3 identities. These are protocol identities, not FHE arithmetic, proof-internal commitments, certification or runtime admission.",
+   "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe.rs",
+   "symbols": [{"symbol": "native_outer_identity_v1"}, {"symbol": "native_outer_schema_v1"}]
+  },
+  {
+   "id": "mkhe.noise_feasibility_diagnostics",
+   "scheme": "bgv_mkhe",
+   "component": "Non-authorizing MKHE construction feasibility diagnostics",
+   "tasks": ["C.5"],
+   "executes": [],
+   "note": "Checked bit accounting and private nonsecret exact-integer diagnostics compare explicitly selected RKG/Galois constructions, caller-supplied query counts, noise recurrences, the exact modulus product and existing resource caps. Conditional finite-uniform-box accounting does not establish malicious extraction or protocol privacy. Every result keeps protocol_privacy_established and authorizes_release false; this owner does not implement shared FHE ring arithmetic, change admitted capacities or certify parameters.",
+   "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/noise_feasibility.rs",
+   "symbols": [
+    {"symbol": "ExactNatural::bit_len"},
+    {"symbol": "ExactNatural::compare"},
+    {"symbol": "ExactNatural::max_for_bits"},
+    {"symbol": "ExactNatural::multiply"},
+    {"symbol": "bit_sum"},
+    {"symbol": "ceil_log2"},
+    {"symbol": "checked"},
+    {"symbol": "cks_input"},
+    {"symbol": "hybrid_switch"},
+    {"symbol": "strict_bits"},
+    {"symbol": "terminal_feasibility"},
+    {"symbol": "zk_ams_mkhe_noise_feasibility_v1"}
+   ]
   }
  ],
  "test_only_references": [
@@ -3989,6 +4055,31 @@
    "summary": "Recomputes the candidates' geometry, sizes and work units, the instruction costs, every tape-family plan and the contract inputs of specs/fhe_bgv_cost_summary.json, through its generated view, with the Rust cost model, noise rules, slot encoding and costing harness; every key of the view has to be read by a check.",
    "path": "crates/iroha_fhe/tests/bgv_cost_model_vectors.rs",
    "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.threshold_fixture",
+   "scheme": "rns_bgv",
+   "kind": "fixture",
+   "summary": "Borrowed raw share words for independent test interpolation only; no production share export.",
+   "path": "crates/iroha_fhe/src/bgv/threshold.rs",
+   "symbols": [{"symbol": "SecretKeyShare::words_for_fixture", "cfg": ["any(test, feature = \"bgv-test-fixtures\")"], "test_only": true}]
+  },
+  {
+   "id": "rns_bgv.threshold_tests",
+   "scheme": "rns_bgv",
+   "kind": "protocol_reference",
+   "summary": "Independent Lagrange interpolation over every main and special prime, fixed-coin domain separation, entropy/refusal controls, single issuance, metadata mixing and forged-share oracle controls. No production reconstruction or malicious-party proof.",
+   "path": "crates/iroha_fhe/tests/bgv_threshold.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.encryption_equation_oracle",
+   "scheme": "rns_bgv",
+   "kind": "fixture",
+   "summary": "Fixture-cfg variable-time reference module: checked owned-buffer payload ceiling, explicit mask/error bounds, borrowed original statement equality and exact fresh ciphertext equation/metadata comparison through existing arithmetic. Not a client/key proof, honest-generation certificate, sanitizer or whole-process resource certificate.",
+   "path": "crates/iroha_fhe/src/bgv/encryption_witness.rs",
    "symbols": []
   }
  ],
@@ -5812,6 +5903,7 @@
     "rns_bgv.coins_and_samplers": [
      "CoinPurpose::tag",
      "CoinState::wipe",
+     "CoinStream::bytes",
      "CoinStream::centered_binomial",
      "CoinStream::next_le",
      "CoinStream::ternary",
@@ -5884,6 +5976,11 @@
     ]
    },
    "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/encryption_witness.rs",
+   "production": {"rns_bgv.encryption_witness": ["EncryptionWitness::encrypt", "EncryptionWitness::sample"]},
+   "test_gated": {"rns_bgv.encryption_equation_oracle": ["mod reference"], "rns_bgv.unit_tests": ["mod tests"]}
   },
   {
    "path": "crates/iroha_fhe/src/bgv/eval.rs",
@@ -6106,6 +6203,34 @@
    },
    "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
   },
+  {
+   "path": "crates/iroha_fhe/src/bgv/threshold.rs",
+   "production": {
+    "rns_bgv.offline_threshold_custody": [
+     "DealerKeyShares::context",
+     "DealerKeyShares::fmt",
+     "DealerKeyShares::instance",
+     "DealerKeyShares::remaining",
+     "DealerKeyShares::required_secret_bytes",
+     "DealerKeyShares::split",
+     "DealerKeyShares::split_with",
+     "DealerKeyShares::take_share",
+     "SecretKeyShare::context",
+     "SecretKeyShare::fmt",
+     "SecretKeyShare::instance",
+     "SecretKeyShare::participant",
+     "SecretKeyShare::secret_buffer_bytes",
+     "ThresholdContext::epoch",
+     "ThresholdContext::identity",
+     "ThresholdContext::key_context",
+     "ThresholdContext::new",
+     "ThresholdContext::participants",
+     "ThresholdContext::threshold",
+     "ThresholdContext::validate_selection_metadata"
+    ]
+   },
+   "test_gated": {"rns_bgv.threshold_fixture": ["SecretKeyShare::words_for_fixture"], "rns_bgv.unit_tests": ["mod tests"]}
+  },
   {"path": "crates/iroha_fhe/src/constant_time.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/key_switch.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/modular.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
@@ -6142,7 +6267,7 @@
      "enforce_successor_epoch",
      "map_circuit_synthesis_error",
      "map_composition_error",
-     "profile_frame",
+     "profile_digest",
      "prove_zk_ams_admission_relation_inner_v1",
      "prove_zk_ams_admission_relation_v1",
      "public_digest_bytes",
@@ -6183,7 +6308,8 @@
      "modulus_product_bit_len",
      "phase23_max_composed_rotation_key_switch_count",
      "ring_multiplication_work"
-    ]
+    ],
+    "mkhe.native_outer_identity": ["native_outer_identity_v1", "native_outer_schema_v1"]
    },
    "test_gated": {
     "mkhe.encryption_and_evaluation_reference": [
@@ -8399,8 +8525,29 @@
      "ceil_log2",
      "derive_ingress_error_bounds_v1",
      "derive_noise_certificate_v1",
+     "derive_noise_path_v1",
      "strict_magnitude_bound_bits",
      "validate_ingress_error_bounds_v1"
+    ]
+   },
+   "test_gated": {"mkhe.inline_unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/noise_feasibility.rs",
+   "production": {
+    "mkhe.noise_feasibility_diagnostics": [
+     "ExactNatural::bit_len",
+     "ExactNatural::compare",
+     "ExactNatural::max_for_bits",
+     "ExactNatural::multiply",
+     "bit_sum",
+     "ceil_log2",
+     "checked",
+     "cks_input",
+     "hybrid_switch",
+     "strict_bits",
+     "terminal_feasibility",
+     "zk_ams_mkhe_noise_feasibility_v1"
     ]
    },
    "test_gated": {"mkhe.inline_unit_tests": ["mod tests"]}
@@ -11670,6 +11817,18 @@
     {
      "path": "docs/validation/parliament_ballot_typed_decoder_bound/analysis/report.json",
      "purpose": "Recorded validation receipt or report; it hashes the hkdf crate's registry sources among the build inputs."
+    },
+    {
+     "path": "docs/validation/parliament_ballot_node_representation/resume-20261020/core-merge-diagnostic.log.txt",
+     "purpose": "Historical Cargo compile/check transcript naming the hkdf dependency; it contains no executable HKDF call and is not a RAM-LFE backend."
+    },
+    {
+     "path": "docs/validation/parliament_ballot_node_representation/resume-20261020/model-initial.log.txt",
+     "purpose": "Historical Cargo compile/check transcript naming the hkdf dependency; it contains no executable HKDF call and is not a RAM-LFE backend."
+    },
+    {
+     "path": "docs/validation/parliament_ballot_node_representation/resume-20261020/node-check-initial.log.txt",
+     "purpose": "Historical Cargo compile/check transcript naming the hkdf dependency; it contains no executable HKDF call and is not a RAM-LFE backend."
     }
    ]
   },
@@ -11967,6 +12126,13 @@
    "path": "fixtures/soracloud/identifier_owner_execute_v1.json",
    "kind": "fixture",
    "evidence": {"path": "IrohaSwift/Tests/IrohaSwiftTests/ToriiClientRamLfeTestSupport.swift", "literal": "identifier_owner_execute_v1.json"}
+  },
+  {
+   "path": "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/provenance.json",
+   "kind": "compiled_metal_provenance",
+   "registered": false,
+   "evidence": {"path": "crates/fastpq_prover/src/metal_artifact.rs", "literal": "The provenance record beside the library preserves"},
+   "note": "Original generation record adjacent to the admitted embedded bundle; local identity evidence only, not signed provenance or complete hardware qualification."
   }
  ],
  "generated_sdk_code": {
@@ -12327,7 +12493,13 @@
      "test_only": true
     },
     {"path": "crates/iroha_crypto/src/ram_lfe/trace.rs", "patterns": ["bfv", "fhe", "ram_lfe"]},
-    {"path": "crates/iroha_crypto/src/ram_lfe/trace_tests.rs", "patterns": ["bfv", "fhe", "ram_lfe"], "cfg": ["test"], "test_only": true}
+    {"path": "crates/iroha_crypto/src/ram_lfe/trace_tests.rs", "patterns": ["bfv", "fhe", "ram_lfe"], "cfg": ["test"], "test_only": true},
+    {
+     "path": "crates/iroha_crypto/src/ram_lfe/input_encryption_relation_tests.rs",
+     "patterns": ["bgv", "fhe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    }
    ]
   },
   {
@@ -12337,7 +12509,7 @@
    "tasks": ["C.2", "R.6"],
    "summary": "Crate facade, manifest and captured identity fixtures that name the BFV and RAM-LFE types.",
    "files": [
-    {"path": "crates/iroha_crypto/Cargo.toml", "patterns": ["bfv", "fhe", "hkdf", "ntt"]},
+    {"path": "crates/iroha_crypto/Cargo.toml", "patterns": ["bfv", "bgv", "fhe", "hkdf", "ntt"]},
     {"path": "crates/iroha_crypto/src/lib.rs", "patterns": ["bfv", "fhe", "hkdf", "ram_lfe"]},
     {"path": "crates/iroha_crypto/tests/manual_scalar_identity.rs", "patterns": ["bfv"], "test_only": true}
    ]
@@ -13824,7 +13996,12 @@
      "cfg": ["feature = \"full\"", "test"],
      "test_only": true
     },
-    {"path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/wire.rs", "patterns": ["bgv", "mkhe", "rns"], "cfg": ["feature = \"full\""]}
+    {"path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/wire.rs", "patterns": ["bgv", "mkhe", "rns"], "cfg": ["feature = \"full\""]},
+    {
+     "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/noise_feasibility.rs",
+     "patterns": ["mkhe", "negacyclic", "rns"],
+     "cfg": ["feature = \"full\""]
+    }
    ]
   },
   {
@@ -13981,7 +14158,6 @@
    "tasks": ["B.1", "B.2", "B.3"],
    "summary": "FASTPQ Goldilocks proof-field transforms: the Metal NTT stage and its tooling, and the CPU transform owners. Owned by the shared proof backend (B.1-B.3); not FHE ring arithmetic.",
    "files": [
-    {"path": "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/provenance.json", "patterns": ["ntt"]},
     {"path": "crates/fastpq_prover/metal/kernels/ntt_stage.metal", "patterns": ["ntt"]},
     {
      "path": "crates/fastpq_prover/src/cyclotomic.rs",
@@ -14770,7 +14946,7 @@
    "component": "iroha_fhe",
    "role": "fhe_implementation",
    "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
-   "summary": "The exact modular RNS-BGV starting candidate (task C.3): profiles and candidates, coins and samplers, keys and their canonical encodings, encryption and decryption, leveled evaluation with hybrid key switching, public noise accounting and shape planning, slot encodings and the cost model. The fixture module is compiled only for tests or with the bgv-test-fixtures feature. Not wired into any consumer; no profile is qualified.",
+   "summary": "The exact modular RNS-BGV starting candidate (task C.3): profiles and candidates, coins and samplers, keys and their canonical encodings, encryption and decryption, leveled evaluation with hybrid key switching, public noise accounting and shape planning, slot encodings and the cost model. The fixture module is compiled only for tests or with the bgv-test-fixtures feature. Not wired into any consumer; no profile is qualified. Offline dealer-assisted secret-key sharing uses explicit contexts and opaque clearing share custody; no threshold decryption or malicious-party proof is implemented.",
    "files": [
     {"path": "crates/iroha_fhe/src/bgv/cipher.rs", "patterns": ["bgv", "fhe", "rns"]},
     {"path": "crates/iroha_fhe/src/bgv/coins.rs", "patterns": ["bgv", "fhe"]},
@@ -14789,21 +14965,23 @@
     {"path": "crates/iroha_fhe/src/bgv/noise.rs", "patterns": ["bgv", "fhe"]},
     {"path": "crates/iroha_fhe/src/bgv/plan.rs", "patterns": ["bgv", "fhe"]},
     {"path": "crates/iroha_fhe/src/bgv/poly.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "rns"]},
-    {"path": "crates/iroha_fhe/src/bgv/profile.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "ram_lfe", "rns"]}
+    {"path": "crates/iroha_fhe/src/bgv/profile.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "ram_lfe", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/threshold.rs", "patterns": ["bgv", "fhe", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/encryption_witness.rs", "patterns": ["bgv", "fhe", "ntt", "rns"]}
    ]
   },
   {
    "id": "fhe.rns_bgv.tests",
    "component": "iroha_fhe",
    "role": "fhe_test_reference",
-   "tasks": ["C.3"],
-   "summary": "Independent references and tests of the RNS-BGV candidate and of the arbitrary-chain kernels: the Python reference and its known-answer file, the num-bigint oracle, vector, noise, clearing and surface tests, the costing harness that lowers the V1 tape instructions over shapes and over ciphertexts with its tests, the test that holds the tracked cost summary to the Rust model, and the measured workloads.",
+   "tasks": ["C.3", "C.4"],
+   "summary": "Independent references and tests of the RNS-BGV candidate and of the arbitrary-chain kernels: the Python reference and its known-answer file, the num-bigint oracle, vector, noise, clearing and surface tests, the costing harness that lowers the V1 tape instructions over shapes and over ciphertexts with its tests, the test that holds the tracked cost summary to the Rust model, and the measured workloads. Offline threshold-sharing tests use independent field interpolation and verify actual entropy, issuance and metadata refusals.",
    "files": [
     {"path": "crates/iroha_fhe/tests/bgv_clearing.rs", "patterns": ["bgv", "fhe"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/bgv_cost_measurement.rs", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/bgv_cost_model_vectors.rs", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/bgv_noise.rs", "patterns": ["bgv", "fhe"], "test_only": true},
-    {"path": "crates/iroha_fhe/tests/bgv_surface.rs", "patterns": ["basis_conversion", "bgv", "fhe", "ntt", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_surface.rs", "patterns": ["basis_conversion", "bgv", "fhe", "ntt", "ram_lfe", "rns"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/bgv_tape_plan.rs", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/bgv_vectors.rs", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/rns_chain_vectors.rs", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
@@ -14812,7 +14990,8 @@
     {"path": "crates/iroha_fhe/tests/support/mod.rs", "patterns": ["bgv", "fhe"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/support/oracle.rs", "patterns": ["bgv", "fhe", "negacyclic", "rns"], "test_only": true},
     {"path": "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
-    {"path": "crates/iroha_fhe/tests/vectors/bgv_reference.py", "patterns": ["bgv", "fhe", "rns"], "test_only": true}
+    {"path": "crates/iroha_fhe/tests/vectors/bgv_reference.py", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_threshold.rs", "patterns": ["bgv", "fhe"], "test_only": true}
    ]
   },
   {
@@ -15439,7 +15618,10 @@
     {"path": "docs/validation/parliament_ballot_resource_contract/dependency-change/root-Cargo.lock.after.template", "patterns": ["fhe", "hkdf"]},
     {"path": "docs/validation/parliament_ballot_resource_contract/dependency-change/root-Cargo.lock.before.template", "patterns": ["fhe", "hkdf"]},
     {"path": "docs/validation/parliament_ballot_torii_release_guard/captured-sources/crates/iroha_core/Cargo.toml.template", "patterns": ["bfv"]},
-    {"path": "docs/validation/parliament_ballot_typed_decoder_bound/analysis/report.json", "patterns": ["hkdf"]}
+    {"path": "docs/validation/parliament_ballot_typed_decoder_bound/analysis/report.json", "patterns": ["hkdf"]},
+    {"path": "docs/validation/parliament_ballot_node_representation/resume-20261020/core-merge-diagnostic.log.txt", "patterns": ["fhe", "hkdf"]},
+    {"path": "docs/validation/parliament_ballot_node_representation/resume-20261020/model-initial.log.txt", "patterns": ["fhe", "hkdf"]},
+    {"path": "docs/validation/parliament_ballot_node_representation/resume-20261020/node-check-initial.log.txt", "patterns": ["fhe", "hkdf"]}
    ]
   },
   {
@@ -15555,6 +15737,22 @@
      "patterns": ["basis_conversion"]
     }
    ]
+  },
+  {
+   "id": "fastpq.metal_artifact_provenance",
+   "component": "fastpq_prover",
+   "role": "generated_artifact",
+   "tasks": ["F.5"],
+   "summary": "Source-pinned Metal bundle provenance names the complete pipeline set, including Goldilocks NTT. It records generated artifact identity and does not implement FHE arithmetic or establish numerical qualification of every pipeline.",
+   "files": [{"path": "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/provenance.json", "patterns": ["ntt"]}]
+  },
+  {
+   "id": "crypto.native_commitment",
+   "component": "iroha_crypto",
+   "role": "consumer",
+   "tasks": ["C.5", "F.5"],
+   "summary": "Canonical unkeyed raw32 BLAKE3 native commitment framing, role/domain descriptors and distinct SHA3 descriptor identities. Its MKHE and RNS mentions are protocol-domain references; this file implements neither FHE arithmetic nor a cryptographic qualification decision.",
+   "files": [{"path": "crates/iroha_crypto/src/native_commitment.rs", "patterns": ["mkhe", "rns"]}]
   }
  ]
 }

@@ -25,6 +25,7 @@ use super::{
     SwitchingKey, SwitchingKeyKind,
     coins::{COIN_SEED_BYTES, EntropySource},
     poly::RnsPoly,
+    threshold::{DealerKeyShares, SecretKeyShare, ThresholdContext, ThresholdError},
 };
 use zeroize::Zeroizing;
 
@@ -284,6 +285,30 @@ pub fn inner_product_words(
     Ok(secret.inner_product(profile, ciphertext)?.words().to_vec())
 }
 
+/// Split a consumed secret key with reproducible coins through the production dealer.
+///
+/// # Errors
+/// Returns a profile mismatch, checked size overflow, insufficient secret-buffer
+/// limit, or entropy failure from the production dealer. The consumed key clears
+/// on refusal.
+pub fn threshold_dealer<'profile>(
+    profile: &'profile BgvProfile,
+    context: ThresholdContext,
+    secret: SecretKey,
+    max_secret_bytes: usize,
+    entropy: &mut FixtureEntropy,
+) -> Result<DealerKeyShares<'profile>, ThresholdError> {
+    DealerKeyShares::split_with(profile, context, secret, max_secret_bytes, entropy)
+}
+
+/// Copy an offline share's coefficient-form main/special RNS words for a test oracle.
+///
+/// The returned secret buffer clears on drop. No production caller can use this probe.
+#[must_use]
+pub fn threshold_share_words(share: &SecretKeyShare) -> Zeroizing<Vec<u64>> {
+    Zeroizing::new(share.words_for_fixture().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,4 +478,83 @@ mod tests {
             Some(BgvError::ProfileMismatch)
         );
     }
+}
+
+/// Refusals of the fixture-only encryption equation oracle.
+pub use super::encryption_witness::EncryptionWitnessError;
+
+/// Clearing, non-cloneable encryption coins borrowing their original inputs.
+///
+/// This fixture cannot serialize or expose its coefficients. Its check is an
+/// offline equation oracle, not a proof or an admitted network capability.
+///
+/// ```compile_fail
+/// use iroha_fhe::bgv::fixtures::EncryptionWitness;
+/// fn duplicate(value: EncryptionWitness<'_>) { let _ = value.clone(); }
+/// ```
+pub struct EncryptionWitness<'a>(super::encryption_witness::EncryptionWitness<'a>);
+
+impl std::fmt::Debug for EncryptionWitness<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("[REDACTED BGV encryption witness]")
+    }
+}
+
+impl EncryptionWitness<'_> {
+    /// Check bounded coins and the exact fresh encryption of the borrowed inputs.
+    ///
+    /// Full key and plaintext equality prevent statement substitution, even for
+    /// a zero mask. This does not prove honest key/coin generation. The oracle
+    /// is variable-time and must not serve as a remotely observable verifier.
+    ///
+    /// # Errors
+    /// Working-buffer refusal, altered statement, out-of-range coins, malformed
+    /// shapes or a ciphertext differing in any component or noise metadata.
+    pub fn check(
+        &self,
+        profile: &BgvProfile,
+        key: &PublicKey,
+        plaintext: &Plaintext,
+        ciphertext: &Ciphertext,
+        working_buffer_limit: usize,
+    ) -> Result<(), EncryptionWitnessError> {
+        self.0
+            .check(profile, key, plaintext, ciphertext, working_buffer_limit)
+    }
+}
+
+/// Conservative owned buffer payload bytes for witness generation/checking.
+///
+/// Includes three sampled arrays, four arithmetic RNS polynomials and the coin
+/// state. Borrowed inputs, public metadata, allocator overhead and compiler or
+/// stack copies are excluded. This is not a whole-request resource certificate.
+///
+/// # Errors
+/// Checked size arithmetic overflow.
+pub fn encryption_witness_working_bytes(
+    profile: &BgvProfile,
+) -> Result<usize, EncryptionWitnessError> {
+    super::encryption_witness::preflight(profile, usize::MAX)
+}
+
+/// Encrypt once while retaining the same clearing coins used by ordinary encryption.
+///
+/// Checks the working-buffer payload ceiling before sampling or allocating any
+/// secret arrays. Exactly one seed and the original three tagged streams are
+/// used. The witness borrows the profile, complete key and plaintext unchanged.
+///
+/// # Errors
+/// Working-buffer refusal, mismatched inputs, entropy failure or BGV arithmetic.
+pub fn encrypt_with_witness<'a>(
+    profile: &'a BgvProfile,
+    key: &'a PublicKey,
+    plaintext: &'a Plaintext,
+    entropy: &mut FixtureEntropy,
+    working_buffer_limit: usize,
+) -> Result<(Ciphertext, EncryptionWitness<'a>), EncryptionWitnessError> {
+    super::encryption_witness::preflight(profile, working_buffer_limit)?;
+    let witness =
+        super::encryption_witness::EncryptionWitness::sample(profile, key, plaintext, entropy)?;
+    let ciphertext = witness.encrypt()?;
+    Ok((ciphertext, EncryptionWitness(witness)))
 }

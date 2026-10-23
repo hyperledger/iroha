@@ -10,15 +10,17 @@ use super::{
 };
 use crate::{
     isi::{
-        InstructionBox, instruction_wire_id, privacy::SubmitPrivacyProofV1,
+        InstructionBox, instruction_wire_id,
+        privacy::{BootstrapPrivacyPgcAccountsV1, SubmitPrivacyProofV1},
         registry::is_instruction_wire_id_registered,
     },
     nexus::LanePrivacyProof,
     proof::ProofAttachment,
     transaction::signed_attachments::{
-        ActionInvocationBindingV1, ActionOperationV1, ActionRuleViolationV1,
-        ActionStatementDigestV1, AttachmentRoleV1, OrderedIntentDigestV1, SignedAttachmentErrorV1,
-        SignedAttachmentPlanV1, SignedAttachmentsV1, domain_separated_digest,
+        ActionInvocationBindingV1, ActionOperationV1, ActionPublicInputsDigestV1, ActionRoleV1,
+        ActionRuleViolationV1, ActionStatementDigestV1, AttachmentKindV1, AttachmentRoleV1,
+        OrderedIntentDigestV1, SignedAttachmentErrorV1, SignedAttachmentPlanV1,
+        SignedAttachmentsV1, domain_separated_digest,
     },
 };
 use iroha_crypto::Hash;
@@ -32,7 +34,9 @@ pub const ORDERED_INTENT_DIGEST_DOMAIN_V1: &[u8] = b"iroha.transaction.ordered-i
 ///
 /// A direct privacy submission embeds its proof and the digests derived from
 /// the transaction intent; they are cleared exactly as the privacy intent
-/// projection clears them. Every other instruction is independent.
+/// projection clears them. PGC bootstrap keeps its proof-free request and exact
+/// action/slot reference; the sole proof lives in the signed occurrence. Every
+/// other instruction is independent.
 fn normalize_instruction_for_ordered_intent_v1(instruction: &InstructionBox) -> InstructionBox {
     instruction
         .as_any()
@@ -170,8 +174,10 @@ impl TransactionPayload {
     ///
     /// Returns an error when canonical encoding fails.
     pub fn ordered_intent_projection_bytes_v1(&self) -> Result<Vec<u8>, SignedAttachmentErrorV1> {
-        norito::encode_canonical(&self.ordered_intent_normalized_payload_v1())
-            .map_err(|_| SignedAttachmentErrorV1::CanonicalEncodingFailed)
+        norito::core::classify_decode_attempt(|| {
+            norito::encode_canonical(&self.ordered_intent_normalized_payload_v1())
+        })
+        .map_err(SignedAttachmentErrorV1::from_encoding_attempt)
     }
 
     /// Digest of the normalized proof-free ordered intent.
@@ -267,12 +273,51 @@ impl TransactionPayload {
     /// declaration, and that each statement digest is the one derived from
     /// this payload's ordered intent.
     ///
-    /// A payload without attachments is valid.
+    /// A payload without an attachment-backed direct request may omit attachments.
     ///
     /// # Errors
     ///
     /// Returns the first violation.
     pub fn validate_signed_attachments_v1(&self) -> Result<(), SignedAttachmentErrorV1> {
+        let check_request = |instruction: &InstructionBox, position: usize| {
+            let Some(bootstrap) = instruction
+                .as_any()
+                .downcast_ref::<BootstrapPrivacyPgcAccountsV1>()
+            else {
+                return Ok(());
+            };
+            let action_index = bootstrap.proof_ref.action_index;
+            let action = self
+                .attachments
+                .as_ref()
+                .and_then(|table| table.action(action_index))
+                .ok_or(SignedAttachmentErrorV1::InvocationOutOfRange { action_index })?;
+            let position = u32::try_from(position)
+                .map_err(|_| SignedAttachmentErrorV1::InvocationOutOfRange { action_index })?;
+            if action.invocation
+                != (ActionInvocationBindingV1::Direct {
+                    instruction_index: position,
+                })
+            {
+                return Err(SignedAttachmentErrorV1::InvocationTargetMismatch { action_index });
+            }
+            Ok(())
+        };
+        match &self.instructions {
+            Executable::Instructions(instructions) => {
+                for (position, instruction) in instructions.iter().enumerate() {
+                    check_request(instruction, position)?;
+                }
+            }
+            Executable::Batch(items) => {
+                for (position, item) in items.iter().enumerate() {
+                    if let ExecutableBatchItem::Instruction(instruction) = item {
+                        check_request(instruction, position)?;
+                    }
+                }
+            }
+            Executable::ContractCall(_) | Executable::Ivm(_) | Executable::IvmProved(_) => {}
+        }
         let Some(attachments) = &self.attachments else {
             return Ok(());
         };
@@ -319,6 +364,35 @@ impl TransactionPayload {
                                 return Err(SignedAttachmentErrorV1::InvocationTargetMismatch {
                                     action_index,
                                 });
+                            }
+                            if let Some(bootstrap) = instruction
+                                .as_any()
+                                .downcast_ref::<BootstrapPrivacyPgcAccountsV1>(
+                            ) {
+                                if bootstrap.proof_ref.action_index != action_index
+                                    || bootstrap.proof_ref.slot_index != 0
+                                    || action.role != ActionRoleV1::Administrative
+                                    || action.attachments.len() != 1
+                                    || action.attachments[0].kind != AttachmentKindV1::Proof
+                                    || action.attachments[0].role != AttachmentRoleV1::ActionProof
+                                {
+                                    return Err(
+                                        SignedAttachmentErrorV1::InvocationTargetMismatch {
+                                            action_index,
+                                        },
+                                    );
+                                }
+                                let digest = norito::core::classify_decode_attempt(|| {
+                                    bootstrap.bootstrap.digest()
+                                })
+                                .map_err(SignedAttachmentErrorV1::from_encoding_attempt)?;
+                                if action.public_inputs_digest
+                                    != ActionPublicInputsDigestV1::new(*digest.as_bytes())
+                                {
+                                    return Err(SignedAttachmentErrorV1::PublicInputsMismatch {
+                                        action_index,
+                                    });
+                                }
                             }
                             if !bound_direct.insert(*instruction_index) {
                                 return Err(SignedAttachmentErrorV1::DuplicateInvocation {

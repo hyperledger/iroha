@@ -376,9 +376,8 @@ fn concrete_identity_frames() -> Vec<Value> {
             },
         ),
     ];
-    #[cfg(any(feature = "governance", feature = "http"))]
     let mut rows = rows;
-    #[cfg(feature = "governance")]
+
     rows.push(family(
         "data-governance-submitted",
         DataEvent::Governance(
@@ -410,10 +409,7 @@ fn concrete_identity_frames() -> Vec<Value> {
 #[test]
 fn concrete_identity_frames_match_capture() {
     let rows = concrete_identity_frames();
-    assert_eq!(
-        rows.len(),
-        7 + usize::from(cfg!(feature = "governance")) + 3 * usize::from(cfg!(feature = "http"))
-    );
+    assert_eq!(rows.len(), 8 + 3 * usize::from(cfg!(feature = "http")));
     let expected = fixture_values(include_str!(
         "../tests/fixtures/model_concrete_identity_frames.json"
     ));
@@ -442,7 +438,6 @@ fn concrete_identity_frames_match_capture() {
         .iter()
         .filter(
             |row| match row["case"].as_str().expect("captured family label") {
-                "data-governance-submitted" => cfg!(feature = "governance"),
                 "block-subscription-first" | "block-subscription-later" | "block-message" => {
                     cfg!(feature = "http")
                 }
@@ -453,8 +448,7 @@ fn concrete_identity_frames_match_capture() {
         .collect::<Vec<_>>();
     assert_eq!(rows, available);
 
-    // Disabled governance rejects the reserved variant; it cannot become Social.
-    #[cfg(not(feature = "governance"))]
+    // The canonical governance frame decodes to its exact variant in every build.
     {
         let governance = captured
             .iter()
@@ -466,7 +460,10 @@ fn concrete_identity_frames_match_capture() {
                 .expect("captured governance frame"),
         )
         .expect("valid captured frame hex");
-        assert!(norito::decode_from_bytes::<DataEvent>(&frame).is_err());
+        assert!(matches!(
+            norito::decode_from_bytes::<DataEvent>(&frame).expect("canonical governance event"),
+            DataEvent::Governance(_)
+        ));
     }
 }
 
@@ -494,7 +491,7 @@ fn block_message_send_identity_projection_matches_capture() {
     );
 }
 
-#[cfg(all(feature = "http", feature = "governance"))]
+#[cfg(feature = "http")]
 #[test]
 #[ignore = "explicit fixture capture after reviewing an intentional wire-format change"]
 fn capture_current_concrete_identity_frames() {
@@ -519,7 +516,7 @@ fn capture_current_concrete_identity_frames() {
 }
 
 #[test]
-fn data_event_schema_reserves_disabled_capability_discriminants() {
+fn data_event_schema_preserves_canonical_discriminants_in_every_build() {
     use iroha_schema::{IntoSchema as _, Metadata};
 
     let schema = DataEvent::schema();
@@ -555,7 +552,6 @@ fn data_event_schema_reserves_disabled_capability_discriminants() {
         ("Bond", 25),
     ]
     .into_iter()
-    .filter(|(name, _)| *name != "Governance" || cfg!(feature = "governance"))
     .collect::<Vec<_>>();
     assert_eq!(
         metadata

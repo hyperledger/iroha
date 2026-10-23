@@ -23,9 +23,11 @@ This module
 
 The Rust tests in crates/soranet_pq compare the output of the implementation
 with the tracked response files byte for byte. Together the two checks show that
-the implementation reproduces the official response. They do not cover the NIST
-ACVP vectors (invalid encodings, context substitution, pre-hash variants); those
-files are not in the tree and were not fetched.
+the implementation reproduces the official response. These count-zero checks do
+not cover NIST ACVP vectors. The separate check_soranet_pq_acvp.py checker and
+soranet_pq ACVP tests cover a pinned subset of external pure-message vectors,
+key checks and context/message substitution. Prehash and internal-interface
+ACVP groups remain outside that subset.
 """
 
 from __future__ import annotations

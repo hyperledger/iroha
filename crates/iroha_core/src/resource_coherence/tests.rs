@@ -237,14 +237,14 @@ fn genesis_config(effective_at_height: Option<u64>) -> TestChainConfig {
     );
     let mut config = TestChainConfig::new(world, 0);
     config.genesis_key = ALICE_KEYPAIR.clone();
-    config.genesis_parameters = vec![
+    config.genesis_parameters.extend([
         Parameter::Transaction(TransactionParameter::MaxTxBytes(
             NonZeroU64::new(u64::from(3 * MIB)).unwrap(),
         )),
         Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
             NonZeroU32::new(4 * MIB).unwrap(),
         )),
-    ];
+    ]);
     if let Some(height) = effective_at_height {
         config.genesis_instructions.push(
             SchedulePrivacyConsensusPolicyTighteningV1::new(height, lower_limits(2 * MIB, 3 * MIB))

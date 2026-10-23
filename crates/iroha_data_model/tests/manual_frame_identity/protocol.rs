@@ -132,13 +132,17 @@ fn privacy_values(rows: &mut Vec<Value>) {
     family(rows, "goldilocks_digest384", &[first, second]);
 
     let catalog = PrivacyExact12CatalogCommitmentV1::canonical();
-    assert_eq!(catalog.encode(), catalog.digest().encode());
-    for lane in 0..6 {
-        let mut words = catalog.digest().words();
-        words[lane] = u64::from(words[lane] == 0);
-        let different = GoldilocksDigest384V1::new(words).unwrap();
-        assert_ne!(&different, catalog.digest());
-        reject_payload::<PrivacyExact12CatalogCommitmentV1>(&different.encode());
+    assert_eq!(catalog.encode(), catalog.as_bytes());
+    for byte in 0..PrivacyExact12CatalogCommitmentV1::BYTES {
+        let mut different = *catalog.as_bytes();
+        different[byte] ^= 1;
+        assert_ne!(&different, catalog.as_bytes());
+        reject_payload::<PrivacyExact12CatalogCommitmentV1>(&different);
+    }
+    for length in [0, 31, 33, 48] {
+        let mut different = catalog.as_bytes().to_vec();
+        different.resize(length, 0);
+        reject_payload::<PrivacyExact12CatalogCommitmentV1>(&different);
     }
     assert_json(&catalog);
     family(rows, "privacy_exact12_catalog_commitment", &[catalog]);

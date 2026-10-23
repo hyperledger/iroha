@@ -93,9 +93,9 @@ Before an account exists, `ToriiClient.getAccountCapabilities({ signal })` and
 the browser client's matching method read public `GET /v1/accounts/capabilities`.
 The closed `AccountCapabilitiesV1` JSON response contains `schema_version: 1`,
 the canonical `network_id`, a u16 `network_prefix`, the current `allowed_signing`
-admission set, and explicit `default_signing: "ed25519"`. Ed25519 is the
-first-release account-bootstrap policy and is mandatory in node admission;
-array ordering and the node's default hash do not express signing preferences.
+admission set in canonical algorithm-tag order. Select a locally supported signer
+from that set; there is no protocol default or implicit Ed25519 member. Array
+ordering and the node's default hash do not express signing preferences.
 Compare the returned network identity with the user's selected network before
 creating an identity. This advert is endpoint discovery, not signed network
 evidence or permission to submit a transaction.
@@ -234,10 +234,13 @@ surface is then captured as an immutable runtime dependency; later environment
 changes and mutable `globalThis` overrides cannot retarget it. The registry
 publishes one executable tree, `dist/`; development
 `src/` and `scripts/` copies stay in the source checkout. The registry artifact includes only
-two portable, offline examples: `recipes/iso_bridge_builder.mjs` and
-`recipes/nexus_app_transfer.mjs`. The wider recipe catalog is kept in the
+two portable examples, `recipes/iso_bridge_builder.mjs` and
+`recipes/nexus_app_transfer.mjs`, plus their shared `recipes/iso_bridge_context.mjs`
+configuration helper. The wider recipe catalog is kept in the
 source repository where its native and live-service prerequisites are
-available.
+available. Both examples require an authenticated matching native host for
+canonical account validation. ISO XML rendering can run offline with that host;
+submission additionally needs the runtime signer and Torii endpoint.
 
 `build:dist` publishes the JavaScript source tree. `prepack` builds that tree,
 and `test:pack-install` verifies exact source/distribution parity and the package's

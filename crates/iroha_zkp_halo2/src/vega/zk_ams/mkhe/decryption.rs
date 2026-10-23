@@ -54,6 +54,7 @@ use super::{
     collective::COLLECTIVE_CIPHERTEXT_DOMAIN_V1,
     wire::{ZkAmsMkheCollectiveCiphertextWireV1, ZkAmsMkheRnsPolynomialWireV1},
 };
+#[cfg(test)]
 use crate::vega::sponge::keccak256;
 #[cfg(test)]
 use crate::vega::sponge::shake256;
@@ -90,10 +91,11 @@ const DECRYPTION_RESOURCE_DOMAIN_V1: &[u8] = b"iroha.zk-ams.v1.mkhe.decryption-r
 const DECRYPTION_KEY_CONTEXT_DOMAIN_V1: &[u8] = b"iroha.zk-ams.v1.mkhe.decryption-key-context";
 const DECRYPTION_RELEASE_CHALLENGE_WEIGHT_V1: usize = 20;
 pub(super) const WIDE_RELATION_MASK_SLACK_LOG2_V1: u32 = 24;
-const DECRYPTION_SIGNED_SMALL_BYTES_V1: usize = size_of::<i64>();
+pub(super) const DECRYPTION_SIGNED_SMALL_BYTES_V1: usize = size_of::<i64>();
 const DECRYPTION_MAX_WIDE_LIMBS_V1: usize = 32;
-const DECRYPTION_MAX_WIDE_BITS_V1: usize = DECRYPTION_MAX_WIDE_LIMBS_V1 * u64::BITS as usize;
-const DECRYPTION_PROOF_HEADER_BYTES_V1: usize = 4 + 1 + 2 + 4 + 32 + 4 + 4 + 4;
+pub(super) const DECRYPTION_MAX_WIDE_BITS_V1: usize =
+    DECRYPTION_MAX_WIDE_LIMBS_V1 * u64::BITS as usize;
+pub(super) const DECRYPTION_PROOF_HEADER_BYTES_V1: usize = 4 + 1 + 2 + 4 + 32 + 4 + 4 + 4;
 const DECRYPTION_SPLIT_COMPONENT_COUNT_V1: usize = 2;
 const DECRYPTION_SPLIT_POINTER_BYTES_V1: usize = 1 + 1 + 8 + 32;
 /// Exact fixed width of the authenticated canonical split-transport manifest.
@@ -423,8 +425,11 @@ fn derive_decryption_resource_evidence(
 fn decryption_resource_evidence_digest(
     evidence: ZkAmsMkheDecryptionResourceEvidenceV1,
 ) -> [u8; 32] {
-    let mut frame = Vec::with_capacity(448);
-    frame.extend_from_slice(DECRYPTION_RESOURCE_DOMAIN_V1);
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        DECRYPTION_RESOURCE_DOMAIN_V1,
+        45,
+    );
     for domain in [
         DECRYPTION_PROOF_DOMAIN_V1,
         DECRYPTION_CHALLENGE_DOMAIN_V1,
@@ -434,18 +439,27 @@ fn decryption_resource_evidence_digest(
         DECRYPTION_SPLIT_MANIFEST_AUTH_DOMAIN_V1,
         DECRYPTION_SET_DOMAIN_V1,
     ] {
-        frame.extend_from_slice(&(domain.len() as u32).to_be_bytes());
-        frame.extend_from_slice(domain);
+        hash.push_field(domain)
+            .expect("fixed bounded MKHE identity field");
     }
-    frame.extend_from_slice(&evidence.ring_degree.to_be_bytes());
-    frame.push(evidence.rns_limb_count);
-    frame.push(evidence.roster_size);
-    frame.extend_from_slice(&evidence.smudge_quotient_bits.to_be_bytes());
-    frame.push(evidence.challenge_weight);
-    frame.extend_from_slice(&evidence.challenge_space_lower_bound_bits.to_be_bytes());
-    frame.extend_from_slice(&evidence.statistical_security_bits.to_be_bytes());
-    frame.push(evidence.mask_slack_log2);
-    frame.extend_from_slice(&evidence.wide_response_coefficient_bytes.to_be_bytes());
+    hash.push_field(&evidence.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.rns_limb_count])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.roster_size])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.smudge_quotient_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.challenge_weight])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.challenge_space_lower_bound_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.statistical_security_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.mask_slack_log2])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.wide_response_coefficient_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for value in [
         evidence.share_polynomial_bytes,
         evidence.secret_response_bytes,
@@ -468,18 +482,31 @@ fn decryption_resource_evidence_digest(
         evidence.minimum_sound_share_ceiling_bytes,
         evidence.ceiling_shortfall_bytes,
     ] {
-        frame.extend_from_slice(&value.to_be_bytes());
+        hash.push_field(&value.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    frame.push(evidence.proof_payload_ceiling_met.into());
-    frame.push(evidence.split_component_ceilings_met.into());
-    frame.extend_from_slice(&evidence.native_peak_residency_certificate_digest);
-    frame.push(evidence.native_peak_residency_certified.into());
-    frame.extend_from_slice(&evidence.split_release_kat_digest);
-    frame.push(evidence.split_transport_ready.into());
-    frame.push(evidence.share_ceiling_met.into());
-    frame.extend_from_slice(&WIDE_RELATION_MASK_SLACK_LOG2_V1.to_be_bytes());
-    frame.extend_from_slice(&(DECRYPTION_MAX_WIDE_BITS_V1 as u32).to_be_bytes());
-    keccak256(&frame)
+    hash.push_field(&[evidence.proof_payload_ceiling_met.into()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.split_component_ceilings_met.into()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.native_peak_residency_certificate_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.native_peak_residency_certified.into()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&evidence.split_release_kat_digest)
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.split_transport_ready.into()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[evidence.share_ceiling_met.into()])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&WIDE_RELATION_MASK_SLACK_LOG2_V1.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&(DECRYPTION_MAX_WIDE_BITS_V1 as u32).to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 #[cfg(test)]
 fn clear_secret_bytes_v1(bytes: &mut [u8]) {

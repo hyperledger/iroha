@@ -14,7 +14,7 @@ mod events;
 mod filters;
 /// Generic game session transition events.
 pub mod game;
-#[cfg(feature = "governance")]
+
 pub mod governance;
 pub mod kagemusha;
 pub mod musubi;

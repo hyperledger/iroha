@@ -77,6 +77,10 @@ Limits of the check
 * The producer ledger is lexical (see scripts/zk_rust_lexical_index.py): it
   lists functions whose own body names a digest call, inside the declared
   scopes only. A caller that only forwards to such a function is not listed.
+  Explicit included-domain bindings additionally validate direct unconditional
+  file-scope includes and byte-string constants; they do not resolve arbitrary
+  imports, cfg predicates, macros or cryptographic dataflow. Invalid bindings
+  also refuse refresh/write, preserving the recorded evidence.
 
 Maintainer modes (the default run changes nothing)
 * `--print-scan` prints the fresh scan as JSON.
@@ -101,7 +105,8 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
+import posixpath
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -487,8 +492,9 @@ def pinned_needles(pinned: dict[str, Any]) -> dict[str, list[bytes]]:
     `words` are the 64-bit words of the value in order; the value's bytes are
     the little-endian words concatenated. A file is a carrier when it holds the
     first word as hexadecimal (either byte order, optionally grouped by `_`) or
-    as a decimal number, or the whole value as raw bytes, hexadecimal or base64
-    at any of the three byte alignments.
+    as a decimal number, or the whole value as raw bytes, hexadecimal, a comma-
+    separated hexadecimal byte array (including Kotlin `toByte()`), or base64
+    at any of the three byte alignments. The array needle is a regular expression.
     """
     words = [int(word, 16) for word in pinned["words"]]
     raw = b"".join(word.to_bytes(8, "little") for word in words)
@@ -508,6 +514,13 @@ def pinned_needles(pinned: dict[str, Any]) -> dict[str, list[bytes]]:
         "bytes-hex": [raw.hex().encode("ascii"), raw.hex().upper().encode("ascii")],
         "bytes-raw": [raw],
         "bytes-base64": sorted(set(encoded)),
+        "bytes-array": [
+            rb"(?:^|[\[(,])\s*"
+            + rb"\s*,\s*".join(
+                f"0x{byte:02x}".encode("ascii") + rb"(?:\s*\.toByte\(\))?" for byte in raw
+            )
+            + rb"(?=\s*[,\])])"
+        ],
     }
 
 
@@ -515,7 +528,10 @@ def carrier_forms(data: bytes, needles: dict[str, list[bytes]]) -> list[str]:
     """Names of the pinned-value forms a file holds."""
     found = []
     for form, values in needles.items():
-        if form == "word-decimal":
+        if form == "bytes-array":
+            if any(re.search(value, data, re.I) for value in values):
+                found.append(form)
+        elif form == "word-decimal":
             if any(_whole_number(data, value) for value in values):
                 found.append(form)
         elif any(value in data for value in values):
@@ -565,6 +581,7 @@ class ProducerLedger:
             primitive: re.compile(pattern) for primitive, pattern in ledger["detectors"].items()
         }
         self.scopes = [(scope["crate"], tuple(scope["prefixes"])) for scope in ledger["scopes"]]
+        self.domain_bindings = json.loads(json.dumps(ledger.get("included_domain_bindings", [])))
 
     def crates(self) -> list[str]:
         return sorted({crate for crate, _ in self.scopes})
@@ -626,11 +643,205 @@ class ProducerLedger:
                     while key in listed:
                         key, suffix = f"{name}#{suffix}", suffix + 1
                     listed[key] = entry
+        binding_errors = []
+        seen_bindings = set()
+        bindings = self.domain_bindings
+        if not isinstance(bindings, list):
+            binding_errors.append("included-domain bindings must be a list")
+            bindings = []
+        for binding in bindings:
+            try:
+                path, name, symbol = binding["path"], binding["producer"], binding["symbol"]
+                key = (path, name, symbol)
+                if key in seen_bindings:
+                    raise ValueError("duplicate included-domain binding")
+                seen_bindings.add(key)
+                if name not in production.get(path, {}):
+                    raise ValueError("bound producer is absent from production")
+                crate = next(crate for crate in self.crates() if path.startswith(crate))
+                members = [member for member in files if member.startswith(crate) and member.endswith(".rs")]
+                literal = _included_domain(binding, members, read)
+                entry = production[path][name]
+                entry["domains"] = sorted(set(entry["domains"]) | {literal})
+            except (KeyError, TypeError, ValueError, StopIteration) as error:
+                binding_errors.append(f"included-domain binding {binding!r}: {error}")
         return {
+            "domain_bindings": json.loads(json.dumps(self.domain_bindings)),
+            "binding_errors": binding_errors,
             "production": dict(sorted(production.items())),
             "test_only_counts": dict(sorted(test_only.items())),
             "unreached_files": sorted(unreached),
         }
+
+
+def _unconditional_top_level(source: str, position: int) -> bool:
+    """Whether an item is at file scope without an attribute on that item.
+
+    Explicit bindings deliberately support only unconditional direct items;
+    this is not cfg evaluation or Rust name resolution.
+    """
+    masked = rust_index.mask(source)
+    if any(block.body_start < position < block.end for block in rust_index.blocks(source, masked)):
+        return False
+    start, depth = 0, 0
+    for offset, char in enumerate(masked[:position]):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if char == "}" and depth == 0:
+                start = offset + 1
+        elif char == ";" and depth == 0:
+            start = offset + 1
+    return depth == 0 and not re.search(r"#\s*!?\s*\[", masked[start:position])
+
+
+def _direct_includes(path: str, source: str) -> list[tuple[str, bool]]:
+    """Literal targets, including alternate syntax for ambiguity detection.
+
+    Only plain parenthesized, non-traversing, unconditional file-scope includes
+    are eligible defining splices. Raw/braced/commented/traversing alternatives
+    still count as competing owners. Escaped strings and macro-computed paths
+    are refused rather than silently omitted from ownership accounting.
+    """
+    masked = rust_index.mask(source)
+    result = []
+    for match in re.finditer(r"\binclude\s*!\s*([({\[])", masked):
+        start = match.end()
+        while start < len(masked) and masked[start].isspace():
+            start += 1
+        opening = re.match(r'(?:r(?P<hashes>#{0,}))?"', source[start:])
+        if opening is None:
+            raise ValueError("include path must be a direct unescaped string literal")
+        hashes = opening.group("hashes")
+        begin = start + opening.end()
+        end = source.find('"' + (hashes or ""), begin)
+        if end < 0:
+            raise ValueError("unterminated include path literal")
+        literal = source[begin:end]
+        if hashes is None and "\\" in literal:
+            raise ValueError("escaped include paths are unsupported in a bound crate")
+        tail = end + 1 + len(hashes or "")
+        while tail < len(masked) and masked[tail].isspace():
+            tail += 1
+        if tail >= len(masked) or masked[tail] != {"(": ")", "{": "}", "[": "]"}[match.group(1)]:
+            raise ValueError("include argument is not one literal path")
+        tail += 1
+        while tail < len(masked) and masked[tail].isspace():
+            tail += 1
+        if masked[tail:tail + 1] == ";":
+            tail += 1
+        target = PurePosixPath(path).parent / literal
+        canonical = re.fullmatch(r'include\s*!\s*\(\s*"[^"\\]+"\s*\)\s*;', source[match.start():tail])
+        eligible = bool(canonical) and not target.is_absolute() and ".." not in target.parts
+        result.append((posixpath.normpath(target.as_posix()), eligible and _unconditional_top_level(source, match.start())))
+    return result
+
+
+def _included_domain(binding: dict[str, str], files: Sequence[str], read) -> str:
+    """Validate one explicit direct-include domain binding and return its literal.
+
+    Require unique include ownership, one unconditional top-level byte-string
+    constant, and one unqualified update argument in the producer's own body.
+    Refuse shadowing declarations/imports and ambiguous sibling definitions.
+    Comments, strings, nested helpers and unrelated modules cannot supply use
+    evidence. Macro expansion and general Rust name resolution remain outside
+    this lexical check. Absolute literal includes anywhere in a bound crate
+    are refused because they cannot provide portable source ownership.
+    """
+    if not isinstance(binding, dict) or set(binding) != {"path", "producer", "owner", "symbol", "literal"}:
+        raise ValueError("expected path, producer, owner, symbol and literal")
+    if not all(isinstance(value, str) and value for value in binding.values()):
+        raise ValueError("binding values must be nonempty strings")
+    path, owner, symbol, literal = (binding[key] for key in ("path", "owner", "symbol", "literal"))
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", symbol) or not _DOMAIN_LITERAL.fullmatch(literal):
+        raise ValueError("invalid symbol or printable domain literal")
+    if path == owner or path not in files or owner not in files:
+        raise ValueError("producer and defining owner must be distinct files in the same crate")
+    modules = rust_index.CrateModules(files, read)
+    if modules.status(owner) != "production":
+        raise ValueError("defining owner is not a production module")
+    incoming = []
+    include_map = {}
+    for candidate in files:
+        source = read(candidate)
+        if source is None:
+            continue
+        includes = _direct_includes(candidate, source)
+        if any(PurePosixPath(target).is_absolute() for target, _ in includes):
+            raise ValueError("absolute include paths are unsupported in a bound crate")
+        incoming.extend((candidate, unconditional) for target, unconditional in includes if target == path)
+        include_map[candidate] = [target for target, _ in includes]
+    if incoming != [(owner, True)]:
+        raise ValueError("expected one unconditional top-level include from the defining owner")
+    owner_source = read(owner)
+    source = read(path)
+    if owner_source is None or source is None:
+        raise ValueError("binding source is missing")
+    declaration = re.compile(rf"\b(?:const|static)\s+{re.escape(symbol)}\b")
+    # Included siblings can themselves include a colliding definition. Follow
+    # the entire literal splice family conservatively, including guarded ones.
+    family, pending = set(), [owner]
+    while pending:
+        member = pending.pop()
+        if member not in files:
+            raise ValueError("included splice family leaves the indexed Rust files")
+        if member not in family:
+            family.add(member)
+            pending.extend(include_map.get(member, []))
+    definitions = []
+    for member in sorted(family):
+        text = read(member)
+        if text is None:
+            raise ValueError("included sibling source is missing")
+        masked = rust_index.mask(text)
+        definitions.extend((member, match.start()) for match in declaration.finditer(masked))
+        # Imports can shadow the explicit constant. Only relevant file-scope
+        # imports are considered; ordinary test-module `use super::*` is fine.
+        for use in re.finditer(r"\buse\s+[^;]+;", masked):
+            if re.search(rf"\b{re.escape(symbol)}\b", use.group()) and not any(
+                block.body_start < use.start() < block.end for block in rust_index.blocks(text, masked)
+            ):
+                raise ValueError("ambiguous imported domain symbol")
+    if len(definitions) != 1 or definitions[0][0] != owner:
+        raise ValueError("expected one domain constant in its defining owner, without shadowing")
+    position = definitions[0][1]
+    if not _unconditional_top_level(owner_source, position):
+        raise ValueError("domain constant must be unconditional top-level")
+    constant = re.match(rf'const\s+{re.escape(symbol)}\s*:\s*&\s*\[\s*u8\s*\]\s*=\s*b"([^"\\]*)"\s*;', owner_source[position:])
+    if constant is None or constant.group(1) != literal:
+        raise ValueError("domain literal differs from its byte-string constant")
+    functions = rust_index.functions(source)
+    matching = [function for function in functions if function.qualified_name() == binding["producer"]]
+    if len(matching) != 1 or matching[0].test_only():
+        raise ValueError("expected one production function for the bound producer")
+    for parent in matching[0].chain()[1:]:
+        header = rust_index.mask(source[parent.header_start:parent.body_start])
+        if parent.kind != "impl" or re.search(rf"\b{re.escape(symbol)}\b", header):
+            raise ValueError("unsupported or shadowing producer scope")
+    body = rust_index.mask(_own_body(source, matching[0], functions))
+    if re.search(r"\buse\s+[^;]*\*[^;]*;", body):
+        raise ValueError("ambiguous local glob import")
+    occurrences = list(re.finditer(rf"\b{re.escape(symbol)}\b", body))
+    argument = re.search(
+        rf"\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*update\s*\(\s*{re.escape(symbol)}\s*\)\s*;", body
+    )
+    if len(occurrences) != 1 or argument is None:
+        raise ValueError("producer must use the unshadowed symbol once as a direct update argument")
+    start, delimiters = 0, []
+    for offset, char in enumerate(body[:argument.start()]):
+        if char in "([{":
+            delimiters.append(char)
+            if delimiters == ["{"]:
+                start = offset + 1
+        elif char in ")]}":
+            if not delimiters or delimiters.pop() != {")": "(", "]": "[", "}": "{"}[char]:
+                raise ValueError("unbalanced producer delimiters")
+        elif char == ";" and delimiters == ["{"]:
+            start = offset + 1
+    if delimiters != ["{"] or body[start:argument.start()].strip():
+        raise ValueError("domain update must be a direct function-body statement")
+    return literal
 
 
 def _own_body(source: str, function: rust_index.Block, functions: Sequence[rust_index.Block]) -> str:
@@ -857,6 +1068,8 @@ def refreshed(spec: dict[str, Any], derived: dict[str, Any]) -> dict[str, Any]:
     Role assignments of producers are kept; a producer that is new gets an
     empty role, which the check rejects until a maintainer assigns one.
     """
+    if derived["producers"].get("binding_errors"):
+        raise ValueError("; ".join(derived["producers"]["binding_errors"]))
     result = json.loads(json.dumps(spec))
     result["scan"]["files"] = derived["scan"]["files"]
     result["scan"]["tree_units"] = derived["scan"]["tree_units"]
@@ -1263,6 +1476,12 @@ def check_surface(root: Path, report: Report, owner: str, role: dict[str, Any], 
 def check_producers(spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
     """Every production digest call of a ledger scope is listed with a role."""
     ledger = spec["producer_ledger"]
+    for error in derived["producers"].get("binding_errors", []):
+        report.error(error)
+    report.require(
+        ledger.get("included_domain_bindings", []) == derived["producers"].get("domain_bindings", []),
+        "producer ledger: included-domain bindings differ from the derived source observation",
+    )
     roles = {role["key"]: role for role in spec["digest_roles"]}
     recorded = ledger.get("production", {})
     fresh = derived["producers"]["production"]
@@ -1471,6 +1690,30 @@ def check_poseidon(root: Path, spec: dict[str, Any], derived: dict[str, Any], re
         report.require(defect.get("owner_task") == "F.5", f"{identifier}: parameter changes belong to F.5")
 
 
+def sdk_manifest_pq_library(path: str, text: str) -> str | None:
+    """Find a PQ library name without mistaking Swift evidence keys for dependencies.
+
+    The native artifact validator compares an evidence-key set with literal
+    filenames. Only its exact normalization receipt filename is metadata;
+    occurrences in dependencies, linker settings or other expressions still fail.
+    """
+    metadata_spans = []
+    if path.endswith("/Package.swift"):
+        for guard in re.finditer(
+            r'\bSet\(\s*evidence\.keys\s*\)\s*==\s*Set\(\s*\['
+            r'(?P<names>\s*(?:"[^"\\\n]*"\s*,?\s*)*)\]\s*\)',
+            text,
+        ):
+            for name in re.finditer(r'"pqcrypto-normalization\.json"', guard["names"]):
+                metadata_spans.append(
+                    (guard.start("names") + name.start(), guard.start("names") + name.end())
+                )
+    for match in SDK_PQ_LIBRARY.finditer(text):
+        if not any(start <= match.start() and match.end() <= end for start, end in metadata_spans):
+            return match.group(0)
+    return None
+
+
 def check_post_quantum(root: Path, spec: dict[str, Any], derived: dict[str, Any], files: Sequence[str], report: Report) -> None:
     section = spec["post_quantum"]
     report.require(
@@ -1516,9 +1759,9 @@ def check_post_quantum(root: Path, spec: dict[str, Any], derived: dict[str, Any]
         check_site(root, report, "post-quantum test", {"path": test["path"], "symbol": f"fn {test['name']}("})
     for path in files:
         if path.startswith(SDK_ROOTS) and SDK_MANIFEST.search(path):
-            match = SDK_PQ_LIBRARY.search(read_text(root, path))
+            match = sdk_manifest_pq_library(path, read_text(root, path))
             if match and path not in section.get("sdk_manifests_with_pq_library", []):
-                report.error(f"post-quantum: SDK manifest {path} names {match.group(0)!r}")
+                report.error(f"post-quantum: SDK manifest {path} names {match!r}")
     for site in section.get("jvm_bouncycastle", {}).get("manifests", []):
         check_site(root, report, "post-quantum BouncyCastle manifest", site)
     for path in files:
@@ -2268,7 +2511,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.print_scan:
             sys.stdout.write(json.dumps(derived["scan"], indent=1) + "\n")
             return 0
-        text = dump(refreshed(spec, derived))
+        try:
+            text = dump(refreshed(spec, derived))
+        except ValueError as error:
+            print(f"{args.spec}: {error}", file=sys.stderr)
+            return 1
         if args.write:
             (root / args.spec).write_text(text, encoding="utf-8")
         else:

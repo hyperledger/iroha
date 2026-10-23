@@ -24,7 +24,7 @@ iroha_schema = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
 iroha_crypto = { workspace = true, default-features = false, features = ["consensus"] }
 iroha_primitives = { workspace = true }
-iroha_data_model = { workspace = true, default-features = false, features = ["governance"] }
+iroha_data_model = { workspace = true, default-features = false }
 hex.workspace = true
 base64 = { workspace = true }
 hkdf = "0.12.4"
@@ -38,7 +38,7 @@ tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
 futures-util = { version = "0.3.31" }
 anyhow = "1.0.103"
 hex = { workspace = true }
-iroha_data_model = { workspace = true, default-features = false, features = ["governance", "test-fixtures", "transparent_api"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["test-fixtures", "transparent_api"] }
 
 [features]
 default = []

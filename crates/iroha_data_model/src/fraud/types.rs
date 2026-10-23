@@ -3,7 +3,7 @@
 //! These structs provide a deterministic interface between the ledger and
 //! out-of-process risk engines. They are minimal yet feature-complete enough
 //! to cover synchronous scoring, signed assessments, and governance exports.
-#[cfg(feature = "governance")]
+
 use crate::governance::types::GovernanceParameters;
 use crate::{account::AccountId, asset::AssetId};
 use norito::codec::{Decode, Encode};
@@ -139,7 +139,7 @@ pub struct FraudAssessmentParts {
     pub signature: Option<Vec<u8>>,
 }
 /// Aggregated export for governance and auditor tooling.
-#[cfg(feature = "governance")]
+
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::fraud::types::GovernanceExport")]
 pub struct GovernanceExport {
@@ -155,7 +155,7 @@ pub struct GovernanceExport {
     pub aggregates: Vec<DecisionAggregate>,
 }
 /// Summary of decisions used for governance exports.
-#[cfg(feature = "governance")]
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::fraud::types::DecisionAggregate")]
 pub struct DecisionAggregate {
@@ -164,7 +164,7 @@ pub struct DecisionAggregate {
     /// Count of occurrences.
     pub count: u64,
 }
-#[cfg(all(test, feature = "governance"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::asset::id::AssetDefinitionId;

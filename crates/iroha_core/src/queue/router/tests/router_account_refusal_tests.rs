@@ -464,7 +464,10 @@ fn original_native_policy_account_matcher_retains_refusal_before_route_selection
         chain.state().network_id_ref(),
         core::time::Duration::from_secs(30),
         TransactionParameters::default(),
-        &view.crypto(),
+        view.world()
+            .transaction_admission_parameters()
+            .require_crypto_policy()
+            .expect("original fixture policy"),
         &time_source,
     )
     .expect("canonical signature and original signed network admission");

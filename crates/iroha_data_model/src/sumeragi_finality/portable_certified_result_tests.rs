@@ -211,8 +211,6 @@ fn compact_and_full_original_readers_preserve_local_refusal_after_scope_retireme
     let selected_bytes = selected.encode_canonical().unwrap();
     let full_checkpoint = native.export_checkpoint(proof).unwrap();
     let full_checkpoint_bytes = full_checkpoint.encode_canonical().unwrap();
-    assert_original_reader_refusal(|| compact.height().map(|_| ()));
-    assert_original_reader_refusal(|| compact.epoch_id().map(|_| ()));
     assert_original_reader_refusal(|| compact.to_canonical_bytes().map(|_| ()));
     assert_original_reader_refusal(|| {
         SumeragiCommitCertificateV1::decode_canonical(&compact_bytes).map(|_| ())
@@ -245,4 +243,43 @@ fn compact_and_full_original_readers_preserve_local_refusal_after_scope_retireme
     );
     native.verify_retained_decision(proof).unwrap();
     SumeragiFinalityCheckpoint::decode_canonical(&full_checkpoint_bytes).unwrap();
+}
+
+#[test]
+fn compact_header_readers_need_no_decode_heap_and_preserve_original_field_refusals() {
+    let fixture = NativeFinalityFixture::new();
+    let verified = fixture
+        .verifier()
+        .verify_retained_decision(fixture.latest())
+        .unwrap();
+    let compact = SumeragiCommitCertificateV1::from_verified(&verified).unwrap();
+    let no_allocation =
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let no_field = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX);
+    for reader in [
+        SumeragiCommitCertificateV1::height,
+        SumeragiCommitCertificateV1::epoch_id,
+    ] {
+        let expected = reader(&compact).unwrap();
+        assert_eq!(
+            norito::with_decode_limits_scope(no_allocation, || reader(&compact)).unwrap(),
+            expected
+        );
+        let failure = norito::with_decode_limits_scope(no_field, || reader(&compact)).unwrap_err();
+        let FinalityReadError::DecodeResource(original) = failure else {
+            panic!("header reader must retain its actual scoped field refusal: {failure:?}");
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        let raw = original.into_error();
+        assert!(
+            matches!(raw.decode_resource_error(), Some(norito::core::DecodeResourceError::FieldLengthExceeded { length, limit: 0 }) if length > 0)
+        );
+        norito::with_decode_limits_scope(no_field, || {
+            assert!(!norito::core::decode_error_matches_active_limits(&raw));
+        });
+        assert_eq!(reader(&compact).unwrap(), expected);
+    }
 }

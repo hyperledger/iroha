@@ -1092,3 +1092,115 @@ mod sealed_entrypoints;
 
 #[path = "merge_tests/opening_retirement.rs"]
 mod opening_retirement;
+
+#[test]
+fn admissibility_retains_original_committed_policy_and_limits_across_publication() {
+    use iroha_data_model::{
+        crypto_admission_policy::CryptoAdmissionPolicyV1, parameter::system::TransactionParameter,
+    };
+    use std::num::NonZeroU64;
+
+    let state = State::new_for_testing(
+        World::new(),
+        crate::kura::Kura::blank_kura_for_testing(),
+        crate::query::store::LiveQueryStore::start_test(),
+    );
+    let publish = |algorithm, max_bytes| {
+        let mut block = state.world.block();
+        block
+            .parameters
+            .set_parameter(
+                CryptoAdmissionPolicyV1::new(vec![algorithm])
+                    .unwrap()
+                    .into_parameter()
+                    .unwrap(),
+            )
+            .unwrap();
+        block
+            .parameters
+            .set_parameter(Parameter::Transaction(TransactionParameter::MaxTxBytes(
+                NonZeroU64::new(max_bytes).unwrap(),
+            )))
+            .unwrap();
+        block.commit();
+    };
+    publish(Algorithm::Ed25519, 131_072);
+    let original_view = state.view();
+    let original_parameters = original_view.world().transaction_admission_parameters();
+    publish(Algorithm::Secp256k1, 262_144);
+    let current_view = state.view();
+    let current_parameters = current_view.world().transaction_admission_parameters();
+    assert!(!std::ptr::eq(original_parameters, current_parameters));
+
+    norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 128), || {
+        let original = Admissibility::of(&original_view).expect("retained original policy");
+        let current = Admissibility::of(&current_view).expect("new committed policy");
+        assert!(std::ptr::eq(
+            original.policy,
+            original_parameters.require_crypto_policy().unwrap()
+        ));
+        assert!(std::ptr::eq(
+            current.policy,
+            current_parameters.require_crypto_policy().unwrap()
+        ));
+        assert_eq!(original.policy.allowed_algorithms(), &[Algorithm::Ed25519]);
+        assert_eq!(current.policy.allowed_algorithms(), &[Algorithm::Secp256k1]);
+        assert_eq!(original.limits.max_tx_bytes.get(), 131_072);
+        assert_eq!(current.limits.max_tx_bytes.get(), 262_144);
+        assert_eq!(
+            original.max_clock_drift,
+            original_parameters.sumeragi().max_clock_drift()
+        );
+        assert_eq!(
+            current.max_clock_drift,
+            current_parameters.sumeragi().max_clock_drift()
+        );
+        assert_eq!(original.network, *original_view.network_id());
+        assert_eq!(current.network, *current_view.network_id());
+    });
+}
+
+#[test]
+fn admissibility_defers_missing_original_policy_after_later_policy_publication() {
+    use iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1;
+
+    let state = State::new_for_testing(
+        World::new(),
+        crate::kura::Kura::blank_kura_for_testing(),
+        crate::query::store::LiveQueryStore::start_test(),
+    );
+    let original_view = state.view();
+    let mut block = state.world.block();
+    block
+        .parameters
+        .set_parameter(
+            CryptoAdmissionPolicyV1::new(vec![Algorithm::Ed25519])
+                .unwrap()
+                .into_parameter()
+                .unwrap(),
+        )
+        .unwrap();
+    block.commit();
+    let current_view = state.view();
+    assert!(Admissibility::of(&current_view).is_ok());
+    norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 128), || {
+        let Err(MergeError::RoutingDeferred(original)) = Admissibility::of(&original_view) else {
+            panic!(
+                "missing original policy must defer instead of accepting or rejecting a transaction"
+            );
+        };
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::CryptoAdmissionPolicyUnavailable
+        );
+        assert!(original.decode_refusal().is_none());
+        assert!(original.allocation_refusal().is_none());
+    });
+    assert!(
+        original_view
+            .world()
+            .transaction_admission_parameters()
+            .crypto_policy()
+            .is_none()
+    );
+}

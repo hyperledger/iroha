@@ -29,6 +29,11 @@ fn with_authored_root_fees(mut parameters: Parameters) -> Parameters {
         fees.into_custom_parameter()
             .expect("canonical authored root fee policy"),
     ));
+    parameters.set_parameter(Parameter::Custom(
+        crate::staking_policy_authoring::fixture_policy()
+            .into_custom_parameter()
+            .unwrap(),
+    ));
     parameters
 }
 fn manifest_chain_discriminant_value() -> norito::json::Value {
@@ -62,18 +67,29 @@ fn with_deterministic_test_topology(mut manifest: RawGenesisTransaction) -> RawG
     manifest
 }
 fn split_fixture() -> RawGenesisTransaction {
-    GenesisBuilder::new_without_executor(ChainId::from("split-genesis-fixture"), ".")
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .next_transaction()
-        .append_instruction(Log::new(Level::INFO, "first original instruction".into()))
-        .append_instruction(Log::new(Level::WARN, "second original instruction".into()))
-        .next_transaction()
-        .append_instruction(Log::new(Level::INFO, "third original instruction".into()))
-        .append_instruction(Log::new(Level::WARN, "fourth original instruction".into()))
-        .next_transaction()
-        .set_topology(deterministic_test_topology_entries())
-        .build_raw()
-        .unwrap()
+    GenesisBuilder::new_without_executor(
+        ChainId::from("split-genesis-fixture"),
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+    .expect("explicit fixture staking policy")
+    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+    .next_transaction()
+    .append_instruction(Log::new(Level::INFO, "first original instruction".into()))
+    .append_instruction(Log::new(Level::WARN, "second original instruction".into()))
+    .next_transaction()
+    .append_instruction(Log::new(Level::INFO, "third original instruction".into()))
+    .append_instruction(Log::new(Level::WARN, "fourth original instruction".into()))
+    .next_transaction()
+    .set_topology(deterministic_test_topology_entries())
+    .build_raw()
+    .unwrap()
 }
 #[test]
 fn instruction_only_split_preserves_exact_flat_semantics_and_structured_owners() {
@@ -267,7 +283,12 @@ fn genesis_signing_requires_an_exact_unique_committee_topology() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     manifest
         .validate_genesis_topology()
@@ -311,7 +332,12 @@ fn with_consensus_meta_adds_fields_and_stable_fingerprint() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let tx2 = tx
         .clone()
@@ -383,7 +409,12 @@ fn with_consensus_meta_preserves_original_parameter_refusal_and_retry() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let before = manifest.encode();
     let expected = manifest
@@ -444,7 +475,12 @@ fn with_consensus_meta_handles_npos_mode() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     })
     .with_consensus_meta()
     .expect("valid fixture consensus parameters");
@@ -507,7 +543,12 @@ fn with_consensus_meta_respects_block_max_transactions_override() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     })
     .with_consensus_meta()
     .expect("valid fixture consensus parameters");
@@ -550,7 +591,12 @@ fn build_and_sign_uses_stable_internal_creation_times() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     let keypair = checked_genesis_fixture_keypair();
     let genesis = manifest.build_and_sign(&keypair).expect("sign genesis");
@@ -600,7 +646,12 @@ fn explicit_creation_time_makes_signed_genesis_reproducible() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     let keypair = checked_genesis_fixture_keypair();
     let batch_count = u64::try_from(
@@ -677,7 +728,12 @@ fn build_and_sign_checked_genesis_transaction_signatures_verify() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     let keypair = checked_genesis_fixture_keypair();
     let genesis = manifest.build_and_sign(&keypair).expect("sign genesis");
@@ -731,7 +787,12 @@ fn build_and_sign_sets_confidential_digest() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     let keypair = checked_genesis_fixture_keypair();
     let genesis = manifest.build_and_sign(&keypair).expect("sign genesis");
@@ -763,7 +824,12 @@ fn build_and_sign_sets_explicit_confidential_policy_hash() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     let keypair = checked_genesis_fixture_keypair();
     let policy_hash = [0x42; 32];
@@ -798,7 +864,12 @@ fn genesis_canonical_wire_roundtrip_preserves_digest() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     });
     let keypair = checked_genesis_fixture_keypair();
     let genesis = manifest.build_and_sign(&keypair).expect("sign genesis");
@@ -841,7 +912,12 @@ fn programmatic_raw_genesis_rejects_explicit_set_parameter_instructions() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let error = manifest
         .effective_parameters()
@@ -875,7 +951,12 @@ fn transaction_replacement_rejects_explicit_set_parameter_instructions() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let set_parameter = InstructionBox::from(SetParameter::new(Parameter::Sumeragi(
         SumeragiParameter::MaxClockDriftMs(333),
@@ -897,11 +978,22 @@ fn transaction_replacement_rejects_explicit_set_parameter_instructions() {
 )]
 fn genesis_builder_rejects_set_parameter_as_generic_instruction() {
     use iroha_data_model::parameter::system::SumeragiParameter;
-    let _ = GenesisBuilder::new_without_executor(ChainId::from("iroha:test:paramagg-builder"), ".")
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .append_instruction(SetParameter::new(Parameter::Sumeragi(
-            SumeragiParameter::MaxClockDriftMs(333),
-        )));
+    let _ = GenesisBuilder::new_without_executor(
+        ChainId::from("iroha:test:paramagg-builder"),
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+    .expect("explicit fixture staking policy")
+    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+    .append_instruction(SetParameter::new(Parameter::Sumeragi(
+        SumeragiParameter::MaxClockDriftMs(333),
+    )));
 }
 #[test]
 fn multiple_structured_parameter_blocks_are_rejected_as_ambiguous_snapshots() {
@@ -932,7 +1024,12 @@ fn multiple_structured_parameter_blocks_are_rejected_as_ambiguous_snapshots() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let error = manifest
         .effective_parameters()
@@ -1071,6 +1168,18 @@ fn set_parameter_inside_instructions_is_rejected() {
     tx_map.insert("instructions".to_string(), instructions);
     let mut manifest_fields = norito::json::Map::new();
     manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
+    manifest_fields.insert(
         "chain".to_string(),
         norito::json::Value::String("test-chain".into()),
     );
@@ -1108,6 +1217,18 @@ fn raw_genesis_requires_consensus_mode() {
     init_instruction_registry();
     let mut manifest_fields = norito::json::Map::new();
     manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
+    manifest_fields.insert(
         "chain".to_string(),
         norito::json::Value::String("test-chain".into()),
     );
@@ -1136,6 +1257,18 @@ fn raw_genesis_requires_consensus_mode() {
 fn raw_genesis_requires_chain_discriminant() {
     init_instruction_registry();
     let mut manifest_fields = norito::json::Map::new();
+    manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
     manifest_fields.insert(
         "chain".to_string(),
         norito::json::Value::String("test-chain".into()),
@@ -1172,7 +1305,15 @@ fn raw_genesis_roundtrip_uses_manifest_chain_discriminant_for_account_literals()
     let manifest = GenesisBuilder::new_without_executor(
         ChainId::from("iroha:test:testnet-prefix"),
         PathBuf::from("."),
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
     )
+    .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+    .expect("explicit fixture staking policy")
     .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
     .build_raw()
     .expect("complete test genesis builder")
@@ -1203,6 +1344,18 @@ fn topology_entries_parse_with_pop_hex() {
         norito::json::Value::Array(vec![topo_entry]),
     );
     let mut manifest_fields = norito::json::Map::new();
+    manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
     manifest_fields.insert(
         "chain".to_string(),
         norito::json::Value::String("test-chain".into()),
@@ -1275,6 +1428,18 @@ fn topology_entries_allow_missing_pop_hex() {
     );
     let mut manifest_fields = norito::json::Map::new();
     manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
+    manifest_fields.insert(
         "chain".to_string(),
         norito::json::Value::String("test-chain".into()),
     );
@@ -1325,6 +1490,18 @@ fn topology_entries_reject_peer_value() {
     );
     let mut manifest_fields = norito::json::Map::new();
     manifest_fields.insert(
+        "crypto_admission_policy".to_string(),
+        norito::json::value::to_value(
+            &CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit fixture policy"),
+        )
+        .expect("encode explicit fixture policy"),
+    );
+    manifest_fields.insert(
         "chain".to_string(),
         norito::json::Value::String("test-chain".into()),
     );
@@ -1367,14 +1544,25 @@ fn clear_topology_removes_all_entries() {
     let chain = ChainId::from("iroha:test:clear-topology");
     let peer_a = PeerId::new(checked_genesis_fixture_keypair().public_key().clone());
     let peer_b = PeerId::new(checked_genesis_fixture_keypair().public_key().clone());
-    let manifest = GenesisBuilder::new_without_executor(chain, ".")
-        .set_topology(vec![peer_a])
-        .next_transaction()
-        .set_topology(vec![peer_b])
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .build_raw()
-        .expect("complete test genesis builder")
-        .with_consensus_mode(SumeragiConsensusMode::Permissioned);
+    let manifest = GenesisBuilder::new_without_executor(
+        chain,
+        ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
+    )
+    .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+    .expect("explicit fixture staking policy")
+    .set_topology(vec![peer_a])
+    .next_transaction()
+    .set_topology(vec![peer_b])
+    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+    .build_raw()
+    .expect("complete test genesis builder")
+    .with_consensus_mode(SumeragiConsensusMode::Permissioned);
     let cleared = manifest.clear_topology();
     assert!(
         cleared
@@ -1391,12 +1579,20 @@ fn builder_preserves_consensus_metadata() {
         chain_discriminant: iroha_data_model::account::address::chain_discriminant(),
         executor: None,
         ivm_dir: IvmPath::default(),
-        transactions: vec![RawGenesisTx::default()],
+        transactions: vec![RawGenesisTx {
+            parameters: Some(with_authored_root_fees(Parameters::default())),
+            ..RawGenesisTx::default()
+        }],
         consensus_mode: SumeragiConsensusMode::Permissioned,
         wire_protocol_version: 1,
         consensus_fingerprint: Some(ConsensusFingerprint::new([0xAB; 32])),
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let rebuilt = manifest
         .clone()
@@ -1421,7 +1617,15 @@ fn raw_genesis_rejects_retired_and_malformed_consensus_manifest_shapes() {
     let manifest = GenesisBuilder::new_without_executor(
         ChainId::from("iroha:test:strict-consensus-manifest"),
         ".",
+        iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+            iroha_crypto::Algorithm::Ed25519,
+            iroha_crypto::Algorithm::Secp256k1,
+            iroha_crypto::Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical genesis producer policy"),
     )
+    .with_staking_policy(crate::staking_policy_authoring::fixture_policy())
+    .expect("explicit fixture staking policy")
     .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
     .build_raw()
     .expect("complete strict manifest fixture")
@@ -1489,7 +1693,12 @@ fn normalize_exposes_instruction_batches() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let normalized = manifest.normalize().expect("normalize");
     assert!(
@@ -1563,7 +1772,12 @@ fn with_consensus_meta_uses_npos_custom_parameter() {
             wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
             consensus_fingerprint: None,
             sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-            crypto: ManifestCrypto::default(),
+            crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+                Algorithm::Secp256k1,
+                Algorithm::BlsNormal,
+            ])
+            .expect("explicit canonical fixture policy"),
         }
     }
     let chain = ChainId::from("iroha:test:nposmeta");
@@ -1610,7 +1824,12 @@ fn permissioned_genesis_rejects_npos_parameters() {
         wire_protocol_version: CONSENSUS_PROTOCOL_VERSION,
         consensus_fingerprint: None,
         sumeragi_context: SumeragiGenesisContextParameters::recommended(),
-        crypto: ManifestCrypto::default(),
+        crypto_admission_policy: CryptoAdmissionPolicyV1::new(vec![
+            Algorithm::Ed25519,
+            Algorithm::Secp256k1,
+            Algorithm::BlsNormal,
+        ])
+        .expect("explicit canonical fixture policy"),
     };
     let error = manifest
         .normalize()
@@ -1620,113 +1839,5 @@ fn permissioned_genesis_rejects_npos_parameters() {
             .to_string()
             .contains("permissioned genesis must omit `sumeragi_npos_parameters`"),
         "unexpected error: {error:?}"
-    );
-}
-#[test]
-fn crypto_manifest_requires_ed25519() {
-    init_instruction_registry();
-    let crypto = ManifestCrypto {
-        allowed_signing: vec![Algorithm::Secp256k1],
-        ..ManifestCrypto::default()
-    };
-    let manifest = GenesisBuilder::new_without_executor(
-        ChainId::from("iroha:test:crypto-ed25519"),
-        PathBuf::from("."),
-    )
-    .with_crypto(crypto)
-    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-    .set_topology(deterministic_test_topology_entries())
-    .build_raw()
-    .expect("complete crypto manifest fixture");
-    let err = manifest
-        .build_and_sign(&checked_genesis_fixture_keypair())
-        .expect_err("manifest without ed25519 should be rejected");
-    assert!(
-        err.to_string().contains("allowed_signing"),
-        "unexpected error: {err:?}"
-    );
-}
-#[test]
-fn crypto_manifest_rejects_noncanonical_sm_intrinsics_policy() {
-    let crypto = ManifestCrypto {
-        sm_intrinsics: "AUTO".to_owned(),
-        ..ManifestCrypto::default()
-    };
-    assert!(crypto.validate().is_err());
-    assert!(
-        std::panic::catch_unwind(|| ActualCrypto::from(crypto)).is_err(),
-        "conversion must not silently replace an invalid policy with `auto`"
-    );
-}
-#[cfg(feature = "sm")]
-#[test]
-fn crypto_manifest_requires_sm_defaults_when_sm2_allowed() {
-    init_instruction_registry();
-    let crypto = ManifestCrypto {
-        allowed_signing: vec![Algorithm::Ed25519, Algorithm::Sm2],
-        ..ManifestCrypto::default()
-    };
-    let manifest = GenesisBuilder::new_without_executor(
-        ChainId::from("iroha:test:crypto-sm"),
-        PathBuf::from("."),
-    )
-    .with_crypto(crypto)
-    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-    .set_topology(deterministic_test_topology_entries())
-    .build_raw()
-    .expect("complete crypto manifest fixture");
-    let err = manifest
-        .build_and_sign(&checked_genesis_fixture_keypair())
-        .expect_err("manifest missing SM defaults should be rejected");
-    assert!(
-        err.to_string().contains("default_hash"),
-        "unexpected error: {err:?}"
-    );
-}
-#[cfg(feature = "sm")]
-#[test]
-fn crypto_manifest_accepts_valid_sm_configuration() {
-    init_instruction_registry();
-    let crypto = ManifestCrypto {
-        default_hash: "sm3-256".to_owned(),
-        allowed_signing: vec![Algorithm::Ed25519, Algorithm::Sm2],
-        allowed_curve_ids: vec![CurveId::ED25519.as_u8(), CurveId::SM2.as_u8()],
-        ..ManifestCrypto::default()
-    };
-    let manifest = GenesisBuilder::new_without_executor(
-        ChainId::from("iroha:test:crypto-sm-valid"),
-        PathBuf::from("."),
-    )
-    .with_crypto(crypto)
-    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-    .set_topology(deterministic_test_topology_entries())
-    .build_raw()
-    .expect("complete crypto manifest fixture");
-    manifest
-        .build_and_sign(&checked_genesis_fixture_keypair())
-        .expect("manifest with valid SM configuration should build");
-}
-#[test]
-fn crypto_manifest_rejects_sm3_hash_without_sm2() {
-    init_instruction_registry();
-    let crypto = ManifestCrypto {
-        default_hash: "sm3-256".to_owned(),
-        ..ManifestCrypto::default()
-    };
-    let manifest = GenesisBuilder::new_without_executor(
-        ChainId::from("iroha:test:crypto-sm3-without-sm2"),
-        PathBuf::from("."),
-    )
-    .with_crypto(crypto)
-    .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-    .set_topology(deterministic_test_topology_entries())
-    .build_raw()
-    .expect("complete crypto manifest fixture");
-    let err = manifest
-        .build_and_sign(&checked_genesis_fixture_keypair())
-        .expect_err("manifest using sm3 default hash without sm2 should be rejected");
-    assert!(
-        err.to_string().contains("default_hash"),
-        "unexpected error: {err:?}"
     );
 }

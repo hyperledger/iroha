@@ -1,18 +1,16 @@
 {
   "version": 5,
-  "generated_at": "2026-01-22T06:39:48Z",
   "entries": [
     {
       "id": 1,
       "hex": "0x01",
       "algorithm": "ed25519",
-      "status": "production",
+      "status": "registered",
       "feature": null,
       "public_key_encoding": "32-byte compressed Ed25519 point",
       "signature_encoding": "64-byte canonical r||s",
       "notes": [
-        "Default controller curve for address payloads.",
-        "Always available; no feature gates required."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set."
       ],
       "validation": {
         "public_key_bytes": 32,
@@ -20,7 +18,7 @@
         "checks": [
           "Reject payloads that are not exactly 32 bytes before decompressing the point.",
           "Decompress using the Ed25519 canonical check and reject small-order/non-canonical points.",
-          "Require s < L when validating signatures and ensure clusters advertise curve id 0x01 in crypto.allowed_curve_ids."
+          "Require s < L when validating signatures."
         ]
       }
     },
@@ -28,19 +26,21 @@
       "id": 2,
       "hex": "0x02",
       "algorithm": "ml-dsa",
-      "status": "production",
-      "feature": null,
-      "public_key_encoding": "Dilithium3 public key (1952 bytes)",
+      "status": "registered",
+      "feature": "pqc",
+      "public_key_encoding": "ML-DSA-65 public key (1952 bytes)",
       "signature_encoding": "3309-byte ML-DSA signature",
       "notes": [
-        "Available in all builds; enable via crypto.allowed_signing and crypto.curves.allowed_curve_ids."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The pqc backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy.",
+        "Public-key framing validation is available without pqc; private-key operations and signature verification require pqc."
       ],
       "validation": {
         "public_key_bytes": 1952,
         "signature_bytes": 3309,
         "checks": [
           "Reject payloads that are not exactly 1952 bytes before decoding.",
-          "Parse Dilithium3 public key bytes via pqcrypto_mldsa::mldsa65.",
+          "Parse ML-DSA-65 public key bytes via pqcrypto_mldsa::mldsa65.",
           "Enforce 3309-byte signatures and verify with pqcrypto_mldsa::mldsa65."
         ]
       }
@@ -49,13 +49,14 @@
       "id": 3,
       "hex": "0x03",
       "algorithm": "bls_normal",
-      "status": "production",
+      "status": "registered",
       "feature": "bls",
       "public_key_encoding": "48-byte compressed G1 public key",
       "signature_encoding": "96-byte compressed G2 signature",
       "notes": [
-        "Required for consensus validators.",
-        "Admission allows BLS controllers even when allowed_signing/allowed_curve_ids omit them."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The bls backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy.",
+        "Consensus validator keys require BLS-normal separately; ordinary account controllers have no blanket policy exemption."
       ],
       "validation": {
         "public_key_bytes": 48,
@@ -71,13 +72,12 @@
       "id": 4,
       "hex": "0x04",
       "algorithm": "secp256k1",
-      "status": "production",
+      "status": "registered",
       "feature": null,
       "public_key_encoding": "SEC1 compressed (33-byte) secp256k1 point",
       "signature_encoding": "64-byte canonical r||s (low-s) over SHA-256",
       "notes": [
-        "Available for Nexus account controllers and multisig members.",
-        "Leverages deterministic ECDSA signing with low-s normalization; payloads must use SEC1-compressed public keys."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set."
       ],
       "validation": {
         "public_key_bytes": 33,
@@ -93,12 +93,13 @@
       "id": 5,
       "hex": "0x05",
       "algorithm": "bls_small",
-      "status": "production",
+      "status": "registered",
       "feature": "bls",
       "public_key_encoding": "96-byte compressed G2 public key",
       "signature_encoding": "48-byte compressed G1 signature",
       "notes": [
-        "Compact-signature BLS profile (smaller signatures, larger public keys)."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The bls backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": 96,
@@ -114,13 +115,13 @@
       "id": 10,
       "hex": "0x0A",
       "algorithm": "gost3410-2012-256-paramset-a",
-      "status": "reserved",
+      "status": "registered",
       "feature": "gost",
       "public_key_encoding": "TC26 param set A point (little-endian bytes)",
       "signature_encoding": "64-byte canonical r||s",
       "notes": [
-        "Reserved for GOST 256-bit param set A.",
-        "Requires the `gost` feature before use."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The gost backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": 64,
@@ -136,13 +137,13 @@
       "id": 11,
       "hex": "0x0B",
       "algorithm": "gost3410-2012-256-paramset-b",
-      "status": "reserved",
+      "status": "registered",
       "feature": "gost",
       "public_key_encoding": "TC26 param set B point (little-endian bytes)",
       "signature_encoding": "64-byte canonical r||s",
       "notes": [
-        "Reserved for GOST 256-bit param set B.",
-        "Requires the `gost` feature before use."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The gost backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": 64,
@@ -158,13 +159,13 @@
       "id": 12,
       "hex": "0x0C",
       "algorithm": "gost3410-2012-256-paramset-c",
-      "status": "reserved",
+      "status": "registered",
       "feature": "gost",
       "public_key_encoding": "TC26 param set C point (little-endian bytes)",
       "signature_encoding": "64-byte canonical r||s",
       "notes": [
-        "Reserved for GOST 256-bit param set C.",
-        "Requires the `gost` feature before use."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The gost backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": 64,
@@ -180,13 +181,13 @@
       "id": 13,
       "hex": "0x0D",
       "algorithm": "gost3410-2012-512-paramset-a",
-      "status": "reserved",
+      "status": "registered",
       "feature": "gost",
       "public_key_encoding": "TC26 param set A 512-bit point (little-endian bytes)",
       "signature_encoding": "128-byte canonical r||s",
       "notes": [
-        "Reserved for GOST 512-bit param set A.",
-        "Requires the `gost` feature before use."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The gost backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": 128,
@@ -202,13 +203,13 @@
       "id": 14,
       "hex": "0x0E",
       "algorithm": "gost3410-2012-512-paramset-b",
-      "status": "reserved",
+      "status": "registered",
       "feature": "gost",
       "public_key_encoding": "TC26 param set B 512-bit point (little-endian bytes)",
       "signature_encoding": "128-byte canonical r||s",
       "notes": [
-        "Reserved for GOST 512-bit param set B.",
-        "Requires the `gost` feature before use."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The gost backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": 128,
@@ -224,13 +225,13 @@
       "id": 15,
       "hex": "0x0F",
       "algorithm": "sm2",
-      "status": "reserved",
+      "status": "registered",
       "feature": "sm",
       "public_key_encoding": "DistID length (u16 BE) + DistID bytes + SEC1 uncompressed SM2 point",
       "signature_encoding": "64-byte canonical r||s",
       "notes": [
-        "Reserved for the SM2 rollout.",
-        "Requires the `sm` feature before use."
+        "Canonical identity in every build. Ordinary account admission requires membership in committed CryptoAdmissionPolicyV1.allowed_algorithms; curve permissions are derived from that set.",
+        "The sm backend supplies local operations; missing implementation is a typed capability refusal, not an unknown identity or an invalid policy."
       ],
       "validation": {
         "public_key_bytes": null,
@@ -238,10 +239,12 @@
         "checks": [
           "Decode the DistID length prefix (u16 BE), validate the DistID bytes, and ensure the remaining payload is 65 bytes before parsing the point.",
           "Parse the SEC1 uncompressed point and reject invalid encodings before invoking the SM2 verifier.",
-          "Apply the configured DistID to the verification context and reject signatures that do not bind to it.",
-          "Require canonical 32-byte r and s limbs and ensure curve id 0x0F is present in crypto.allowed_curve_ids before admission."
+          "Apply the key-encoded DistID to the verification context and reject signatures that do not bind to it.",
+          "Require canonical 32-byte r and s limbs."
         ]
       }
     }
-  ]
+  ],
+  "identity_source": "iroha_crypto::Algorithm::ALL and iroha_data_model::account::curve::CurveId",
+  "feature_semantics": "Optional local implementation only; canonical identities and committed policy membership are feature-independent."
 }

@@ -1195,12 +1195,12 @@ fn encode_pop_account_address(
                 corrupt_state(format!("invalid PoP audit authority public key: {error}"))
             })?;
             if let Ok(length) = u8::try_from(payload.len()) {
-                canonical.extend([0, pop_curve_id(algorithm)?, length]);
+                canonical.extend([0, pop_curve_id(algorithm), length]);
             } else {
                 let length = u16::try_from(payload.len()).map_err(|_| {
                     corrupt_state("PoP audit authority public-key payload is too long")
                 })?;
-                canonical.extend([2, pop_curve_id(algorithm)?]);
+                canonical.extend([2, pop_curve_id(algorithm)]);
                 canonical.extend_from_slice(&length.to_be_bytes());
             }
             canonical.extend_from_slice(payload);
@@ -1220,7 +1220,7 @@ fn encode_pop_account_address(
                 let length = u16::try_from(payload.len()).map_err(|_| {
                     corrupt_state("PoP audit authority multisig public-key payload is too long")
                 })?;
-                canonical.push(pop_curve_id(algorithm)?);
+                canonical.push(pop_curve_id(algorithm));
                 canonical.extend_from_slice(&member.weight().to_be_bytes());
                 canonical.extend_from_slice(&length.to_be_bytes());
                 canonical.extend_from_slice(payload);
@@ -1229,10 +1229,8 @@ fn encode_pop_account_address(
     }
     Ok(())
 }
-fn pop_curve_id(algorithm: iroha_crypto::Algorithm) -> Result<u8, InstructionExecutionError> {
-    iroha_data_model::account::curve::CurveId::try_from_algorithm(algorithm)
-        .map(iroha_data_model::account::curve::CurveId::as_u8)
-        .map_err(|_| corrupt_state("PoP audit authority uses an unsupported account-address curve"))
+fn pop_curve_id(algorithm: iroha_crypto::Algorithm) -> u8 {
+    iroha_data_model::account::curve::CurveId::from_algorithm(algorithm).as_u8()
 }
 fn pop_encode_base105(
     bytes: &[u8],

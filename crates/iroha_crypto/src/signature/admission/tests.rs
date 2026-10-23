@@ -211,12 +211,20 @@ fn fixed_ed25519_and_secp_key_diagnostics_keep_their_original_text() {
 
 #[cfg(not(feature = "pqc"))]
 #[test]
-fn mldsa_without_compiled_verifier_preserves_fixed_bad_signature() {
+fn mldsa_without_compiled_verifier_preserves_fixed_unsupported_implementation() {
     let key = compact(Algorithm::MlDsa, &[1; crate::ML_DSA_65_PUBLIC_KEY_BYTES]);
     let proof = Signature::from_bytes(&[]);
     let rejected =
         without_allocations(|| verify_signature_borrowed(&proof, &key, b"").unwrap_err());
-    assert_eq!(rejected.into_error(), Error::BadSignature);
+    let expected = UnsupportedImplementation {
+        algorithm: Algorithm::MlDsa,
+        operation: crate::CryptoOperation::VerifySignature,
+    };
+    assert_eq!(rejected.unsupported_implementation(), Some(expected));
+    assert_eq!(
+        without_allocations(|| rejected.into_error()),
+        Error::UnsupportedImplementation(expected)
+    );
 }
 
 /// Environment selector that routes a fresh test process into its child case.

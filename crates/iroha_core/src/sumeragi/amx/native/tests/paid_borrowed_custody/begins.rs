@@ -173,6 +173,14 @@ fn native_amx_begin_delivery_after_restart_uses_successful_input_and_exact_regis
 #[test]
 fn native_amx_begin_delivery_rejects_wrong_source_height_record_and_participant() {
     let (roots, restored, tx) = restarted_paid_begin();
+    assert_restarted_begin_refusals(&roots, &restored, tx);
+}
+
+// Keep the completed multi-root setup frame out of the original reader checks.
+// Debug builds otherwise reserve all reader Result temporaries while constructing
+// and replaying four chains, exhausting the ordinary libtest stack.
+#[inline(never)]
+fn assert_restarted_begin_refusals(roots: &Roots, restored: &CertifiedTestChain, tx: [u8; 32]) {
     let view = restored.state().view();
     assert!(begin_amx_relay(&view, 1, tx, FIRST).is_err());
     assert!(begin_amx_relay(&roots.participants[0].state().view(), 2, tx, FIRST).is_err());

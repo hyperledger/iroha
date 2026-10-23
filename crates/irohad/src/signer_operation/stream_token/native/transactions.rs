@@ -107,15 +107,19 @@ impl NativeTransactionsV1 {
     ) -> Result<(), SignerOperationErrorV1> {
         self.remaining(deadline)?;
         let hash = TransactionEntrypoint::External(signed.clone()).hash();
-        let (drift, limits) = self.state.transaction_admission_limits();
+        let parameters = self.state.transaction_admission_parameters();
+        let admission_policy = parameters
+            .require_crypto_policy()
+            .map_err(|_| SignerOperationErrorV1::StateUnavailable)?;
         let accepted = AcceptedTransaction::accept(
             signed.clone(),
             self.state.network_id_ref(),
-            drift,
-            limits,
-            self.state.crypto().as_ref(),
+            parameters.sumeragi().max_clock_drift(),
+            parameters.transaction(),
+            admission_policy,
         )
         .map_err(|_| SignerOperationErrorV1::StateUnavailable)?;
+        drop(parameters);
         let plan = self
             .queue
             .route_plan_with_state(&accepted, &self.state)

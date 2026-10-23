@@ -167,8 +167,9 @@ const PRE_BINDING_LOCAL_WORK_UNITS_V2: u64 = NUMERIC_VALIDATION_WORK_UNITS_V2
     + RETAINED_COMMITMENT_DIGEST_BYTES_V2 as u64;
 const COMBINED_BINDING_HASH_BYTES_V2: usize =
     RNS_NATIVE_QPCS_CLAIMED_SOURCE_BINDING_HASH_BYTES_V1 + CARRIER_BINDING_HASH_BYTES_V2;
+// Includes the canonical 32-byte catalog and full 48-byte proof commitments.
 const CARRIER_BINDING_HASH_WORK_V1: RnsNativeProofHashWorkV1 =
-    match RnsNativeProofHashWorkV1::from_word_count(538) {
+    match RnsNativeProofHashWorkV1::from_word_count(536) {
         Ok(work) => work,
         Err(_) => panic!("fixed carrier frame must fit"),
     };
@@ -214,8 +215,8 @@ pub(super) const RNS_NATIVE_CLAIMED_QPCS_RELEASE_AUTHORIZED_V2: bool = false;
 /// numeric tail is retained inline. The retained payload intentionally excludes
 /// two non-authorizing 48-byte binding digests and ordinary owner headers,
 /// matching the numeric ledger scope. Exact local work is 28,816 before
-/// binding absorption plus 7,826 binding bytes and 7,163,076 hash field
-/// operations, for 7,199,718 total units. One work unit is charged per
+/// binding absorption plus 7,826 binding bytes and 7,142,784 hash field
+/// operations, for 7,179,426 total units. One work unit is charged per
 /// canonical check, modular operation, retained or copied byte, absorbed
 /// binding byte and actual dense-MDS hash multiplication/addition. This is
 /// not an instruction count and excludes control-flow comparisons.
@@ -306,7 +307,7 @@ const _: () = {
     assert!(RNS_NATIVE_QPCS_CLAIMED_SOURCE_BINDING_HASH_BYTES_V1 == 5_444);
     assert!(CARRIER_BINDING_HASH_BYTES_V2 == 2_382);
     assert!(COMBINED_BINDING_HASH_BYTES_V2 == 7_826);
-    assert!(LOCAL_WORK_UNITS_V2 == 7_199_718);
+    assert!(LOCAL_WORK_UNITS_V2 == 7_179_426);
     assert!(LOCAL_WORK_UNITS_V2 > PRE_BINDING_LOCAL_WORK_UNITS_V2);
     assert!(RNS_NATIVE_CLAIMED_QPCS_SOURCE_CARRIER_SOURCE_SETTLED_V2);
     assert!(RNS_NATIVE_CLAIMED_QPCS_SOURCE_CARRIER_CONTRACT_IMPLEMENTED_V2);

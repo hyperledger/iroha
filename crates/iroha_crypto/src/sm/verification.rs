@@ -50,7 +50,7 @@ impl KeyRejection {
             Self::InvalidPoint => "invalid SM2 public key",
             Self::NonCanonical => "non-canonical SM2 public key encoding",
         };
-        ParseError(message.into())
+        ParseError::Invalid(message.into())
     }
 }
 

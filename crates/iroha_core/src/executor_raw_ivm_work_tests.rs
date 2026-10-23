@@ -144,7 +144,7 @@ mod raw_ivm_work {
         tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         let result =
-            Executor::Initial.execute_transaction(&mut tx, &ALICE_ID, transaction, &mut cache);
+            Executor::Initial.execute_transaction(&mut tx, &ALICE_ID, &transaction, &mut cache);
         assert!(
             matches!(result, Err(ExecutionAttemptError::Deferred(original))
             if original.reason() == expected.reason() && original.allocation_refusal() == expected.allocation_refusal())
@@ -185,7 +185,7 @@ mod raw_ivm_work {
             tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
             tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
             let error = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, transaction, &mut IvmCache::new())
+                .execute_transaction(&mut tx, &ALICE_ID, &transaction, &mut IvmCache::new())
                 .map_err(crate::execution_attempt::expect_completed_rejection)
                 .expect_err("the actual raw VM must exhaust its effective gas limit");
             assert!(
@@ -313,7 +313,7 @@ seiyaku RawMeteredFailure { permission CanInvokeContractEntrypoint;
         tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         let error = Executor::Initial
-            .execute_transaction(&mut tx, &ALICE_ID, transaction, &mut cache)
+            .execute_transaction(&mut tx, &ALICE_ID, &transaction, &mut cache)
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("the genuinely bound and permitted raw contract must exhaust VM gas");
         assert!(
@@ -447,7 +447,7 @@ seiyaku UnverifiedBallot { permission CanInvokeContractEntrypoint;
         tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         let error = Executor::Initial
-            .execute_transaction(&mut tx, &ALICE_ID, transaction, &mut IvmCache::new())
+            .execute_transaction(&mut tx, &ALICE_ID, &transaction, &mut IvmCache::new())
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err(
                 "completed VM must fail artifact export without actual ballot verification",
@@ -522,7 +522,7 @@ seiyaku UnverifiedBallot { permission CanInvokeContractEntrypoint;
         tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         let error = Executor::Initial
-            .execute_transaction(&mut tx, &ALICE_ID, transaction, &mut IvmCache::new())
+            .execute_transaction(&mut tx, &ALICE_ID, &transaction, &mut IvmCache::new())
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("the deferred missing-role instruction must reject after the first write");
         assert!(
@@ -569,7 +569,7 @@ seiyaku UnverifiedBallot { permission CanInvokeContractEntrypoint;
         tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         Executor::Initial
-            .execute_transaction(&mut tx, &ALICE_ID, transaction, &mut IvmCache::new())
+            .execute_transaction(&mut tx, &ALICE_ID, &transaction, &mut IvmCache::new())
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .unwrap();
         assert_eq!(tx.last_tx_gas_used, expected_gas);
@@ -632,7 +632,7 @@ seiyaku UnverifiedBallot { permission CanInvokeContractEntrypoint;
             tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
             tx.pipeline.overlay_max_instructions = count_cap;
             tx.pipeline.overlay_max_bytes = byte_cap;
-            let error = Executor::Initial.execute_transaction(&mut tx, &ALICE_ID, source, &mut cache).map_err(crate::execution_attempt::expect_completed_rejection)
+            let error = Executor::Initial.execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache).map_err(crate::execution_attempt::expect_completed_rejection)
                 .expect_err("the actual group either exceeds admission or reaches its missing-role instruction");
             assert_eq!(
                 tx.last_tx_gas_used, expected_gas,
@@ -730,7 +730,7 @@ seiyaku UnverifiedBallot { permission CanInvokeContractEntrypoint;
             tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
             tx.pipeline.quarantine_tx_max_cycles = cap;
             let result = Executor::Initial
-                .execute_transaction(&mut tx, &ALICE_ID, source, &mut cache)
+                .execute_transaction(&mut tx, &ALICE_ID, &source, &mut cache)
                 .map_err(crate::execution_attempt::expect_completed_rejection);
             let cycles = tx.completed_execution_cycles_for_tests();
             assert_eq!(cycles.is_some(), finite);

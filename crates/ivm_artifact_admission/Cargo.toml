@@ -24,7 +24,7 @@ iroha_allocation = { workspace = true }
 iroha_fs = { workspace = true }
 iroha_model_base = { workspace = true }
 iroha_crypto = { path = "../iroha_crypto", default-features = false, features = ["json"] }
-iroha_data_model = { path = "../iroha_data_model", default-features = false, features = ["transparent_api", "governance"] }
+iroha_data_model = { path = "../iroha_data_model", default-features = false, features = ["transparent_api"] }
 ivm_abi = { path = "../ivm_abi" }
 kotodama_surface = { path = "../kotodama_surface" }
 norito = { path = "../norito", default-features = false, features = ["node-codec"] }

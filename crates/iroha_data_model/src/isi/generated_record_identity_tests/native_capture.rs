@@ -92,6 +92,10 @@ fn current_constructors() -> BTreeMap<String, Value> {
     let mut values = missing_record_values();
     values.extend(sorafs_values());
     values.extend(kaigi_records::current_values());
+    values.push(capture(pgc_reference_request()));
+    values.push(capture(
+        crate::isi::privacy::current_submit_proof_fixture_v1(),
+    ));
     // Capture the exact asset and expected ordinal of the current IssueLoad
     // constructor through the real codec;
     // retired discriminants and container frames are never decoded or projected.
@@ -109,6 +113,104 @@ fn current_constructors() -> BTreeMap<String, Value> {
         ),
     ));
     unique_rows(values)
+}
+
+#[test]
+fn privacy_submit_constructor_captures_the_complete_native_catalog() {
+    use crate::{isi::privacy::SubmitPrivacyProofV1, privacy::PrivacyExact12CatalogCommitmentV1};
+    let request = crate::isi::privacy::current_submit_proof_fixture_v1();
+    let name = SubmitPrivacyProofV1::nominal_name();
+    let constructors = current_constructors();
+    let replacement = &constructors[&name];
+    let actual = decode_current::<SubmitPrivacyProofV1>(&frame_fields(replacement));
+    assert_eq!(actual, request);
+    assert_eq!(
+        actual.envelope.catalog_commitment,
+        PrivacyExact12CatalogCommitmentV1::canonical()
+    );
+    assert_eq!(actual.envelope.catalog_commitment.as_bytes().len(), 32);
+    let proposed = proposed_rows(SOURCE);
+    let row =
+        capture_record::<SubmitPrivacyProofV1>(&name, &proposed[&name], Some(replacement), None);
+    let cases = row.get("cases").and_then(Value::as_array).unwrap();
+    assert_eq!(cases.len(), 1, "retain the complete populated record case");
+    assert_eq!(cases[0], frame_fields(&capture(request)));
+}
+
+// Structural wire fixture only: these compressed point shapes do not claim a
+// native PGC relation. The production verifier has separate real N=16 controls.
+fn pgc_reference_request() -> crate::isi::privacy::BootstrapPrivacyPgcAccountsV1 {
+    use crate::{
+        privacy::{
+            PrivacyNamespaceScopeV1, PrivacyNamespaceV1, PrivacyP256CiphertextV1,
+            PrivacyP256PointV1, PrivacyPgcAccountBootstrapV1, PrivacyPgcAccountV1, PrivacyPoolIdV1,
+            PrivacyPoolNamespaceV1, PrivacyProtocolIdV1, PrivacyRootV1,
+        },
+        transaction::signed_attachments::ActionAttachmentRefV1,
+    };
+    let point = |prefix: u8, last: u8| {
+        let mut bytes = [0; 33];
+        bytes[0] = prefix;
+        bytes[32] = last;
+        PrivacyP256PointV1::new(bytes)
+    };
+    let bootstrap = PrivacyPgcAccountBootstrapV1 {
+        namespace: PrivacyNamespaceV1::new(
+            PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1,
+            PrivacyNamespaceScopeV1::Pool(PrivacyPoolNamespaceV1 {
+                pool_id: PrivacyPoolIdV1::new([20; 32]),
+            }),
+        ),
+        initial_root: PrivacyRootV1::new([22; 32]),
+        initial_epoch: 1,
+        total_supply: 160,
+        accounts: (1_u8..=16)
+            .map(|index| PrivacyPgcAccountV1 {
+                public_key: point(2, index),
+                encrypted_balance: PrivacyP256CiphertextV1 {
+                    left: point(2, index + 32),
+                    right: point(3, index + 64),
+                },
+            })
+            .collect(),
+    };
+    bootstrap.validate().expect("structural PGC wire fixture");
+    crate::isi::privacy::BootstrapPrivacyPgcAccountsV1::new(
+        bootstrap,
+        ActionAttachmentRefV1 {
+            action_index: 0,
+            slot_index: 0,
+        },
+    )
+}
+
+#[test]
+fn pgc_current_constructor_captures_only_the_reference_layout() {
+    use crate::isi::privacy::BootstrapPrivacyPgcAccountsV1;
+    let request = pgc_reference_request();
+    let name = BootstrapPrivacyPgcAccountsV1::nominal_name();
+    let constructors = current_constructors();
+    let replacement = &constructors[&name];
+    let actual = decode_current::<BootstrapPrivacyPgcAccountsV1>(&frame_fields(replacement));
+    assert_eq!(actual, request);
+    assert_eq!(actual.proof_ref.action_index, 0);
+    assert_eq!(actual.proof_ref.slot_index, 0);
+    assert_eq!(actual.bootstrap.accounts.len(), 16);
+    let encoded = json::to_json(&actual).unwrap();
+    assert!(encoded.contains("\"proof_ref\""));
+    assert!(!encoded.contains("\"proof\""));
+    let proposed = proposed_rows(SOURCE);
+    let row = capture_record::<BootstrapPrivacyPgcAccountsV1>(
+        &name,
+        &proposed[&name],
+        Some(replacement),
+        None,
+    );
+    let cases = row.get("cases").and_then(Value::as_array).unwrap();
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0], frame_fields(&capture(request)));
+    let retired = include_bytes!("../../../tests/fixtures/rejected_pgc_embedded_proof_frame.bin");
+    assert!(norito::decode_from_bytes::<BootstrapPrivacyPgcAccountsV1>(retired).is_err());
 }
 
 fn decode_current<T>(case: &Value) -> T

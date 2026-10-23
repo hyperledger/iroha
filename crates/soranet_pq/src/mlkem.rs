@@ -2395,3 +2395,6 @@ mod initialized_output_tests;
 
 #[cfg(test)]
 mod fips203_nistkat_tests;
+
+#[cfg(test)]
+mod fips203_acvp_tests;

@@ -404,8 +404,15 @@ fn account_address_error_fields(err: &AccountAddressError) -> Option<JsonMap> {
     use AccountAddressError::*;
     let mut fields = JsonMap::new();
     match err {
-        UnsupportedAlgorithm(algorithm) => {
-            fields.insert("algorithm".into(), JsonValue::from(algorithm.to_string()));
+        UnsupportedImplementation(original) => {
+            fields.insert(
+                "algorithm".into(),
+                JsonValue::from(original.algorithm.as_static_str()),
+            );
+            fields.insert(
+                "operation".into(),
+                JsonValue::from(original.operation.to_string()),
+            );
         }
         KeyPayloadTooLong(len) => {
             fields.insert("length".into(), JsonValue::from(u64::from(*len)));
@@ -442,6 +449,39 @@ fn account_address_error_fields(err: &AccountAddressError) -> Option<JsonMap> {
     } else {
         Some(fields)
     }
+}
+#[cfg(test)]
+#[test]
+fn account_address_diagnostic_retains_known_missing_implementation() {
+    let error =
+        AccountAddressError::UnsupportedImplementation(iroha_crypto::UnsupportedImplementation {
+            algorithm: iroha_crypto::Algorithm::BlsNormal,
+            operation: iroha_crypto::CryptoOperation::ParsePublicKey,
+        });
+    let payload = encode_account_address_error(error);
+    let value: JsonValue = norito::json::from_slice(&payload).expect("canonical error JSON");
+    assert_eq!(
+        value.get("code").and_then(JsonValue::as_str),
+        Some("ERR_UNSUPPORTED_IMPLEMENTATION")
+    );
+    assert_eq!(
+        value
+            .get("fields")
+            .and_then(|fields| fields.get("algorithm"))
+            .and_then(JsonValue::as_str),
+        Some("bls_normal")
+    );
+    assert_eq!(
+        value
+            .get("fields")
+            .and_then(|fields| fields.get("operation"))
+            .and_then(JsonValue::as_str),
+        Some("public-key parsing")
+    );
+    assert_ne!(
+        value.get("code").and_then(JsonValue::as_str),
+        Some("ERR_UNKNOWN_CURVE")
+    );
 }
 fn encode_account_address_error(err: AccountAddressError) -> Vec<u8> {
     let mut map = JsonMap::new();
@@ -2631,7 +2671,9 @@ fn detached_transaction_executable_json(tx: &SignedTransaction) -> BridgeResult<
         Executable::Instructions(instructions) if (2..=16).contains(&instructions.len()) => {
             // An Instructions sequence is atomic. Do not mislabel it as TransferAssetBatch,
             // whose independent mode has different partial-settlement semantics.
-            let transfers = instructions.iter().map(detached_asset_transfer_json)
+            let transfers = instructions
+                .iter()
+                .map(detached_asset_transfer_json)
                 .collect::<BridgeResult<Vec<_>>>()?;
             Ok(::norito::json!({"kind": "transfer_instruction_sequence", "transfers": transfers}))
         }
@@ -5321,31 +5363,67 @@ mod detached_transaction_scaffold_tests {
         let Executable::Instructions(instructions) = transfer.instructions() else {
             panic!("one transfer");
         };
-        let iroha_data_model::isi::TransferBox::Asset(transfer) =
-            instructions[0].as_any().downcast_ref::<iroha_data_model::isi::TransferBox>().unwrap()
+        let iroha_data_model::isi::TransferBox::Asset(transfer) = instructions[0]
+            .as_any()
+            .downcast_ref::<iroha_data_model::isi::TransferBox>()
+            .unwrap()
         else {
             panic!("asset transfer");
         };
         let entries = ["israel", "roman"].map(|leg_id| {
             TransferAssetBatchEntry::with_leg_id(
-                leg_id, transfer.source.account().clone(), transfer.destination.clone(),
-                transfer.source.definition().clone(), transfer.object.clone(),
+                leg_id,
+                transfer.source.account().clone(),
+                transfer.destination.clone(),
+                transfer.source.definition().clone(),
+                transfer.object.clone(),
             )
         });
         let mut previous = None;
-        for (mode, name) in [(BatchMode::Atomic, "atomic"), (BatchMode::Independent, "independent")] {
+        for (mode, name) in [
+            (BatchMode::Atomic, "atomic"),
+            (BatchMode::Independent, "independent"),
+        ] {
             let batch = TransferAssetBatch::new(entries.to_vec()).with_mode(mode);
-            let tx = scaffold_transaction(&key, Executable::from([InstructionBox::from(batch)]), |_| {});
+            let tx = scaffold_transaction(
+                &key,
+                Executable::from([InstructionBox::from(batch)]),
+                |_| {},
+            );
             let value = inspect_value(&tx);
             let object = value.as_object().unwrap();
             let executable = object.get("executable").unwrap().as_object().unwrap();
-            assert_eq!(executable.get("kind").and_then(JsonValue::as_str), Some("asset_transfer_batch"));
-            assert_eq!(executable.get("mode").and_then(JsonValue::as_str), Some(name));
+            assert_eq!(
+                executable.get("kind").and_then(JsonValue::as_str),
+                Some("asset_transfer_batch")
+            );
+            assert_eq!(
+                executable.get("mode").and_then(JsonValue::as_str),
+                Some(name)
+            );
             let entries = executable.get("entries").unwrap().as_array().unwrap();
-            assert_eq!(entries[0].as_object().unwrap().get("leg_id").and_then(JsonValue::as_str), Some("israel"));
-            assert_eq!(entries[1].as_object().unwrap().get("leg_id").and_then(JsonValue::as_str), Some("roman"));
+            assert_eq!(
+                entries[0]
+                    .as_object()
+                    .unwrap()
+                    .get("leg_id")
+                    .and_then(JsonValue::as_str),
+                Some("israel")
+            );
+            assert_eq!(
+                entries[1]
+                    .as_object()
+                    .unwrap()
+                    .get("leg_id")
+                    .and_then(JsonValue::as_str),
+                Some("roman")
+            );
             let digest = object.get("payload_signing_hash_hex").unwrap().clone();
-            assert_ne!(previous.as_ref(), Some(&digest), "mode changes the owner signature");
+            assert_ne!(
+                previous.as_ref(),
+                Some(&digest),
+                "mode changes the owner signature"
+            );
             previous = Some(digest);
         }
     }
@@ -5366,53 +5444,116 @@ mod detached_transaction_scaffold_tests {
         let seven_days = 7 * 24 * 60 * 60 * 1000;
         let conditions = vec![
             C::Oracle(ConditionalEscrowOracleCondition {
-                id: "product".parse().unwrap(), attestor: product.clone(),
-                predicate: P::Equals(V::Text("i7".into())), sequence: NonZeroU32::new(1).unwrap(),
+                id: "product".parse().unwrap(),
+                attestor: product.clone(),
+                predicate: P::Equals(V::Text("i7".into())),
+                sequence: NonZeroU32::new(1).unwrap(),
             }),
             C::Oracle(ConditionalEscrowOracleCondition {
-                id: "delivery".parse().unwrap(), attestor: delivery.clone(),
-                predicate: P::QuantityAtMost(Quantity::from(3_u32)), sequence: NonZeroU32::new(2).unwrap(),
+                id: "delivery".parse().unwrap(),
+                attestor: delivery.clone(),
+                predicate: P::QuantityAtMost(Quantity::from(3_u32)),
+                sequence: NonZeroU32::new(2).unwrap(),
             }),
             C::Within(ConditionalEscrowWithinCondition {
-                id: "confirmation".parse().unwrap(), duration_ms: NonZeroU64::new(seven_days).unwrap(),
+                id: "confirmation".parse().unwrap(),
+                duration_ms: NonZeroU64::new(seven_days).unwrap(),
             }),
         ];
         let escrow = OpenConditionalEscrow::with_evidence_hashes(
             EscrowId::new(Hash::new(b"laptop")),
             AssetDefinitionId::derive_from_components(
-                DomainId::try_new("wallet", "universal").unwrap(), "coin".parse().unwrap(),
+                DomainId::try_new("wallet", "universal").unwrap(),
+                "coin".parse().unwrap(),
             ),
-            AccountId::new(fixture_keypair(0x47).public_key().clone()), Quantity::from(20_u32),
-            conditions, 1_700_000_000_123 + seven_days, vec![Hash::new(b"purchase evidence")],
+            AccountId::new(fixture_keypair(0x47).public_key().clone()),
+            Quantity::from(20_u32),
+            conditions,
+            1_700_000_000_123 + seven_days,
+            vec![Hash::new(b"purchase evidence")],
         );
-        let tx = scaffold_transaction(&key, Executable::from([InstructionBox::from(escrow.clone())]), |_| {});
+        let tx = scaffold_transaction(
+            &key,
+            Executable::from([InstructionBox::from(escrow.clone())]),
+            |_| {},
+        );
         let inspection = inspect_value(&tx);
-        let executable = inspection.as_object().unwrap().get("executable").unwrap().as_object().unwrap();
+        let executable = inspection
+            .as_object()
+            .unwrap()
+            .get("executable")
+            .unwrap()
+            .as_object()
+            .unwrap();
         let conditions = executable.get("conditions").unwrap().as_array().unwrap();
         assert_eq!(conditions.len(), 3);
-        assert_eq!(conditions[0].as_object().unwrap().get("attestor"), Some(&JsonValue::from(product.to_string())));
-        assert_eq!(conditions[1].as_object().unwrap().get("attestor"), Some(&JsonValue::from(delivery.to_string())));
-        assert_eq!(conditions[1].as_object().unwrap().get("predicate"), Some(&::norito::json!({"kind": "quantity_at_most", "value": "3"})));
-        assert_eq!(conditions[2].as_object().unwrap().get("duration_ms"), Some(&JsonValue::from(seven_days)));
-        assert_eq!(executable.get("expires_at_ms"), Some(&JsonValue::from(escrow.expires_at_ms)));
-        assert_eq!(executable.get("evidence_hashes").unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(
+            conditions[0].as_object().unwrap().get("attestor"),
+            Some(&JsonValue::from(product.to_string()))
+        );
+        assert_eq!(
+            conditions[1].as_object().unwrap().get("attestor"),
+            Some(&JsonValue::from(delivery.to_string()))
+        );
+        assert_eq!(
+            conditions[1].as_object().unwrap().get("predicate"),
+            Some(&::norito::json!({"kind": "quantity_at_most", "value": "3"}))
+        );
+        assert_eq!(
+            conditions[2].as_object().unwrap().get("duration_ms"),
+            Some(&JsonValue::from(seven_days))
+        );
+        assert_eq!(
+            executable.get("expires_at_ms"),
+            Some(&JsonValue::from(escrow.expires_at_ms))
+        );
+        assert_eq!(
+            executable
+                .get("evidence_hashes")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
     #[test]
     fn instruction_sequence_review_is_distinct_from_native_bulk() {
         let key = fixture_keypair(0x46);
         let principal = transfer_scaffold(&key, false);
         let fee = transfer_scaffold(&key, true);
-        let Executable::Instructions(principal) = principal.instructions() else { panic!("fixture") };
-        let Executable::Instructions(fee) = fee.instructions() else { panic!("fixture") };
-        let tx = scaffold_transaction(&key, Executable::from(vec![principal[0].clone(), fee[0].clone()]), |_| {});
+        let Executable::Instructions(principal) = principal.instructions() else {
+            panic!("fixture")
+        };
+        let Executable::Instructions(fee) = fee.instructions() else {
+            panic!("fixture")
+        };
+        let tx = scaffold_transaction(
+            &key,
+            Executable::from(vec![principal[0].clone(), fee[0].clone()]),
+            |_| {},
+        );
         let value = inspect_value(&tx);
-        let executable = value.as_object().unwrap().get("executable").unwrap().as_object().unwrap();
-        assert_eq!(executable.get("kind").and_then(JsonValue::as_str), Some("transfer_instruction_sequence"));
+        let executable = value
+            .as_object()
+            .unwrap()
+            .get("executable")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        assert_eq!(
+            executable.get("kind").and_then(JsonValue::as_str),
+            Some("transfer_instruction_sequence")
+        );
         let transfers = executable.get("transfers").unwrap().as_array().unwrap();
         assert_eq!(transfers.len(), 2);
         assert_ne!(transfers[0], transfers[1]);
         // Resource bounds never permit a hidden trailing transfer.
-        let oversized = scaffold_transaction(&key, Executable::from(vec![principal[0].clone(); 17]), |_| {});
+        let oversized = scaffold_transaction(
+            &key,
+            Executable::from(vec![principal[0].clone(); 17]),
+            |_| {},
+        );
         assert!(inspect_detached_transaction_scaffold(&oversized.encode_versioned()).is_err());
     }
 
@@ -5667,11 +5808,8 @@ mod detached_transaction_scaffold_tests {
             unreachable!()
         };
         let instruction = instructions.iter().next().unwrap().clone();
-        let oversized = scaffold_transaction(
-            &keypair,
-            Executable::from(vec![instruction; 17]),
-            |_| {},
-        );
+        let oversized =
+            scaffold_transaction(&keypair, Executable::from(vec![instruction; 17]), |_| {});
         assert!(inspect_detached_transaction_scaffold(&oversized.encode_versioned()).is_err());
         let empty = scaffold_transaction(
             &keypair,

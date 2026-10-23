@@ -863,6 +863,9 @@ pub mod json {
         /// A fallible allocation needed by the JSON decoder failed without a recorded size.
         #[error("JSON decode allocation failed")]
         AllocationFailed,
+        /// A known canonical feature has no implementation in the local decoder.
+        #[error("unsupported feature: {0}")]
+        UnsupportedFeature(&'static str),
         #[error("invalid utf8")]
         InvalidUtf8,
         #[error("{0}")]
@@ -907,6 +910,9 @@ pub mod json {
         #[doc(hidden)]
         pub fn from_decode_resource(error: crate::core::Error) -> Self {
             match error {
+                crate::core::Error::UnsupportedFeature(feature) => {
+                    Self::UnsupportedFeature(feature)
+                }
                 crate::core::Error::ScopedDecodeResource(origin) => {
                     Self::ScopedDecodeResource(origin)
                 }
@@ -929,6 +935,9 @@ pub mod json {
         #[doc(hidden)]
         pub fn into_core_error(self) -> crate::core::Error {
             match self {
+                Self::UnsupportedFeature(feature) => {
+                    crate::core::Error::UnsupportedFeature(feature)
+                }
                 Self::ScopedDecodeResource(origin) => {
                     crate::core::Error::ScopedDecodeResource(origin)
                 }
@@ -939,7 +948,10 @@ pub mod json {
         }
     }
     mod bounded;
+    mod canonical;
     mod canonical_base64;
+    #[doc(hidden)]
+    pub use canonical::validate_canonical_json_with_buffer;
     mod validated;
     pub use bounded::{
         BoundedJsonError, FastJsonWrite, JsonWriteSink, to_json_bounded, to_json_bounded_boxed,
@@ -2449,6 +2461,24 @@ pub mod json {
                     "copied resource fields cannot establish an enclosing observer origin"
                 );
             }
+        }
+        #[test]
+        fn known_unsupported_feature_retains_binary_json_error_identity() {
+            let feature = "known canonical test algorithm";
+            let json = Error::from_decode_resource(crate::Error::UnsupportedFeature(feature));
+            assert!(matches!(&json, Error::UnsupportedFeature(actual) if *actual == feature));
+            assert!(!json.is_decode_resource_limit());
+            let restored = json.into_core_error();
+            assert!(
+                matches!(&restored, crate::Error::UnsupportedFeature(actual) if *actual == feature)
+            );
+            let attempt =
+                crate::core::classify_decode_attempt(|| Err::<(), _>(restored)).unwrap_err();
+            assert_eq!(attempt.kind(), crate::core::DecodeAttemptErrorKind::Invalid);
+            assert!(attempt.local_refusal().is_none());
+            assert!(
+                matches!(attempt.into_error(), crate::Error::UnsupportedFeature(actual) if actual == feature)
+            );
         }
         #[test]
         fn non_resource_core_errors_cannot_become_json_allocator_refusals() {
@@ -4426,25 +4456,46 @@ pub mod json {
         }
         /// Parse a JSON array into `Vec<T>` using `JsonDeserialize` for elements.
         pub fn parse_array<T: JsonDeserialize>(&mut self) -> Result<Vec<T>, Error> {
+            self.parse_array_with(try_decode_vec_with_capacity, T::json_deserialize, Vec::push)
+        }
+        /// Parse one array into the caller's original allocation destination.
+        ///
+        /// The sole array preflight, delimiters, cursor and error positions are
+        /// shared with ordinary decoding. `reserve` receives the exact admitted
+        /// element count before any element is parsed. The caller funds its
+        /// backing and each nested field; `push` must not allocate or exceed it.
+        /// The inherited decoder context and observer are unchanged.
+        ///
+        /// # Errors
+        /// Preserves native JSON errors and the original destination/field refusal.
+        pub fn parse_array_with<T, E, B>(
+            &mut self,
+            mut reserve: impl FnMut(usize) -> Result<B, E>,
+            mut parse: impl FnMut(&mut Self) -> Result<T, E>,
+            mut push: impl FnMut(&mut B, T),
+        ) -> Result<B, E>
+        where
+            E: From<Error>,
+        {
             let entries = self.preflight_container_entries(b'[')?;
-            let mut out = try_decode_vec_with_capacity(entries)?;
+            let mut out = reserve(entries)?;
             self.skip_ws();
             self.expect(b'[')?;
             self.skip_ws();
             if matches!(self.peek(), Some(b']')) {
-                self.bump(); // consume ']'
+                self.bump();
                 return Ok(out);
             }
             loop {
-                let v = T::json_deserialize(self)?;
-                out.push(v);
+                let value = parse(self)?;
+                push(&mut out, value);
                 self.skip_ws();
                 match self.bump() {
                     Some(b',') => continue,
                     Some(b']') => break,
                     _ => {
                         let (byte, line, col) = self.pos_meta(self.i);
-                        return Err(Error::ExpectedCommaOrArrayEnd { byte, line, col });
+                        return Err(Error::ExpectedCommaOrArrayEnd { byte, line, col }.into());
                     }
                 }
             }
@@ -9095,6 +9146,8 @@ pub mod json {
         }
     }
     mod raw_value;
+    /// Shared ordinary/original-pool temporary JSON text destinations.
+    pub mod scratch;
     pub use raw_value::RawValue;
     mod preflight;
     pub use preflight::{

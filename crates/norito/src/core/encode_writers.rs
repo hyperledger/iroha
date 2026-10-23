@@ -57,9 +57,10 @@ pub(super) fn charge_counted_bytes(bytes: usize) -> io::Result<()> {
     if budget.rejected || bytes > budget.remaining {
         budget.rejected = true;
         ACTIVE_COUNT_BUDGET.set(Some(budget));
-        return Err(io::Error::other(
-            "Norito encoded length exceeds admitted count allowance",
-        ));
+        // A count refusal precedes output admission, so its diagnostic must not
+        // allocate either. Preserve this original I/O error through the codec;
+        // an ErrorKind alone cannot authenticate an error for later rewriting.
+        return Err(io::ErrorKind::Other.into());
     }
     budget.remaining -= bytes;
     ACTIVE_COUNT_BUDGET.set(Some(budget));
@@ -80,7 +81,7 @@ impl LengthCountingWriter {
             }
             self.overflowed = true;
         }
-        Err(io::Error::other("Norito encoded length overflow"))
+        Err(io::ErrorKind::InvalidData.into())
     }
 
     pub(super) fn finish(self) -> Result<usize, super::Error> {
@@ -147,7 +148,7 @@ impl<W: Write> Write for ExactLengthWriter<'_, W> {
         self.len = self
             .len
             .checked_add(written)
-            .ok_or_else(|| io::Error::other("Norito encoded length overflow"))?;
+            .ok_or(io::ErrorKind::InvalidData)?;
         Ok(written)
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -207,5 +208,56 @@ impl Write for ExactSliceWriter<'_> {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_inline_overflow(error: io::Error) {
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.get_ref().is_none(), "no boxed diagnostic payload");
+        assert!(error.raw_os_error().is_none(), "no substituted OS error");
+    }
+
+    #[test]
+    fn count_writer_checked_add_overflow_retains_inline_error_and_sticky_state() {
+        let mut counted = LengthCountingWriter {
+            len: usize::MAX,
+            overflowed: false,
+        };
+        assert_inline_overflow(counted.add(1).unwrap_err());
+        assert_eq!(counted.len, usize::MAX);
+        assert_inline_overflow(counted.add(0).unwrap_err());
+        assert!(matches!(
+            counted.finish(),
+            Err(super::super::Error::LengthMismatch)
+        ));
+    }
+
+    #[test]
+    fn exact_writer_rejects_oversized_report_without_boxed_overflow_diagnostic() {
+        // A conforming Write cannot reach this checked-add overflow because the
+        // requested slice was already bounded. Exercise the actual defensive
+        // branch with an adversarial downstream writer, without allocating data.
+        struct OversizedReport;
+        impl Write for OversizedReport {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Ok(usize::MAX)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut original = OversizedReport;
+        let mut writer = ExactLengthWriter::new(&mut original, 2);
+        writer.len = 1;
+        assert_inline_overflow(writer.write(&[7]).unwrap_err());
+        assert_eq!(
+            writer.written_len(),
+            1,
+            "overflow never publishes an invented length"
+        );
     }
 }

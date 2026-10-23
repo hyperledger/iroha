@@ -126,7 +126,12 @@ fn private_pool_cut_rejects_network_schema_key_value_and_genesis_substitution() 
     let block = certify(&mut native, &proof);
     let network = native.network_id();
     let schema = proof.world.schema_hash;
-    let foreign = NativeFinalityFixture::start("different-private-context-network").network_id();
+    // NetworkId follows signed genesis; a different chain label alone keeps the same network.
+    let foreign = NativeFinalityFixture::start_with_mode(
+        native.chain_id(),
+        crate::parameter::system::SumeragiConsensusMode::Npos,
+    )
+    .network_id();
     assert_ne!(foreign, network);
     assert!(proof.verify(foreign, schema, key, &block).is_err());
     assert!(

@@ -71,3 +71,12 @@ required-features = ["trybuild-tests"]
 [[test]]
 name = "numeric_abi_encoding_allocations"
 path = "tests/numeric_abi_encoding_allocations.rs"
+
+[[test]]
+name = "json_retained_allocation"
+path = "tests/json_retained_allocation.rs"
+required-features = ["json"]
+
+[[test]]
+name = "numeric_retained_allocation"
+path = "tests/numeric_retained_allocation.rs"

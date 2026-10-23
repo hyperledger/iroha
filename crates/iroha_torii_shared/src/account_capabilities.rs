@@ -1,16 +1,10 @@
-//! Public account-bootstrap policy projected from the exact network and admitted signing set.
+//! Public account-bootstrap capabilities projected from the original committed crypto policy.
 
-use std::collections::BTreeSet;
-
-use iroha_crypto::Algorithm;
-use iroha_data_model::NetworkId;
+use iroha_data_model::{NetworkId, crypto_admission_policy::CryptoAdmissionPolicyV1};
 use norito::derive::{JsonDeserialize, JsonSerialize};
 
 /// Maximum JSON representation accepted by first-release bootstrap clients.
 pub const ACCOUNT_CAPABILITIES_MAX_BYTES_V1: usize = 4 * 1024;
-/// Explicit first-release account-bootstrap default, also required by control-plane admission.
-/// This is protocol policy, not an ordering preference in the admission allow-list.
-pub const ACCOUNT_DEFAULT_SIGNING_V1: &str = "ed25519";
 
 /// Public, account-free projection for `GET /v1/accounts/capabilities`.
 #[derive(Debug, Clone, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
@@ -22,48 +16,34 @@ pub struct AccountCapabilitiesV1 {
     pub network_id: NetworkId,
     /// Canonical I105 address network discriminant.
     pub network_prefix: u16,
-    /// Unique canonical names from the current signing admission configuration.
+    /// Exact admitted names in canonical algorithm-tag order; no signer preference is implied.
     pub allowed_signing: Vec<String>,
-    /// Explicit V1 bootstrap default, required to be admitted.
-    pub default_signing: String,
 }
 
 impl AccountCapabilitiesV1 {
-    /// Build the bounded projection; reject inconsistent admission instead of inventing a default.
-    ///
-    /// # Errors
-    ///
-    /// Returns a static explanation when the admitted algorithms omit Ed25519,
-    /// the required V1 bootstrap default.
-    pub fn from_admission(
+    /// Project the original validated policy without sorting, deduplicating or adding a default.
+    pub fn from_policy(
         network_id: NetworkId,
         network_prefix: u16,
-        allowed_signing: &[Algorithm],
-    ) -> Result<Self, &'static str> {
-        if !allowed_signing.contains(&Algorithm::Ed25519) {
-            return Err("account bootstrap requires admitted Ed25519 signing");
-        }
-        let allowed_signing = allowed_signing
-            .iter()
-            .map(|algorithm| algorithm.as_static_str())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        Ok(Self {
+        policy: &CryptoAdmissionPolicyV1,
+    ) -> Self {
+        Self {
             schema_version: 1,
             network_id,
             network_prefix,
-            allowed_signing,
-            default_signing: ACCOUNT_DEFAULT_SIGNING_V1.to_owned(),
-        })
+            allowed_signing: policy
+                .allowed_algorithms()
+                .iter()
+                .map(|algorithm| algorithm.as_static_str().to_owned())
+                .collect(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iroha_crypto::{Hash, HashOf};
+    use iroha_crypto::{Algorithm, Hash, HashOf};
 
     fn network_id() -> NetworkId {
         NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
@@ -72,23 +52,22 @@ mod tests {
     }
 
     #[test]
-    fn account_capabilities_preserve_identity_and_explicit_default_independent_of_order() {
-        let admitted = [
-            Algorithm::Secp256k1,
-            Algorithm::Ed25519,
-            Algorithm::Secp256k1,
-        ];
-        let response = AccountCapabilitiesV1::from_admission(network_id(), 369, &admitted)
-            .expect("valid account bootstrap admission");
+    fn account_capabilities_preserve_identity_and_canonical_policy_order() {
+        let policy = CryptoAdmissionPolicyV1::new(Algorithm::ALL.to_vec()).unwrap();
+        let response = AccountCapabilitiesV1::from_policy(network_id(), 369, &policy);
         assert_eq!(response.network_id, network_id());
         assert_eq!(response.network_prefix, 369);
-        assert_eq!(response.default_signing, "ed25519");
-        assert_eq!(response.allowed_signing, ["ed25519", "secp256k1"]);
+        assert_eq!(
+            response.allowed_signing,
+            Algorithm::ALL
+                .iter()
+                .map(|algorithm| algorithm.as_static_str())
+                .collect::<Vec<_>>()
+        );
         let json = norito::json::to_vec(&response).expect("encode account capabilities");
         assert!(json.len() < ACCOUNT_CAPABILITIES_MAX_BYTES_V1);
         let value: norito::json::Value = norito::json::from_slice(&json).expect("parse JSON");
-        let object = value.as_object().expect("object");
-        assert_eq!(object.len(), 5);
+        assert_eq!(value.as_object().expect("object").len(), 4);
         assert_eq!(value["schema_version"].as_u64(), Some(1));
         assert_eq!(
             value["network_id"].as_str(),
@@ -99,11 +78,15 @@ mod tests {
     }
 
     #[test]
-    fn account_capabilities_reject_a_missing_protocol_default() {
-        for admitted in [&[][..], &[Algorithm::Secp256k1][..]] {
-            assert!(
-                AccountCapabilitiesV1::from_admission(network_id(), u16::MAX, admitted).is_err()
-            );
-        }
+    fn account_capabilities_preserve_policy_without_implicit_ed25519() {
+        let policy = CryptoAdmissionPolicyV1::new(vec![Algorithm::Secp256k1]).unwrap();
+        let response = AccountCapabilitiesV1::from_policy(network_id(), u16::MAX, &policy);
+        assert_eq!(response.allowed_signing, ["secp256k1"]);
+        let mut json = norito::json::to_value(&response).unwrap();
+        json.as_object_mut().unwrap().insert(
+            "default_signing".into(),
+            norito::json::Value::from("ed25519"),
+        );
+        assert!(norito::json::from_value::<AccountCapabilitiesV1>(json).is_err());
     }
 }

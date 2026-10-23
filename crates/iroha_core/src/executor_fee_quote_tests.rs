@@ -277,6 +277,8 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
     let transaction = TransactionBuilder::from_payload(payload)
         .unwrap()
         .sign(ALICE_KEYPAIR.private_key());
+    let original_state = crate::snapshot::canonical_state_snapshot_bytes(&state);
+    let original_transaction = transaction.encode();
     let header = BlockHeader::new(
         nonzero!(2_u64),
         Some(state.view().latest_block_hash().unwrap()),
@@ -316,6 +318,11 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
         &Quantity::from(100_u32)
     );
     drop(block);
+    assert_eq!(
+        crate::snapshot::canonical_state_snapshot_bytes(&state),
+        original_state
+    );
+    assert_eq!(transaction.encode(), original_transaction);
     let mut retry_block = state.block(header);
     let mut retry = retry_block.transaction();
     validate_transaction_fee_admission(&mut retry, &transaction).unwrap();

@@ -1404,3 +1404,128 @@ fn malformed_and_misdeclared_carriers_are_rejected() {
     );
     assert_eq!(missing_witness.lane_privacy_proofs_v1(), Ok(Vec::new()));
 }
+
+#[test]
+fn original_carrier_decode_refusal_survives_typed_and_norito_transport() {
+    let value = fixture();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    for borrowed_schema_transport in [false, true] {
+        let mut observed = None;
+        let outer = norito::with_decode_limits_scope(limits, || {
+            ncore::classify_decode_attempt(|| {
+                let error = value.proof_carrier_v1(&value.actions()[0]).unwrap_err();
+                let original = error.clone().into_local_refusal().unwrap();
+                assert_eq!(original.kind(), ncore::DecodeLocalRefusalKind::EnclosingLimit);
+                assert!(matches!(original.resource_error(), ncore::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 } if attempted > 0));
+                observed = Some(original);
+                Err::<(), _>(if borrowed_schema_transport {
+                    schema_error(&error)
+                } else {
+                    error.into_norito_error()
+                })
+            })
+        }).unwrap_err();
+        assert_eq!(outer.local_refusal(), observed);
+        // The original still exists after scope retirement, but a new decoder may
+        // not relabel that old observation as its own fresh local refusal.
+        let retired = outer.into_error();
+        let later = ncore::classify_decode_attempt(|| Err::<(), _>(retired)).unwrap_err();
+        assert_eq!(later.kind(), ncore::DecodeAttemptErrorKind::Invalid);
+        assert_eq!(
+            later.error().decode_resource_error(),
+            observed.map(|cause| cause.resource_error())
+        );
+    }
+    value
+        .validate_proof_carriers_v1()
+        .expect("same original retries outside pressure");
+}
+
+#[test]
+fn malformed_carrier_and_completed_schema_errors_remain_semantic() {
+    let mut value = fixture();
+    value.set_occurrence_bytes(0, vec![0xff; 40]).unwrap();
+    let error = value.proof_carrier_v1(&value.actions()[0]).unwrap_err();
+    assert!(matches!(
+        error,
+        SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, .. }
+    ));
+    assert_eq!(error.clone().into_local_refusal(), Err(error.clone()));
+    let message = error.to_string();
+    assert!(
+        matches!(error.into_norito_error(), ncore::Error::Message(actual) if actual == message)
+    );
+    assert_eq!(
+        SignedAttachmentErrorV1::NoActions.into_local_refusal(),
+        Err(SignedAttachmentErrorV1::NoActions)
+    );
+}
+
+#[test]
+fn encoding_error_projection_keeps_actual_enclosing_observer() {
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let original = norito::with_decode_limits_scope(limits, || {
+        ncore::classify_decode_attempt(|| ncore::reserve_decode_allocation(7))
+    })
+    .unwrap_err();
+    let retained = original.local_refusal().unwrap();
+    let error = SignedAttachmentErrorV1::from_encoding_attempt(original);
+    assert_eq!(error.into_local_refusal(), Ok(retained));
+    let completed =
+        ncore::classify_decode_attempt(|| Err::<(), _>(ncore::Error::LengthMismatch)).unwrap_err();
+    assert_eq!(
+        SignedAttachmentErrorV1::from_encoding_attempt(completed),
+        SignedAttachmentErrorV1::CanonicalEncodingFailed
+    );
+}
+
+#[test]
+fn original_json_base64_refusal_survives_binary_transport_and_retry() {
+    let value = fixture();
+    let encoded = STANDARD.encode(frame(&value));
+    let json = format!("\"{encoded}\"");
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    for full_json in [false, true] {
+        let attempt = norito::with_decode_limits_scope(limits, || {
+            ncore::classify_decode_attempt(|| {
+                let decoded = if full_json {
+                    norito::json::from_str::<SignedAttachmentsV1>(&json)
+                } else {
+                    decode_canonical_base64_frame(&encoded)
+                };
+                decoded.map_err(norito::json::Error::into_core_error)
+            })
+        })
+        .unwrap_err();
+        assert_eq!(
+            attempt.kind(),
+            ncore::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        let original = attempt
+            .local_refusal()
+            .expect("actual original JSON source refusal");
+        assert!(
+            matches!(original.resource_error(), ncore::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 } if attempted > 0)
+        );
+        let retired =
+            ncore::classify_decode_attempt(|| Err::<(), _>(attempt.into_error())).unwrap_err();
+        assert_eq!(retired.kind(), ncore::DecodeAttemptErrorKind::Invalid);
+        assert_eq!(
+            retired.error().decode_resource_error(),
+            Some(original.resource_error())
+        );
+    }
+    assert_eq!(decode_canonical_base64_frame(&encoded).unwrap(), value);
+    assert_eq!(
+        norito::json::from_str::<SignedAttachmentsV1>(&json).unwrap(),
+        value
+    );
+    let malformed = STANDARD.encode([0xff; 40]);
+    let invalid = ncore::classify_decode_attempt(|| {
+        decode_canonical_base64_frame(&malformed).map_err(norito::json::Error::into_core_error)
+    })
+    .unwrap_err();
+    assert_eq!(invalid.kind(), ncore::DecodeAttemptErrorKind::Invalid);
+    assert!(invalid.local_refusal().is_none());
+    assert!(invalid.error().to_string().contains("invalid magic header"));
+}

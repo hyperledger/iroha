@@ -56,13 +56,8 @@ max_frame_bytes_other = 131072
 signature_batch_max_bls = 4
 
 [static.crypto]
-allowed_signing = ["ed25519", "secp256k1", "bls_normal"]
 
-# Empty: parsing derives the curve ids from `allowed_signing` (ed25519 1, bls_normal 3,
-# secp256k1 4), as Kagami's Taira configs list them. The code default omits bls_normal, and the
-# bls_normal id only exists in builds with the data model's `bls` feature, so it is not written.
-[static.crypto.curves]
-allowed_curve_ids = []
+# Ordinary signature and controller policy is authored in signed genesis.
 
 [static.confidential]
 enabled = true

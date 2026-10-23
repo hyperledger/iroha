@@ -182,7 +182,6 @@ fn semantic_cursors_and_mixed_configuration_are_not_physical_caches() {
         "state.canonical_runtime",
         "state.pipeline",
         "state.oracle",
-        "state.crypto",
         "state.zk",
         "state.nexus",
         "state.gov",
@@ -382,10 +381,7 @@ fn authority_metadata_never_grants_raw_row_disclosure_or_completed_projection() 
         fields["state.content"].role,
         Role::Canonical(Canonical::Cell(Schema::Semantic { .. }))
     ));
-    assert!(matches!(
-        fields["state.crypto"].role,
-        Role::Canonical(Canonical::Cell(Schema::Semantic { .. }))
-    ));
+    assert!(matches!(fields["state.crypto"].role, Role::Local(_)));
     assert!(matches!(
         fields["state.oracle"].role,
         Role::Canonical(Canonical::Cell(Schema::Semantic { .. }))

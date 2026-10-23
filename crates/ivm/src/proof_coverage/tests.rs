@@ -2366,43 +2366,47 @@ fn open_semantics_are_unique_and_still_evidenced() {
         "SM4_CCM_OPEN",
     ] {
         assert!(SYSCALLS.iter().any(|entry| entry.name == name), "{name}");
-        assert!(record("sm_syscall_local_switch").subject.contains(name));
     }
-    // The SM record names all three switches and cites each one, so removing
-    // only the host flag, only the Cargo feature gate or only the
-    // configuration derivation leaves a failing citation behind.
-    let sm = record("sm_syscall_local_switch");
-    for term in ["`sm_enabled`", "`sm` Cargo feature", "`allowed_signing`"] {
-        assert!(sm.reason.contains(term), "SM record omits {term}");
+    // Every remaining open condition is still protected by its exact citations.
+    for semantic in OPEN_SEMANTICS {
+        for citation in semantic.evidence {
+            let text = scan::read_non_test(citation.path);
+            rejects(
+                check_open_semantic(semantic, &|path| {
+                    if path == citation.path {
+                        text.replace(citation.symbol, "")
+                    } else {
+                        scan::read_non_test(path)
+                    }
+                }),
+                citation.symbol,
+            );
+        }
     }
-    let cited = |path: &str, symbol: &str| {
-        sm.evidence
+    assert!(
+        !OPEN_SEMANTICS
             .iter()
-            .any(|citation| citation.path == path && citation.symbol.contains(symbol))
-    };
-    assert!(cited("crates/ivm/src/core_host.rs", "!self.sm_enabled"));
-    assert!(cited(
-        "crates/iroha_config/src/parameters/actual.rs",
-        "cfg(not(feature = \"sm\"))"
-    ));
-    assert!(cited(
-        "crates/iroha_config/src/parameters/actual.rs",
-        "Algorithm::Sm2"
-    ));
-    assert!(cited(CORE_HOST, "sm_helpers_enabled()"));
-    for citation in sm.evidence {
-        let text = scan::read_non_test(citation.path);
-        rejects(
-            check_open_semantic(sm, &|path| {
-                if path == citation.path {
-                    text.replace(citation.symbol, "")
-                } else {
-                    scan::read_non_test(path)
-                }
-            }),
-            citation.symbol,
+            .any(|entry| entry.id == "sm_syscall_local_switch")
+    );
+    for path in [
+        "crates/ivm/src/host.rs",
+        "crates/ivm/src/core_host.rs",
+        "crates/ivm/src/mock_wsv.rs",
+        CORE_HOST,
+    ] {
+        let source = scan::read_non_test(path);
+        assert!(
+            !source.contains("sm_enabled"),
+            "retired SM host toggle in {path}"
+        );
+        assert!(
+            !source.contains("sm_helpers_enabled"),
+            "node policy reaches SM host {path}"
         );
     }
+    let default_host = scan::read_non_test("crates/ivm/src/host.rs");
+    assert!(!default_host.contains("Sm2PublicKey::default_distid()"));
+    assert!(default_host.contains("Sm2PublicKey::DEFAULT_DISTID"));
     // Node-local limits that change an outcome are open, not silently bound.
     for (id, needle) in [
         (

@@ -7,7 +7,7 @@
 //! accounts, `64 * (2^32 - 1)` is far below the P-256 scalar order; aggregate equality in the group
 //! is therefore equality of the represented integers, not merely equality modulo the scalar field.
 use super::{
-    AnonymousPgcError, AnonymousPgcParametersV1, TwistedElGamalCiphertextV1,
+    AnonymousPgcError, AnonymousPgcParametersV1, AnonymousPgcReadError, TwistedElGamalCiphertextV1,
     TwistedElGamalPublicKeyV1, fixed_array::FixedProofArray,
 };
 use crate::privacy_engines::p256::{
@@ -290,29 +290,33 @@ impl AnonymousPgcBootstrapProofV1 {
     /// # Errors
     ///
     /// Rejects oversized, truncated, trailing, malformed, noncanonical, unknown-version, or
-    /// incorrectly shaped proof bytes. Canonicality is enforced explicitly by byte-for-byte
-    /// re-encoding before any equation is attempted.
+    /// incorrectly shaped proof bytes. Canonicality is authenticated by fallible fixed-V1
+    /// streaming comparison before any equation. Original local refusals remain typed.
     pub fn decode_exact(
         bytes: &[u8],
         statement: &AnonymousPgcBootstrapStatementV1<'_>,
-    ) -> Result<Self, AnonymousPgcError> {
+    ) -> Result<Self, AnonymousPgcReadError> {
         if bytes.len() > MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1 {
             return Err(AnonymousPgcError::EncodingTooLarge {
                 actual: bytes.len(),
                 max: MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1,
-            });
+            }
+            .into());
         }
-        let proof = norito::codec::decode_exact_from_slice_with_limits::<Self>(
-            bytes,
-            bootstrap_proof_decode_limits(statement, bytes.len()),
-        )
-        .map_err(|_| AnonymousPgcError::InvalidNoritoEncoding)?;
-        if proof.encode().as_slice() != bytes {
-            return Err(AnonymousPgcError::InvalidNoritoEncoding);
-        }
+        let proof = norito::core::classify_decode_attempt(|| {
+            let proof = norito::codec::decode_exact_from_slice_with_limits::<Self>(
+                bytes,
+                bootstrap_proof_decode_limits(statement, bytes.len()),
+            )?;
+            // Authenticate the same fixed-V1 bare layout against the borrowed
+            // source without a second proof Vec or infallible re-encoding.
+            norito::codec::verify_exact_payload(&proof, bytes)?;
+            Ok(proof)
+        })?;
         proof.validate_shape(statement)?;
         Ok(proof)
     }
+
     fn validate_shape(
         &self,
         statement: &AnonymousPgcBootstrapStatementV1<'_>,
@@ -953,9 +957,9 @@ pub fn verify_bootstrap(
 pub fn verify_bootstrap_encoded(
     statement: &AnonymousPgcBootstrapStatementV1<'_>,
     proof_bytes: &[u8],
-) -> Result<VerifiedAnonymousPgcBootstrapV1, AnonymousPgcError> {
+) -> Result<VerifiedAnonymousPgcBootstrapV1, AnonymousPgcReadError> {
     let proof = AnonymousPgcBootstrapProofV1::decode_exact(proof_bytes, statement)?;
-    verify_bootstrap(statement, &proof)
+    verify_bootstrap(statement, &proof).map_err(Into::into)
 }
 #[cfg(test)]
 mod tests {
@@ -1625,19 +1629,25 @@ mod tests {
                 &vec![0; MAX_PGC_BOOTSTRAP_PROOF_BYTES_V1 + 1],
                 &statement,
             ),
-            Err(AnonymousPgcError::EncodingTooLarge { .. })
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::EncodingTooLarge { .. }
+            ))
         ));
         let mut unknown_version = proof.clone();
         unknown_version.version += 1;
         assert!(matches!(
             AnonymousPgcBootstrapProofV1::decode_exact(&unknown_version.encode(), &statement),
-            Err(AnonymousPgcError::UnsupportedBootstrapProofVersion { .. })
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::UnsupportedBootstrapProofVersion { .. }
+            ))
         ));
         let mut wrong_account_shape = proof.clone();
         wrong_account_shape.accounts.pop();
         assert!(matches!(
             AnonymousPgcBootstrapProofV1::decode_exact(&wrong_account_shape.encode(), &statement),
-            Err(AnonymousPgcError::InvalidBootstrapProofShape)
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::InvalidBootstrapProofShape
+            ))
         ));
         let mut oversized_accounts = proof.clone();
         oversized_accounts
@@ -1646,7 +1656,7 @@ mod tests {
         let oversized = oversized_accounts.encode();
         assert!(matches!(
             AnonymousPgcBootstrapProofV1::decode_exact(&oversized, &statement),
-            Err(AnonymousPgcError::InvalidNoritoEncoding)
+            Err(AnonymousPgcReadError::Codec(ref original)) if original.local_refusal().is_none()
         ));
         let encoded_count = 17_u64.to_le_bytes();
         let count_offset = oversized
@@ -1657,7 +1667,7 @@ mod tests {
         forged[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
         assert!(matches!(
             AnonymousPgcBootstrapProofV1::decode_exact(&forged, &statement),
-            Err(AnonymousPgcError::InvalidNoritoEncoding)
+            Err(AnonymousPgcReadError::Codec(ref original)) if original.local_refusal().is_none()
         ));
         let legacy = LegacyBootstrapProofV1 {
             version: proof.version,
@@ -1679,7 +1689,7 @@ mod tests {
         assert_ne!(legacy_bytes, proof.encode());
         assert!(matches!(
             AnonymousPgcBootstrapProofV1::decode_exact(&legacy_bytes, &statement),
-            Err(AnonymousPgcError::InvalidNoritoEncoding)
+            Err(AnonymousPgcReadError::Codec(ref original)) if original.local_refusal().is_none()
         ));
     }
     #[test]
@@ -1755,6 +1765,79 @@ mod tests {
                 binding(),
             ),
             Err(AnonymousPgcError::ZeroPgcTotalSupply)
+        ));
+    }
+    #[test]
+    fn bootstrap_decoder_preserves_original_enclosing_refusal_and_same_source_retry() {
+        let fixture = Fixture::new_16();
+        let statement = fixture.statement();
+        let bytes = fixture.prove().encode();
+        let pointer = bytes.as_ptr();
+        let limit = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let first = norito::with_decode_limits_scope(limit, || {
+            verify_bootstrap_encoded(&statement, &bytes)
+        })
+        .unwrap_err();
+        let AnonymousPgcReadError::Codec(first) = first else {
+            panic!("actual decoder refusal must retain codec owner")
+        };
+        let retained = first.local_refusal().expect("original enclosing quota");
+        assert_eq!(
+            retained.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        let norito::Error::ScopedDecodeResource(original) = first.error() else {
+            panic!("original scoped error")
+        };
+        assert_eq!(
+            retained.resource_error(),
+            first.error().decode_resource_error().unwrap()
+        );
+        assert_eq!(retained.to_string(), original.to_string());
+        let second = norito::with_decode_limits_scope(limit, || {
+            verify_bootstrap_encoded(&statement, &bytes)
+        })
+        .unwrap_err();
+        let AnonymousPgcReadError::Codec(second) = second else {
+            panic!("second original decoder refusal")
+        };
+        let second_owner = second.local_refusal().unwrap();
+        assert_eq!(retained.resource_error(), second_owner.resource_error());
+        assert_ne!(
+            retained, second_owner,
+            "equal quotas cannot share original scope identity"
+        );
+        assert_eq!(bytes.as_ptr(), pointer);
+        let retried = verify_bootstrap_encoded(&statement, &bytes)
+            .expect("fresh unconstrained original-source retry");
+        assert_eq!(retried.account_count(), 16);
+        assert_eq!(retried.total_supply(), fixture.total_supply);
+        assert_eq!(bytes.as_ptr(), pointer);
+    }
+    #[test]
+    fn bootstrap_decoder_intrinsic_and_malformed_refusals_never_become_local_capacity() {
+        let fixture = Fixture::new_16();
+        let statement = fixture.statement();
+        let proof = fixture.prove();
+        let mut too_many = proof.clone();
+        too_many.accounts.push(proof.accounts[0].clone());
+        let oversized = too_many.encode();
+        let mut trailing = proof.encode();
+        trailing.push(0);
+        for bytes in [oversized.as_slice(), trailing.as_slice(), &[]] {
+            let error = verify_bootstrap_encoded(&statement, bytes).unwrap_err();
+            let AnonymousPgcReadError::Codec(original) = error else {
+                panic!("actual structural wire refusal")
+            };
+            assert!(original.local_refusal().is_none());
+        }
+        let mut wrong_version = proof;
+        wrong_version.version += 1;
+        assert!(matches!(
+            verify_bootstrap_encoded(&statement, &wrong_version.encode()),
+            Err(AnonymousPgcReadError::Relation(
+                AnonymousPgcError::UnsupportedBootstrapProofVersion { .. }
+            ))
         ));
     }
 }

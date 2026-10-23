@@ -555,3 +555,64 @@ for (const [label, Client] of [["ToriiClient", ToriiClient], ["ToriiBrowserClien
     );
   });
 }
+
+const BOUNDED_BOND_LOOKUPS = [
+  (client, options) => client.getBond(FIXTURE.payment_asset, options),
+  (client, options) => client.getBondEntitlements(FIXTURE.payment_asset, options),
+];
+
+test("ToriiBrowserClient bounded bond lookups accept genuinely empty 404 bodies", async () => {
+  for (const lookup of BOUNDED_BOND_LOOKUPS) {
+    for (const headers of [undefined, { "Content-Length": "0" }]) {
+      const client = new ToriiBrowserClient("https://torii.example", {
+        fetchImpl: async () => new Response(null, { status: 404, headers }),
+      });
+      assert.equal(await lookup(client), null);
+    }
+  }
+});
+
+test("ToriiBrowserClient bounded bond lookups reject inconsistent empty-body lengths", async () => {
+  for (const lookup of BOUNDED_BOND_LOOKUPS) {
+    for (const [length, expected] of [
+      ["1", /Content-Length does not match the response body/u],
+      ["00", /Content-Length must be a canonical unsigned decimal integer/u],
+      ["999999999", /exceeds its .* response limit/u],
+    ]) {
+      const client = new ToriiBrowserClient("https://torii.example", {
+        fetchImpl: async () => new Response(null, {
+          status: 404,
+          headers: { "Content-Length": length },
+        }),
+      });
+      await assert.rejects(() => lookup(client), expected);
+    }
+  }
+});
+
+test("ToriiBrowserClient bounded bond lookups preserve abort and missing-reader refusals", async () => {
+  for (const lookup of BOUNDED_BOND_LOOKUPS) {
+    const controller = new AbortController();
+    const original = new Error("original empty-body abort");
+    const aborted = new ToriiBrowserClient("https://torii.example", {
+      fetchImpl: async () => {
+        controller.abort(original);
+        return new Response(null, { status: 404 });
+      },
+    });
+    await assert.rejects(() => lookup(aborted, { signal: controller.signal }), (error) => error === original);
+    for (const body of [undefined, {}, { getReader: 0 }]) {
+      const malformed = new ToriiBrowserClient("https://torii.example", {
+        fetchImpl: async () => ({ status: 404, body, headers: new Headers() }),
+      });
+      await assert.rejects(() => lookup(malformed), /requires a byte-stream response body/u);
+    }
+    const emptyJson = new ToriiBrowserClient("https://torii.example", {
+      fetchImpl: async () => new Response(null, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    });
+    await assert.rejects(() => lookup(emptyJson));
+  }
+});

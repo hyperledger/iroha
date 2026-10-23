@@ -21,11 +21,11 @@ fn claimed_qpcs_source_carrier_pins_exact_retention_and_local_work() {
     assert_eq!(ledger.claimed_source_binding_hash_bytes, 5_444);
     assert_eq!(ledger.carrier_binding_hash_bytes, 2_382);
     assert_eq!(ledger.combined_binding_hash_bytes, 7_826);
-    assert_eq!(ledger.local_work_units, 7_199_718);
-    assert_eq!(ledger.binding_lane_permutations, 4_236);
-    assert_eq!(ledger.binding_poseidon_rounds, 275_340);
-    assert_eq!(ledger.binding_field_multiplications, 3_850_524);
-    assert_eq!(ledger.binding_field_additions, 3_312_552);
+    assert_eq!(ledger.local_work_units, 7_179_426);
+    assert_eq!(ledger.binding_lane_permutations, 4_224);
+    assert_eq!(ledger.binding_poseidon_rounds, 274_560);
+    assert_eq!(ledger.binding_field_multiplications, 3_839_616);
+    assert_eq!(ledger.binding_field_additions, 3_303_168);
     assert_eq!(
         ledger.local_work_units,
         ledger.pre_binding_local_work_units
@@ -105,7 +105,7 @@ fn local_ledger_explicitly_excludes_existing_subtransition_costs() {
     assert!(ledger_docs.contains("retained inline"));
     assert!(ledger_docs.contains("28,816 before"));
     assert!(ledger_docs.contains("7,826 binding bytes"));
-    assert!(ledger_docs.contains("7,199,718 total"));
+    assert!(ledger_docs.contains("7,179,426 total"));
     assert!(ledger_docs.contains("per canonical check, modular operation"));
     assert!(ledger_docs.contains("not an instruction count"));
     assert!(ledger_docs.contains("excludes control-flow comparisons"));

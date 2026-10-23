@@ -49,7 +49,7 @@
 //! [`ZkAmsMkheErrorV1::ReleaseUnavailable`] before inspecting attacker bytes.
 
 #![allow(dead_code)]
-use super::{BgvProfile, PlaintextModulus, ZkAmsMkheErrorV1, keccak256};
+use super::{BgvProfile, PlaintextModulus, ZkAmsMkheErrorV1};
 #[cfg(test)]
 use core::convert::Infallible;
 const RELEASE_RING_DEGREE_V1: usize = 131_072;
@@ -355,15 +355,25 @@ fn require_candidate_profile_shape(profile: &BgvProfile) -> Result<(), ZkAmsMkhe
     Ok(())
 }
 fn audit_digest(audit: ZkAmsPhase23MaskProofAuditV1) -> [u8; 32] {
-    let mut frame = Vec::with_capacity(AUDIT_DIGEST_DOMAIN_V1.len() + 256);
-    frame.extend_from_slice(AUDIT_DIGEST_DOMAIN_V1);
-    frame.extend_from_slice(&audit.ring_degree.to_be_bytes());
-    frame.extend_from_slice(&audit.challenge_stride.to_be_bytes());
-    frame.extend_from_slice(&audit.challenge_parent_count.to_be_bytes());
-    frame.push(audit.challenge_repetitions);
-    frame.extend_from_slice(&audit.challenge_space_bits.to_be_bytes());
-    frame.push(audit.extraction_scale);
-    frame.extend_from_slice(&audit.extractor_l1_bound.to_be_bytes());
+    let mut hash = super::native_outer_identity_v1(
+        super::NativeOuterIdentityRoleV1::Release,
+        AUDIT_DIGEST_DOMAIN_V1,
+        30 + ZK_AMS_PHASE23_MASK_NEXT_DESIGN_OPTIONS_V1.len(),
+    );
+    hash.push_field(&audit.ring_degree.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.challenge_stride.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.challenge_parent_count.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[audit.challenge_repetitions])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.challenge_space_bits.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[audit.extraction_scale])
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.extractor_l1_bound.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
     for bits in [
         audit.extracted_ephemeral_bound_bits,
         audit.extracted_error_bound_bits,
@@ -371,7 +381,8 @@ fn audit_digest(audit: ZkAmsPhase23MaskProofAuditV1) -> [u8; 32] {
         audit.extracted_centered_quotient_bound_bits,
         audit.candidate_fresh_residual_bits,
     ] {
-        frame.extend_from_slice(&bits.to_be_bytes());
+        hash.push_field(&bits.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
     for bytes in [
         audit.response_payload_per_repetition,
@@ -380,7 +391,8 @@ fn audit_digest(audit: ZkAmsPhase23MaskProofAuditV1) -> [u8; 32] {
         audit.governed_complete_party_ceiling,
         audit.work_units_per_full_chunk,
     ] {
-        frame.extend_from_slice(&bytes.to_be_bytes());
+        hash.push_field(&bytes.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
     for bits in [
         audit.corrected_switch_residual_bits,
@@ -394,11 +406,14 @@ fn audit_digest(audit: ZkAmsPhase23MaskProofAuditV1) -> [u8; 32] {
         audit.corrected_final_residual_bits,
         audit.centered_capacity_bits,
     ] {
-        frame.extend_from_slice(&bits.to_be_bytes());
+        hash.push_field(&bits.to_be_bytes())
+            .expect("fixed bounded MKHE identity field");
     }
-    frame.extend_from_slice(&audit.corrected_terminal_proof_bytes.to_be_bytes());
-    frame.extend_from_slice(&audit.governed_proof_ceiling_bytes.to_be_bytes());
-    frame.extend_from_slice(&[
+    hash.push_field(&audit.corrected_terminal_proof_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&audit.governed_proof_ceiling_bytes.to_be_bytes())
+        .expect("fixed bounded MKHE identity field");
+    hash.push_field(&[
         audit.per_full_chunk_scale_four_primitive_certified.into(),
         audit.corrected_global_noise_fits.into(),
         audit.corrected_terminal_proof_fits.into(),
@@ -407,11 +422,16 @@ fn audit_digest(audit: ZkAmsPhase23MaskProofAuditV1) -> [u8; 32] {
         audit.partial_padding_certified.into(),
         audit.blocker_mask,
         audit.release_available.into(),
-    ]);
+    ])
+    .expect("fixed bounded MKHE identity field");
     for option in ZK_AMS_PHASE23_MASK_NEXT_DESIGN_OPTIONS_V1 {
-        frame.push(option as u8);
+        hash.push_field(&[option as u8])
+            .expect("fixed bounded MKHE identity field");
     }
-    keccak256(&frame)
+    *hash
+        .finish()
+        .expect("exact MKHE outer identity field count")
+        .as_bytes()
 }
 fn as_u8(value: usize) -> Result<u8, ZkAmsMkheErrorV1> {
     u8::try_from(value).map_err(|_| ZkAmsMkheErrorV1::ResourceCeilingExceeded)

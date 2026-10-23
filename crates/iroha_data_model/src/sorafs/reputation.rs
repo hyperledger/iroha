@@ -3411,10 +3411,9 @@ mod tests {
         reason = "This ignored fixture producer must fail at runtime when requested without its features while ordinary no-default test builds remain supported"
     )]
     fn print_reputation_event_id_identity_fixture() {
-        assert!(cfg!(feature = "governance"), "capture requires governance");
         assert!(cfg!(feature = "http"), "capture requires HTTP");
         let fixture = norito::json!({
-            "governance": (cfg!(feature = "governance")),
+            "governance": true,
             "http": (cfg!(feature = "http")),
             "values": (reputation_event_id_identity_fixture_values()),
         });

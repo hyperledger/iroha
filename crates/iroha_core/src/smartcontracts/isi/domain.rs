@@ -23,10 +23,7 @@ pub mod isi {
     use iroha_crypto::{Algorithm, PublicKey};
     use iroha_data_model::{
         IntoKeyValue,
-        account::{
-            AccountController,
-            curve::{CurveId, CurveRegistryError},
-        },
+        account::AccountController,
         alias_setup::{AccountAliasRoleV1, AliasAccountIntentV1},
         asset::definition::{
             validate_asset_alias_against_names, validate_asset_description, validate_asset_name,
@@ -35,6 +32,7 @@ pub mod isi {
             ASSET_ISSUER_USAGE_POLICY_METADATA_KEY, ASSET_TRANSFER_CONTROL_METADATA_KEY,
             AssetBalancePolicy,
         },
+        crypto_admission_policy::CryptoAdmissionPolicyV1,
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
         nexus::DataSpaceCatalog,
     };
@@ -299,11 +297,23 @@ mod tests {
     };
     use iroha_test_samples::{ALICE_ID, BOB_ID};
     use nonzero_ext::nonzero;
-    use std::sync::Arc;
     fn test_state() -> State {
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
-        State::new_for_testing(World::default(), kura, query)
+        let state = State::new_for_testing(World::default(), kura, query);
+        set_controller_fixture_policy(&state, Algorithm::ALL.to_vec());
+        state
+    }
+    fn set_controller_fixture_policy(state: &State, algorithms: Vec<Algorithm>) {
+        let policy =
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(algorithms)
+                .unwrap();
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .get_mut()
+            .set_parameter(policy.into_parameter().unwrap())
+            .unwrap();
+        parameters.commit();
     }
     #[test]
     fn issuer_usage_policy_metadata_requires_definition_owner_in_native_execution() {
@@ -1024,9 +1034,11 @@ mod tests {
     }
     #[test]
     fn domain_controller_capabilities_check_multisig_members_with_checked_algorithm_access() {
-        let allowed = [Algorithm::Ed25519];
-        let allowed_curve_ids =
-            iroha_config::parameters::defaults::crypto::derive_curve_ids_from_algorithms(&allowed);
+        let allowed =
+            iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                Algorithm::Ed25519,
+            ])
+            .unwrap();
         let ed25519 = fixture_keypair(0x51, Algorithm::Ed25519);
         let secp256k1 = fixture_keypair(0x52, Algorithm::Secp256k1);
         let allowed_policy = MultisigPolicy::new(
@@ -1034,10 +1046,9 @@ mod tests {
             vec![MultisigMember::new(ed25519.public_key().clone(), 1).expect("member")],
         )
         .expect("policy");
-        super::isi::ensure_controller_capabilities(
+        super::isi::ensure_controller_policy(
             &AccountController::Multisig(allowed_policy),
             &allowed,
-            &allowed_curve_ids,
         )
         .expect("Ed25519 multisig member should be accepted");
         let disallowed_policy = MultisigPolicy::new(
@@ -1045,10 +1056,9 @@ mod tests {
             vec![MultisigMember::new(secp256k1.public_key().clone(), 1).expect("member")],
         )
         .expect("policy");
-        let err = super::isi::ensure_controller_capabilities(
+        let err = super::isi::ensure_controller_policy(
             &AccountController::Multisig(disallowed_policy),
             &allowed,
-            &allowed_curve_ids,
         )
         .expect_err("Secp256k1 multisig member should be rejected");
         assert!(matches!(
@@ -3962,16 +3972,7 @@ mod tests {
         let domain_id: DomainId = DomainId::try_new("disallowed", "curves").expect("domain id");
         let authority = (*ALICE_ID).clone();
         seed_domain(&mut state, &domain_id, &authority);
-        {
-            let mut guard = state.crypto.write();
-            let mut cfg = (**guard).clone();
-            cfg.allowed_signing = vec![Algorithm::Ed25519];
-            cfg.allowed_curve_ids =
-                iroha_config::parameters::defaults::crypto::derive_curve_ids_from_algorithms(
-                    &cfg.allowed_signing,
-                );
-            *guard = Arc::new(cfg);
-        }
+        set_controller_fixture_policy(&state, vec![Algorithm::Ed25519]);
         let secp_pair = checked_keypair_with_algorithm(Algorithm::Secp256k1);
         let account_id = AccountId::new(secp_pair.public_key().clone());
         let new_account = Account::new(account_id.clone());
@@ -3983,49 +3984,51 @@ mod tests {
             .expect_err("registration with disallowed algorithm must fail");
         let err_string = err.to_string();
         assert!(
-            err_string.contains("crypto.allowed_signing"),
-            "error should reference allowed_signing gating: {err_string}"
+            err_string.contains("committed crypto admission policy"),
+            "error should reference committed algorithm policy: {err_string}"
         );
     }
     #[cfg(feature = "bls")]
     #[test]
-    fn register_account_allows_bls_even_when_not_in_allowed_signing() {
+    fn register_account_rejects_bls_outside_committed_ordinary_policy() {
         let mut state = test_state();
         let domain_id: DomainId = DomainId::try_new("bls", "allowed").expect("domain id");
         let authority = (*ALICE_ID).clone();
         seed_domain(&mut state, &domain_id, &authority);
-        {
-            let mut guard = state.crypto.write();
-            let mut cfg = (**guard).clone();
-            cfg.allowed_signing = vec![Algorithm::Ed25519];
-            cfg.allowed_curve_ids =
-                iroha_config::parameters::defaults::crypto::derive_curve_ids_from_algorithms(
-                    &cfg.allowed_signing,
-                );
-            *guard = Arc::new(cfg);
-        }
+        set_controller_fixture_policy(&state, vec![Algorithm::Ed25519]);
         let bls_pair = checked_keypair_with_algorithm(Algorithm::BlsNormal);
         let account_id = AccountId::new(bls_pair.public_key().clone());
         let new_account = Account::new(account_id.clone());
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
         let mut block = state.block(header);
         let mut tx = block.transaction();
-        Register::account(new_account)
+        let error = Register::account(new_account)
             .execute(&authority, &mut tx)
-            .expect("BLS controllers should be allowed for consensus accounts");
+            .expect_err("a consensus algorithm does not exempt an ordinary controller");
+        assert!(
+            error
+                .to_string()
+                .contains("committed crypto admission policy")
+        );
+        assert!(tx.world.account(&account_id).is_err());
+        drop(tx);
+        drop(block);
+        set_controller_fixture_policy(&state, vec![Algorithm::Ed25519, Algorithm::BlsNormal]);
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        let mut tx = block.transaction();
+        Register::account(Account::new(account_id.clone()))
+            .execute(&authority, &mut tx)
+            .unwrap();
+        assert!(tx.world.account(&account_id).is_ok());
     }
     #[test]
-    fn register_account_rejects_disallowed_curve_ids() {
+    fn register_account_rejects_missing_original_crypto_policy() {
         let mut state = test_state();
         let domain_id: DomainId = DomainId::try_new("restricted", "curves").expect("domain id");
         let authority = (*ALICE_ID).clone();
         seed_domain(&mut state, &domain_id, &authority);
-        {
-            let mut guard = state.crypto.write();
-            let mut cfg = (**guard).clone();
-            cfg.allowed_curve_ids.clear();
-            *guard = Arc::new(cfg);
-        }
+        // Structural malformed-restore fixture: do not use a production removal API.
+        state.world.parameters = mv::cell::Cell::new(crate::state::StateParameters::default());
         let keypair = checked_keypair();
         let account_id = AccountId::new(keypair.public_key().clone());
         let new_account = Account::new(account_id.clone());
@@ -4034,11 +4037,72 @@ mod tests {
         let mut tx = block.transaction();
         let err = Register::account(new_account)
             .execute(&authority, &mut tx)
-            .expect_err("registration with disallowed curve ids must fail");
+            .expect_err("registration without its mandatory original policy must fail");
         let err_string = err.to_string();
         assert!(
-            err_string.contains("crypto.curves.allowed_curve_ids"),
-            "error should reference curve gating: {err_string}"
+            err_string.contains("ordinary crypto policy has not been initialized"),
+            "error should identify missing original policy: {err_string}"
+        );
+    }
+    #[test]
+    fn register_account_keeps_original_policy_after_pending_and_applied_widening() {
+        let state = test_state();
+        set_controller_fixture_policy(&state, vec![Algorithm::Ed25519]);
+        let account_id = AccountId::new(
+            fixture_keypair(0x66, Algorithm::Secp256k1)
+                .public_key()
+                .clone(),
+        );
+        let before = crate::snapshot::canonical_state_snapshot_bytes(&state);
+        {
+            let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+            {
+                let mut tx = block.transaction();
+                let next =
+                    iroha_data_model::crypto_admission_policy::CryptoAdmissionPolicyV1::new(vec![
+                        Algorithm::Ed25519,
+                        Algorithm::Secp256k1,
+                    ])
+                    .unwrap();
+                tx.world
+                    .parameters
+                    .get_mut()
+                    .set_parameter(next.into_parameter().unwrap())
+                    .unwrap();
+                let error = Register::account(Account::new(account_id.clone()))
+                    .execute(&ALICE_ID, &mut tx)
+                    .unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("committed crypto admission policy")
+                );
+                assert!(tx.world.account(&account_id).is_err());
+                tx.apply();
+            }
+            let mut sibling = block.transaction();
+            assert!(
+                sibling
+                    .world
+                    .parameters
+                    .get()
+                    .require_crypto_policy()
+                    .unwrap()
+                    .allows(Algorithm::Secp256k1)
+            );
+            let error = Register::account(Account::new(account_id.clone()))
+                .execute(&ALICE_ID, &mut sibling)
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("committed crypto admission policy")
+            );
+            assert!(sibling.world.account(&account_id).is_err());
+        }
+        assert_eq!(
+            crate::snapshot::canonical_state_snapshot_bytes(&state),
+            before
         );
     }
     #[test]

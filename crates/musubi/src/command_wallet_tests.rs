@@ -137,7 +137,6 @@ fn wallet_setup_discovers_without_account_and_missing_policy_never_prepares_a_cl
         "network_id": (network().network_id),
         "network_prefix": 369,
         "allowed_signing": ["ed25519"],
-        "default_signing": "ed25519",
     });
     let body = norito::json::to_vec(&capabilities).unwrap();
     let server = thread::spawn(move || {

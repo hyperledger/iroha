@@ -220,7 +220,7 @@ impl<C: BlsConfiguration + ?Sized> ManagedSecretKey<C> {
     }
     fn try_load_secret(&self) -> Result<W3fSecretKey<C::Engine>, ParseError> {
         W3fSecretKey::<C::Engine>::from_bytes(self.bytes.as_slice())
-            .map_err(|err| ParseError(err.to_string()))
+            .map_err(|err| ParseError::Invalid(err.to_string()))
     }
     /// Copy the secret bytes into a buffer that clears itself on drop.
     pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
@@ -235,12 +235,12 @@ impl<C: BlsConfiguration + ?Sized> ManagedSecretKey<C> {
     }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
         if !bytes.is_empty() && bytes.iter().all(|&byte| byte == 0) {
-            return Err(ParseError(
+            return Err(ParseError::Invalid(
                 "BLS secret key material must not be all zero".to_string(),
             ));
         }
         let secret = W3fSecretKey::<C::Engine>::from_bytes(bytes)
-            .map_err(|err| ParseError(err.to_string()))?;
+            .map_err(|err| ParseError::Invalid(err.to_string()))?;
         Ok(Self::new(&secret))
     }
     fn try_sign_bytes(&self, message: &[u8]) -> Result<Vec<u8>, Error> {
@@ -656,7 +656,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
         let key = ManagedSecretKey::from_bytes(payload)?;
         let identity = PublicKey::<C::Engine>(Default::default());
         if key.try_public_key()?.to_bytes() == identity.to_bytes() {
-            return Err(ParseError("BLS secret key is zero".to_string()));
+            return Err(ParseError::Invalid("BLS secret key is zero".to_string()));
         }
         Ok(key)
     }

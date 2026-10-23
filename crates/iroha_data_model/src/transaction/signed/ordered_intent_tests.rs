@@ -1663,3 +1663,41 @@ fn capture_signed_attachment_vectors() {
     std::fs::write(&path, signed_attachment_vectors()).expect("write vectors");
     println!("wrote {}", path.display());
 }
+
+#[test]
+fn payload_attachment_validation_preserves_the_actual_original_codec_refusal() {
+    let payload = fixture_payload();
+    let bytes = payload_bytes(&payload);
+    let limits = |allocation| {
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, usize::MAX)
+    };
+    let context = norito::core::DecodeBudgetContext::new(limits(usize::MAX));
+    let baseline = context
+        .with(|| TransactionBuilder::decode_payload(&bytes))
+        .expect("complete actual payload");
+    assert_eq!(baseline.payload(), &payload);
+    let demand = usize::try_from(context.consumed_allocated_bytes())
+        .expect("measured local demand fits this host");
+    assert!(demand > 0);
+    let error = norito::with_decode_limits_scope(limits(demand - 1), || {
+        norito::core::classify_decode_attempt(|| TransactionBuilder::decode_payload(&bytes))
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert!(error.local_refusal().is_some());
+    assert!(
+        matches!(error.error().decode_resource_error(), Some(norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }) if attempted > limit)
+    );
+    let direct =
+        norito::with_decode_limits_scope(limits(0), || payload.validate_signed_attachments_v1())
+            .unwrap_err();
+    assert_eq!(
+        direct.into_local_refusal().unwrap().kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    let decoded = TransactionBuilder::decode_payload(&bytes).expect("unchanged source retries");
+    assert_eq!(decoded.payload(), &payload);
+}

@@ -53,7 +53,7 @@ fn fixture_with_assignment(assignment: bool) -> (CertifiedTestChain, PrivateSett
             .map(|i| KeyPair::from_seed(vec![0xB0 + i; 32], Algorithm::BlsNormal))
             .collect::<Vec<_>>();
         keys.sort_by(|a, b| a.public_key().cmp(b.public_key()));
-        let members = keys
+        let members: Vec<_> = keys
             .iter()
             .enumerate()
             .map(|(i, pair)| {
@@ -136,6 +136,19 @@ fn fixture_with_assignment(assignment: bool) -> (CertifiedTestChain, PrivateSett
         governance_digest: Hash::new(b"public-cut opaque governance commitment"),
         prior_revisions: Vec::new(),
     };
+    // A governed origin must be nonempty; retain the historical refusal control
+    // alongside the current signed lane policy and original positive fixture.
+    assert!(matches!(
+        plan_private_settlement_pool_bootstrap_v1(
+            &config.world.private_settlement_governance.view(),
+            &config.world.private_settlement_pools.view(),
+            &config.world.private_settlement_roots.view(),
+            governance.clone(),
+            &[],
+            1,
+        ),
+        Err(crate::private_settlement::global_state::PrivateSettlementGlobalStateErrorV1::Pool)
+    ));
     let plan = plan_private_settlement_pool_bootstrap_v1(
         &config.world.private_settlement_governance.view(),
         &config.world.private_settlement_pools.view(),
@@ -170,6 +183,17 @@ fn fixture_with_assignment(assignment: bool) -> (CertifiedTestChain, PrivateSett
     );
     assert_eq!(chain.commit_at(2_000, vec![signed]), vec![true]);
     let view = chain.state().view();
+    if assignment {
+        let lane = view
+            .world()
+            .sumeragi_lanes()
+            .lane(key.route.lane_id)
+            .expect("signed lane policy retains the original committee assignment");
+        assert_eq!(lane.dataspace, key.route.dataspace_id);
+        assert_eq!(lane.incarnation, *key.route.lane_incarnation.as_ref());
+        assert!(lane.admits_anchor(chain.height()));
+        assert_eq!(lane.closing, None);
+    }
     let destination = AssetId::with_scope(fee_asset(), recipient, AssetBalanceScope::Global);
     assert_eq!(
         view.world().assets().get(&source).unwrap().as_ref(),

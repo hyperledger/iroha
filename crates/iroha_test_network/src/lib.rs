@@ -4346,9 +4346,7 @@ impl Network {
                 .expect("revision-4 test network has at least four validators"),
             &config_layers,
         ));
-        let genesis_crypto = actual_config
-            .as_ref()
-            .map(|config| config::manifest_crypto_from_actual(&config.crypto));
+        let genesis_crypto = config::test_network_crypto_admission_policy();
         let da_proof_policies = actual_config
             .as_ref()
             .map(|config| iroha_core::da::proof_policy_bundle(&config.nexus.lane_config));
@@ -8187,9 +8185,7 @@ impl NetworkBuilder {
         // Genesis runs under the protocol-default ZK validity policy on every peer.
         let confidential_policy_hash =
             Some(iroha_core::state::default_genesis_confidential_policy_hash());
-        let genesis_crypto = resolved_genesis_config
-            .as_ref()
-            .map(|config| config::manifest_crypto_from_actual(&config.crypto));
+        let genesis_crypto = config::test_network_crypto_admission_policy();
         let pipeline_config = resolved_genesis_config
             .as_ref()
             .map(|config| config.pipeline.clone());

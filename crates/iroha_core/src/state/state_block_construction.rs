@@ -173,6 +173,8 @@ impl State {
                 .expect("original acquired State block")
                 .into_fields();
             let block = StateBlock::from_fields(StateBlockFields {
+                genesis_crypto_policy: None,
+                genesis_staking_policy: None,
                 local_storage_refusal: None,
                 _ivm_refunds: pipeline_ivm_prepared_cache
                     .as_ref()

@@ -349,12 +349,13 @@ mod ecdsa_secp256k1 {
         }
         pub fn parse_private_key(payload: &[u8]) -> Result<PrivateKey, ParseError> {
             if !payload.is_empty() && payload.iter().all(|&byte| byte == 0) {
-                return Err(ParseError(
+                return Err(ParseError::Invalid(
                     "secp256k1 private key material must not be all zero".to_string(),
                 ));
             }
             let bytes = Zeroizing::new(payload.to_vec());
-            PrivateKey::from_slice(bytes.as_ref()).map_err(|err| ParseError(err.to_string()))
+            PrivateKey::from_slice(bytes.as_ref())
+                .map_err(|err| ParseError::Invalid(err.to_string()))
         }
     }
     fn signature_payload_is_all_zero(signature: &[u8]) -> bool {
@@ -493,7 +494,10 @@ mod test {
             compressed.as_bytes()
         };
         let err = EcdsaSecp256k1Sha256::parse_public_key(non_canonical).unwrap_err();
-        assert!(err.0.contains("non-canonical"), "unexpected error: {err:?}");
+        assert!(
+            err.to_string().contains("non-canonical"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

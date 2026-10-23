@@ -2,6 +2,9 @@ ErasedIterQuery<CommittedTransaction>	iroha.query.v1::iterable::transaction::Com
 ErasedIterQuery<crate::account::Account>	iroha.query.v1::iterable::account::Account
 ErasedIterQuery<crate::account::AccountId>	iroha.query.v1::iterable::account::AccountId
 ErasedIterQuery<crate::asset::definition::AssetDefinition>	iroha.query.v1::iterable::asset::AssetDefinition
+ErasedIterQuery<crate::asset::fi_link::AssetFiRelationshipViewV1>	iroha.query.v1::iterable::asset::AssetFiRelationshipViewV1
+ErasedIterQuery<crate::asset::uid::AssetUidPolicyViewV1>	iroha.query.v1::iterable::asset::AssetUidPolicyViewV1
+ErasedIterQuery<crate::asset::uid_enrollment::AssetUidEnrollmentViewV1>	iroha.query.v1::iterable::asset::AssetUidEnrollmentViewV1
 ErasedIterQuery<crate::asset::value::Asset>	iroha.query.v1::iterable::asset::Asset
 ErasedIterQuery<crate::block::BlockHeader>	iroha.query.v1::iterable::block::BlockHeader
 ErasedIterQuery<crate::block::SignedBlock>	iroha.query.v1::iterable::block::SignedBlock

@@ -93,7 +93,7 @@ pub(super) fn execute_signed_body(
         .execute_transaction(
             &mut stx,
             &authority,
-            signed_payload,
+            &signed_payload,
             &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
         )
         .map_err(|error| error.map_rejection(TransactionRejectionReason::Validation))?;

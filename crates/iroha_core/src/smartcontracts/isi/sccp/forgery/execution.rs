@@ -14,6 +14,8 @@ use super::{
     ForgeryVerificationError, Observation, VerificationControl, original_source, store,
     verify_observation,
 };
+#[cfg(test)]
+use crate::state::WorldReadOnly;
 use crate::{
     state::{
         EvidencePreparationError, StateReadOnly, StateStorageAdmissionError, StateTransaction,

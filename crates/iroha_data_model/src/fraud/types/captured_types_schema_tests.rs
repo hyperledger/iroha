@@ -22,11 +22,9 @@ const CASES: &[crate::captured_schema_tests::Case] = &[
     crate::captured_schema_tests::Case::bidirectional::<super::FraudAssessment>(
         "iroha_data_model::fraud::types::FraudAssessment",
     ),
-    #[cfg(feature = "governance")]
     crate::captured_schema_tests::Case::bidirectional::<super::GovernanceExport>(
         "iroha_data_model::fraud::types::GovernanceExport",
     ),
-    #[cfg(feature = "governance")]
     crate::captured_schema_tests::Case::bidirectional::<super::DecisionAggregate>(
         "iroha_data_model::fraud::types::DecisionAggregate",
     ),

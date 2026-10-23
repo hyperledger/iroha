@@ -83,6 +83,7 @@ fn raw_npos_genesis_receives_the_chain_bound_localnet_epoch_seed() {
         REAL_GENESIS_ACCOUNT_KEYPAIR.public_key(),
         SumeragiConsensusMode::Npos,
         chain_id.as_str(),
+        false,
     )
     .expect("generate NPoS localnet genesis");
     let parameters = genesis

@@ -58,11 +58,28 @@ use norito::{
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 mod pgc_account_root;
-#[doc(hidden)]
-pub use pgc_account_root::compute_privacy_pgc_account_state_root_v1;
 pub use pgc_account_root::{
     PrivacyPgcAccountStateRootErrorV1, derive_privacy_pgc_account_state_root_v1,
 };
+/// A malformed persisted privacy invariant or its original local root-encoding refusal.
+///
+/// Local resource errors retain their canonical attempt owner; they are never a
+/// malformed-state diagnostic merely because a caller cannot finish validation.
+#[derive(Debug, Error)]
+pub enum PrivacyStateValidationErrorV1 {
+    /// Persisted records violate a canonical privacy invariant.
+    #[error("{0}")]
+    Invalid(String),
+    /// Canonical PGC root derivation failed with its original typed cause.
+    #[error("invalid privacy PGC account table: {0}")]
+    PgcAccountRoot(#[source] PrivacyPgcAccountStateRootErrorV1),
+}
+impl From<String> for PrivacyStateValidationErrorV1 {
+    fn from(message: String) -> Self {
+        Self::Invalid(message)
+    }
+}
+
 const PRIVACY_PGC_POOL_INVARIANT_DIGEST_DOMAIN_V1: &[u8] = b"iroha:privacy:pgc-pool-invariant:v1";
 const PRIVACY_PUBLIC_RESERVE_ASSET_DIGEST_DOMAIN_V1: &[u8] =
     b"iroha:privacy:public-reserve-asset:v1";
@@ -1058,15 +1075,19 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
     pgc_pool_invariants: &impl StorageReadOnly<PrivacyPgcPoolInvariantKeyV1, PrivacyPgcPoolInvariantV1>,
     roots: &impl StorageReadOnly<PrivacyRootKeyV1, PrivacyRootProvenanceV1>,
     root_heads: &impl StorageReadOnly<PrivacyRootHeadKeyV1, PrivacyRootHeadRecordV1>,
-) -> Result<PrivacyPgcPoolSnapshotV1, String> {
+) -> Result<PrivacyPgcPoolSnapshotV1, PrivacyStateValidationErrorV1> {
     namespace
         .validate()
         .map_err(|error| format!("invalid privacy PGC pool namespace: {error}"))?;
     if namespace.protocol_id() != PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1 {
-        return Err("privacy PGC pool snapshot has the wrong protocol".to_owned());
+        return Err("privacy PGC pool snapshot has the wrong protocol"
+            .to_owned()
+            .into());
     }
     if retained_root_count == 0 {
-        return Err("privacy PGC retained-root count must be non-zero".to_owned());
+        return Err("privacy PGC retained-root count must be non-zero"
+            .to_owned()
+            .into());
     }
     let retained_root_count = usize::try_from(retained_root_count)
         .map_err(|_| "privacy PGC retained-root count cannot be represented".to_owned())?;
@@ -1100,7 +1121,8 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
         if retained_roots.len() == retained_root_count {
             return Err(format!(
                 "privacy PGC root history exceeds retention {retained_root_count}"
-            ));
+            )
+            .into());
         }
         key.validate()
             .map_err(|error| format!("invalid privacy PGC root key: {error}"))?;
@@ -1115,7 +1137,8 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
             return Err(format!(
                 "privacy PGC root history contains duplicate epoch {}",
                 key.epoch()
-            ));
+            )
+            .into());
         }
         retained_roots.push((*key, provenance.clone()));
     }
@@ -1133,16 +1156,20 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
         || head.root() != latest.0.root()
         || head.provenance() != &latest.1
     {
-        return Err("privacy PGC root head does not equal latest retained history".to_owned());
+        return Err(
+            "privacy PGC root head does not equal latest retained history"
+                .to_owned()
+                .into(),
+        );
     }
     let mut accounts = Vec::new();
     let mut account_epoch = None;
     let mut account_provenance = None;
     for (key, state) in pgc_accounts.range(PrivacyPgcAccountKeyV1::pool_range(namespace)) {
         if accounts.len() == max_accounts {
-            return Err(format!(
-                "privacy PGC account table exceeds closed maximum {max_accounts}"
-            ));
+            return Err(
+                format!("privacy PGC account table exceeds closed maximum {max_accounts}").into(),
+            );
         }
         key.validate()
             .map_err(|error| format!("invalid privacy PGC account key: {error}"))?;
@@ -1153,13 +1180,17 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
             .replace(state.epoch())
             .is_some_and(|epoch| epoch != state.epoch())
         {
-            return Err("privacy PGC account table contains mixed epochs".to_owned());
+            return Err("privacy PGC account table contains mixed epochs"
+                .to_owned()
+                .into());
         }
         if account_provenance
             .replace(state.provenance)
             .is_some_and(|provenance| provenance != state.provenance)
         {
-            return Err("privacy PGC account table contains mixed provenance".to_owned());
+            return Err("privacy PGC account table contains mixed provenance"
+                .to_owned()
+                .into());
         }
         accounts.push(PrivacyPgcAccountV1 {
             public_key: key.public_key(),
@@ -1171,7 +1202,9 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
     let account_provenance = account_provenance
         .ok_or_else(|| "privacy PGC account table has no provenance".to_owned())?;
     if epoch != head.epoch() {
-        return Err("privacy PGC account epoch differs from its root head".to_owned());
+        return Err("privacy PGC account epoch differs from its root head"
+            .to_owned()
+            .into());
     }
     let provenance_matches = match (account_provenance, head.provenance()) {
         (
@@ -1212,17 +1245,21 @@ pub fn load_privacy_pgc_pool_snapshot_v1(
         _ => false,
     };
     if !provenance_matches {
-        return Err("privacy PGC account provenance differs from its root head".to_owned());
+        return Err("privacy PGC account provenance differs from its root head"
+            .to_owned()
+            .into());
     }
-    let computed = compute_privacy_pgc_account_state_root_v1(
+    let computed = derive_privacy_pgc_account_state_root_v1(
         namespace,
         epoch,
         invariant.total_supply(),
         &accounts,
     )
-    .map_err(|error| format!("invalid privacy PGC account table: {error}"))?;
+    .map_err(PrivacyStateValidationErrorV1::PgcAccountRoot)?;
     if computed != head.root() {
-        return Err("privacy PGC account table does not match its root head".to_owned());
+        return Err("privacy PGC account table does not match its root head"
+            .to_owned()
+            .into());
     }
     Ok(PrivacyPgcPoolSnapshotV1 {
         namespace,
@@ -4795,7 +4832,7 @@ pub fn validate_privacy_persisted_state_v1(
     commitments: &impl StorageReadOnly<PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1>,
     roots: &impl StorageReadOnly<PrivacyRootKeyV1, PrivacyRootProvenanceV1>,
     root_heads: &impl StorageReadOnly<PrivacyRootHeadKeyV1, PrivacyRootHeadRecordV1>,
-) -> Result<(), String> {
+) -> Result<(), PrivacyStateValidationErrorV1> {
     let PrivacyPgcStateReadV1 {
         accounts: pgc_accounts,
         pool_invariants: pgc_pool_invariants,
@@ -4884,14 +4921,16 @@ pub fn validate_privacy_persisted_state_v1(
         if history.len() > retained {
             return Err(format!(
                 "privacy root history for {namespace:?}/{role:?} exceeds retention {retained}"
-            ));
+            )
+            .into());
         }
         for pair in history.windows(2) {
             if pair[0].0.epoch() == pair[1].0.epoch() {
                 return Err(format!(
                     "privacy root history for {namespace:?}/{role:?} contains duplicate epoch {}",
                     pair[0].0.epoch()
-                ));
+                )
+                .into());
             }
         }
         let head_key = PrivacyRootHeadKeyV1::new(*namespace, *role)
@@ -4930,9 +4969,9 @@ pub fn validate_privacy_persisted_state_v1(
                 .insert(*namespace, snapshot.bootstrap_digest())
                 .is_some()
             {
-                return Err(format!(
-                    "duplicate ZK-AMS AccountRegistry scope for {namespace:?}"
-                ));
+                return Err(
+                    format!("duplicate ZK-AMS AccountRegistry scope for {namespace:?}").into(),
+                );
             }
         } else if namespace.protocol_id() == PrivacyProtocolIdV1::OrchardHalo2ActionsV1
             && *role == PrivacyRootRoleV1::NoteCommitmentAnchor
@@ -4948,9 +4987,9 @@ pub fn validate_privacy_persisted_state_v1(
                 .insert(*namespace, snapshot.bootstrap_digest())
                 .is_some()
             {
-                return Err(format!(
-                    "duplicate Orchard note-commitment scope for {namespace:?}"
-                ));
+                return Err(
+                    format!("duplicate Orchard note-commitment scope for {namespace:?}").into(),
+                );
             }
         } else if proof_managed_pool_root_role_v1(*namespace)
             .is_ok_and(|expected| expected == *role)
@@ -4963,24 +5002,27 @@ pub fn validate_privacy_persisted_state_v1(
                 root_heads,
             )?;
             if proof_managed_pools.insert(*namespace, snapshot).is_some() {
-                return Err(format!(
-                    "duplicate proof-managed pool root scope for {namespace:?}"
-                ));
+                return Err(
+                    format!("duplicate proof-managed pool root scope for {namespace:?}").into(),
+                );
             }
         } else if namespace.protocol_id() == PrivacyProtocolIdV1::IrohaZkX509StarkP256V1 {
             let Some((first_key, _)) = history.first() else {
-                return Err("grouped X.509 root history is unexpectedly empty".to_owned());
+                return Err("grouped X.509 root history is unexpectedly empty"
+                    .to_owned()
+                    .into());
             };
             if let Some(anchor) = head.retention_anchor() {
                 if anchor.epoch().checked_add(1) != Some(first_key.epoch()) {
                     return Err(format!(
                         "X.509 first retained root for {namespace:?}/{role:?} does not immediately follow its retention anchor"
-                    ));
+                    ).into());
                 }
             } else if first_key.epoch() != 1 {
                 return Err(format!(
                     "unpruned X.509 root history for {namespace:?}/{role:?} must begin at epoch one"
-                ));
+                )
+                .into());
             }
             for (key, provenance) in history {
                 validate_zk_x509_root_provenance_v1(*key, provenance)?;
@@ -4989,7 +5031,8 @@ pub fn validate_privacy_persisted_state_v1(
                 if adjacent[0].0.epoch().checked_add(1) != Some(adjacent[1].0.epoch()) {
                     return Err(format!(
                         "X.509 root history for {namespace:?}/{role:?} has a gap or duplicate epoch"
-                    ));
+                    )
+                    .into());
                 }
             }
             match role {
@@ -5044,14 +5087,15 @@ pub fn validate_privacy_persisted_state_v1(
                 | PrivacyRootRoleV1::ProgramState => {
                     return Err(format!(
                         "X.509 root history {namespace:?} uses incompatible role {role:?}"
-                    ));
+                    )
+                    .into());
                 }
             }
         } else {
             if head.retention_anchor().is_some() {
                 return Err(format!(
                     "non-PGC privacy root head for {namespace:?}/{role:?} carries an unsupported retention anchor"
-                ));
+                ).into());
             }
             match role.management() {
                 PrivacyRootManagementV1::GovernanceManaged => {
@@ -5060,12 +5104,14 @@ pub fn validate_privacy_persisted_state_v1(
                     }) {
                         return Err(format!(
                             "governance-managed privacy root history for {namespace:?}/{role:?} contains non-governance provenance"
-                        ));
+                        ).into());
                     }
                 }
                 PrivacyRootManagementV1::ProofManaged => {
                     let Some((_, first_provenance)) = history.first() else {
-                        return Err("grouped privacy root history is unexpectedly empty".to_owned());
+                        return Err("grouped privacy root history is unexpectedly empty"
+                            .to_owned()
+                            .into());
                     };
                     let valid_origin = if namespace.protocol_id()
                         == PrivacyProtocolIdV1::IrohaZkAmsV1
@@ -5081,14 +5127,14 @@ pub fn validate_privacy_persisted_state_v1(
                     if !valid_origin {
                         return Err(format!(
                             "proof-managed privacy root history for {namespace:?}/{role:?} does not begin with governance initialization"
-                        ));
+                        ).into());
                     }
                     if history.iter().skip(1).any(|(_, provenance)| {
                         !matches!(provenance, PrivacyRootProvenanceV1::VerifiedProof { .. })
                     }) {
                         return Err(format!(
                             "proof-managed privacy root history for {namespace:?}/{role:?} contains a non-proof advancement"
-                        ));
+                        ).into());
                     }
                     for adjacent in history.windows(2) {
                         if adjacent[1].1.proof_parent()
@@ -5097,7 +5143,7 @@ pub fn validate_privacy_persisted_state_v1(
                         {
                             return Err(format!(
                                 "proof-managed privacy root history for {namespace:?}/{role:?} has a gap or forged parent"
-                            ));
+                            ).into());
                         }
                     }
                 }
@@ -5110,7 +5156,8 @@ pub fn validate_privacy_persisted_state_v1(
         {
             return Err(format!(
                 "privacy root head for {namespace:?}/{role:?} does not equal latest history entry"
-            ));
+            )
+            .into());
         }
     }
     for (key, head) in root_heads.iter() {
@@ -5126,7 +5173,8 @@ pub fn validate_privacy_persisted_state_v1(
                 "privacy root head for {:?}/{:?} has no retained history",
                 key.namespace(),
                 key.role()
-            ));
+            )
+            .into());
         }
     }
     let x509_retained_root_count = policy.admission_retained_root_count();
@@ -5149,20 +5197,22 @@ pub fn validate_privacy_persisted_state_v1(
         match key {
             PrivacyCommitmentKeyV1::ZkAcePolicy { policy_id } => {
                 let PrivacyStateItemRecordV1::ZkAcePolicyGovernance { policy, .. } = record else {
-                    return Err(format!(
-                        "ZK-ACE policy {policy_id:?} has wrong-role provenance"
-                    ));
+                    return Err(
+                        format!("ZK-ACE policy {policy_id:?} has wrong-role provenance").into(),
+                    );
                 };
                 if policy.policy_id != *policy_id {
                     return Err(format!(
                         "ZK-ACE policy key {policy_id:?} does not match its record"
-                    ));
+                    )
+                    .into());
                 }
                 zk_ace_policy_ids.insert(*policy_id);
                 if zk_ace_policy_ids.len() > PRIVACY_ZK_ACE_MAX_POLICIES_V1 {
                     return Err(format!(
                         "ZK-ACE policy count exceeds {PRIVACY_ZK_ACE_MAX_POLICIES_V1}"
-                    ));
+                    )
+                    .into());
                 }
             }
             PrivacyCommitmentKeyV1::BootleLanternIssuerPolicy {
@@ -5175,12 +5225,12 @@ pub fn validate_privacy_persisted_state_v1(
                 else {
                     return Err(format!(
                         "Bootle/Lantern issuer policy {issuer_id:?}/{policy_id:?} has wrong-role provenance"
-                    ));
+                    ).into());
                 };
                 if policy.issuer_id != *issuer_id || policy.policy_id != *policy_id {
                     return Err(format!(
                         "Bootle/Lantern issuer-policy key {issuer_id:?}/{policy_id:?} does not match its record"
-                    ));
+                    ).into());
                 }
             }
             PrivacyCommitmentKeyV1::VegaIssuerRevision {
@@ -5190,12 +5240,12 @@ pub fn validate_privacy_persisted_state_v1(
                 let PrivacyStateItemRecordV1::VegaIssuerGovernance { record, .. } = record else {
                     return Err(format!(
                         "Vega issuer revision {issuer_id:?}/{record_epoch} has wrong-role provenance"
-                    ));
+                    ).into());
                 };
                 if record.issuer_id != *issuer_id || record.record_epoch != *record_epoch {
                     return Err(format!(
                         "Vega issuer revision key {issuer_id:?}/{record_epoch} does not match its record"
-                    ));
+                    ).into());
                 }
             }
             PrivacyCommitmentKeyV1::OrchardPoolState { namespace } => {
@@ -5211,7 +5261,7 @@ pub fn validate_privacy_persisted_state_v1(
                 ) {
                     return Err(format!(
                         "Orchard pool state {namespace:?} has wrong-role or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
             PrivacyCommitmentKeyV1::ProofManagedPoolConfig { namespace } => {
@@ -5231,14 +5281,15 @@ pub fn validate_privacy_persisted_state_v1(
                 ) {
                     return Err(format!(
                         "proof-managed pool config {namespace:?} has wrong-role or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
             PrivacyCommitmentKeyV1::PublicReserveCustody { protocol_id, .. } => {
                 let Some((reserve_asset_id, owner)) = record.public_reserve_custody_ref() else {
                     return Err(format!(
                         "public-reserve custody key {key:?} has wrong-role provenance"
-                    ));
+                    )
+                    .into());
                 };
                 if owner.protocol_id() != *protocol_id
                     || *key
@@ -5249,7 +5300,8 @@ pub fn validate_privacy_persisted_state_v1(
                 {
                     return Err(format!(
                         "public-reserve custody key {key:?} has mismatched asset or owner"
-                    ));
+                    )
+                    .into());
                 }
             }
             PrivacyCommitmentKeyV1::ProofManagedPoolCommitment { namespace, .. } => {
@@ -5266,7 +5318,7 @@ pub fn validate_privacy_persisted_state_v1(
                 {
                     return Err(format!(
                         "proof-managed commitment {namespace:?} has wrong-role or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
             PrivacyCommitmentKeyV1::FcmpOutput {
@@ -5293,7 +5345,7 @@ pub fn validate_privacy_persisted_state_v1(
                 if !role_matches {
                     return Err(format!(
                         "FCMP++ output {namespace:?} has wrong-role, tuple, or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
             PrivacyCommitmentKeyV1::ZkX509TrustAnchorRevision { .. }
@@ -5336,7 +5388,7 @@ pub fn validate_privacy_persisted_state_v1(
                 if !role_matches {
                     return Err(format!(
                         "ZK-AMS commitment {namespace:?} has wrong-role or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
         }
@@ -5359,7 +5411,7 @@ pub fn validate_privacy_persisted_state_v1(
                 ) {
                     return Err(format!(
                         "ZK-AMS key image {namespace:?} has wrong-role or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
             PrivacyNullifierKeyV1::ZkX509CertificateNullifier { namespace, .. } => {
@@ -5372,7 +5424,8 @@ pub fn validate_privacy_persisted_state_v1(
                 {
                     return Err(format!(
                         "X.509 certificate nullifier {namespace:?} has no governed policy lineage"
-                    ));
+                    )
+                    .into());
                 }
                 if !matches!(
                     record,
@@ -5380,7 +5433,8 @@ pub fn validate_privacy_persisted_state_v1(
                 ) {
                     return Err(format!(
                         "X.509 certificate nullifier {namespace:?} has wrong-role provenance"
-                    ));
+                    )
+                    .into());
                 }
             }
             PrivacyNullifierKeyV1::OrchardNullifier { namespace, .. } => {
@@ -5398,7 +5452,7 @@ pub fn validate_privacy_persisted_state_v1(
                 ) {
                     return Err(format!(
                         "Orchard nullifier {namespace:?} has wrong-role or cross-bootstrap provenance"
-                    ));
+                    ).into());
                 }
             }
             PrivacyNullifierKeyV1::ProofManagedNullifier { namespace, .. }
@@ -5419,7 +5473,8 @@ pub fn validate_privacy_persisted_state_v1(
                 else {
                     return Err(format!(
                         "proof-managed replay marker {namespace:?} has wrong-role provenance"
-                    ));
+                    )
+                    .into());
                 };
                 let origin = ProofManagedVerifiedBatchOriginV1 {
                     statement_digest: *statement_digest,
@@ -5433,7 +5488,7 @@ pub fn validate_privacy_persisted_state_v1(
                 {
                     return Err(format!(
                         "proof-managed replay marker {namespace:?} has orphaned or mixed batch provenance"
-                    ));
+                    ).into());
                 }
                 let count = proof_managed_nullifier_counts
                     .entry((*namespace, origin))
@@ -5454,7 +5509,7 @@ pub fn validate_privacy_persisted_state_v1(
                 return Err(format!(
                     "proof-managed batch in {namespace:?} declares {} replay markers but restored {observed}",
                     origin.nullifier_count
-                ));
+                ).into());
             }
         }
     }
@@ -5475,7 +5530,8 @@ pub fn validate_privacy_persisted_state_v1(
             return Err(format!(
                 "privacy PGC account table {:?} contains mixed epochs",
                 key.namespace()
-            ));
+            )
+            .into());
         }
         if let Some(provenance) =
             pgc_provenance_by_namespace.insert(key.namespace(), state.provenance)
@@ -5484,7 +5540,8 @@ pub fn validate_privacy_persisted_state_v1(
             return Err(format!(
                 "privacy PGC account table {:?} contains mixed provenance",
                 key.namespace()
-            ));
+            )
+            .into());
         }
         pgc_by_namespace
             .entry(key.namespace())
@@ -5511,7 +5568,7 @@ pub fn validate_privacy_persisted_state_v1(
         {
             return Err(format!(
                 "privacy PGC account table {namespace:?} bootstrap provenance differs from its pool invariant"
-            ));
+            ).into());
         }
         let head_key = PrivacyRootHeadKeyV1::new(*namespace, PrivacyRootRoleV1::PgcAccountState)
             .map_err(|error| format!("invalid privacy PGC root-head key: {error}"))?;
@@ -5521,7 +5578,8 @@ pub fn validate_privacy_persisted_state_v1(
         if head.epoch() != epoch {
             return Err(format!(
                 "privacy PGC account table {namespace:?} epoch differs from its root head"
-            ));
+            )
+            .into());
         }
         let account_provenance = pgc_provenance_by_namespace[namespace];
         let provenance_matches = match (account_provenance, head.provenance()) {
@@ -5563,19 +5621,21 @@ pub fn validate_privacy_persisted_state_v1(
         if !provenance_matches {
             return Err(format!(
                 "privacy PGC account table {namespace:?} provenance differs from its root head"
-            ));
+            )
+            .into());
         }
-        let computed = compute_privacy_pgc_account_state_root_v1(
+        let computed = derive_privacy_pgc_account_state_root_v1(
             *namespace,
             epoch,
             invariant.total_supply(),
             accounts,
         )
-        .map_err(|error| format!("invalid privacy PGC account table: {error}"))?;
+        .map_err(PrivacyStateValidationErrorV1::PgcAccountRoot)?;
         if computed != head.root() {
             return Err(format!(
                 "privacy PGC account table {namespace:?} does not match its root head"
-            ));
+            )
+            .into());
         }
     }
     for (key, _) in pgc_pool_invariants.iter() {
@@ -5583,7 +5643,8 @@ pub fn validate_privacy_persisted_state_v1(
             return Err(format!(
                 "privacy PGC pool invariant {:?} has no encrypted account table",
                 key.namespace()
-            ));
+            )
+            .into());
         }
     }
     for (key, _) in root_heads.iter() {
@@ -5593,7 +5654,8 @@ pub fn validate_privacy_persisted_state_v1(
             return Err(format!(
                 "privacy PGC root head {:?} has no encrypted account table",
                 key.namespace()
-            ));
+            )
+            .into());
         }
         if key.role() == PrivacyRootRoleV1::PgcAccountState {
             let invariant_key =
@@ -5604,7 +5666,8 @@ pub fn validate_privacy_persisted_state_v1(
                 return Err(format!(
                     "privacy PGC root head {:?} has no pool invariant",
                     key.namespace()
-                ));
+                )
+                .into());
             }
         }
     }
@@ -5612,7 +5675,9 @@ pub fn validate_privacy_persisted_state_v1(
     let observed_reserves = load_privacy_public_reserve_custody_v1(commitments)?;
     if observed_reserves != expected_reserves {
         return Err(
-            "public-reserve custody rows do not exactly match governed pool records".to_owned(),
+            "public-reserve custody rows do not exactly match governed pool records"
+                .to_owned()
+                .into(),
         );
     }
     Ok(())
@@ -10388,7 +10453,7 @@ mod tests {
         };
         (@reject $fixture:ident, $retention:expr, contains($rejection:expr, $needle:expr)) => {
             let error = $fixture.load_with_retention($retention).expect_err($rejection);
-            assert!(error.contains($needle));
+            assert!(error.to_string().contains($needle));
         };
         (@reject $fixture:ident, $retention:expr, any($message:expr)) => {
             assert!($fixture.load_with_retention($retention).is_err(), $message);
@@ -10524,6 +10589,7 @@ mod tests {
             fixture
                 .validate()
                 .expect_err("missing custody row rejects restart")
+                .to_string()
                 .contains("do not exactly match governed pool records")
         );
         let mut fixture = orchard_persisted_fixture();
@@ -10546,6 +10612,7 @@ mod tests {
             fixture
                 .validate()
                 .expect_err("extra custody row rejects restart")
+                .to_string()
                 .contains("do not exactly match governed pool records")
         );
     }
@@ -10594,6 +10661,7 @@ mod tests {
                 &fixture.root_heads,
             )
             .expect_err("missing private-IVM custody row rejects restart")
+            .to_string()
             .contains("do not exactly match governed pool records")
         );
     }
@@ -10894,6 +10962,7 @@ mod tests {
             cross_origin
                 .validate()
                 .expect_err("cross-origin nullifier")
+                .to_string()
                 .contains("wrong-role or cross-bootstrap")
         );
         let mut wrong_role = orchard_persisted_fixture();
@@ -10911,6 +10980,7 @@ mod tests {
             wrong_role
                 .validate()
                 .expect_err("wrong-role nullifier")
+                .to_string()
                 .contains("wrong-role or cross-bootstrap")
         );
         let mut orphan = orchard_persisted_fixture();
@@ -10922,6 +10992,7 @@ mod tests {
             orphan
                 .validate()
                 .expect_err("orphan nullifier")
+                .to_string()
                 .contains("no authoritative note-commitment pool")
         );
     }
@@ -11335,34 +11406,34 @@ mod tests {
     fn pgc_account_root_commits_namespace_epoch_order_and_ciphertexts() {
         let namespace = pgc_namespace(20);
         let accounts = pgc_accounts(16);
-        let root = compute_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts)
+        let root = derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts)
             .expect("canonical PGC account table");
         assert_eq!(
-            compute_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts)
+            derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts)
                 .expect("same input"),
             root,
             "root derivation must be deterministic"
         );
         assert_ne!(
-            compute_privacy_pgc_account_state_root_v1(pgc_namespace(21), 7, 160, &accounts)
+            derive_privacy_pgc_account_state_root_v1(pgc_namespace(21), 7, 160, &accounts)
                 .expect("different pool"),
             root,
             "pool namespace must be domain bound"
         );
         assert_ne!(
-            compute_privacy_pgc_account_state_root_v1(namespace, 8, 160, &accounts)
+            derive_privacy_pgc_account_state_root_v1(namespace, 8, 160, &accounts)
                 .expect("different epoch"),
             root,
             "epoch must be committed"
         );
         assert_ne!(
-            compute_privacy_pgc_account_state_root_v1(namespace, 7, 161, &accounts)
+            derive_privacy_pgc_account_state_root_v1(namespace, 7, 161, &accounts)
                 .expect("different supply"),
             root,
             "aggregate supply must be committed"
         );
         assert_ne!(
-            compute_privacy_pgc_account_state_root_v1(namespace, 7, u32::MAX, &accounts)
+            derive_privacy_pgc_account_state_root_v1(namespace, 7, u32::MAX, &accounts)
                 .expect("inclusive u32 boundary"),
             root,
             "maximum aggregate supply must be hashed without wrapping"
@@ -11370,7 +11441,7 @@ mod tests {
         let mut changed = accounts.clone();
         changed[5].encrypted_balance.left = pgc_accounts(16)[7].encrypted_balance.right;
         assert_ne!(
-            compute_privacy_pgc_account_state_root_v1(namespace, 7, 160, &changed)
+            derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &changed)
                 .expect("changed ciphertext"),
             root,
             "every encrypted-balance component must be committed"
@@ -11380,50 +11451,212 @@ mod tests {
     fn pgc_account_root_rejects_noncanonical_tables() {
         let namespace = pgc_namespace(20);
         let accounts = pgc_accounts(16);
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 0, 160, &accounts),
-            Err(PrivacyPgcAccountStateRootErrorV1::ZeroEpoch),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 0, 160, &accounts),
+                Err(PrivacyPgcAccountStateRootErrorV1::ZeroEpoch)
+            ),
             "epoch zero must fail at the typed public boundary"
         );
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 1, 0, &accounts),
-            Err(PrivacyPgcAccountStateRootErrorV1::ZeroTotalSupply),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 1, 0, &accounts),
+                Err(PrivacyPgcAccountStateRootErrorV1::ZeroTotalSupply)
+            ),
             "zero supply must fail at the typed public boundary"
         );
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &accounts[..15]),
-            Err(PrivacyPgcAccountStateRootErrorV1::InvalidAccountCount),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &accounts[..15]),
+                Err(PrivacyPgcAccountStateRootErrorV1::InvalidAccountCount)
+            ),
             "cardinality outside the closed 16/32/64 set must fail explicitly"
         );
         let mut unordered = accounts.clone();
         unordered.swap(4, 5);
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &unordered),
-            Err(PrivacyPgcAccountStateRootErrorV1::KeysNotStrictlyIncreasing),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &unordered),
+                Err(PrivacyPgcAccountStateRootErrorV1::KeysNotStrictlyIncreasing)
+            ),
             "account keys must have one canonical strict order"
         );
         let mut duplicate = accounts.clone();
         duplicate[5].public_key = duplicate[4].public_key;
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &duplicate),
-            Err(PrivacyPgcAccountStateRootErrorV1::KeysNotStrictlyIncreasing),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &duplicate),
+                Err(PrivacyPgcAccountStateRootErrorV1::KeysNotStrictlyIncreasing)
+            ),
             "duplicate accounts must fail at the ordering gate"
         );
         let mut zero_component = accounts;
         zero_component[3].encrypted_balance.right = PrivacyP256PointV1::new([0; 33]);
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &zero_component),
-            Err(PrivacyPgcAccountStateRootErrorV1::ZeroPoint),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &zero_component),
+                Err(PrivacyPgcAccountStateRootErrorV1::ZeroPoint)
+            ),
             "zero encoded points must fail before hashing"
         );
         let mut off_curve = pgc_accounts(16);
         let mut invalid = [u8::MAX; 33];
         invalid[0] = 2;
         off_curve[3].encrypted_balance.right = PrivacyP256PointV1::new(invalid);
-        assert_eq!(
-            derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &off_curve),
-            Err(PrivacyPgcAccountStateRootErrorV1::InvalidPoint),
+        assert!(
+            matches!(
+                derive_privacy_pgc_account_state_root_v1(namespace, 1, 160, &off_curve),
+                Err(PrivacyPgcAccountStateRootErrorV1::InvalidPoint)
+            ),
             "non-zero off-curve encodings must not enter durable account state"
+        );
+    }
+    #[test]
+    fn pgc_snapshot_and_restore_keep_original_root_refusal_and_retry() {
+        let fixture = pgc_persisted_fixture();
+        let retention = PrivacyConsensusPolicyV1::taira_default()
+            .current_limits
+            .retained_root_count;
+        let expected = fixture
+            .load_with_retention(retention)
+            .expect("original coherent snapshot");
+        fixture
+            .validate()
+            .expect("original coherent persisted state");
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let mut origins = Vec::new();
+        for snapshot in [true, false] {
+            let result = norito::with_decode_limits_scope(limits, || {
+                if snapshot {
+                    fixture.load_with_retention(retention).map(|_| ())
+                } else {
+                    fixture.validate()
+                }
+            });
+            let PrivacyStateValidationErrorV1::PgcAccountRoot(
+                PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(original),
+            ) = result.expect_err("actual namespace frame allocation must refuse")
+            else {
+                panic!("the local root failure must not become malformed persisted state");
+            };
+            let origin = original
+                .local_refusal()
+                .expect("original enclosing allocation owner");
+            assert_eq!(
+                origin.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(
+                origin.resource_error(),
+                original.error().decode_resource_error().unwrap()
+            );
+            origins.push(origin);
+        }
+        assert_eq!(origins[0].resource_error(), origins[1].resource_error());
+        assert_ne!(
+            origins[0], origins[1],
+            "each validation keeps its own attempt"
+        );
+        let retry = fixture
+            .load_with_retention(retention)
+            .expect("same unchanged snapshot retries");
+        assert_eq!(retry.current_root(), expected.current_root());
+        assert_eq!(retry.accounts(), expected.accounts());
+        fixture
+            .validate()
+            .expect("same unchanged persisted state retries");
+        let error = fixture
+            .load_with_retention(0)
+            .expect_err("zero retention is invalid");
+        assert!(matches!(error, PrivacyStateValidationErrorV1::Invalid(_)));
+        let converted = PrivacyStateValidationErrorV1::from("malformed state".to_owned());
+        assert!(
+            matches!(converted, PrivacyStateValidationErrorV1::Invalid(message) if message == "malformed state")
+        );
+    }
+    #[test]
+    fn pgc_account_root_retains_original_encoding_refusal_and_same_input_retry() {
+        let namespace = pgc_namespace(20);
+        let accounts = pgc_accounts(16);
+        let original = accounts.clone();
+        let pointer = accounts.as_ptr();
+        let root = derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts)
+            .expect("canonical original root");
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let attempt = || {
+            norito::with_decode_limits_scope(limits, || {
+                derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts)
+            })
+        };
+        let PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(first) = attempt().unwrap_err()
+        else {
+            panic!("original namespace frame allocation must refuse")
+        };
+        let retained = first
+            .local_refusal()
+            .expect("actual enclosing allocation quota");
+        assert_eq!(
+            retained.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert!(matches!(
+            first.error(),
+            norito::Error::ScopedDecodeResource(_)
+        ));
+        assert_eq!(
+            retained.resource_error(),
+            first.error().decode_resource_error().unwrap()
+        );
+        let PrivacyPgcAccountStateRootErrorV1::NamespaceEncoding(second) = attempt().unwrap_err()
+        else {
+            panic!("second original namespace frame allocation must refuse")
+        };
+        let second = second.local_refusal().unwrap();
+        assert_eq!(retained.resource_error(), second.resource_error());
+        assert_ne!(
+            retained, second,
+            "equal quotas retain distinct original attempts"
+        );
+        assert_eq!(accounts.as_ptr(), pointer);
+        assert_eq!(accounts, original);
+        assert_eq!(
+            derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts).unwrap(),
+            root
+        );
+        assert!(
+            matches!(
+                norito::with_decode_limits_scope(limits, || {
+                    derive_privacy_pgc_account_state_root_v1(namespace, 0, 160, &accounts)
+                }),
+                Err(PrivacyPgcAccountStateRootErrorV1::ZeroEpoch)
+            ),
+            "intrinsic invalidity precedes allocation"
+        );
+    }
+    #[test]
+    fn pgc_account_root_is_independent_of_ambient_layout_and_preserves_canonical_frame() {
+        let namespace = pgc_namespace(20);
+        let accounts = pgc_accounts(16);
+        let root = derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts).unwrap();
+        let bytes = norito::encode_canonical(&namespace).unwrap();
+        let bounded = {
+            let _guard =
+                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+            norito::core::to_bytes_bounded(&namespace, usize::MAX).unwrap()
+        };
+        assert_eq!(
+            bounded, bytes,
+            "exact first-release canonical namespace frame"
+        );
+        let _ambient = norito::core::DecodeFlagsGuard::enter(0);
+        assert_eq!(
+            derive_privacy_pgc_account_state_root_v1(namespace, 7, 160, &accounts).unwrap(),
+            root
+        );
+        assert_eq!(
+            norito::core::effective_decode_flags(),
+            Some(0),
+            "restore original caller layout"
         );
     }
     #[test]
@@ -11668,7 +11901,7 @@ mod tests {
             );
         }
         let successor_epoch = PRIVACY_PGC_BOOTSTRAP_INITIAL_EPOCH_V1 + 1;
-        let successor_root = compute_privacy_pgc_account_state_root_v1(
+        let successor_root = derive_privacy_pgc_account_state_root_v1(
             fixture.namespace,
             successor_epoch,
             160,
@@ -12093,7 +12326,10 @@ mod tests {
             &root_heads.view(),
         )
         .expect_err("an unregistered protocol cannot own persisted state");
-        assert!(error.contains("unregistered protocol"), "{error}");
+        assert!(
+            error.to_string().contains("unregistered protocol"),
+            "{error}"
+        );
     }
     #[test]
     fn bootle_lantern_policy_key_is_exact_role_separated_and_canonical() {
@@ -12182,6 +12418,7 @@ mod tests {
         assert!(
             validate_persisted_commitments(&commitments)
                 .expect_err("Bootle/Lantern state requires executable protocol activation")
+                .to_string()
                 .contains("unregistered protocol")
         );
         storage_loader_rejection_cases! {
@@ -13555,7 +13792,11 @@ mod tests {
                 &fixture.root_heads,
             )
             .expect_err("missing replay marker must reject");
-            assert!(error.contains("declares 1 replay markers but restored 0"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("declares 1 replay markers but restored 0")
+            );
             let key = PrivacyNullifierKeyV1::proof_managed_nullifier(
                 fixture.namespace,
                 PrivacyNullifierV1::new(nonzero(0xC3)),
@@ -13600,6 +13841,7 @@ mod tests {
                     &fixture.root_heads,
                 )
                 .expect_err("mixed replay-marker provenance must reject")
+                .to_string()
                 .contains("orphaned or mixed")
             );
             nullifiers.insert(key, exact.clone());
@@ -13620,6 +13862,7 @@ mod tests {
                     &fixture.root_heads,
                 )
                 .expect_err("surplus replay marker must reject")
+                .to_string()
                 .contains("declares 1 replay markers but restored 2")
             );
         }
@@ -13657,6 +13900,7 @@ mod tests {
                 &fixture.root_heads,
             )
             .expect_err("missing FCMP++ key image must reject")
+            .to_string()
             .contains("declares 1 replay markers but restored 0")
         );
         let exact = PrivacyStateItemRecordV1::proof_managed_pool_verified_nullifier(
@@ -14995,6 +15239,7 @@ mod tests {
                 &root_heads.view(),
             )
             .expect_err("record/root updates must be atomic")
+            .to_string()
             .contains("stale")
         );
         let ca_key = x509_root_key(PrivacyRootRoleV1::CertificateAuthorityMembership, 2, 86);

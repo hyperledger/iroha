@@ -1588,10 +1588,12 @@ fn verify_repro_signature(
 ) -> Result<(), iroha_crypto::Error> {
     match public_key.try_algorithm() {
         Ok(Algorithm::Ed25519) => {
-            iroha_crypto::ed25519_parse_signature(signature.payload())?;
+            iroha_crypto::ed25519_validate_signature_encoding(signature.payload())
+                .map_err(iroha_crypto::SignatureEncodingError::into_error)?;
         }
         Ok(Algorithm::MlDsa) => {
-            iroha_crypto::mldsa65_parse_signature(signature.payload())?;
+            iroha_crypto::mldsa65_validate_signature_encoding(signature.payload())
+                .map_err(iroha_crypto::SignatureEncodingError::into_error)?;
         }
         _ => {}
     }
@@ -2954,6 +2956,28 @@ mod tests {
     }
     /// Named mutation applied to a reproducibility body by validation tests.
     type ReproBodyTextMutation = (&'static str, fn(&mut ModerationReproBodyV1));
+    #[test]
+    fn repro_verification_borrows_preexisting_signature_under_zero_copy_budget() {
+        let pair = KeyPair::try_from_seed(vec![0x71; 32], Algorithm::Ed25519).unwrap();
+        let body = sample_body();
+        let signature = checked_signature(&pair, &body);
+        let malformed = SignatureOf::from_signature(iroha_crypto::Signature::from_bytes(&[1; 63]));
+        let mut changed_body = body.clone();
+        changed_body.manifest_id[0] ^= 1;
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        norito::with_decode_limits_scope(limits, || {
+            verify_repro_signature(&signature, pair.public_key(), &body).unwrap();
+            assert_eq!(
+                verify_repro_signature(&signature, pair.public_key(), &changed_body),
+                Err(iroha_crypto::Error::BadSignature)
+            );
+            assert_eq!(
+                verify_repro_signature(&malformed, pair.public_key(), &body),
+                Err(iroha_crypto::Error::BadSignature)
+            );
+        });
+    }
+
     fn sample_body() -> ModerationReproBodyV1 {
         let mut body = ModerationReproBodyV1 {
             schema_version: MODERATION_REPRO_MANIFEST_VERSION_V1,

@@ -371,13 +371,48 @@ final class AccountAddressTests: XCTestCase {
         }
     }
 
-    func testUnsupportedAlgorithmRejected() {
+    func testCanonicalIdentityRecognitionDoesNotDependOnSwiftFeatureFlags() {
+        for algorithm in ["ed25519", "secp256k1", "bls_normal", "bls_small", "ml-dsa",
+            "gost3410-2012-256-paramset-a", "gost3410-2012-256-paramset-b",
+            "gost3410-2012-256-paramset-c", "gost3410-2012-512-paramset-a",
+            "gost3410-2012-512-paramset-b", "sm2"] {
+            XCTAssertThrowsError(try AccountAddress.fromAccount(publicKey: Data(), algorithm: algorithm)) {
+                XCTAssertEqual($0 as? AccountAddressError, .invalidPublicKey, algorithm)
+            }
+        }
+    }
+
+    func testKnownMissingImplementationBridgeCategoryDoesNotDependOnMessageText() {
+        for message in ["unavailable", "invalid key", "unknown curve"] {
+            let payload = AccountAddressError.BridgePayload(code: "ERR_UNSUPPORTED_IMPLEMENTATION",
+                message: message, fields: ["algorithm": "bls_normal", "operation": "public-key parsing"])
+            let error = AccountAddressError.fromBridgePayload(payload)
+            XCTAssertEqual(error, .unsupportedImplementation(algorithm: "bls_normal", operation: "public-key parsing"))
+            XCTAssertEqual(error?.code, "ERR_UNSUPPORTED_IMPLEMENTATION")
+        }
+        XCTAssertEqual(AccountAddressError.unknownAlgorithm("future").code, "ERR_UNKNOWN_ALGORITHM")
+        XCTAssertEqual(AccountAddressError.unknownCurve(255).code, "ERR_UNKNOWN_CURVE")
+        XCTAssertNil(AccountAddressError.fromBridgePayload(.init(code: "ERR_UNSUPPORTED_ALGORITHM", message: "retired", fields: [:])))
+    }
+
+    func testNativeResourceCategoryDoesNotBecomeBridgeAbsence() {
+        for diagnostic in ["arbitrary diagnostic", "implementation unavailable is only text"] {
+            let payload = AccountAddressError.BridgePayload(code: "ERR_DECODE_RESOURCE_LIMIT",
+                message: diagnostic, fields: [:])
+            let error = AccountAddressError.fromBridgePayload(payload)
+            XCTAssertEqual(error, .decodeResourceLimit)
+            XCTAssertEqual(error?.code, "ERR_DECODE_RESOURCE_LIMIT")
+            XCTAssertNotEqual(error, .nativeBridgeUnavailable)
+        }
+    }
+
+    func testUnknownAlgorithmRejected() {
         XCTAssertThrowsError(
             try AccountAddress.fromAccount(publicKey: Data(repeating: 0xAA, count: 32),
                 algorithm: "future-curve"
             )
         ) { error in
-            guard case let AccountAddressError.unsupportedAlgorithm(name) = error else {
+            guard case let AccountAddressError.unknownAlgorithm(name) = error else {
                 return XCTFail("unexpected error: \(error)")
             }
             XCTAssertEqual(name.lowercased(), "future-curve")
@@ -393,7 +428,9 @@ final class AccountAddressTests: XCTestCase {
             "ed25519 ",
             "\u{00A0}ML-DSA-65\u{00A0}",
             "\u{2003}ML-DSA-65\u{2003}",
-            "future-curve",
+            "future-curve", "ed", "ED25519", "secp", "SECP256K1",
+            "mldsa", "ML-DSA-65", "ML_DSA_65", "ML_DSA-65",
+            "bls-normal", "bls-small", "gost256a", "gost512b", "sm-2", "SM2",
             "ed\t25519",
             "ed 25519",
             "ed.25519",
@@ -413,7 +450,7 @@ final class AccountAddressTests: XCTestCase {
             XCTAssertThrowsError(
                 try AccountAddress.fromAccount(publicKey: publicKey, algorithm: algorithm)
             ) { error in
-                guard case let AccountAddressError.unsupportedAlgorithm(name) = error else {
+                guard case let AccountAddressError.unknownAlgorithm(name) = error else {
                     return XCTFail("unexpected error for \(algorithm): \(error)")
                 }
                 XCTAssertEqual(name, algorithm)
@@ -421,10 +458,9 @@ final class AccountAddressTests: XCTestCase {
         }
     }
 
-    #if IROHASWIFT_ENABLE_MLDSA
-    func testMlDsaAccountAliasesRequireProtocolSuite65KeyMaterial() throws {
+    func testMlDsaCanonicalIdentityRequiresProtocolSuite65KeyMaterial() throws {
         let publicKey = Data(repeating: 0xA5, count: 1_952)
-        for algorithm in ["mldsa", "ML-DSA-65", "ML_DSA_65", "ML_DSA-65"] {
+        for algorithm in ["ml-dsa"] {
             let address = try AccountAddress.fromAccount(
                 publicKey: publicKey,
                 algorithm: algorithm
@@ -464,7 +500,7 @@ final class AccountAddressTests: XCTestCase {
             XCTAssertThrowsError(
                 try AccountAddress.fromAccount(
                     publicKey: malformedKey,
-                    algorithm: "ML-DSA-65"
+                    algorithm: "ml-dsa"
                 )
             ) { error in
                 guard case AccountAddressError.invalidPublicKey = error else {
@@ -502,7 +538,6 @@ final class AccountAddressTests: XCTestCase {
             )
         }
     }
-    #endif
 
     func testAccountControllerNoritoUsesAlgorithmTaggedPublicKeyBytes() throws {
         let publicKey = try validEd25519PublicKey(seed: 0x42)
@@ -777,8 +812,8 @@ final class AccountAddressTests: XCTestCase {
             } else {
                 XCTFail("\(caseId): expected invalid i105 prefix, got \(addressError)")
             }
-        case "UnsupportedAlgorithm":
-            if case let .unsupportedAlgorithm(name) = addressError {
+        case "UnknownAlgorithm":
+            if case let .unknownAlgorithm(name) = addressError {
                 if let expectedName = expected.policyError {
                     XCTAssertEqual(name.lowercased(), expectedName.lowercased(), "\(caseId): unsupported algorithm mismatch")
                 }
@@ -796,8 +831,12 @@ private extension AccountAddressError {
         switch self {
         case .nativeBridgeUnavailable:
             return "NativeBridgeUnavailable"
-        case .unsupportedAlgorithm:
-            return "UnsupportedAlgorithm"
+        case .unknownAlgorithm:
+            return "UnknownAlgorithm"
+        case .unsupportedImplementation:
+            return "UnsupportedImplementation"
+        case .decodeResourceLimit:
+            return "DecodeResourceLimit"
         case .keyPayloadTooLong:
             return "KeyPayloadTooLong"
         case .invalidHeaderVersion:
