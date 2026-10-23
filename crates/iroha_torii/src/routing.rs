@@ -295,7 +295,13 @@ pub struct DataspaceReadVisibility {
     visible_dataspaces: BTreeSet<DataSpaceId>,
     fixed_scope: Option<crate::stream_control::FixedScopeOwner>,
     can_read_all: bool,
-    exact_account: Option<AccountId>,
+    exact_account: Option<ExactAccountReadScope>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ExactAccountReadScope {
+    account: AccountId,
+    balance_dataspaces: BTreeSet<DataSpaceId>,
 }
 
 impl DataspaceReadVisibility {
@@ -308,20 +314,25 @@ impl DataspaceReadVisibility {
         }
     }
 
-    /// Restrict an authorized account-assets read to one exact account on its
-    /// authorized dataspaces. The account grant opens its balance routes, not
-    /// the caller's siblings.
-    pub(crate) fn exact_account(dataspaces: BTreeSet<DataSpaceId>, account: AccountId) -> Self {
-        Self {
-            visible_dataspaces: dataspaces,
-            fixed_scope: None,
-            can_read_all: false,
-            exact_account: Some(account),
-        }
+    /// Retain definition visibility while restricting holdings to the exact
+    /// account and all of its authorized balance routes. A broader definition
+    /// grant must not expand this account selector or its balance authority.
+    pub(crate) fn with_exact_account(
+        mut self,
+        balance_dataspaces: BTreeSet<DataSpaceId>,
+        account: AccountId,
+    ) -> Self {
+        self.visible_dataspaces
+            .extend(balance_dataspaces.iter().copied());
+        self.exact_account = Some(ExactAccountReadScope {
+            account,
+            balance_dataspaces,
+        });
+        self
     }
 
     pub(crate) fn exact_account_id(&self) -> Option<&AccountId> {
-        self.exact_account.as_ref()
+        self.exact_account.as_ref().map(|scope| &scope.account)
     }
 
     #[cfg(any(test, feature = "bench"))]
@@ -414,7 +425,8 @@ impl DataspaceReadVisibility {
         account_id: &AccountId,
     ) -> bool {
         if let Some(exact_account) = &self.exact_account {
-            return exact_account == account_id && world.accounts().get(account_id).is_some();
+            return &exact_account.account == account_id
+                && world.accounts().get(account_id).is_some();
         }
         if self.can_read_all {
             return true;
@@ -476,14 +488,25 @@ impl DataspaceReadVisibility {
 
     /// Return whether an asset bucket and its holder belong only to visible routes.
     pub(crate) fn allows_asset(&self, world: &impl WorldReadOnly, asset_id: &AssetId) -> bool {
-        if self.can_read_all {
+        if !self.allows_account(world, asset_id.account()) {
+            return false;
+        }
+        if self.can_read_all && self.exact_account.is_none() {
             return true;
         }
         if world.assets().get(asset_id).is_none()
             || !self.allows_asset_definition(world, asset_id.definition())
-            || !self.allows_account(world, asset_id.account())
         {
             return false;
+        }
+        // One execution serves the complete authorized route set. Definition
+        // visibility, including a global grant, cannot add other balance routes.
+        if let Some(exact_account) = &self.exact_account {
+            let dataspace = match asset_id.scope() {
+                iroha_data_model::asset::AssetBalanceScope::Global => DataSpaceId::UNIVERSAL,
+                iroha_data_model::asset::AssetBalanceScope::Dataspace(dataspace) => *dataspace,
+            };
+            return exact_account.balance_dataspaces.contains(&dataspace);
         }
         match asset_id.scope() {
             iroha_data_model::asset::AssetBalanceScope::Global => true,
@@ -516,6 +539,24 @@ impl DataspaceReadVisibility {
         );
         for dataspace in self.dataspace_ids() {
             hasher.update(dataspace.as_u64().to_be_bytes());
+        }
+        if let Some(scope) = &self.exact_account {
+            hasher.update(b"exact-account");
+            let account = norito::codec::Encode::encode(&scope.account);
+            hasher.update(
+                u32::try_from(account.len())
+                    .expect("canonical account encoding fits u32")
+                    .to_be_bytes(),
+            );
+            hasher.update(account);
+            hasher.update(
+                u32::try_from(scope.balance_dataspaces.len())
+                    .expect("configured dataspace count fits u32")
+                    .to_be_bytes(),
+            );
+            for dataspace in &scope.balance_dataspaces {
+                hasher.update(dataspace.as_u64().to_be_bytes());
+            }
         }
         hasher.finalize().into()
     }
@@ -36872,7 +36913,7 @@ mod explorer_lookup_tests {
             iroha_config::parameters::actual::Nexus { dataspace_catalog: catalog, ..Default::default() },
             LiveQueryStore::start_test(),
         ));
-        let visibility = DataspaceReadVisibility::exact_account(BTreeSet::from([DataSpaceId::UNIVERSAL]), owner.clone());
+        let visibility = DataspaceReadVisibility::default().with_exact_account(BTreeSet::from([DataSpaceId::UNIVERSAL]), owner.clone());
         {
             let world = state.world_view();
             assert!(world.asset_definitions().get(&global).unwrap().alias().is_none());

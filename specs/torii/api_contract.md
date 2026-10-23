@@ -427,6 +427,24 @@ intended exposure boundary, while the current single-listener implementation
 continues to enforce operator and diagnostic restrictions through
 authentication and ingress policy.
 
+## Asset read visibility
+
+Asset-definition reads use the immutable `AssetDefinitionHome`: a global home
+is visible through the universal data space, a domain home through the domain's
+authoritative data space, and a direct data space home through that exact data
+space. `AssetBalancePolicy::Global` describes balance partitioning; it does not
+make an explicitly private definition home public. Aliases do not replace
+immutable definition ownership.
+
+Signed account-assets reads retain the caller's current definition visibility,
+including `CanReadAllLedgerData`, while restricting holdings to the exact
+requested account and its authorized balance routes. Broader definition grants
+cannot expose sibling accounts or add balance routes. A global balance belongs
+to the universal route; a scoped balance belongs to its explicit data space,
+independently of its definition's home. One selected authoritative execution
+returns the complete authorized collection. GET and POST/query share these
+rules, and subsequent reads recheck permission revocation.
+
 ## Transaction status privacy
 
 `GET /v1/pipeline/transactions/status` is intentionally a public, status-only

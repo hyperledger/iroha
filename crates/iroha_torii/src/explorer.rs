@@ -3039,7 +3039,7 @@ mod tests {
         );
         assert!(!denied, "root metadata refusal must fail closed");
         assert!(!DataspaceReadVisibility::default().allows_account(&global, &ALICE_ID));
-        let exact = DataspaceReadVisibility::exact_account(
+        let exact = DataspaceReadVisibility::default().with_exact_account(
             std::collections::BTreeSet::from([DataSpaceId::UNIVERSAL]),
             ALICE_ID.clone(),
         );
@@ -3307,7 +3307,7 @@ mod tests {
             ),
             2
         );
-        let alice_only = DataspaceReadVisibility::exact_account(
+        let alice_only = DataspaceReadVisibility::default().with_exact_account(
             std::collections::BTreeSet::from([iroha_model_base::topology::DataSpaceId::UNIVERSAL]),
             ALICE_ID.clone(),
         );
