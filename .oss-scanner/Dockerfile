@@ -22,15 +22,11 @@ FROM debian:trixie
 
 # The workspace's profile.dev turns incremental compilation on and profile.test turns it off. Without
 # CARGO_INCREMENTAL=0, `cargo test` recompiles every workspace crate that `cargo build` compiled.
-# Retain the incremental profile's 256 codegen partitions when disabling its cache; otherwise Cargo drops
-# workspace crates to 16. The model crates keep their explicit, memory-qualified eight-partition overrides.
 ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
     CARGO_INCREMENTAL=0 \
-    CARGO_PROFILE_DEV_CODEGEN_UNITS=256 \
-    CARGO_PROFILE_TEST_CODEGEN_UNITS=256 \
     CARGO_TERM_COLOR=never \
     RUST_BACKTRACE=1
 
@@ -106,24 +102,31 @@ RUN cargo fetch --locked
 # Build the release image's binaries, Kotodama compiler and Kagami in one feature graph so Kagami does not rebuild
 # the node's large dependency tree. Kagami adds the data model's exact-12 conformance helpers, not test-fixtures.
 # A network needs at least four validators (3f + 1), and `kagami localnet generate` writes one.
-# Share a separate feature graph for all five test suites, including the simulator. sim is only enabled in this
-# test graph, after the shipping binaries have been built. Select all default library/integration harnesses;
+# The opt-in build-features package aligns dependency features across Cargo invocations so the test prebuilds
+# reuse the production data model. Explicit target filters leave its support binary and unused owners unbuilt.
+# Keep Crypto's FHE fixtures and Sumeragi's sim feature separate from model-dependent tests: both change
+# data-model dependency fingerprints. Select all default library/integration harnesses;
 # example-only build checks can be compiled offline when needed. Pin the source-rescan sentinel between Cargo
 # invocations, before it can invalidate reusable dependencies. Timings and sizes make remaining costs visible.
 # Initialize the shared deadline in this RUN so cached setup layers cannot consume a future compilation budget.
 ARG OSS_SCANNER_BUDGET_MINUTES=28
 RUN echo $(( $(date +%s) + ${OSS_SCANNER_BUDGET_MINUTES} * 60 )) > /opt/oss-scanner/deadline \
     && within-budget "release binaries and kagami" cargo build --locked --timings \
-         -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain -p iroha_kagami \
-         --features irohad/external-software-signer-bin \
+         -p irohad -p iroha_cli -p iroha_torii -p kotodama_toolchain -p iroha_kagami -p oss-scanner-build-features \
+         --features irohad/external-software-signer-bin,oss-scanner-build-features/scanner \
          --bin iroha3d --bin iroha3d_taira --bin sorafs_governance_dag --bin sorafs_external_software_signer \
          --bin iroha --bin attachment_sanitizer --bin koto --bin kagami \
     && pin-iroha-plonk && du -sh target \
     && sha256sum target/debug/iroha3d target/debug/iroha3d_taira target/debug/sorafs_governance_dag \
          target/debug/sorafs_external_software_signer target/debug/iroha target/debug/attachment_sanitizer \
          target/debug/koto target/debug/kagami > /opt/oss-scanner/binaries.sha256 \
-    && within-budget "codec crypto VM P2P and simulator tests" cargo test --locked --no-run --timings --lib --tests \
-         -p norito -p iroha_crypto -p ivm -p iroha_p2p -p iroha_sumeragi --features sim \
+    && within-budget "codec VM and P2P tests" cargo test --locked --no-run --timings --lib --tests \
+         -p norito -p ivm -p iroha_p2p -p oss-scanner-build-features \
+         --features oss-scanner-build-features/scanner \
+    && pin-iroha-plonk && du -sh target \
+    && within-budget "crypto and simulator tests" cargo test --locked --no-run --timings --lib --tests \
+         -p iroha_crypto -p iroha_sumeragi -p oss-scanner-build-features \
+         --features iroha_sumeragi/sim,oss-scanner-build-features/scanner \
     && pin-iroha-plonk && du -sh target \
     && sha256sum --check /opt/oss-scanner/binaries.sha256
 

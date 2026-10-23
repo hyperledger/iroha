@@ -183,8 +183,7 @@ Out of scope:
   (rustfmt and clippy installed).
 - `CARGO_NET_OFFLINE=true` prevents registry access. `CARGO_INCREMENTAL=0` and the mold linker setting in
   `/usr/local/cargo/config.toml` match the prebuilt artifacts; changing compilation settings such as these,
-  `RUSTFLAGS` or a profile can invalidate those artifacts. Dev and test profiles both use 256 codegen partitions;
-  the model crates retain their explicit eight-partition overrides.
+  `RUSTFLAGS` or a profile can invalidate those artifacts.
 - `/opt/oss-scanner/build.log` records completion of every prebuild. The shared compilation budget defaults to 28
   minutes, leaving time for image export and unpacking. It starts after dependency fetch and is reset whenever the
   compilation layer runs, including after cached setup layers. Package and toolchain installation, dependency
@@ -198,10 +197,17 @@ Out of scope:
    `sorafs_external_software_signer`, `iroha` (the CLI), `attachment_sanitizer`, `koto` (the Kotodama compiler)
    and `kagami`. They share a Cargo invocation; Kagami adds the data model's exact-12 conformance helper exports
    to this graph. Simulator and test-fixture features are not enabled in these binaries.
-2. All default library and integration test harnesses from
-   `cargo test --no-run --lib --tests -p norito -p iroha_crypto -p ivm -p iroha_p2p -p iroha_sumeragi --features sim`,
-   sharing those packages' dependency features. Example-only build checks are left for offline compilation.
-   Simulator features are enabled only in this test graph.
+2. All default library and integration test harnesses for Norito, IVM and P2P in one Cargo invocation.
+3. All Crypto and Sumeragi harnesses with `iroha_sumeragi/sim`, separately so Crypto's FHE test fixtures and the
+   simulator do not invalidate the shared production data-model artifacts. This group does not build the model.
+   Example-only build checks are left for offline compilation.
+
+Every prebuild selects `.oss-scanner/build-features` with its opt-in `scanner` feature. This compilation support
+package aligns normal dependency features through their existing owners, without selecting those owners' test
+features or building their targets. Explicit binary/test filters also exclude the support binary. Its dependencies
+are optional and its binary requires `scanner`, so ordinary default/workspace builds and tests are unchanged.
+The binary graph additionally enables the already-used default feature sets of Norito, Crypto and Ciborium, plus
+Either's standard-library trait implementations. No simulator or permissive test-fixture features enter that graph.
 
 The binaries use the dev profile and the tests use the test profile. Both enable debug assertions and overflow
 checks.
@@ -209,10 +215,9 @@ checks.
 **Building on this machine (2 CPUs, 8 GB).**
 - Rebuilding `iroha_core` (about 1.5M lines) or anything above it takes hours here, so run the prebuilt binaries
   directly.
-- Cargo resolves features per invocation. Retain all five package selections and `--features sim` when running a
-  filtered test to reuse that prebuild. A standalone `-p` or another `--features` combination may require
-  additional compilation. The shared test graph does not enable CUDA or hardware qualification targets, or
-  change the shipping binary graph.
+- Cargo resolves features per invocation. Retain the package and feature selections below when running a filtered
+  test to reuse that prebuild. A standalone `-p` or another `--features` combination may require additional
+  compilation. IVM tests retain CUDA disabled; hardware qualification targets are not prebuilt.
 - `crates/iroha_plonk/build.rs` makes Cargo rebuild it, and everything above it, on every invocation. The image
   works around this.
   - After you build a new configuration that includes `iroha_plonk` (anything that depends on `iroha_data_model` or
@@ -231,10 +236,15 @@ checks.
 
 ```sh
 cd /src
-cargo test --lib --tests -p norito -p iroha_crypto -p ivm -p iroha_p2p -p iroha_sumeragi --features sim # all five suites
-cargo test --lib --tests -p norito -p iroha_crypto -p ivm -p iroha_p2p -p iroha_sumeragi --features sim <test> # filter
+# Codec, VM and networking; append a test-name filter as needed.
+cargo test --lib --tests -p norito -p ivm -p iroha_p2p \
+  -p oss-scanner-build-features --features oss-scanner-build-features/scanner
+# Crypto, consensus core and deterministic simulator; append a test-name filter as needed.
+cargo test --lib --tests -p iroha_crypto -p iroha_sumeragi -p oss-scanner-build-features \
+  --features iroha_sumeragi/sim,oss-scanner-build-features/scanner
 SUMERAGI_SIM_SEED=<n> SUMERAGI_SIM_TRACE=1 \
-  cargo test --lib --tests -p norito -p iroha_crypto -p ivm -p iroha_p2p -p iroha_sumeragi --features sim <test> # replay
+  cargo test --lib --tests -p iroha_crypto -p iroha_sumeragi -p oss-scanner-build-features \
+  --features iroha_sumeragi/sim,oss-scanner-build-features/scanner <test> # replay
 ```
 
 **A local network.** It needs four validators, the minimum committee size; a single-peer network is rejected by

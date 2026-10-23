@@ -1,0 +1,47 @@
+[package]
+name = "oss-scanner-build-features"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Cargo resolves these features for the selected package even when the scanner's
+# explicit --bin / --lib --tests filters leave this support binary unbuilt.
+[[bin]]
+name = "oss-scanner-build-features"
+path = "main.rs"
+test = false
+bench = false
+doc = false
+required-features = ["scanner"]
+
+[lints]
+workspace = true
+
+[features]
+# Keep normal default/workspace builds and tests unaffected.
+default = []
+scanner = [
+    "dep:iroha_data_model",
+    "dep:norito",
+    "dep:criterion",
+    "dep:derive_more",
+    "dep:rustix",
+    "dep:sha3",
+    "dep:iroha_crypto",
+    "dep:iroha_cli_lib",
+    "dep:iroha_torii",
+    "dep:musubi",
+]
+
+[dependencies]
+# Align the production/model dependency graph without selecting owner dev-dependencies.
+iroha_data_model = { optional = true, workspace = true, default-features = false, features = ["privacy-exact12-conformance"] }
+norito = { optional = true, workspace = true, features = ["default"] }
+criterion = { optional = true, workspace = true }
+derive_more = { optional = true, workspace = true, features = ["default", "is_variant"] }
+rustix = { optional = true, version = "1.1.4", features = ["pipe", "stdio", "termios"] }
+sha3 = { optional = true, version = "0.10.9", features = ["asm"] }
+iroha_crypto = { optional = true, workspace = true, features = ["default"] }
+iroha_cli_lib = { optional = true, path = "../../crates/iroha_cli", default-features = false }
+iroha_torii = { optional = true, workspace = true }
+musubi = { optional = true, path = "../../crates/musubi" }

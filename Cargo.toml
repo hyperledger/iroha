@@ -348,6 +348,7 @@ default-members = [
     "crates/kotodama_toolchain",
 ]
 members = [
+    ".oss-scanner/build-features",
     "crates/irohad/bins",
     "crates/iroha_cli/bins",
     "crates/*",

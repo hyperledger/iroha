@@ -8221,6 +8221,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "oss-scanner-build-features"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "derive_more",
+ "iroha_cli_lib",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_torii",
+ "musubi",
+ "norito",
+ "rustix 1.1.4",
+ "sha3",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

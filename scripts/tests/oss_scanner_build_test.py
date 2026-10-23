@@ -1,7 +1,7 @@
 """Exercise the OSS scanner's prebuild contract without Docker, Cargo or signals.
 
-Run with ``python3 -m unittest discover -s scripts/tests -p oss_scanner_build_test.py``.
-Only the Python standard library and a POSIX shell are required.
+Run with ``python3.12 -m unittest discover -s scripts/tests -p oss_scanner_build_test.py``.
+Only the Python 3.11+ standard library and a POSIX shell are required.
 """
 
 from __future__ import annotations
@@ -12,11 +12,14 @@ import re
 import shlex
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = ROOT / ".oss-scanner" / "Dockerfile"
+UNIFIER = ROOT / ".oss-scanner" / "build-features" / "Cargo.toml"
+UNIFIER_PACKAGE = "oss-scanner-build-features"
 BINARIES = (
     "iroha3d",
     "iroha3d_taira",
@@ -29,7 +32,8 @@ BINARIES = (
 )
 STAGES = (
     "release binaries and kagami",
-    "codec crypto VM P2P and simulator tests",
+    "codec VM and P2P tests",
+    "crypto and simulator tests",
 )
 
 
@@ -192,63 +196,99 @@ class OssScannerBuildTests(unittest.TestCase):
         result = self.run_shell(self.compile_instruction())
         self.assertEqual(result.returncode, 0, result.stderr)
         events = (self.state / "events").read_text().splitlines()
-        self.assertEqual(len(events), 6)
-        self.assertEqual(events[1::3], ["pin"] * 2)
-        self.assertEqual(events[2::3], ["du -sh target"] * 2)
+        self.assertEqual(len(events), 9)
+        self.assertEqual(events[1::3], ["pin"] * 3)
+        self.assertEqual(events[2::3], ["du -sh target"] * 3)
         commands = [shlex.split(event) for event in events[::3]]
 
         def values(arguments: list[str], flag: str) -> set[str]:
             return {arguments[index + 1] for index, value in enumerate(arguments) if value == flag}
 
-        release, tests = commands
+        def features(arguments: list[str]) -> set[str]:
+            return {feature for value in values(arguments, "--features") for feature in value.split(",")}
+
+        release, tests, simulator = commands
         self.assertEqual(release[:2], ["cargo", "build"])
         self.assertEqual(values(release, "-p"), {
-            "irohad", "iroha_cli", "iroha_torii", "kotodama_toolchain", "iroha_kagami"
+            "irohad", "iroha_cli", "iroha_torii", "kotodama_toolchain", "iroha_kagami",
+            UNIFIER_PACKAGE,
         })
         self.assertEqual(values(release, "--bin"), set(BINARIES))
-        self.assertEqual(values(release, "--features"), {"irohad/external-software-signer-bin"})
+        self.assertEqual(
+            features(release),
+            {"irohad/external-software-signer-bin", f"{UNIFIER_PACKAGE}/scanner"},
+        )
         self.assertEqual(
             values(tests, "-p"),
-            {"norito", "iroha_crypto", "ivm", "iroha_p2p", "iroha_sumeragi"},
+            {"norito", "ivm", "iroha_p2p", UNIFIER_PACKAGE},
         )
-        self.assertEqual(values(tests, "--features"), {"sim"})
+        self.assertEqual(features(tests), {f"{UNIFIER_PACKAGE}/scanner"})
+        self.assertEqual(values(simulator, "-p"), {"iroha_crypto", "iroha_sumeragi", UNIFIER_PACKAGE})
+        self.assertEqual(features(simulator), {"iroha_sumeragi/sim", f"{UNIFIER_PACKAGE}/scanner"})
         for command in commands:
             self.assertIn("--locked", command)
             self.assertIn("--timings", command)
             self.assertNotIn("--release", command)
-        self.assertEqual(tests[:2], ["cargo", "test"])
-        self.assertIn("--no-run", tests)
-        # Keep every unit/integration harness in all five suites (35 at introduction),
-        # while omitting examples. Reject individual test filters or package exclusions.
-        self.assertIn("--lib", tests)
-        self.assertIn("--tests", tests)
-        remaining = tests[2:]
-        while remaining:
-            flag = remaining.pop(0)
-            if flag in {"-p", "--features"}:
-                remaining.pop(0)
-            else:
-                self.assertIn(flag, {"--locked", "--no-run", "--timings", "--lib", "--tests"})
+        for command in (tests, simulator):
+            self.assertEqual(command[:2], ["cargo", "test"])
+            self.assertIn("--no-run", command)
+            # Keep every unit/integration harness in all five suites (35 at introduction),
+            # while omitting examples and the unifier binary. Reject narrower filters.
+            self.assertIn("--lib", command)
+            self.assertIn("--tests", command)
+            remaining = command[2:]
+            while remaining:
+                flag = remaining.pop(0)
+                if flag in {"-p", "--features"}:
+                    remaining.pop(0)
+                else:
+                    self.assertIn(flag, {"--locked", "--no-run", "--timings", "--lib", "--tests"})
         checksums = (self.state / "checksums").read_text().splitlines()
         self.assertEqual(len(checksums), 2)
         self.assertEqual(set(checksums[0].split()), {f"target/debug/{name}" for name in BINARIES})
         self.assertEqual(checksums[1], f"--check {self.state}/binaries.sha256")
 
-    def test_scanner_codegen_profiles_match_without_incremental_artifacts(self) -> None:
+    def test_feature_unifier_is_opt_in_and_excluded_from_prebuild_targets(self) -> None:
+        manifest = tomllib.loads(UNIFIER.read_text(encoding="utf-8"))
+        workspace = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+        self.assertIn(".oss-scanner/build-features", workspace["workspace"]["members"])
+        self.assertEqual(manifest["package"]["name"], UNIFIER_PACKAGE)
+        self.assertIs(manifest["package"]["publish"], False)
+        self.assertEqual(manifest["features"]["default"], [])
+        dependencies = manifest["dependencies"]
+        self.assertTrue(dependencies)
+        for name, dependency in dependencies.items():
+            with self.subTest(dependency=name):
+                self.assertIs(dependency["optional"], True)
+                self.assertNotIn(dependency.get("package", name), {"serde", "serde_json"})
+                self.assertNotIn("sim", dependency.get("features", []))
+        self.assertEqual(
+            set(manifest["features"]["scanner"]),
+            {f"dep:{name}" for name in dependencies},
+        )
+        self.assertNotIn("dev-dependencies", manifest)
+        self.assertNotIn("build-dependencies", manifest)
+        self.assertNotIn("lib", manifest)
+        self.assertEqual(len(manifest["bin"]), 1)
+        binary = manifest["bin"][0]
+        self.assertEqual(binary["name"], UNIFIER_PACKAGE)
+        self.assertEqual(binary["required-features"], ["scanner"])
+        for target_flag in ("test", "bench", "doc"):
+            self.assertIs(binary[target_flag], False)
+
+    def test_scanner_disables_incremental_artifacts(self) -> None:
         instructions = re.findall(r"^ENV (?:[^\n]*\\\n)*[^\n]*", self.source, re.MULTILINE)
         environment = {}
         for instruction in instructions:
             for assignment in shlex.split(instruction[4:].replace("\\\n", " ")):
                 name, value = assignment.split("=", 1)
                 environment[name] = value
-        self.assertEqual(environment["CARGO_PROFILE_DEV_CODEGEN_UNITS"], "256")
-        self.assertEqual(environment["CARGO_PROFILE_TEST_CODEGEN_UNITS"], "256")
         self.assertEqual(environment["CARGO_INCREMENTAL"], "0")
 
     def test_error_or_timeout_stops_remaining_prebuilds(self) -> None:
         self.wrapper()
         self.fake_build_tools()
-        for stage in (1, 2):
+        for stage in (1, 2, 3):
             for status in (42, 124, 137):
                 with self.subTest(stage=stage, status=status):
                     for name in ("events", "count", "unpinned"):
@@ -267,7 +307,7 @@ class OssScannerBuildTests(unittest.TestCase):
         self.environment["CHECKSUM_STATUS"] = "1"
         result = self.run_shell(self.compile_instruction())
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertEqual((self.state / "count").read_text().strip(), "2")
+        self.assertEqual((self.state / "count").read_text().strip(), "3")
 
     def prepare_probe(self) -> str:
         debug = self.root / "target" / "debug"
