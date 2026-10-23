@@ -20600,6 +20600,9 @@ async fn execute_torii_read_via_proxy(
     request: ToriiReadProxyRequestV1,
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
+    if let Some(refusal) = local_only_owner_refusal(app) {
+        return refusal;
+    }
     #[cfg(feature = "connect")]
     {
         execute_torii_proxy_request_with_fallback_admitted(

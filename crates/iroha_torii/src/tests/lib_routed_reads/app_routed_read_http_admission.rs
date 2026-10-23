@@ -1226,6 +1226,62 @@ mod app_routed_read_http_admission_tests {
     }
 
     #[tokio::test]
+    async fn local_routed_read_owner_books_without_the_proxy_candidate_allowance() {
+        let app = mk_app_state_for_tests();
+        let tiers = routed_read_owner_working_sets(&app).collect::<Vec<_>>();
+        let candidates = query_fanout_candidate_snapshot_overhead_bytes().unwrap();
+        let pool = &app.query_fanout_inflight;
+        let credit = |bytes: usize| {
+            u64::from(pool.permits_for_parts([bytes as u64]).unwrap().get())
+                * pool.bytes_per_permit.get()
+        };
+        let before = pool.available_bytes();
+        for (working_set, weight, local_only) in [
+            (tiers[0], tiers[0] - candidates, true),
+            (
+                app.query_fanout_working_set_bytes,
+                app.query_fanout_working_set_bytes,
+                false,
+            ),
+        ] {
+            let owner = acquire_app_routed_read_http_memory(&app, working_set)
+                .await
+                .unwrap();
+            assert_eq!(owner.is_local_only(), local_only);
+            assert_eq!(
+                owner.admitted_envelope(&app).unwrap().working_set_bytes,
+                working_set
+            );
+            assert_eq!(before - pool.available_bytes(), credit(weight));
+            drop(owner);
+            assert_eq!(pool.available_bytes(), before);
+        }
+    }
+
+    #[tokio::test]
+    async fn local_only_owner_refuses_to_send_its_read_to_another_validator() {
+        let app = mk_app_state_for_tests();
+        let smallest = routed_read_owner_working_sets(&app).next().unwrap();
+        let local = acquire_app_routed_read_http_memory(&app, smallest)
+            .await
+            .unwrap();
+        let complete = try_acquire_new_query_fanout_memory(&app).unwrap();
+        assert!(local_only_owner_refusal(&app).is_none());
+        COLLECTION_READ_MEMORY_RESERVATION
+            .scope(complete.clone(), async {
+                assert!(local_only_owner_refusal(&app).is_none());
+            })
+            .await;
+        COLLECTION_READ_MEMORY_RESERVATION
+            .scope(local.clone(), async {
+                let refusal = local_only_owner_refusal(&app).expect("local-only owner refuses");
+                assert!(!refusal.status().is_success());
+                assert!(app_routed_read_owner_refused(&refusal, &local));
+            })
+            .await;
+    }
+
+    #[tokio::test]
     async fn routed_read_retry_reuses_its_first_verified_authentication() {
         let app = mk_app_state_for_tests();
         let ceiling = app.query_fanout_working_set_bytes;
