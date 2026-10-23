@@ -29,8 +29,7 @@ BINARIES = (
 )
 STAGES = (
     "release binaries and kagami",
-    "codec crypto VM and P2P tests",
-    "iroha_sumeragi simulator tests",
+    "codec crypto VM P2P and simulator tests",
 )
 
 
@@ -193,50 +192,63 @@ class OssScannerBuildTests(unittest.TestCase):
         result = self.run_shell(self.compile_instruction())
         self.assertEqual(result.returncode, 0, result.stderr)
         events = (self.state / "events").read_text().splitlines()
-        self.assertEqual(len(events), 9)
-        self.assertEqual(events[1::3], ["pin"] * 3)
-        self.assertEqual(events[2::3], ["du -sh target"] * 3)
+        self.assertEqual(len(events), 6)
+        self.assertEqual(events[1::3], ["pin"] * 2)
+        self.assertEqual(events[2::3], ["du -sh target"] * 2)
         commands = [shlex.split(event) for event in events[::3]]
 
         def values(arguments: list[str], flag: str) -> set[str]:
             return {arguments[index + 1] for index, value in enumerate(arguments) if value == flag}
 
-        release, tests, simulator = commands
+        release, tests = commands
         self.assertEqual(release[:2], ["cargo", "build"])
         self.assertEqual(values(release, "-p"), {
             "irohad", "iroha_cli", "iroha_torii", "kotodama_toolchain", "iroha_kagami"
         })
         self.assertEqual(values(release, "--bin"), set(BINARIES))
         self.assertEqual(values(release, "--features"), {"irohad/external-software-signer-bin"})
-        self.assertEqual(values(tests, "-p"), {"norito", "iroha_crypto", "ivm", "iroha_p2p"})
-        self.assertEqual(values(tests, "--features"), set())
-        self.assertEqual(values(simulator, "-p"), {"iroha_sumeragi"})
-        self.assertEqual(values(simulator, "--features"), {"sim"})
+        self.assertEqual(
+            values(tests, "-p"),
+            {"norito", "iroha_crypto", "ivm", "iroha_p2p", "iroha_sumeragi"},
+        )
+        self.assertEqual(values(tests, "--features"), {"sim"})
         for command in commands:
             self.assertIn("--locked", command)
             self.assertIn("--timings", command)
             self.assertNotIn("--release", command)
-        for command in (tests, simulator):
-            self.assertEqual(command[:2], ["cargo", "test"])
-            self.assertIn("--no-run", command)
-            # Only build flags and package/feature selection may follow `cargo test`.
-            # This rejects test-name filters, target narrowing and excluded packages.
-            remaining = command[2:]
-            while remaining:
-                flag = remaining.pop(0)
-                if flag in {"-p", "--features"}:
-                    remaining.pop(0)
-                else:
-                    self.assertIn(flag, {"--locked", "--no-run", "--timings"})
+        self.assertEqual(tests[:2], ["cargo", "test"])
+        self.assertIn("--no-run", tests)
+        # Keep every unit/integration harness in all five suites (35 at introduction),
+        # while omitting examples. Reject individual test filters or package exclusions.
+        self.assertIn("--lib", tests)
+        self.assertIn("--tests", tests)
+        remaining = tests[2:]
+        while remaining:
+            flag = remaining.pop(0)
+            if flag in {"-p", "--features"}:
+                remaining.pop(0)
+            else:
+                self.assertIn(flag, {"--locked", "--no-run", "--timings", "--lib", "--tests"})
         checksums = (self.state / "checksums").read_text().splitlines()
         self.assertEqual(len(checksums), 2)
         self.assertEqual(set(checksums[0].split()), {f"target/debug/{name}" for name in BINARIES})
         self.assertEqual(checksums[1], f"--check {self.state}/binaries.sha256")
 
+    def test_scanner_codegen_profiles_match_without_incremental_artifacts(self) -> None:
+        instructions = re.findall(r"^ENV (?:[^\n]*\\\n)*[^\n]*", self.source, re.MULTILINE)
+        environment = {}
+        for instruction in instructions:
+            for assignment in shlex.split(instruction[4:].replace("\\\n", " ")):
+                name, value = assignment.split("=", 1)
+                environment[name] = value
+        self.assertEqual(environment["CARGO_PROFILE_DEV_CODEGEN_UNITS"], "256")
+        self.assertEqual(environment["CARGO_PROFILE_TEST_CODEGEN_UNITS"], "256")
+        self.assertEqual(environment["CARGO_INCREMENTAL"], "0")
+
     def test_error_or_timeout_stops_remaining_prebuilds(self) -> None:
         self.wrapper()
         self.fake_build_tools()
-        for stage in (1, 2, 3):
+        for stage in (1, 2):
             for status in (42, 124, 137):
                 with self.subTest(stage=stage, status=status):
                     for name in ("events", "count", "unpinned"):
@@ -255,7 +267,7 @@ class OssScannerBuildTests(unittest.TestCase):
         self.environment["CHECKSUM_STATUS"] = "1"
         result = self.run_shell(self.compile_instruction())
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertEqual((self.state / "count").read_text().strip(), "3")
+        self.assertEqual((self.state / "count").read_text().strip(), "2")
 
     def prepare_probe(self) -> str:
         debug = self.root / "target" / "debug"
