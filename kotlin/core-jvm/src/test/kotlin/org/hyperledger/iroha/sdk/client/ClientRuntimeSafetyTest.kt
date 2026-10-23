@@ -56,21 +56,21 @@ class ClientRuntimeSafetyTest {
     }
 
     @Test
-    fun plaintextIsOnlyAllowedToLoopbackHostsAfterOptIn() {
+    fun plaintextIsOnlyAllowedToLocalDevelopmentHostsAfterOptIn() {
         val credentials = mapOf(CanonicalRequestSigner.HEADER_ACCOUNT to "alice@wonderland")
-        for (host in listOf("localhost", "LOCALHOST", "node.localhost", "127.0.0.1", "127.255.0.9", "[::1]")) {
-            assertTrue(TransportSecurity.isLoopbackHost(host), host)
+        for (host in listOf("localhost", "LOCALHOST", "node.localhost", "127.0.0.1", "127.255.0.9", "[::1]", "10.0.0.1")) {
+            assertTrue(TransportSecurity.isLocalDevelopmentHost(host), host)
             val uri = URI("http://$host:8080/v1/domains/query")
-            TransportSecurity.requireHttpRequestAllowed("test", uri, uri, credentials, null, allowPlaintextLoopback = true)
+            TransportSecurity.requireHttpRequestAllowed("test", uri, uri, credentials, null, allowLocalDevelopmentHttp = true)
             assertFailsWith<IllegalArgumentException>(host) {
                 TransportSecurity.requireHttpRequestAllowed("test", uri, uri, credentials, null)
             }
         }
-        for (host in listOf("torii.example", "127.0.0.1.example", "128.0.0.1", "10.0.0.1", "localhost.example")) {
-            assertFalse(TransportSecurity.isLoopbackHost(host), host)
+        for (host in listOf("torii.example", "127.0.0.1.example", "128.0.0.1", "11.0.0.1", "localhost.example")) {
+            assertFalse(TransportSecurity.isLocalDevelopmentHost(host), host)
             val uri = URI("http://$host/v1/domains/query")
             assertFailsWith<IllegalArgumentException>(host) {
-                TransportSecurity.requireHttpRequestAllowed("test", uri, uri, credentials, null, allowPlaintextLoopback = true)
+                TransportSecurity.requireHttpRequestAllowed("test", uri, uri, credentials, null, allowLocalDevelopmentHttp = true)
             }
         }
         val anonymous = URI("http://torii.example/v1/domains/query")

@@ -160,7 +160,8 @@ aggregate, and exact-total controls. Empty pages can still carry `nextCursor`.
   (with a `LocalSigningContext`) to sign them, which widens visibility into
   restricted dataspaces, or sign one collection with `signedBy(auth)`.
   Signed requests need HTTPS; for a local devnet,
-  `setAllowPlaintextLoopback(true)` admits plain `http` to loopback hosts only.
+  `setAllowLocalDevelopmentHttp(true)` admits plain `http` to localhost, loopback IPs,
+  and private IPv4 addresses at the configured origin.
 
 ## Local confidential proofs
 
@@ -494,6 +495,19 @@ pair is single-use: a second signing attempt fails locally with
 The transport signs the exact
 POST path and body once, rejects caller-supplied canonical headers, and requires a claim-receipt
 path account to be the same exact canonical I105 account as the signer.
+For a local development node, call
+`ClientConfig.Builder.setAllowLocalDevelopmentHttp(true)` to allow http only when the base URL host is
+loopback (`127.0.0.0/8`, `::1`, `localhost`) or a private IPv4 address (`10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`), which covers the Android emulator alias `10.0.2.2` and devices on the same local
+network; all other http hosts stay refused. The option is off by default and is meant for development
+builds only. The request must keep the configured scheme, host and effective port. This opt-in
+also applies to Torii routes that normally require HTTPS explicitly, credentialed transaction
+submission and status reads, and the RPC, confidential-asset, subscription, DA, private-settlement
+and HTTP event-stream clients created from the configuration or transport. These clients' standalone
+builders expose the same default-off option. Request signatures, response verification, and
+redirect/replay restrictions still apply. WebSockets and SoraFS gateways retain their separate
+secure-transport requirements. Android applications must also allow the development destination
+in their debug cleartext/network-security configuration; this SDK option does not override it.
 
 Nearby's `IrohaPeerNearbySessionV1` owns the authenticated IPM1 boundary for Kotlin and Java.
 `seal` accepts an `IrohaPeerWireMessageV1`; `open` returns a verified message for the session's
@@ -950,7 +964,8 @@ absent; proofs must use protocol-specific typed APIs. The local catalog never
 establishes activation or readiness; proof submission requires a fresh
 committed `/v1/privacy/capabilities` manifest from live Torii.
 `HttpClientTransport.getPrivacyCapabilities(canonicalAuth)` performs a one-shot
-authenticated HTTPS fetch for `ClientConfig`'s immutable local network, verifies
+authenticated HTTPS fetch (or explicitly opted-in local HTTP) for `ClientConfig`'s immutable local
+network, verifies
 the exact response URL and bounded Norito body, and native-validates its signatures
 and deployment network before privately binding its origin. Public archive decoding
 is inspection-only and cannot mint admission. Native construction validates the

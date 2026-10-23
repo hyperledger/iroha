@@ -18,6 +18,7 @@ class DaToriiClient private constructor(builder: Builder) : AutoCloseable {
     private val executor: HttpTransportExecutor =
         HttpTransportScope.create(builder.executor)
     private val baseUri: URI = builder.baseUri
+    private val allowLocalDevelopmentHttp: Boolean = builder.allowLocalDevelopmentHttp
     private val timeout: Duration? = builder.timeout
     private val defaultHeaders: Map<String, String> =
         Collections.unmodifiableMap(LinkedHashMap(builder.defaultHeaders))
@@ -111,6 +112,7 @@ class DaToriiClient private constructor(builder: Builder) : AutoCloseable {
             target,
             headers,
             body,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)
@@ -207,6 +209,7 @@ class DaToriiClient private constructor(builder: Builder) : AutoCloseable {
     class Builder internal constructor() {
         internal var executor: HttpTransportExecutor? = null
         internal var baseUri: URI = URI.create("http://localhost:8080")
+        internal var allowLocalDevelopmentHttp: Boolean = false
         internal var timeout: Duration? = Duration.ofSeconds(15)
         internal val defaultHeaders = LinkedHashMap<String, String>()
         internal val observers = ArrayList<ClientObserver>()
@@ -219,6 +222,14 @@ class DaToriiClient private constructor(builder: Builder) : AutoCloseable {
         fun baseUri(baseUri: URI): Builder {
             this.baseUri = baseUri
             return this
+        }
+
+        /**
+         * Allow credentialed HTTP to the same loopback or private IPv4 origin; disabled by default.
+         * See [ClientConfig.Builder.setAllowLocalDevelopmentHttp] for the allowed address ranges.
+         */
+        fun setAllowLocalDevelopmentHttp(allow: Boolean): Builder = apply {
+            this.allowLocalDevelopmentHttp = allow
         }
 
         fun timeout(timeout: Duration?): Builder {

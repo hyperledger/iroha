@@ -2730,6 +2730,51 @@ class HttpClientTransportTest {
     }
 
     @Test
+    fun quoteFeesOverLocalDevelopmentHttpRequiresExplicitOptIn() {
+        val authority = testAccountId(0x1a)
+        val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val unsignedPayload = linkedMapOf<String, Any?>(
+            "domain" to linkedMapOf(
+                "kind" to "network",
+                "value" to verifyingKeyNetworkId.literal,
+            ),
+            "authority" to authority,
+            "fee_payment" to testFeePayment(9_000L).toJsonMap(),
+        )
+        val refusingExecutor = StubResponseExecutor(200, authorityFeeQuoteResponse(authority), contentType = "application/json")
+        val refusingTransport = HttpClientTransport(
+            executor = refusingExecutor,
+            config = signedClientConfig("http://127.0.0.1:29080"),
+        )
+        val allowingExecutor = StubResponseExecutor(200, authorityFeeQuoteResponse(authority), contentType = "application/json")
+        val allowingTransport = HttpClientTransport(
+            executor = allowingExecutor,
+            config = signedClientConfig("http://10.0.2.2:29080").toBuilder().setAllowLocalDevelopmentHttp(true).build(),
+        )
+        val remoteExecutor = StubResponseExecutor(200, authorityFeeQuoteResponse(authority), contentType = "application/json")
+        val remoteTransport = HttpClientTransport(
+            executor = remoteExecutor,
+            config = signedClientConfig("http://torii.example:29080").toBuilder().setAllowLocalDevelopmentHttp(true).build(),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            refusingTransport.quoteFees(unsignedPayload, ToriiCanonicalRequestAuth(authority, RequestSigner.ed25519(keyPair.private)))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            remoteTransport.quoteFees(unsignedPayload, ToriiCanonicalRequestAuth(authority, RequestSigner.ed25519(keyPair.private)))
+        }
+        allowingTransport.quoteFees(
+            unsignedPayload,
+            ToriiCanonicalRequestAuth(authority, RequestSigner.ed25519(keyPair.private), 1_700_000_000_021L, "fee-quote-local"),
+        ).join()
+
+        assertEquals(0, refusingExecutor.requestCount)
+        assertEquals(0, remoteExecutor.requestCount)
+        assertEquals("http://10.0.2.2:29080/v1/fees/quote", allowingExecutor.lastRequest.uri.toString())
+        assertCanonicalSignature(allowingExecutor.lastRequest, keyPair.public, 1_700_000_000_021L, "fee-quote-local")
+    }
+
+    @Test
     fun quoteFeesUsesControllerIdentityAndAllowsCanonicalAliasAuth() {
         val canonicalAuthority = testAccountId(0x1d)
         val alternateAuthority =

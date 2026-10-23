@@ -21,6 +21,7 @@ class SubscriptionToriiClient private constructor(builder: Builder) : AutoClosea
 
     private val executor: HttpTransportExecutor = HttpTransportScope.create(builder.executor)
     private val baseUri: URI = builder.baseUri
+    private val allowLocalDevelopmentHttp: Boolean = builder.allowLocalDevelopmentHttp
     private val timeout: Duration? = builder.timeout
     private val defaultHeaders: Map<String, String> = Collections.unmodifiableMap(LinkedHashMap(builder.defaultHeaders))
     private val observers: List<ClientObserver> = builder.observers.toList()
@@ -70,6 +71,7 @@ class SubscriptionToriiClient private constructor(builder: Builder) : AutoClosea
             target,
             headers,
             null,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder().setUri(target).setMethod("GET").setTimeout(timeout)
         headers.forEach { (k, v) -> builder.addHeader(k, v) }
@@ -85,6 +87,7 @@ class SubscriptionToriiClient private constructor(builder: Builder) : AutoClosea
             target,
             headers,
             body,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder().setUri(target).setMethod("POST").setTimeout(timeout).setBody(body)
         headers.forEach { (k, v) -> builder.addHeader(k, v) }
@@ -167,12 +170,21 @@ class SubscriptionToriiClient private constructor(builder: Builder) : AutoClosea
     class Builder internal constructor() {
         internal var executor: HttpTransportExecutor? = null
         internal var baseUri: URI = URI.create("http://localhost:8080")
+        internal var allowLocalDevelopmentHttp: Boolean = false
         internal var timeout: Duration? = Duration.ofSeconds(15)
         internal val defaultHeaders = LinkedHashMap<String, String>()
         internal val observers = ArrayList<ClientObserver>()
 
         fun executor(executor: HttpTransportExecutor): Builder { this.executor = executor; return this }
         fun baseUri(baseUri: URI): Builder { this.baseUri = baseUri; return this }
+
+        /**
+         * Allow credentialed HTTP to the same loopback or private IPv4 origin; disabled by default.
+         * See [ClientConfig.Builder.setAllowLocalDevelopmentHttp] for the allowed address ranges.
+         */
+        fun setAllowLocalDevelopmentHttp(allow: Boolean): Builder = apply {
+            this.allowLocalDevelopmentHttp = allow
+        }
         fun timeout(timeout: Duration?): Builder { this.timeout = timeout; return this }
         fun addHeader(name: String, value: String): Builder { defaultHeaders[name] = value; return this }
         fun defaultHeaders(headers: Map<String, String>?): Builder { defaultHeaders.clear(); headers?.forEach { (key, value) -> defaultHeaders[key] = value }; return this }

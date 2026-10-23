@@ -18,7 +18,9 @@ selective `CommittedTransaction` against native Sumeragi finality.
    `application/x-norito` for both `Content-Type` and `Accept`. Pin application
    dataspace and tenant headers independently. Reconcile an ambiguous response
    before creating another nonce-bearing query. The Kotlin transport enforces
-   HTTPS, the URL prefix, one-shot dispatch, response provenance and bounds.
+   HTTPS by default (or the explicit `setAllowLocalDevelopmentHttp(true)`
+   exception for loopback/private IPv4 nodes), the URL prefix, one-shot dispatch,
+   response provenance and bounds.
 4. `candidateBlockHash(responseBytes, transactionHash)` returns `null` for a
    canonical empty page. A one-row response returns an **untrusted** routing
    hint. Fetch native `SumeragiFinalityProof` values through

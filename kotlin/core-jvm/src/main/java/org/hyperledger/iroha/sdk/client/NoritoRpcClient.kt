@@ -38,6 +38,7 @@ class NoritoRpcClient private constructor(builder: Builder) : AutoCloseable {
 
 
     private val baseUri: URI = builder.baseUri
+    private val allowLocalDevelopmentHttp: Boolean = builder.allowLocalDevelopmentHttp
     private val timeout: Duration? = builder.timeout
     private val defaultHeaders: Map<String, String> = LinkedHashMap(builder.defaultHeaders).toMap()
     private val telemetryOptions: TelemetryOptions = builder.telemetryOptions ?: TelemetryOptions.disabled()
@@ -74,6 +75,7 @@ class NoritoRpcClient private constructor(builder: Builder) : AutoCloseable {
             target,
             mergedHeaders,
             payload,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val requestBuilder = TransportRequest.builder().setUri(target).setMethod(resolved.method)
         val requestTimeout = pickTimeout(resolved.timeout)
@@ -211,6 +213,7 @@ class NoritoRpcClient private constructor(builder: Builder) : AutoCloseable {
 
     class Builder internal constructor() {
         internal var baseUri: URI = URI.create("http://localhost:8080")
+        internal var allowLocalDevelopmentHttp: Boolean = false
         internal var timeout: Duration? = Duration.ofSeconds(10)
         internal val defaultHeaders = LinkedHashMap<String, String>()
         internal var telemetryOptions: TelemetryOptions? = TelemetryOptions.disabled()
@@ -223,6 +226,14 @@ class NoritoRpcClient private constructor(builder: Builder) : AutoCloseable {
         internal var wireFormatPreference: WireFormatPreference = WireFormatPreference.NORITO_PREFERRED
 
         fun setBaseUri(baseUri: URI): Builder { this.baseUri = baseUri; return this }
+
+        /**
+         * Allow credentialed HTTP to the same loopback or private IPv4 origin; disabled by default.
+         * See [ClientConfig.Builder.setAllowLocalDevelopmentHttp] for the allowed address ranges.
+         */
+        fun setAllowLocalDevelopmentHttp(allow: Boolean): Builder = apply {
+            this.allowLocalDevelopmentHttp = allow
+        }
         fun setTimeout(timeout: Duration?): Builder { this.timeout = if (timeout == null) null else if (timeout.isNegative) Duration.ZERO else timeout; return this }
         fun putDefaultHeader(name: String, value: String): Builder { defaultHeaders[name] = value; return this }
         fun defaultHeaders(headers: Map<String, String>?): Builder { defaultHeaders.clear(); headers?.forEach { (k, v) -> putDefaultHeader(k, v) }; return this }

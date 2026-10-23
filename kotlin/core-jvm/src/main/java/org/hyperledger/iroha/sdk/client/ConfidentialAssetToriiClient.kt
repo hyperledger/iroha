@@ -23,6 +23,7 @@ class ConfidentialAssetToriiClient private constructor(builder: Builder) : AutoC
 
     private val executor: HttpTransportExecutor = HttpTransportScope.create(builder.executor)
     private val baseUri: URI = builder.baseUri
+    private val allowLocalDevelopmentHttp: Boolean = builder.allowLocalDevelopmentHttp
     private val localSigningContext: LocalSigningContext = checkNotNull(builder.localSigningContext) {
         "localSigningContext must be configured before building a confidential asset client"
     }
@@ -82,6 +83,7 @@ class ConfidentialAssetToriiClient private constructor(builder: Builder) : AutoC
             target,
             headers,
             body,
+            allowLocalDevelopmentHttp = allowLocalDevelopmentHttp,
         )
         val builder = TransportRequest.builder()
             .setUri(target)
@@ -158,12 +160,21 @@ class ConfidentialAssetToriiClient private constructor(builder: Builder) : AutoC
     class Builder internal constructor() {
         internal var executor: HttpTransportExecutor? = null
         internal var baseUri: URI = URI.create("http://localhost:8080")
+        internal var allowLocalDevelopmentHttp: Boolean = false
         internal var localSigningContext: LocalSigningContext? = null
         internal var timeout: Duration? = Duration.ofSeconds(15)
         internal val defaultHeaders = LinkedHashMap<String, String>()
         internal val observers = ArrayList<ClientObserver>()
         fun executor(executor: HttpTransportExecutor): Builder { this.executor = executor; return this }
         fun baseUri(baseUri: URI): Builder { this.baseUri = baseUri; return this }
+
+        /**
+         * Allow credentialed HTTP to the same loopback or private IPv4 origin; disabled by default.
+         * See [ClientConfig.Builder.setAllowLocalDevelopmentHttp] for the allowed address ranges.
+         */
+        fun setAllowLocalDevelopmentHttp(allow: Boolean): Builder = apply {
+            this.allowLocalDevelopmentHttp = allow
+        }
         fun localSigningContext(localSigningContext: LocalSigningContext): Builder {
             this.localSigningContext = localSigningContext
             return this
