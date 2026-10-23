@@ -4,9 +4,28 @@ use http_body_util::BodyExt as _;
 struct AppRoutedReadHttpAdmission {
     reservation: QueryFanoutMemoryReservation,
     decode_plan: ToriiRoutedReadRequestDecodePlan,
+    /// Canonical-account authentication already verified for this HTTP request. A retry
+    /// with a larger owner reuses it, so the request's nonce is published only once.
+    canonical_auth: Arc<std::sync::OnceLock<Option<crate::app_auth::VerifiedCanonicalRequest>>>,
 }
 tokio::task_local! {
     static APP_ROUTED_READ_HTTP_ADMISSION: AppRoutedReadHttpAdmission;
+}
+/// Canonical-account authentication an earlier attempt of this routed read verified:
+/// `Some(Some(_))` signed, `Some(None)` verified as unsigned, `None` not yet verified.
+fn routed_read_canonical_auth() -> Option<Option<crate::app_auth::VerifiedCanonicalRequest>> {
+    APP_ROUTED_READ_HTTP_ADMISSION
+        .try_with(|admission| admission.canonical_auth.get().cloned())
+        .ok()
+        .flatten()
+}
+/// Keep this routed read's verified authentication for any retry with a larger owner.
+fn remember_routed_read_canonical_auth(
+    verified: Option<&crate::app_auth::VerifiedCanonicalRequest>,
+) {
+    let _ = APP_ROUTED_READ_HTTP_ADMISSION.try_with(|admission| {
+        let _ = admission.canonical_auth.set(verified.cloned());
+    });
 }
 #[cfg(feature = "app_api")]
 fn current_app_routed_read_fanout_reservation(
@@ -571,7 +590,7 @@ async fn enforce_app_routed_read_http_admission(
     } else {
         0
     };
-    let _preflight_declared_body_bytes = match if accepts_body {
+    let preflight_declared_body_bytes = match if accepts_body {
         preflight_app_routed_read_content_length(request.headers(), body_limit)
     } else {
         preflight_bodyless_app_routed_read(request.headers())
@@ -579,88 +598,184 @@ async fn enforce_app_routed_read_http_admission(
         Ok(declared) => declared,
         Err(response) => return response,
     };
-    // Axum has already installed its decoded URL-parameter Arcs before an
-    // endpoint middleware runs. That pre-route allocation is covered by the
-    // listener's bounded HTTP-head envelope. Reject an over-P target before a
-    // fanout permit can overlap it; for an accepted target, the decoded values
-    // only shrink and share the outer P phase with the exact body destination.
-    let reservation = match acquire_app_routed_read_http_memory(&app, accepts_body).await {
-        Ok(reservation) => reservation,
-        Err(response) => return response,
-    };
-    // From admission onward, every decoder uses the geometry owned by this
-    // permit. The earlier configuration-derived plan only preflights framing
-    // before acquisition; it cannot authorize a larger retained decode graph.
-    let decode_plan = match ToriiRoutedReadMemoryBudget::from_envelope(
-        match reservation.admitted_envelope(&app) {
-            Ok(envelope) => envelope,
+    // Start with the smallest owner whose own limits admit this target and declared
+    // body; a body without a declared length starts with the configured working set.
+    // A read moves to the next owner only when a limit derived from its current
+    // owner refuses it, so every attempt is bounded by the owner it actually holds.
+    let mut working_sets = routed_read_owner_working_sets(&app)
+        .filter(|&working_set| {
+            app_routed_read_owner_admits(
+                &app,
+                endpoint,
+                working_set,
+                target_bytes,
+                accepts_body.then_some(preflight_declared_body_bytes),
+            )
+        })
+        .peekable();
+    let canonical_auth = Arc::new(std::sync::OnceLock::new());
+    let (parts, unread_body) = request.into_parts();
+    let mut unread_body = Some(unread_body);
+    let mut admitted_body = None;
+    let _inventory_identity = (endpoint.endpoint, endpoint.decoder.typed_request_name());
+    loop {
+        let working_set = working_sets
+            .next()
+            .unwrap_or(app.query_fanout_working_set_bytes);
+        // Axum has already installed its decoded URL-parameter Arcs before an
+        // endpoint middleware runs. That pre-route allocation is covered by the
+        // listener's bounded HTTP-head envelope. Reject an over-P target before a
+        // fanout permit can overlap it; for an accepted target, the decoded values
+        // only shrink and share the outer P phase with the exact body destination.
+        let reservation = match acquire_app_routed_read_http_memory(&app, working_set).await {
+            Ok(reservation) => reservation,
+            Err(response) => return response,
+        };
+        // From admission onward, every decoder uses the geometry owned by this
+        // permit. The earlier configuration-derived plan only preflights framing
+        // before acquisition; it cannot authorize a larger retained decode graph.
+        let decode_plan = match ToriiRoutedReadMemoryBudget::from_envelope(
+            match reservation.admitted_envelope(&app) {
+                Ok(envelope) => envelope,
+                Err(response) => {
+                    return hold_query_fanout_memory_in_response_body(response, reservation);
+                }
+            },
+            app.torii_proxy_max_response_bytes,
+        )
+        .request_decode_plan_for_path(endpoint.route.path())
+        {
+            Ok(plan) => plan,
             Err(response) => {
                 return hold_query_fanout_memory_in_response_body(response, reservation);
             }
-        },
-        app.torii_proxy_max_response_bytes,
-    )
-    .request_decode_plan_for_path(endpoint.route.path())
-    {
-        Ok(plan) => plan,
-        Err(response) => return hold_query_fanout_memory_in_response_body(response, reservation),
-    };
-    if let Err(response) = decode_plan.admit_raw_input(target_bytes) {
-        return hold_query_fanout_memory_in_response_body(
-            map_app_routed_read_request_response(response),
-            reservation,
-        );
-    }
-    let body_limit = if accepts_body {
-        endpoint.body_limit(
-            decode_plan
-                .raw_input_limit_bytes
-                .saturating_sub(target_bytes),
-        )
-    } else {
-        0
-    };
-    let declared_body_bytes = match if accepts_body {
-        preflight_app_routed_read_content_length(request.headers(), body_limit)
-    } else {
-        preflight_bodyless_app_routed_read(request.headers())
-    } {
-        Ok(declared) => declared,
-        Err(response) => return hold_query_fanout_memory_in_response_body(response, reservation),
-    };
-    let (parts, body) = request.into_parts();
-    let body = match tokio::time::timeout(
-        endpoint.body_read_timeout(app.app_api_routed_read_body_read_timeout),
-        collect_app_routed_read_body(body, body_limit, declared_body_bytes),
-    )
-    .await
-    {
-        Ok(Ok(body)) => body,
-        Ok(Err(response)) => {
-            return hold_query_fanout_memory_in_response_body(response, reservation);
-        }
-        Err(_) => {
-            let response = torii_proxy_error_response(
-                StatusCode::REQUEST_TIMEOUT,
-                "request_body_timeout",
-                "The admitted application routed-read body did not complete before its absolute deadline.",
+        };
+        if let Err(response) = decode_plan.admit_raw_input(target_bytes) {
+            return hold_query_fanout_memory_in_response_body(
+                map_app_routed_read_request_response(response),
+                reservation,
             );
-            return hold_query_fanout_memory_in_response_body(response, reservation);
         }
-    };
-    let mut request = Request::from_parts(parts, Body::from(body.bytes.clone()));
-    if accepts_body {
-        request.extensions_mut().insert(body);
+        let body = if let Some(body) = &admitted_body {
+            // A retry re-reads the exact bytes the smaller owner already admitted.
+            AdmittedAppRoutedReadBody::clone(body)
+        } else {
+            let body_limit = if accepts_body {
+                endpoint.body_limit(
+                    decode_plan
+                        .raw_input_limit_bytes
+                        .saturating_sub(target_bytes),
+                )
+            } else {
+                0
+            };
+            let declared_body_bytes = match if accepts_body {
+                preflight_app_routed_read_content_length(&parts.headers, body_limit)
+            } else {
+                preflight_bodyless_app_routed_read(&parts.headers)
+            } {
+                Ok(declared) => declared,
+                Err(response) => {
+                    return hold_query_fanout_memory_in_response_body(response, reservation);
+                }
+            };
+            let Some(unread) = unread_body.take() else {
+                return hold_query_fanout_memory_in_response_body(
+                    torii_proxy_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "internal_server_error",
+                        "The routed-read body was consumed without an admitted copy.",
+                    ),
+                    reservation,
+                );
+            };
+            match tokio::time::timeout(
+                endpoint.body_read_timeout(app.app_api_routed_read_body_read_timeout),
+                collect_app_routed_read_body(unread, body_limit, declared_body_bytes),
+            )
+            .await
+            {
+                Ok(Ok(body)) => {
+                    admitted_body = Some(body.clone());
+                    body
+                }
+                Ok(Err(response)) => {
+                    return hold_query_fanout_memory_in_response_body(response, reservation);
+                }
+                Err(_) => {
+                    let response = torii_proxy_error_response(
+                        StatusCode::REQUEST_TIMEOUT,
+                        "request_body_timeout",
+                        "The admitted application routed-read body did not complete before its absolute deadline.",
+                    );
+                    return hold_query_fanout_memory_in_response_body(response, reservation);
+                }
+            }
+        };
+        let mut request = Request::from_parts(parts.clone(), Body::from(body.bytes.clone()));
+        if accepts_body {
+            request.extensions_mut().insert(body);
+        }
+        let admission = AppRoutedReadHttpAdmission {
+            reservation: reservation.clone(),
+            decode_plan,
+            canonical_auth: Arc::clone(&canonical_auth),
+        };
+        let response = APP_ROUTED_READ_HTTP_ADMISSION
+            .scope(admission, next.clone().run(request))
+            .await;
+        if working_sets.peek().is_some() && app_routed_read_owner_refused(&response, &reservation) {
+            // Release this owner (and the refused response that may hold it) before
+            // waiting for the larger one: an attempt never holds one owner while it
+            // waits for another.
+            drop(response);
+            drop(reservation);
+            continue;
+        }
+        return hold_app_routed_read_reservation_if_needed(response, reservation);
     }
-    let admission = AppRoutedReadHttpAdmission {
-        reservation: reservation.clone(),
-        decode_plan,
+}
+/// Whether the owner limits derived from `working_set_bytes` admit this request target and,
+/// for a body-bearing route, its declared body length (`Some(None)`: undeclared).
+fn app_routed_read_owner_admits(
+    app: &AppState,
+    endpoint: AppReadHttpRoute,
+    working_set_bytes: usize,
+    target_bytes: usize,
+    declared_body_bytes: Option<Option<usize>>,
+) -> bool {
+    let Ok(plan) =
+        QueryFanoutMemoryEnvelope::for_body_admission(working_set_bytes).and_then(|envelope| {
+            ToriiRoutedReadMemoryBudget::from_envelope(envelope, app.torii_proxy_max_response_bytes)
+                .request_decode_plan_for_path(endpoint.route.path())
+        })
+    else {
+        return false;
     };
-    let response = APP_ROUTED_READ_HTTP_ADMISSION
-        .scope(admission, next.run(request))
-        .await;
-    let _inventory_identity = (endpoint.endpoint, endpoint.decoder.typed_request_name());
-    hold_app_routed_read_reservation_if_needed(response, reservation)
+    if plan.admit_raw_input(target_bytes).is_err() {
+        return false;
+    }
+    match declared_body_bytes {
+        None => true,
+        Some(Some(declared)) => {
+            declared <= endpoint.body_limit(plan.raw_input_limit_bytes.saturating_sub(target_bytes))
+        }
+        Some(None) => working_set_bytes >= app.query_fanout_working_set_bytes,
+    }
+}
+/// Whether this routed read was refused by a limit derived from its own owner, so a
+/// larger owner can serve it: owner-limit refusals answer `query_capacity_exceeded`
+/// or mark the owner when they surface as a plain capacity refusal.
+fn app_routed_read_owner_refused(
+    response: &Response,
+    reservation: &QueryFanoutMemoryReservation,
+) -> bool {
+    !response.status().is_success()
+        && (reservation.owner_limit_refused()
+            || response
+                .headers()
+                .get("x-iroha-reject-code")
+                .is_some_and(|code| code == "query_capacity_exceeded"))
 }
 fn app_routed_read_raw_target_bytes(uri: &axum::http::Uri) -> usize {
     let path_and_query = uri

@@ -96,21 +96,31 @@ entries before the cursor, with a limit of 1,048,576 storage entries per request
 Rows with equal sort values are ordered by their identity.
 
 **Memory admission.** `torii.query_fanout_max_retained_bytes` bounds aggregate
-query memory (default 512,000,000 bytes), while
-`torii.query_fanout_max_working_set_bytes` bounds one complete query working set
-(default 48,000,000 bytes). One quarter of the aggregate belongs to independent
-signed-query ingress. With the default content limit, the remaining
-384,000,000 bytes admit eight complete query owners. Increasing aggregate
-capacity raises concurrency without increasing one query's decode, source or
-response ceilings. Smaller aggregate pools reduce the admitted owner and all
-its phase limits together.
+query memory (default 512,000,000 bytes); one quarter belongs to independent
+signed-query ingress and the rest backs query owners.
+`torii.query_fanout_max_working_set_bytes` (default 48,000,000 bytes) is the
+largest owner one read can hold. A collection read starts with the smallest
+owner whose limits admit its request target and declared body: complete
+envelopes of 256 KiB, 2 MiB and 16 MiB phase units below that ceiling, then the
+ceiling itself. An owner below the ceiling serves its read on this node and
+does not book the proxy-candidate allowance; a read that must go to another
+validator moves to the ceiling owner first. Every decode, source, retained-row
+and response limit derives from the owner the read holds. When one of them
+refuses the read, the read is served again with the next owner after the
+smaller one is released, and only the ceiling owner's refusal reaches the
+client. Increasing aggregate capacity raises concurrency without increasing
+one query's ceilings.
 
 The same owner follows collection request decoding, local execution and the
 returned HTTP body. Compiled plans, decoded cursors and the next cursor share
 the scratch phase with runtime ordering and projection; cursor JSON, its frame
-and base64 output are charged for their actual overlap. Bodyless reads wait
-within the finite query admission queue before query decoding. Reads with a
-body fail admission before body polling when every complete owner is occupied.
+and base64 output are charged for their actual overlap. Every read, with or
+without a body, waits within the finite query admission queue
+(`torii.query_queue_timeout_ms`) when every complete owner is occupied; a body
+stays unread until its read owns a working set. A read is refused with
+`query_capacity_exceeded` only after that deadline or when the queue's waiter
+count (`torii.query_max_inflight`) is full. A signed read that arrives while a
+block is being published waits for that publication instead of being refused.
 These memory-capacity failures are independent of request-rate limits.
 
 Query strings use ordinary RFC 3986 percent-encoding: any valid escape

@@ -446,6 +446,11 @@ fn fresh_storage_admission_charges_staging_and_materialization_and_preserves_pro
 fn intake_memory_is_the_larger_of_staging_and_proving_never_their_sum() {
     use crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1;
     use crate::kagemusha_wallet_state_v1::capacity::INTAKE_PEAK_MEMORY_BYTES;
+    // One staged derivation keeps intake below half a GiB, under a 4 GB phone's proving bound.
+    assert!(
+        INTAKE_PEAK_MEMORY_BYTES < 512 << 20,
+        "{INTAKE_PEAK_MEMORY_BYTES}"
+    );
     let mut wallet = prepared_wallet();
     wallet.custody.resources.storage_bytes = u64::MAX / 2;
     // Staging dominates a small relation bound; a larger relation bound replaces it.

@@ -645,6 +645,7 @@ async fn zk_attachment_route_authenticates_before_decode_and_rejects_replay() {
     let admission = AppRoutedReadHttpAdmission {
         reservation: reservation.clone(),
         decode_plan: torii_routed_read_request_preflight_plan(&app).expect("test decode plan"),
+        canonical_auth: std::sync::Arc::new(std::sync::OnceLock::new()),
     };
     let accepted = APP_ROUTED_READ_HTTP_ADMISSION
         .scope(admission, router.clone().oneshot(admitted_request))
@@ -1411,47 +1412,80 @@ async fn optional_canonical_body_auth_busy_source_preserves_capacity_and_nonce()
         calls.fetch_add(1, Ordering::SeqCst);
         StatusCode::NO_CONTENT
     }
-    let app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world(
-        crate::tests_runtime_handlers::world_with_account(&iroha_test_samples::ALICE_ID),
-    );
     let method = Method::POST;
     let uri: Uri = "/v1/accounts/query".parse().expect("query URI");
     let body = b"{}";
-    let headers = crate::tests_runtime_handlers::signed_app_headers(
-        &iroha_test_samples::ALICE_ID,
-        &iroha_test_samples::ALICE_KEYPAIR,
-        &method, &uri, body,
-    );
-    let request = || {
-        let mut request = axum::http::Request::builder()
-            .method(method.clone()).uri(uri.clone())
-            .body(Body::from(body.as_slice())).expect("canonical request");
-        *request.headers_mut() = headers.clone();
-        request
+    let signed_request = || {
+        let headers = crate::tests_runtime_handlers::signed_app_headers(
+            &iroha_test_samples::ALICE_ID,
+            &iroha_test_samples::ALICE_KEYPAIR,
+            &method, &uri, body,
+        );
+        let method = method.clone();
+        let uri = uri.clone();
+        move || {
+            let mut request = axum::http::Request::builder()
+                .method(method.clone()).uri(uri.clone())
+                .body(Body::from(body.as_slice())).expect("canonical request");
+            *request.headers_mut() = headers.clone();
+            request
+        }
     };
-    let calls = Arc::new(AtomicUsize::new(0));
-    let router = Router::new()
-        .route("/v1/accounts/query", post(probe))
-        .layer(Extension(Arc::clone(&calls)))
-        .layer(axum::middleware::from_fn_with_state(
-            OptionalCanonicalAccountBodyAuthState { app: app.clone(), max_body_bytes: 1024 },
-            enforce_optional_canonical_account_body_authentication,
-        ));
-    let (held_tx, held_rx) = mpsc::sync_channel(1);
-    let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
-    let state = app.state.clone();
-    let holder = std::thread::spawn(move || state.with_held_header_for_reader_test(|_| {
-        held_tx.send(()).expect("notify original writer acquired");
-        let _ = release_rx.recv();
-    }));
-    held_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("original header writer");
+    let router_for = |queue_timeout: Duration| {
+        let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world(
+            crate::tests_runtime_handlers::world_with_account(&iroha_test_samples::ALICE_ID),
+        );
+        Arc::get_mut(&mut app).expect("unshared test app").query_queue_timeout = queue_timeout;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let router = Router::new()
+            .route("/v1/accounts/query", post(probe))
+            .layer(Extension(Arc::clone(&calls)))
+            .layer(axum::middleware::from_fn_with_state(
+                OptionalCanonicalAccountBodyAuthState { app: app.clone(), max_body_bytes: 1024 },
+                enforce_optional_canonical_account_body_authentication,
+            ));
+        (app, router, calls)
+    };
+    let hold_publication = |state: Arc<iroha_core::state::State>| {
+        let (held_tx, held_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
+        let holder = std::thread::spawn(move || state.with_held_header_for_reader_test(|_| {
+            held_tx.send(()).expect("notify original writer acquired");
+            let _ = release_rx.recv();
+        }));
+        held_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("original header writer");
+        (release_tx, holder)
+    };
+
+    // A node that tries once refuses real source contention as capacity, never as invalid
+    // credentials, and keeps the nonce unpublished for the same request.
+    let (app, router, calls) = router_for(Duration::ZERO);
+    let request = signed_request();
+    let (release, holder) = hold_publication(app.state.clone());
     let refused = router.clone().oneshot(request()).await.expect("capacity response");
-    drop(release_tx);
+    drop(release);
     holder.join().expect("release original writer");
     assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS,
         "real source contention cannot become invalid credentials");
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let accepted = router.clone().oneshot(request()).await.expect("same request after release");
+    assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let replayed = router.oneshot(request()).await.expect("replay response");
+    assert_eq!(replayed.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // With an admission queue, the same contention waits for the publication to finish and
+    // then authenticates once; the nonce is published only by that success.
+    let (app, router, calls) = router_for(Duration::from_secs(5));
+    let request = signed_request();
+    let (release, holder) = hold_publication(app.state.clone());
+    let mut waiting = Box::pin(router.clone().oneshot(request()));
+    assert!(futures::poll!(waiting.as_mut()).is_pending());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    drop(release);
+    let accepted = waiting.await.expect("authenticated after publication");
+    holder.join().expect("release original writer");
     assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let replayed = router.oneshot(request()).await.expect("replay response");

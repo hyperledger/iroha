@@ -136,6 +136,44 @@ class OssScannerBuildTests(unittest.TestCase):
         self.assertEqual(result.returncode, 23, result.stderr)
         self.assertEqual((self.state / "observed").read_text(), "release binaries\n")
 
+    def test_default_budget_reserves_time_for_image_export(self) -> None:
+        # Replay PR #886's compile timings and check both observed packaging budgets without Cargo or signals:
+        # https://github.com/anthropics/oss-scanner/actions/runs/39428500594/job/118647066955
+        # https://github.com/anthropics/oss-scanner/actions/runs/39900308730/job/120240130197
+        budget = re.search(r"^ARG OSS_SCANNER_BUDGET_MINUTES=(\d+)$", self.source, re.MULTILINE)
+        self.assertIsNotNone(budget)
+        self.environment["OSS_SCANNER_BUDGET_MINUTES"] = budget.group(1)
+        self.wrapper()
+        (self.state / "now").write_text("10000\n", encoding="utf-8")
+        self.executable("date", "#!/bin/sh\n" + self.relocate("cat /opt/oss-scanner/now\n"))
+        self.executable(
+            "timeout",
+            "#!/bin/sh\n"
+            + self.relocate(
+                'limit=$2\nshift 2\n'
+                'case "$*" in\n'
+                '  "cargo build --locked -p irohad "*) duration=1082 ;;\n'
+                '  "cargo build --locked -p iroha_kagami "*) duration=676 ;;\n'
+                '  *) exit 91 ;;\n'
+                'esac\n'
+                'status=0\n'
+                'if [ "$duration" -gt "$limit" ]; then duration=$limit; status=124; fi\n'
+                'echo $(( $(cat /opt/oss-scanner/now) + duration )) > /opt/oss-scanner/now\n'
+                'exit "$status"\n'
+            ),
+        )
+        result = self.run_shell(self.compile_instruction())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compilation_seconds = int((self.state / "now").read_text()) - 10000
+        # Include measured setup/export costs and the wrapper's full termination grace.
+        self.assertLess(56 + compilation_seconds + 60 + 455, 37 * 60)
+        # The retry took ~100s for setup/probes and >=699s exporting/unpacking. Unpacking
+        # was canceled, so reserve two more minutes beyond that lower bound.
+        self.assertLess(100 + compilation_seconds + 60 + 699 + 120, 38 * 60)
+        self.assertIn("release binaries: done in 1082s", result.stdout)
+        self.assertIn("kagami: stopped at the deadline", result.stdout)
+        self.assertIn("norito tests: skipped", result.stdout)
+
     def test_final_probe_checks_release_clis_without_launching_internal_subprocess(self) -> None:
         debug = self.root / "target" / "debug"
         debug.mkdir(parents=True)
