@@ -8767,13 +8767,15 @@ pub mod tests {
         let (authority, keypair) = gen_account_in("wonderland");
         let (impostor_id, impostor) = gen_account_in("wonderland");
         let build = |signer_id: &AccountId, signer: &KeyPair| {
-            TransactionBuilder::new(
+            let mut builder = TransactionBuilder::new(
                 test_network_id(),
                 signer_id.clone(),
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             )
-            .with_instructions([Log::new(Level::INFO, "precheck".to_owned())])
-            .sign(signer.private_key())
+            .with_instructions([Log::new(Level::INFO, "precheck".to_owned())]);
+            // Both signatures are validated at the genuine transaction's creation time.
+            builder.set_creation_time(Duration::from_millis(1_000));
+            builder.sign(signer.private_key())
         };
         let genuine = TransactionEntrypoint::External(build(&authority, &keypair));
         // Re-attributed without re-signing: the impostor's signature cannot verify.

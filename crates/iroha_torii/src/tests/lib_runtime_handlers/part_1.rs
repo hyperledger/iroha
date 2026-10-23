@@ -2968,6 +2968,8 @@ async fn debug_witness_operator_and_telemetry_profile_matrix() {
 
 #[tokio::test]
 async fn torii_tx_rate_uses_config_and_queue_default() {
+    // Retain exclusive directory ownership through configuration and Torii teardown.
+    let _data_dir = crate::test_utils::TestDataDirGuard::new();
     let mut cfg = crate::test_utils::mk_minimal_root_cfg();
     cfg.torii.tx_rate_per_authority_per_sec = Some(NonZeroU32::new(123).expect("nonzero tx rate"));
     cfg.torii.tx_burst_per_authority = Some(NonZeroU32::new(456).expect("nonzero tx burst"));
@@ -3030,6 +3032,8 @@ async fn torii_tx_rate_uses_config_and_queue_default() {
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn torii_ram_lfe_uses_config_runtime() {
+    // Retain exclusive directory ownership through configuration and Torii teardown.
+    let _data_dir = crate::test_utils::TestDataDirGuard::new();
     let mut cfg = crate::test_utils::mk_minimal_root_cfg();
     let signer =
         checked_torii_test_ed25519_keypair(0x9f, "derive Torii RAM-LFE config signer fixture key");

@@ -90,9 +90,12 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Snapshot validation error field labels for native controlled-lock and asset UID records in world.smart_contract_state; these diagnostics name the failing record family and compute no digest",
+        reason: "Snapshot validation error field labels for native FI, controlled-lock and asset UID policy/enrollment/reader records in world.smart_contract_state; these diagnostics name the failing record family and compute no digest",
         literals: &[
+            r"world.smart_contract_state.asset_fi_v1",
             r"world.smart_contract_state.asset_lock_control_v1",
+            r"world.smart_contract_state.asset_uid_enrollment_v1",
+            r"world.smart_contract_state.asset_uid_reader_v1",
             r"world.smart_contract_state.asset_uid_v1",
         ],
     },

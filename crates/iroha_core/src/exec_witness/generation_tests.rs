@@ -302,6 +302,13 @@ fn every_capture_lifecycle_boundary_preserves_unowned_overlay_isolation() {
             resume_tx.send(()).unwrap();
             worker.join().unwrap();
             assert_capture(expected(3));
+            if matches!(invalidation, Invalidation::CheckedPanic) {
+                // The lifecycle assertion above proves recovery. Keep the fixture's
+                // deliberate poison from leaking into later independent captures.
+                assert!(slot().is_poisoned());
+                slot().clear_poison();
+                assert!(!slot().is_poisoned());
+            }
             drop(guard);
         }
     }

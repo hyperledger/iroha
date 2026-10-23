@@ -354,6 +354,7 @@ fn caught_validator_panic_discards_capture_before_the_exclusive_guard_is_dropped
         });
     });
     assert!(panic.is_err());
+    assert!(slot().is_poisoned(), "the validator panic poisons its slot");
     assert_inactive_empty();
     {
         let g = lock_slot();
@@ -380,4 +381,8 @@ fn caught_validator_panic_discards_capture_before_the_exclusive_guard_is_dropped
     assert_eq!(fresh.reads.len(), 2);
     assert_eq!(fresh.writes.len(), 2);
     assert_inactive_empty();
+    // The deliberate panic belongs to this fixture. Restore its poison flag after
+    // proving recovery, while the original exclusive recorder guard is still held.
+    slot().clear_poison();
+    assert!(!slot().is_poisoned());
 }

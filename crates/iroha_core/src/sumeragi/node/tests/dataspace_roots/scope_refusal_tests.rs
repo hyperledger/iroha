@@ -235,16 +235,35 @@ fn signed_private_host_query_keeps_scope_refusal_out_of_completed_vm_errors() {
     );
     let error = norito::with_decode_limits_scope(
         norito::DecodeLimits::new(96, usize::MAX, usize::MAX, 0, 32),
-        || QueryStateRef::View(&view).execute_optional_singular_query(&ALICE_ID, request(), None),
+        || {
+            // Reach the registry's root-scope read rather than an earlier validation refusal.
+            view.world()
+                .executor()
+                .validate_query(&view, &ALICE_ID, &request())
+                .expect("host query validation completes before the root-scope read");
+            QueryStateRef::View(&view).execute_optional_singular_query(&ALICE_ID, request(), None)
+        },
     )
     .unwrap_err();
-    assert!(
-        matches!(
-            error,
-            ivm::VMError::ExecutionDeferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
-        ),
+    assert_eq!(
+        error.execution_deferral(),
+        Some(ivm::error::ExecutionDeferral::ActiveMemoryCapacity),
         "local scope refusal became a completed VM error: {error:?}",
     );
+    assert_eq!(error.fault_kind(), None);
+    assert_eq!(error.metered_gas(), None);
+    let ivm::VMError::DecodeDeferred(original) = error else {
+        panic!("host query must preserve the original scope decoder refusal: {error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit,
+    );
+    assert!(matches!(
+        original.resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+            if attempted > 0
+    ));
     assert!(
         QueryStateRef::View(&view)
             .execute_optional_singular_query(&ALICE_ID, request(), None)
