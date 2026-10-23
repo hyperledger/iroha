@@ -51,7 +51,7 @@ jobs:
           TAG=${RELEASE_VERSION#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
       - name: Build and load the Iroha 3 release candidate
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: .
           load: true
@@ -152,7 +152,7 @@ jobs:
           install: true
           version: v0.34.1
       - name: Build and load the Iroha 3 profiling release candidate
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           load: true
           tags: iroha-release-candidate:${{ env.TAG }}-${{ env.IROHA_PROFILE }}

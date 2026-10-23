@@ -259,7 +259,7 @@ jobs:
           python-version: "3.12"
 
       - name: Download immutable Linux ARM cross-build candidate
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: csharp-linux-arm-cross-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-linux-arm-cross-candidate
@@ -340,7 +340,7 @@ jobs:
           python-version: "3.12"
 
       - name: Download immutable Linux ARM cross-build candidate
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: csharp-linux-arm-cross-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-linux-arm-cross-candidate
@@ -421,7 +421,7 @@ jobs:
           python-version: "3.12"
 
       - name: Download immutable Linux ARM cross-build candidate
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: csharp-linux-arm-cross-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-linux-arm-cross-candidate
@@ -506,7 +506,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: 8.0.x
 
@@ -525,7 +525,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Download all authenticated target-native inputs
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: csharp-native-*
           path: ${{ runner.temp }}/csharp-native-inputs
@@ -622,7 +622,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: 8.0.x
 
@@ -631,7 +631,7 @@ jobs:
           python-version: "3.12"
 
       - name: Download five-RID C# SDK package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: csharp-sdk-native-package-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-sdk-package

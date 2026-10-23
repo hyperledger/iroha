@@ -63,7 +63,7 @@ jobs:
 
       - name: Build and push default image
         if: ${{ inputs.image_type == 'xx' }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           push: true
           file: Dockerfile.cross
@@ -79,7 +79,7 @@ jobs:
 
       - name: Build and push profiling image
         if: ${{ inputs.image_type == 'xx-profiling' }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           push: true
           file: Dockerfile.cross

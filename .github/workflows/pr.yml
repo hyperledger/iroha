@@ -92,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Download binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: bins
           path: bins
@@ -117,7 +117,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Download canonical koto driver
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: bins
           path: bins
@@ -287,7 +287,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: "temurin"
           java-version: "21"
@@ -522,7 +522,7 @@ jobs:
           cache-on-failure: "true"
           shared-key: rust-network-1.93.1-${{ matrix.lane }}
       - name: Download test-network binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: bins
           path: bins
@@ -598,7 +598,7 @@ jobs:
           python-version: 3.11.12
       - uses: abatilo/actions-poetry@0dd19c9498c3dc8728967849d0d2eae428a8a3d8
       - name: Download binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: bins
           path: bins
@@ -618,7 +618,7 @@ jobs:
         working-directory: pytests/iroha_cli_tests
         run: poetry install --no-root
       - name: Run client pytests
-        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60
         env:
           # created by test_env.py
           TMP_DIR: ../../test
@@ -699,7 +699,7 @@ jobs:
       CARGO_NET_OFFLINE: "true"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: '17'

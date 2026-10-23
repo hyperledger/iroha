@@ -525,7 +525,7 @@ class CSharpNativePackageTests(unittest.TestCase):
             )
             self.assertEqual(
                 arm_job.count(
-                    "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+                    "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"
                 ),
                 1,
             )
